@@ -100,14 +100,28 @@ export function cleanAnswersToRecord(clean: CleanAnswers, participantId: string 
   );
 }
 
-export function applyRouting(rules: readonly RoutingRule[], answers: Answers): {
+/**
+ * `evaluableFieldIds` is the set of fields the caller is actually able to
+ * answer this rule against. A rule sourced from anywhere else has to be
+ * skipped, not evaluated: an absent answer is indistinguishable from a blank
+ * one here, so `neq`, `not_in` and `empty` would all return `true` and — since
+ * matching is first-match-wins — that rule would claim every submission and
+ * shadow every correct rule below it.
+ */
+export function applyRouting(
+  rules: readonly RoutingRule[],
+  answers: Answers,
+  evaluableFieldIds?: ReadonlySet<string>,
+): {
   trackId: RoutingRule["setTrackId"] | null;
   tagIds: RoutingRule["addTagIds"];
   matchedRuleId: string | null;
 } {
+  const evaluable = (rule: RoutingRule) => evaluableFieldIds === undefined
+    || rule.conditions.every((condition) => evaluableFieldIds.has(condition.sourceFieldId));
   const matched = [...rules]
     .sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id))
-    .find((rule) => rule.enabled && evaluateRule(rule, answers));
+    .find((rule) => rule.enabled && evaluable(rule) && evaluateRule(rule, answers));
   return matched
     ? { trackId: matched.setTrackId ?? null, tagIds: [...matched.addTagIds], matchedRuleId: matched.id }
     : { trackId: null, tagIds: [], matchedRuleId: null };

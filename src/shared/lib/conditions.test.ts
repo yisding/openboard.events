@@ -90,6 +90,31 @@ describe("condition evaluator", () => {
     expect(visible.has(TOPICS)).toBe(false);
   });
 
+  it("skips a routing rule whose source cannot be answered rather than matching everything", () => {
+    // A rule sourced outside the evaluated set — a participant question, or a
+    // field deleted since the rule was written — reads as unanswered, so
+    // `neq` is satisfied. Matching is first-match-wins, so such a rule claimed
+    // every submission and shadowed the correct rule below it.
+    const unroutable = routingRuleSchema.parse({
+      id: "00000000-0000-4000-8000-000000000303", sortOrder: 1, match: "all",
+      conditions: [{ sourceFieldId: WORKSHOP_DURATION, op: "neq", value: "Acme" }],
+      setTrackId: TRACK, addTagIds: [], enabled: true,
+    });
+    const correct = routingRuleSchema.parse({
+      id: "00000000-0000-4000-8000-000000000304", sortOrder: 2, match: "all",
+      conditions: [{ sourceFieldId: SOURCE, op: "eq", value: "agents" }],
+      addTagIds: [], enabled: true,
+    });
+    const answers = answer({ t: "opt", v: "agents" });
+
+    expect(applyRouting([unroutable, correct], answers, new Set([SOURCE]))).toMatchObject({
+      matchedRuleId: correct.id,
+    });
+    // Without the evaluable set the old behaviour is preserved, so callers that
+    // legitimately evaluate every field are unaffected.
+    expect(applyRouting([unroutable, correct], answers)).toMatchObject({ matchedRuleId: unroutable.id });
+  });
+
   it("applies only the first enabled matching routing rule", () => {
     const first = routingRuleSchema.parse({ id: "00000000-0000-4000-8000-000000000301", sortOrder: 1, match: "all", conditions: [{ sourceFieldId: SOURCE, op: "eq", value: "agents" }], setTrackId: TRACK, addTagIds: [], enabled: true });
     const fallback = routingRuleSchema.parse({ id: "00000000-0000-4000-8000-000000000302", sortOrder: 2, match: "all", conditions: [{ sourceFieldId: SOURCE, op: "answered" }], addTagIds: [], enabled: true });

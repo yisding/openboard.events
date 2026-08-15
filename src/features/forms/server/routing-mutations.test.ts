@@ -95,6 +95,23 @@ describe("routing rules — visibility/routing UI's server half (M13b)", () => {
     expect(isAppError(bogus) && bogus.code).toBe("VALIDATION");
   });
 
+  it("rejects a condition sourced from a participant question, which routing never sees", async () => {
+    // Routing is evaluated against the abstract answers alone, so a
+    // participant-sourced rule can never be answered — and an unanswerable
+    // source is not inert: `neq`/`not_in`/`empty` read it as satisfied, and
+    // first-match-wins means the rule would claim every submission and shadow
+    // every correct rule below it.
+    const form = await getFormForBuilderIn(database, eventId, formId);
+    const participantSection = form.sections.find((section) => section.key === "participant");
+    const participantField = participantSection?.fields[0];
+    if (!participantField) throw new Error("test setup: expected a participant-section field");
+
+    const refused = await saveRoutingRuleIn(database, eventId, formId, input({
+      conditions: [condition({ sourceFieldId: participantField.id, op: "answered" })],
+    })).catch((error: unknown) => error);
+    expect(isAppError(refused) && refused.code).toBe("VALIDATION");
+  });
+
   it("rejects a condition value that is not a live option on that field", async () => {
     const bogus = await saveRoutingRuleIn(database, eventId, formId, input({
       conditions: [condition({ value: "not-a-real-option-id" })],

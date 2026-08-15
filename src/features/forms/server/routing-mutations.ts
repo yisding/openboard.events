@@ -55,6 +55,20 @@ export type RoutingRuleRow = RoutingRule & {
 
 type LiveFieldInfo = { id: string; label: string; fieldType: BuilderField["fieldType"]; optionIds: Set<string> };
 
+/**
+ * The only fields a routing rule may be sourced from.
+ *
+ * Routing runs at submit time against the abstract answers alone
+ * (`submit.ts`'s `applyRouting` call), so a rule sourced from the participant
+ * section can never be evaluated — and an unevaluable source is not inert:
+ * `neq`/`not_in`/`empty` all read an absent answer as satisfied, and matching
+ * is first-match-wins, so such a rule claims every submission and shadows the
+ * rules below it.
+ */
+function routableFields(form: { sections: { key: string; fields: BuilderField[] }[] }): BuilderField[] {
+  return form.sections.filter((section) => section.key !== "participant").flatMap((section) => section.fields);
+}
+
 function liveFieldIndex(fields: BuilderField[]): Map<string, LiveFieldInfo> {
   const map = new Map<string, LiveFieldInfo>();
   for (const field of fields) {
@@ -151,7 +165,7 @@ export async function listRoutingRulesIn(dbOrTx: DbOrTx, eventId: EventId, formI
     listTracksIn(dbOrTx, eventId),
     listTagsIn(dbOrTx, eventId),
   ]);
-  const fields = liveFieldIndex(form.sections.flatMap((section) => section.fields));
+  const fields = liveFieldIndex(routableFields(form));
   const liveTagIds = new Set<string>(tagRows.map((tag) => tag.id));
   const liveTrackIds = new Set<string>(trackRows.map((track) => track.id));
   const mapped = rows.map((row) => toRoutingRuleRow(row, fields, liveTagIds, liveTrackIds));
@@ -188,7 +202,7 @@ export function listRoutingRules(eventId: EventId, formId: FormId): Promise<Rout
  */
 export async function saveRoutingRuleIn(dbOrTx: DbOrTx, eventId: EventId, formId: FormId, input: RoutingRuleInput): Promise<RoutingRuleRow> {
   const form = await getFormForBuilderIn(dbOrTx, eventId, formId);
-  const liveFields = form.sections.flatMap((section) => section.fields);
+  const liveFields = routableFields(form);
   const fields = liveFieldIndex(liveFields);
   assertConditionsValid(input.conditions, fields);
 
