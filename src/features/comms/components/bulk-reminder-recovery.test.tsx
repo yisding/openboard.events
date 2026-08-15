@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { contactIdSchema, eventIdSchema, taskIdSchema, type BulkReminderResult } from "@/shared/contracts";
 import { bulkReminderRecoveryStorageKey, bulkReminderTargetSetFingerprint, createBulkReminderRecovery, type BulkReminderSurface } from "../bulk-reminder-recovery";
 import { BulkReminderRecoveryDialog, useBulkReminderRecovery } from "./bulk-reminder-recovery";
+import { settle } from "@tests/support/react";
 
 const toastMock = vi.hoisted(() => vi.fn());
 vi.mock("@/shared/ui/toast", () => ({ useToast: () => ({ toast: toastMock }) }));
@@ -95,11 +96,6 @@ function buttonNamed(name: string): HTMLButtonElement | undefined {
     .find((button) => button.textContent?.trim() === name);
 }
 
-async function settle() {
-  await act(async () => {
-    for (let step = 0; step < 10; step += 1) await Promise.resolve();
-  });
-}
 
 beforeEach(() => {
   toastMock.mockReset();

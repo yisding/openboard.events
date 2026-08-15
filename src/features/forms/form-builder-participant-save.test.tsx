@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fieldIdSchema, formIdSchema, sectionIdSchema } from "@/shared/contracts";
 import type { BuilderEvent, BuilderField, BuilderForm } from "./builder-types";
 import { FormBuilder, PARTICIPANT_STEP_RECOVERY_MESSAGE } from "./form-builder";
+import { settle } from "@tests/support/react";
 
 const navigationMock = vi.hoisted(() => ({ search: "step=participant", push: vi.fn(), refresh: vi.fn() }));
 const toastMock = vi.hoisted(() => vi.fn());
@@ -130,11 +131,6 @@ function requestBodies(): Array<Record<string, unknown>> {
   return fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>);
 }
 
-async function settle() {
-  await act(async () => {
-    for (let step = 0; step < 10; step += 1) await Promise.resolve();
-  });
-}
 
 let container: HTMLDivElement;
 let root: Root;

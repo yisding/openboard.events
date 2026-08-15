@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SubmissionVocabulary } from "@/features/submissions";
 import { AddAbstractDrawer } from "./add-abstract-drawer";
+import { settle } from "@tests/support/react";
 
 const routerMock = vi.hoisted(() => ({ refresh: vi.fn() }));
 const toastMock = vi.hoisted(() => vi.fn());
@@ -49,11 +50,6 @@ let container: HTMLDivElement;
 let root: Root;
 let fetchMock: ReturnType<typeof vi.fn<typeof fetch>>;
 
-async function settle() {
-  await act(async () => {
-    for (let step = 0; step < 8; step += 1) await Promise.resolve();
-  });
-}
 
 function buttonNamed(name: string): HTMLButtonElement | undefined {
   return [...container.querySelectorAll<HTMLButtonElement>("button")]

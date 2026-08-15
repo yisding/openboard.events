@@ -38,6 +38,9 @@ export default defineConfig({
     alias: [
       ...nativePostgresAdapter,
       { find: "@", replacement: fileURLToPath(new URL("./src", import.meta.url)) },
+      // Shared test-only helpers, importable from `src/**` suites without a
+      // four-level relative path.
+      { find: "@tests", replacement: fileURLToPath(new URL("./tests", import.meta.url)) },
     ],
   },
   test: {

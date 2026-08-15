@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { contactIdSchema, eventIdSchema, submissionIdSchema, taskIdSchema } from "@/shared/contracts";
 import { targetedReminderRecoveryKey } from "../targeted-reminder-recovery";
 import { SendReminderDialog } from "./send-reminder-dialog";
+import { settle } from "@tests/support/react";
 
 const sendMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
@@ -41,11 +42,6 @@ function buttonNamed(name: string): HTMLButtonElement | undefined {
     .at(-1);
 }
 
-async function settle() {
-  await act(async () => {
-    for (let step = 0; step < 8; step += 1) await Promise.resolve();
-  });
-}
 
 beforeEach(() => {
   sendMock.mockReset();
