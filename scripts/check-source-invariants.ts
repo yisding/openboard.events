@@ -213,6 +213,14 @@ function isConsoleReference(node: ts.Expression): boolean {
   return false;
 }
 
+/** True when `node` sits anywhere inside a `catch (…) { … }`, callbacks included. */
+function insideCatchClause(node: ts.Node): boolean {
+  for (let current = node.parent; current; current = current.parent) {
+    if (ts.isCatchClause(current)) return true;
+  }
+  return false;
+}
+
 function unwrapExpression(node: ts.Expression): ts.Expression {
   if (
     ts.isParenthesizedExpression(node)
@@ -452,6 +460,23 @@ function inspectFile(absolutePath: string): Violation[] {
     }
 
     if (ts.isCallExpression(node)) {
+      // `toast` defaults to `kind: "success"`, which is a green check, a
+      // `polite` live region, and a 3.2s auto-dismiss. On a failure path that
+      // announces the failure as a success and then erases it before it can be
+      // read. A computed options object cannot be checked statically and is
+      // left to review.
+      if (
+        !isTestFile
+        && ts.isIdentifier(node.expression)
+        && node.expression.text === "toast"
+        && insideCatchClause(node)
+      ) {
+        const options = node.arguments[1];
+        const missing = options === undefined
+          || (ts.isObjectLiteralExpression(options) && objectPropertyValues("kind", options).length === 0);
+        if (missing) report(node, "error-toast-kind", "a toast raised from a catch block must pass an explicit kind");
+      }
+
       if (
         !isTestFile
         && path !== TIME_FORMAT_OWNER
