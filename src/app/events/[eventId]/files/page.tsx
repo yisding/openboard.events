@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { requireAdmin } from "@/features/auth/index.server";
-import { getDeliverableStateCounts, listDeliverables, parseDeliverableFiltersForPage, type DeliverableFilters } from "@/features/portal/deliverables";
+import { dueRangeFilters, getDeliverableStateCounts, listDeliverables, parseDeliverableFiltersForPage, type DeliverableFilters } from "@/features/portal/deliverables";
+import { getEventTimezone } from "@/features/portal/tasks-admin/server/queries";
 import { listFileRequests, listTasks } from "@/features/portal/tasks-admin/server/queries";
 import { FilesAdminView } from "@/features/portal/deliverables/components/files-admin-view";
 import { eventIdSchema } from "@/shared/contracts";
@@ -28,6 +29,11 @@ export default async function Page({
 
   const filters = parseDeliverableFiltersForPage(await searchParams);
   const hasUpload = filters.hasUpload === "true" ? true : filters.hasUpload === "false" ? false : undefined;
+  // The GET route narrows by these two; the page parsed them and then dropped
+  // them, so the same address rendered unfiltered when opened directly.
+  const dueRange = filters.dueOnOrAfter || filters.dueOnOrBefore
+    ? dueRangeFilters(filters, await getEventTimezone(eventId))
+    : {};
   const dtoFilters: DeliverableFilters = {
     ...(filters.taskId ? { taskId: filters.taskId } : {}),
     ...(filters.fileRequestId ? { fileRequestId: filters.fileRequestId } : {}),
@@ -35,6 +41,7 @@ export default async function Page({
     ...(filters.state !== "all" ? { state: filters.state } : {}),
     ...(hasUpload !== undefined ? { hasUpload } : {}),
     ...(filters.search ? { search: filters.search } : {}),
+    ...dueRange,
   };
   // Same filters as the table minus `state` — what keeps the tab badges honest
   // about an active search without letting the active tab hide the others.
@@ -44,6 +51,7 @@ export default async function Page({
     ...(filters.contactId ? { contactId: filters.contactId } : {}),
     ...(hasUpload !== undefined ? { hasUpload } : {}),
     ...(filters.search ? { search: filters.search } : {}),
+    ...dueRange,
   };
 
   const [rows, counts, fileRequests, tasks] = await Promise.all([

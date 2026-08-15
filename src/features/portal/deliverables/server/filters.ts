@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { contactIdSchema, fileRequestIdSchema, taskIdSchema } from "@/shared/contracts";
 import { parsePageQuery, type PageQuery } from "@/shared/lib/page-query";
+import { endOfDayInTz, zonedTimeToInstant } from "@/shared/lib/time";
 
 const dateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must be a date, YYYY-MM-DD");
 
@@ -34,4 +35,29 @@ export type DeliverablePageFilters = z.infer<typeof deliverableFiltersSchema>;
  */
 export function parseDeliverableFiltersForPage(query: PageQuery): DeliverablePageFilters {
   return parsePageQuery(deliverableFiltersSchema, query);
+}
+
+/**
+ * Resolve the two date-only filters into the instants the query compares
+ * against, in the event's own timezone.
+ *
+ * Shared by the GET route and the page render because the page had the two
+ * filters parsed and then silently dropped them: a URL the route narrows by
+ * came back unfiltered when the same address was opened directly. A naive
+ * `new Date(dateString)` would be off by up to a day, which is why the
+ * conversion goes through the event zone rather than the runtime's.
+ */
+export function dueRangeFilters(
+  filters: { dueOnOrAfter?: string | undefined; dueOnOrBefore?: string | undefined },
+  timeZone: string,
+): { dueAfter?: string; dueBefore?: string } {
+  return {
+    ...(filters.dueOnOrAfter ? { dueAfter: startOfDayInTz(filters.dueOnOrAfter, timeZone).toISOString() } : {}),
+    ...(filters.dueOnOrBefore ? { dueBefore: endOfDayInTz(filters.dueOnOrBefore, timeZone).toISOString() } : {}),
+  };
+}
+
+function startOfDayInTz(dateISO: string, timeZone: string): Date {
+  const [year, month, day] = dateISO.split("-").map(Number);
+  return zonedTimeToInstant(year ?? 1970, month ?? 1, day ?? 1, 0, 0, timeZone);
 }
