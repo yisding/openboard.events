@@ -5,12 +5,14 @@ run_tests() {
   pnpm exec vitest run "$@"
 }
 
-if [[ -n "${TEST_POSTGRES_URL:-}" ]]; then
+# An explicit engine request is checked first so it still wins when a
+# TEST_POSTGRES_URL happens to be exported in the surrounding shell.
+if [[ "${OPENBOARD_TEST_ENGINE:-}" == "pglite" ]]; then
   run_tests "$@"
   exit $?
 fi
 
-if [[ "${OPENBOARD_TEST_ENGINE:-}" == "pglite" ]]; then
+if [[ -n "${TEST_POSTGRES_URL:-}" ]]; then
   run_tests "$@"
   exit $?
 fi

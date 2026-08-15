@@ -17,7 +17,12 @@ import os from "node:os";
 // from Node 22 onward, so fall back to os.freemem() on older runtimes.
 const availableMemory =
   typeof process.availableMemory === "function" ? process.availableMemory() : os.freemem();
-const usingNativePostgres = Boolean(process.env.TEST_POSTGRES_URL);
+// An explicit engine request wins over an inherited TEST_POSTGRES_URL: once
+// that variable is exported in a shell, `pnpm test:pglite` would otherwise
+// keep resolving to native Postgres and fail whenever that server is down,
+// which is exactly the situation the portable path exists for.
+const usingNativePostgres =
+  process.env.OPENBOARD_TEST_ENGINE !== "pglite" && Boolean(process.env.TEST_POSTGRES_URL);
 const workers = usingNativePostgres
   ? os.availableParallelism()
   : Math.max(1, Math.min(os.availableParallelism(), Math.floor(availableMemory / (2 * 1024 ** 3))));
@@ -38,6 +43,9 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts", "src/**/*.test.tsx", "tests/**/*.test.ts", "tests/**/*.test.tsx"],
+    globalSetup: usingNativePostgres
+      ? [fileURLToPath(new URL("./tests/support/postgres-teardown.ts", import.meta.url))]
+      : [],
     // Threads preserve Vitest's per-file isolation while avoiding the process
     // startup and module-loading overhead paid by the default forks pool.
     pool: "threads",
