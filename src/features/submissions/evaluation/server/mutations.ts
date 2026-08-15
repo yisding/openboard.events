@@ -277,13 +277,35 @@ async function savePlanInTransaction(
   await assertTracksInEvent(dbOrTx, eventId, trackIds);
   assertCriteriaWithinScale(input);
 
+  /** Identifies this exact set of criteria, so a replay matches and a later edit does not. */
+  const criteriaFingerprint = JSON.stringify(
+    input.criteria.map((criterion) => [criterion.id ?? null, criterion.label, criterion.kind]),
+  );
   const criteria = input.criteria.map((criterion, index) => ({
     // A stable create id must cover its child graph too. The editor normally
     // keeps criterion ids after the first response, but a retry after a lost
     // response still has null ids; deriving them prevents delete/reinsert from
     // changing the keys stored in review score JSON.
+    //
+    // The key is *this request*, not the plan and a position. `input.planId`
+    // is present on every PATCH (the route always injects it), so a
+    // plan-and-index-only key let position decide the id: delete the criterion
+    // at index 0, add a different one, and it derived the deleted one's id.
+    // `dropped` then spared that row and `kept` UPDATEd it, so the new
+    // criterion silently inherited every `criterion_scores` answer recorded
+    // against the old one. When the colliding id instead belonged to a
+    // criterion that merely moved, the same id reached
+    // `ON CONFLICT … DO UPDATE` twice in one statement and Postgres raised
+    // 21000 — an unmapped 500 that repeats on every retry.
+    //
+    // Fingerprinting the incoming criteria keeps the property the derivation
+    // exists for — a replay of the *same* request derives the same ids, so a
+    // lost response cannot orphan scores — while making it impossible for a
+    // *different* request to land on an earlier one's ids. `expectedUpdatedAt`
+    // joins the key when the caller sends it; it is optional, so it cannot
+    // carry this on its own.
     id: criterion.id ?? (input.planId
-      ? criterionIdSchema.parse(stableUuid(input.planId, `criterion:${index}`))
+      ? criterionIdSchema.parse(stableUuid(input.planId, `${expectedUpdatedAt ?? "create"}:${criteriaFingerprint}:criterion:${index}`))
       : null),
     label: criterion.label,
     weight: criterion.weight,
@@ -295,6 +317,13 @@ async function savePlanInTransaction(
     max_value: criterion.maxValue,
   }));
   const keepIds = criteria.flatMap((criterion) => criterion.id ? [criterion.id] : []);
+  // Over every id the write will use, not only the ones the caller claimed:
+  // a derived id colliding with a claimed one reaches `ON CONFLICT … DO UPDATE`
+  // twice in one statement, which Postgres rejects as 21000 — an unmapped 500
+  // rather than something the organizer can act on.
+  if (new Set(keepIds).size !== keepIds.length) {
+    throw new AppError("VALIDATION", "A criterion can only appear once in an evaluation plan");
+  }
   // Ownership validation applies to ids the caller claimed already exist;
   // server-derived ids represent new criteria and therefore are not expected
   // to be present in the plan yet.
