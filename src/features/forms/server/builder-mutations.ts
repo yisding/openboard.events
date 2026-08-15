@@ -271,7 +271,17 @@ export async function createFormIn(dbOrTx: DbOrTx, eventId: EventId, input: Crea
     ],
     createdAt: now,
     updatedAt: now,
-  }).onConflictDoNothing({ target: forms.id }).returning();
+    // No arbiter. `ON CONFLICT (id)` only absorbs a violation of *that* index,
+    // and `forms` carries a second one — `UNIQUE (id, event_id)`
+    // (0000_init.sql:150). Two genuinely concurrent stable creates of the same
+    // id can trip the composite index first, and the DO NOTHING never applies:
+    // the insert raises, and a create that this path exists to make idempotent
+    // fails with a raw 500 instead of converging on the row the other attempt
+    // wrote. Untargeted is not looser here — every unique index on `forms` is
+    // keyed on `id`, so any row it could collide with is the same form — and it
+    // no longer depends on which index Postgres happens to check first. (PGlite
+    // is single-connection, so this only ever reproduced on native Postgres.)
+  }).onConflictDoNothing().returning();
   const [storedForm] = await dbOrTx.select({
     eventId: forms.eventId,
     context: forms.context,
