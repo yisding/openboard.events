@@ -6,7 +6,7 @@ import type { DbOrTx, TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
 import { composeCrmBulkEmailIn } from "@/features/crm/server/bulk-email";
 import { importCrmContactsCsvIn } from "@/features/crm/server/csv-import";
-import { getCrmMergeAuditIn, mergeOrganizationContactsIn, previewCrmMergeIn, recoverCrmMergeIn } from "@/features/crm/server/merge";
+import { getCrmMergeAuditIn, mergeOrganizationContactsIn, previewCrmMergeIn, recoverCrmMergeIn, tombstoneMergedContactIn } from "@/features/crm/server/merge";
 import {
   createCrmNoteIn,
   createCrmPipelineEntryIn,
@@ -664,6 +664,20 @@ describe("organization-level speaker CRM (M55)", () => {
     // Merging the same loser again is refused — it already lost.
     await expect(previewCrmMergeIn(db, orgA, { primaryContactId: primaryId, mergedContactId: duplicateId }))
       .rejects.toSatisfy((e) => isAppError(e) && e.code === "CONFLICT");
+
+    // And the tombstone itself refuses to re-point an already-merged loser.
+    // `loadMergePairIn` reads the pair with a plain SELECT, so under READ
+    // COMMITTED two merges of the same loser both clear that precondition;
+    // the second one blocks on this UPDATE and finds the row tombstoned when
+    // it wakes. Calling the guard directly is how that state is reachable
+    // here — PGlite is single-connection, so the race cannot be staged.
+    const thirdId = await createOrganizationContactIn(db, orgA, { email: "merge-race-bystander@example.com", firstName: "Bystander", lastName: "Contact" });
+    await expect(tombstoneMergedContactIn(tx, orgA, duplicateId, thirdId))
+      .rejects.toSatisfy((e) => isAppError(e) && e.code === "CONFLICT");
+    const [stillLost] = (await pglite.query<{ merged_into_id: string }>(
+      "SELECT merged_into_id FROM organization_contacts WHERE id=$1", [duplicateId],
+    )).rows;
+    expect(stillLost?.merged_into_id).toBe(primaryId);
   });
 
   it("resolves a dynamic segment freshly on every call and enforces suppression on bulk send", async () => {
