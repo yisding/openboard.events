@@ -43,10 +43,11 @@ pnpm exec wrangler dev -c workers/jobs/wrangler.jsonc -c wrangler.jsonc --test-s
 curl 'http://localhost:8787/__scheduled?cron=*+*+*+*+*'
 ```
 
-That drives whatever the tick's own UTC clock says is due, which outside 09:00
-is the outbox alone. To exercise one job directly, run the web app with
-`pnpm dev` and call its private route — the entrypoint that hides these paths
-is the deployed Worker's, not the Next route:
+That drives whatever the tick's own UTC clock says is due — the outbox always,
+reminders on a quarter hour, cleanup at 09:00 — so it is not a way to run one
+job in isolation. For that, run the web app with `pnpm dev` and call its
+private route directly; the entrypoint that hides these paths is the deployed
+Worker's, not the Next route:
 
 ```bash
 curl -X POST -H 'x-openboard-private-job: JobsEntrypoint' \

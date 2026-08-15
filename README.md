@@ -146,8 +146,10 @@ gallery, and a personal itinerary where attendees star sessions and export them 
 calendar (ICS). The hosted site carries the logo, background artwork, and accent color configured
 in Event settings, so the attendee experience stays recognizably yours.
 
-Publishing means what it says: a session needs a time before it can go public, so you cannot end
-up with a talk marked published that no attendee can find.
+Publishing means what it says: a session needs a time before you can publish it, so you cannot
+mark a talk published and quietly leave it off the schedule everyone reads. Pull a published talk
+back to the unscheduled tray later and it leaves the public pages again — with a cancellation for
+everyone whose calendar had it.
 
 ![The public schedule page for the sample event](docs/screenshots/public-schedule.png)
 

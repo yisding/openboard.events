@@ -98,10 +98,13 @@ The web job implementations are reachable only through the local Service Binding
 public job callback to invoke by hand.
 
 One cron fires every minute and the dispatcher decides what is due from the tick's own UTC clock:
-`outbox` every tick, `reminders` when the minute divides by 15, `cleanup` only at 09:00 UTC.
-So the `__scheduled` call above drains the outbox and nothing else, and waiting for 09:00 to
-exercise `cleanup` is not a test plan. Under `pnpm dev` — and only there — the private job routes
-answer a direct call, because the block that hides them lives in the deployed Worker's public
+`outbox` every tick, `reminders` when the minute divides by 15, `cleanup` only at 09:00 UTC. The
+`__scheduled` call above therefore runs whatever the wall clock says is due at the moment you run
+it — at :15 it also scans and enqueues reminders, which is not always what you meant to do
+mid-plan — and `cleanup` is out of reach unless you happen to be testing at 09:00.
+
+Under `pnpm dev` — and only there — the private job routes answer a direct call, so you can drive
+exactly one job and nothing else. The block that hides them lives in the deployed Worker's public
 entrypoint (`custom-worker.ts`), not in the Next route:
 
 ```bash
@@ -1088,12 +1091,17 @@ and composite authentication but landed in Junk; that is the OTP placement basel
 authentication failure or placement worse than that recorded baseline is a regression. The matching
 Gmail probe passed authentication, and its folder placement was Inbox.
 
-Calendar REQUEST/reschedule/CANCEL delivery is no longer hand-tested: the **Production mail
+Calendar REQUEST/reschedule/CANCEL now has a repeatable **send** path: the **Production mail
 delivery probe** workflow (`workflow_dispatch`, protected `production` environment, `pnpm
 probe:calendar-delivery`) creates a temporary session on a real production event, reschedules it,
-deletes it, and confirms all three messages reached one Gmail and one Outlook recipient. Run it
-against inboxes you own, and record the folder each landed in — that is the calendar placement
-baseline the way the `portal_login` probe is the OTP one.
+deletes it, and waits for all three messages to reach `sent` with the expected `last_method` for
+both recipients. That is Resend *accepting* the message and the invite state machine advancing —
+the probe never opens a mailbox, so a later bounce, rejection, or a Junk landing passes it.
+
+Run it against a Gmail and an Outlook inbox you own, then **read both inboxes by hand**: SPF, DKIM,
+DMARC, whether the calendar item actually attached, and which folder it landed in. That reading is
+the calendar placement baseline the way the `portal_login` probe is the OTP one, and it stays
+manual. Outlook calendar placement has no recorded baseline yet.
 
 Production forbids `EMAIL_FALLBACK_UI=1`; a credential appearing in a production-mode render is
 a P0.
