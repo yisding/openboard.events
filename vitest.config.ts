@@ -2,15 +2,12 @@ import { defineConfig } from "vitest/config";
 import { fileURLToPath } from "node:url";
 import os from "node:os";
 
-// Most integration test files boot their own PGlite (in-process Postgres)
-// instance in `beforeAll`; running many of those at once is memory-hungry
-// enough to blow past even a 60s hook timeout on a RAM-constrained host
-// (measured: on a 3.7 GiB box, two concurrent workers pushed a PGlite
-// bootstrap that is sub-second serially past 60,000ms). A fixed worker count
-// is either unsafe on a small box or leaves a big CI runner idle, so size it
-// off actual headroom instead: about 2 GiB per worker, capped at the CPU
-// count, floored at 1 (fully serial — the previously shipped, known-safe
-// behavior — on anything too small to risk a second worker at all).
+// Native Postgres is light enough to use every available CPU. The portable
+// PGlite fallback still boots one in-process database per integration file;
+// running many of those at once is memory-hungry enough to blow past even a
+// 60s hook timeout on a RAM-constrained host. Size that fallback off actual
+// headroom instead: about 2 GiB per worker, capped at the CPU count, floored at
+// 1 (fully serial on anything too small to risk a second worker at all).
 //
 // Use process.availableMemory() rather than os.totalmem(): in a
 // memory-limited container the latter reports host-visible RAM, not the
@@ -20,13 +17,35 @@ import os from "node:os";
 // from Node 22 onward, so fall back to os.freemem() on older runtimes.
 const availableMemory =
   typeof process.availableMemory === "function" ? process.availableMemory() : os.freemem();
-const workers = Math.max(1, Math.min(os.availableParallelism(), Math.floor(availableMemory / (2 * 1024 ** 3))));
+// An explicit engine request wins over an inherited TEST_POSTGRES_URL: once
+// that variable is exported in a shell, `pnpm test:pglite` would otherwise
+// keep resolving to native Postgres and fail whenever that server is down,
+// which is exactly the situation the portable path exists for.
+const usingNativePostgres =
+  process.env.OPENBOARD_TEST_ENGINE !== "pglite" && Boolean(process.env.TEST_POSTGRES_URL);
+const workers = usingNativePostgres
+  ? os.availableParallelism()
+  : Math.max(1, Math.min(os.availableParallelism(), Math.floor(availableMemory / (2 * 1024 ** 3))));
+const nativePostgresAdapter = usingNativePostgres
+  ? [{
+      find: /^@electric-sql\/pglite$/,
+      replacement: fileURLToPath(new URL("./tests/support/postgres-pglite.ts", import.meta.url)),
+    }]
+  : [];
 
 export default defineConfig({
-  resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
+  resolve: {
+    alias: [
+      ...nativePostgresAdapter,
+      { find: "@", replacement: fileURLToPath(new URL("./src", import.meta.url)) },
+    ],
+  },
   test: {
     environment: "node",
     include: ["src/**/*.test.ts", "src/**/*.test.tsx", "tests/**/*.test.ts", "tests/**/*.test.tsx"],
+    globalSetup: usingNativePostgres
+      ? [fileURLToPath(new URL("./tests/support/postgres-teardown.ts", import.meta.url))]
+      : [],
     // Threads preserve Vitest's per-file isolation while avoiding the process
     // startup and module-loading overhead paid by the default forks pool.
     pool: "threads",

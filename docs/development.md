@@ -8,8 +8,8 @@ what Openboard does and how to use it, start with the [README](../README.md).
 
 - **CI** (`.github/workflows/ci.yml`) runs the credential-free validation set on every PR:
   typecheck, lint, architecture and schema drift checks, invariant checks, the full Vitest suite
-  (2,384 cases across two shards as of 2026-08-13), the Next.js build, and the Worker artifact
-  gates.
+  (2,638 cases across two native-Postgres shards as of 2026-08-14), the Next.js build, and the
+  Worker artifact gates.
 - **Deploys run through GitHub Actions** (`.github/workflows/deploy.yml`): a merge to `main`
   deploys the preview environment automatically once CI passes — migration → web → jobs → strict
   post-deploy smoke — and production deploys run through the same workflow behind a protected
@@ -119,7 +119,8 @@ pnpm schema:check        # full migration journal vs Drizzle metadata and SQL-on
 pnpm source:check        # AST imports, environment access, JSX, route roles, and storage seams
 pnpm invariants          # source AST plus literal configuration and CSS declaration checks
 pnpm audit:prod          # fail on any known production-dependency advisory
-pnpm test                # vitest: unit + PGlite integration suites
+pnpm test                # full Vitest suite; starts disposable native Postgres when Docker is available
+pnpm test:pglite         # portable, slower fallback when Docker/Postgres is unavailable
 pnpm e2e                 # Playwright — also set E2E_BASE_URL and the two E2E password variables
 pnpm check               # typecheck + lint + invariants + test + next build + worker build
 pnpm worker:size         # Workers Free compressed-size gate
@@ -132,6 +133,22 @@ bash scripts/post-deploy-smoke.sh <baseUrl> [--production] [--strict]
 The pinned Next/OpenNext/Wrangler matrix, custom chunking removal gate, artifact
 probe coverage, and dependency-upgrade canary procedure are documented in the
 [Worker artifact compatibility contract](worker-artifact-contract.md).
+
+`pnpm test` preserves each integration file's isolated database but runs it on native Postgres,
+which avoids repeated Postgres-in-WASM startup and execution. `scripts/test.sh` picks the engine
+in this order, and the first match wins:
+
+1. `OPENBOARD_TEST_ENGINE=pglite` — the portable in-process path, taken even when a
+   `TEST_POSTGRES_URL` is exported in the surrounding shell.
+2. `TEST_POSTGRES_URL` — an already-running server, used as it is. No container is started or
+   removed. CI supplies its own Postgres service this way.
+3. Docker — a pinned container, started and removed automatically around the run.
+4. Neither a URL nor a usable Docker daemon — PGlite, with a notice on stderr.
+
+A `TEST_POSTGRES_URL` must point to a dedicated test server whose user may create and drop
+temporary databases; never point it at a shared or production server. Each run tags the databases
+it creates with a run id and drops that set when the run ends, so two commands may share one
+server without reclaiming each other's databases.
 
 The 13 specs in [`e2e/`](../e2e) (`cfp-submit`, `abstracts-decide`, `admin-setup`,
 `agenda-schedule`, `portal-tasks`, `public-embeds`, `public-widgets-parity`,
