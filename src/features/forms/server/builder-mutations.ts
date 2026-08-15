@@ -788,8 +788,19 @@ export async function duplicateFormIn(dbOrTx: DbOrTx, eventId: EventId, formId: 
     sectionIdMap.set(section.id, id);
     return { id, key: section.key, title: section.title, pageHeading: section.pageHeading, descriptionHtml: section.descriptionHtml, sortOrder: section.sortOrder };
   });
+  // Every copied field gets a fresh id, so a conditional rule copied verbatim
+  // would still name the *source* form's field — a source that does not exist
+  // in the copy. `compileFormSnapshot` resolves visibility sources by position
+  // within the new form, finds nothing, and rejects the whole duplicate. Map
+  // the ids first, then rewrite each rule through the map.
+  const fieldIdMap = new Map<string, ReturnType<typeof fieldIdSchema.parse>>();
+  for (const section of source.sections) {
+    for (const field of section.fields) {
+      fieldIdMap.set(field.id, fieldIdSchema.parse(crypto.randomUUID()));
+    }
+  }
   const fields: FormAuthoringRows["fields"] = source.sections.flatMap((section) => section.fields.map((field) => ({
-    id: fieldIdSchema.parse(crypto.randomUUID()),
+    id: fieldIdMap.get(field.id) ?? fieldIdSchema.parse(crypto.randomUUID()),
     sectionId: sectionIdMap.get(section.id) ?? section.id,
     key: field.key,
     label: field.label,
@@ -799,7 +810,15 @@ export async function duplicateFormIn(dbOrTx: DbOrTx, eventId: EventId, formId: 
     maxChars: field.maxChars,
     helpText: field.helpText,
     options: field.options,
-    visibility: field.visibility,
+    visibility: field.visibility
+      ? {
+          ...field.visibility,
+          conditions: field.visibility.conditions.map((condition) => ({
+            ...condition,
+            sourceFieldId: fieldIdMap.get(condition.sourceFieldId) ?? condition.sourceFieldId,
+          })),
+        }
+      : field.visibility,
     mapsTo: field.mapsTo,
     reviewVisibility: field.reviewVisibility,
     sortOrder: field.sortOrder,

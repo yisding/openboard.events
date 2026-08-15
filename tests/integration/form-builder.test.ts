@@ -8,6 +8,7 @@ import {
   createFieldIn,
   createFormIn,
   deleteFieldIn,
+  duplicateFormIn,
   getFormForBuilderIn,
   listFormsIn,
   reorderFieldsIn,
@@ -370,5 +371,56 @@ describe("database-backed form builder", () => {
       expect(withField.sections.flatMap((section) => section.fields)).toHaveLength(1);
       expect(withField.currentVersion).toBe(3);
     });
+  });
+
+  it("re-points a duplicated form's conditional rules at the copy's own fields", async () => {
+    const source = await createFormIn(database, eventId, { internalName: "Conditional CFP", kind: "abstract", collectParticipants: false });
+    const section = required(source.sections[0], "abstract section");
+    let form = await createFieldIn(
+      database, eventId, source.id,
+      { sectionId: section.id, label: "Delivery style", fieldType: "dropdown" },
+      source.updatedAt,
+    );
+    const format = required(form.sections.flatMap((s) => s.fields).find((field) => field.label === "Delivery style"), "format field");
+    form = await updateFieldIn(database, eventId, source.id, format.id, { optionLabels: ["Talk", "Workshop"] }, form.updatedAt);
+    const workshop = required(
+      required(form.sections.flatMap((s) => s.fields).find((field) => field.id === format.id), "format field").options[1],
+      "workshop option",
+    );
+    form = await createFieldIn(
+      database, eventId, source.id,
+      { sectionId: section.id, label: "Workshop duration", fieldType: "text" },
+      form.updatedAt,
+    );
+    const duration = required(form.sections.flatMap((s) => s.fields).find((field) => field.label === "Workshop duration"), "duration field");
+    form = await updateFieldIn(
+      database, eventId, source.id, duration.id,
+      { visibility: { match: "all", conditions: [{ sourceFieldId: format.id, op: "eq", value: workshop.id }] } },
+      form.updatedAt,
+    );
+
+    // Duplication is the escape hatch the product itself points organizers at
+    // once a form has submissions ("Duplicate it to change its structure"), so
+    // it has to survive the feature that most needs it.
+    const copy = await duplicateFormIn(database, eventId, source.id);
+
+    const copiedFields = copy.sections.flatMap((s) => s.fields);
+    const copiedFormat = required(copiedFields.find((field) => field.label === "Delivery style"), "copied format field");
+    const copiedDuration = required(copiedFields.find((field) => field.label === "Workshop duration"), "copied duration field");
+    expect(copiedFormat.id).not.toBe(format.id);
+    // The rule must name the copy's own field, not the source form's.
+    expect(copiedDuration.visibility?.conditions[0]?.sourceFieldId).toBe(copiedFormat.id);
+    expect(copiedDuration.visibility?.conditions[0]?.sourceFieldId).not.toBe(format.id);
+
+    // And the copy must be usable: the snapshot compiles and resolves the rule.
+    const stored = await pglite.query<{ snapshot: unknown }>(
+      "SELECT snapshot FROM form_versions WHERE form_id=$1 AND version=1", [copy.id],
+    );
+    const snapshot = formSnapshotSchema.parse(stored.rows[0]?.snapshot);
+    const snapshotDuration = required(
+      snapshot.sections.flatMap((s) => s.fields).find((field) => field.label === "Workshop duration"),
+      "snapshot duration field",
+    );
+    expect(snapshotDuration.visibility?.conditions[0]?.sourceFieldId).toBe(copiedDuration.visibility?.conditions[0]?.sourceFieldId);
   });
 });
