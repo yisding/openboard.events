@@ -5,6 +5,7 @@ import { db } from "@/db/client";
 import { fileIdSchema, LIMITS, plainTextLength, type ContactId, type EventId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { sanitize } from "@/shared/lib/sanitize";
+import { buildObjectKey } from "@/shared/server/r2";
 import { updateContactFields, type ContactPatch } from "@/features/event-contacts";
 import { getSpeakerProfileIn, type SpeakerProfileDTO } from "./queries";
 
@@ -41,21 +42,6 @@ export const profilePatchSchema = z.object({
 export type ProfilePatch = z.infer<typeof profilePatchSchema>;
 
 /**
- * The only writer of these `contacts` columns from the portal side (resolution
- * #13). Every key is copied across **only when present** in the caller's patch
- * — omitted keys are left alone, so a stale write-back racing this save can
- * never revert a field this call did not touch (edge case #5).
- *
- * `sanitize()` runs here, at the write boundary, not trusted from the editor
- * (resolution #2): `bio_html` is rendered later on the public gallery and in
- * admin, both of which assume anything in the column already survived this.
- *
- * A single guarded `UPDATE ... WHERE (event_id, id) = (...)` through
- * `updateContactFields` — no `withTx`, this is not one of the eight audited
- * transactional paths. `dbOrTx` accepts the plain `neon-http` handle here and a
- * `tx` when a transactional caller (M18/M25's write-back) passes one instead.
- */
-/**
  * A `fileId` is a claim, not a credential. `fileIdSchema` only says the string
  * is a UUID, and this column is rendered on the public speaker gallery, so the
  * claim has to be checked against the caller the same way
@@ -69,6 +55,15 @@ export type ProfilePatch = z.infer<typeof profilePatchSchema>;
  * upload on the speaker's behalf reaches this column — that one carries
  * `uploaded_by_user_id` instead, and re-sending it is a no-op no speaker
  * should be refused.
+ *
+ * Ownership is not the whole question, for the same reason
+ * `requireFinishedUpload` gives: `createUpload` writes the row when the presign
+ * is handed out, pointing at a staging key nobody has uploaded to yet. Accepting
+ * one of those sets a headshot `/f/{fileId}` answers 404 for — and pins the row
+ * forever, because `ORPHAN_PREDICATE_SQL`'s first clause exempts any file a
+ * contact's `headshot_file_id` references, so the daily sweep can never collect
+ * it. Comparing the stored key against the published one is the same test
+ * `finalizeUpload` passes on its way to writing it.
  */
 async function assertOwnHeadshotIn(
   dbOrTx: DbOrTx,
@@ -76,8 +71,8 @@ async function assertOwnHeadshotIn(
   contactId: ContactId,
   headshotFileId: string,
 ): Promise<void> {
-  const result = await dbOrTx.execute<{ id: string }>(sql`
-    SELECT file_assets.id
+  const result = await dbOrTx.execute<{ id: string; filename: string; r2_key: string }>(sql`
+    SELECT file_assets.id, file_assets.filename, file_assets.r2_key
     FROM file_assets
     WHERE file_assets.id = ${headshotFileId}
       AND file_assets.event_id = ${eventId}
@@ -92,13 +87,35 @@ async function assertOwnHeadshotIn(
         )
       )
   `);
-  if ((result.rows ?? []).length === 0) {
+  const asset = (result.rows ?? [])[0];
+  if (!asset) {
     throw new AppError("VALIDATION", "That photo is not one of your uploads", undefined, {
       headshotFileId: "That photo is not one of your uploads",
     });
   }
+  const published = buildObjectKey({ eventId, kind: "headshot", fileId: asset.id, filename: asset.filename });
+  if (asset.r2_key !== published) {
+    throw new AppError("VALIDATION", "That upload did not finish — send the photo again", undefined, {
+      headshotFileId: "That upload did not finish — send the photo again",
+    });
+  }
 }
 
+/**
+ * The only writer of these `contacts` columns from the portal side (resolution
+ * #13). Every key is copied across **only when present** in the caller's patch
+ * — omitted keys are left alone, so a stale write-back racing this save can
+ * never revert a field this call did not touch (edge case #5).
+ *
+ * `sanitize()` runs here, at the write boundary, not trusted from the editor
+ * (resolution #2): `bio_html` is rendered later on the public gallery and in
+ * admin, both of which assume anything in the column already survived this.
+ *
+ * A single guarded `UPDATE ... WHERE (event_id, id) = (...)` through
+ * `updateContactFields` — no `withTx`, this is not one of the eight audited
+ * transactional paths. `dbOrTx` accepts the plain `neon-http` handle here and a
+ * `tx` when a transactional caller (M18/M25's write-back) passes one instead.
+ */
 export async function updateProfileIn(
   dbOrTx: DbOrTx,
   eventId: EventId,

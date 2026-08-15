@@ -143,8 +143,14 @@ describe("speaker profile", () => {
     const logoFile = fileIdSchema.parse("c2000000-0000-4000-8000-0000000000f3");
     const organizerUploadedFile = fileIdSchema.parse("c2000000-0000-4000-8000-0000000000f4");
     const otherEventFile = fileIdSchema.parse("c2000000-0000-4000-8000-0000000000f5");
+    const stagedFile = fileIdSchema.parse("c2000000-0000-4000-8000-0000000000f6");
     const stranger = contactIdSchema.parse("c2000000-0000-4000-8000-000000000012");
     const headshotOwner = contactIdSchema.parse("c2000000-0000-4000-8000-000000000013");
+
+    // `buildObjectKey`'s scheme, spelled out rather than imported: if the key
+    // format changes, this fixture should fail loudly rather than follow along
+    // and keep asserting nothing.
+    const publishedKey = (fileId: string, kind: string) => `evt_${eventId}/${kind}/${fileId}/photo.jpg`;
 
     beforeAll(async () => {
       await pglite.query(
@@ -159,9 +165,15 @@ describe("speaker profile", () => {
       ] as const) {
         await pglite.query(
           "INSERT INTO file_assets(id,event_id,kind,r2_key,filename,mime,size_bytes,uploaded_by_contact_id) VALUES($1,$2,$3,$4,'photo.jpg','image/jpeg',1024,$5)",
-          [id, eventId, kind, `key/${id}`, contactId],
+          [id, eventId, kind, publishedKey(id, kind), contactId],
         );
       }
+      // Presigned and never uploaded to: `createUpload` writes the row pointing
+      // at a staging key, and only `finalizeUpload` moves it to the published one.
+      await pglite.query(
+        "INSERT INTO file_assets(id,event_id,kind,r2_key,filename,mime,size_bytes,uploaded_by_contact_id) VALUES($1,$2,'headshot',$3,'photo.jpg','image/jpeg',1024,$4)",
+        [stagedFile, eventId, `staging/evt_${eventId}/headshot/${stagedFile}/photo.jpg`, headshotOwner],
+      );
     });
 
     it("accepts a headshot the speaker uploaded themselves", async () => {
@@ -205,8 +217,8 @@ describe("speaker profile", () => {
         [otherEventContact, otherEvent],
       );
       await pglite.query(
-        "INSERT INTO file_assets(id,event_id,kind,r2_key,filename,mime,size_bytes,uploaded_by_contact_id) VALUES($1,$2,'headshot','key/other','photo.jpg','image/jpeg',1024,$3)",
-        [otherEventFile, otherEvent, otherEventContact],
+        "INSERT INTO file_assets(id,event_id,kind,r2_key,filename,mime,size_bytes,uploaded_by_contact_id) VALUES($1,$2,'headshot',$3,'photo.jpg','image/jpeg',1024,$4)",
+        [otherEventFile, otherEvent, `evt_${otherEvent}/headshot/${otherEventFile}/photo.jpg`, otherEventContact],
       );
       await expect(updateProfileIn(db, eventId, headshotOwner, { headshotFileId: otherEventFile }))
         .rejects.toMatchObject({ code: "VALIDATION" });
@@ -219,6 +231,15 @@ describe("speaker profile", () => {
       await pglite.query("UPDATE contacts SET headshot_file_id=$1 WHERE id=$2", [organizerUploadedFile, headshotOwner]);
       const profile = await updateProfileIn(db, eventId, headshotOwner, { headshotFileId: organizerUploadedFile });
       expect(profile.headshotFileId).toBe(organizerUploadedFile);
+    });
+
+    it("refuses an upload the speaker presigned but never finished", async () => {
+      // Owned by this contact and the right kind, so ownership alone lets it
+      // through. `/f/{fileId}` would answer 404 for it, and the orphan sweep
+      // exempts any file a contact's headshot references — so accepting it
+      // pins the row and its staging object permanently.
+      await expect(updateProfileIn(db, eventId, headshotOwner, { headshotFileId: stagedFile }))
+        .rejects.toMatchObject({ code: "VALIDATION" });
     });
 
     it("still lets a speaker clear their photo", async () => {
