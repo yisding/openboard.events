@@ -19,7 +19,7 @@ describe("private job adapter", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(recordJobSuccess).mockResolvedValue(undefined);
-    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
   });
 
   it("fails closed without the entrypoint marker", async () => {

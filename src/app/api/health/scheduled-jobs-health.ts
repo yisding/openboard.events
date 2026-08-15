@@ -1,4 +1,5 @@
 import type { NeonQueryFunction } from "@neondatabase/serverless";
+import { errorMessage, log } from "@/shared/lib/log";
 
 export type ScheduledJobsHealth = {
   ok: true;
@@ -38,7 +39,7 @@ export async function scheduledJobsHealth(
       cleanupLastSuccessAgeSeconds: ageSeconds(row?.cleanup_at, now),
     };
   } catch (error) {
-    console.error("scheduled jobs health check failed", error instanceof Error ? error.message : "unknown error");
+    log({ level: "error", msg: "health.scheduled_jobs_failed", requestId: "health", feature: "observability", error: errorMessage(error) });
     return { ok: false, error: "scheduled jobs health check failed" };
   }
 }

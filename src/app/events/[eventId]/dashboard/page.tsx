@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { requireAdmin } from "@/features/auth";
 import { getOverview } from "@/features/dashboard";
@@ -7,6 +8,7 @@ import { DashboardLoadError, type DashboardTab } from "@/features/dashboard/comp
 import { resolveDashboardTab } from "@/features/dashboard/lib/dashboard-tab";
 import { computeEventPhase, defaultTabForPhase } from "@/features/dashboard/lib/phase";
 import { eventIdSchema } from "@/shared/contracts";
+import { captureError } from "@/shared/lib/error-tracking";
 
 export const metadata: Metadata = { title: "Dashboard" };
 export const dynamic = "force-dynamic";
@@ -22,7 +24,12 @@ export default async function Page({ params, searchParams }: { params: Promise<{
   try {
     overview = await getOverview(eventId);
   } catch (error) {
-    console.error("dashboard.overview_failed", { eventId, error });
+    // This page swallows the failure to keep the shell usable, which also means
+    // `instrumentation.ts`'s `onRequestError` never sees it. Capture explicitly
+    // so a broken overview still reaches `operational_errors` and the health
+    // endpoint instead of being visible only as a fallback card.
+    const requestId = (await headers()).get("cf-ray") ?? crypto.randomUUID();
+    captureError(error, { requestId, feature: "dashboard", code: "OVERVIEW_LOAD_FAILED", eventId });
     return <DashboardLoadError />;
   }
   // M56 — the default tab follows the event's lifecycle phase (same law as

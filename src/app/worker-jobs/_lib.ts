@@ -5,6 +5,7 @@ import {
   type JobStats,
 } from "@/shared/contracts";
 import { captureError } from "@/shared/lib/error-tracking";
+import { log } from "@/shared/lib/log";
 import { recordJobSuccess } from "@/shared/server/job-heartbeats";
 
 export type JobResult = {
@@ -21,15 +22,16 @@ export function definePrivateJobRoute(job: JobName, run: () => Promise<JobStats>
       return new Response("Not Found", { status: 404 });
     }
     const started = Date.now();
+    const requestId = request.headers.get("cf-ray") ?? `rpc:${crypto.randomUUID()}`;
     try {
       const stats = await run();
       await recordJobSuccess(job, Date.now() - started);
       const result: JobResult = { job, ok: true, stats, ms: Date.now() - started };
-      console.log(JSON.stringify(result));
+      log({ level: "info", msg: "job.complete", requestId, feature: "jobs", code: job, durationMs: result.ms, stats });
       return Response.json(result);
     } catch (error) {
       captureError(error, {
-        requestId: request.headers.get("cf-ray") ?? `rpc:${crypto.randomUUID()}`,
+        requestId,
         feature: "jobs",
         code: job,
       });
@@ -40,7 +42,9 @@ export function definePrivateJobRoute(job: JobName, run: () => Promise<JobStats>
         ms: Date.now() - started,
         error: "Job failed",
       };
-      console.log(JSON.stringify(result));
+      // The failure itself is already on the wire through `captureError` above,
+      // with the real message and stack; a second line would only repeat the
+      // sanitized response body.
       return Response.json(result, { status: 500 });
     }
   }

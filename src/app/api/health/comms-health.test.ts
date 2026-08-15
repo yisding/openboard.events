@@ -51,7 +51,11 @@ describe("commsHealth", () => {
     // `/api/health` has no auth guard, so anything returned here is readable
     // by anyone — the raw Postgres message must stay server-side only.
     expect(result).toEqual({ ok: false, error: "comms health check failed" });
-    expect(spy).toHaveBeenCalledWith("comms health check failed", "relation \"communication_logs\" does not exist");
+    expect(JSON.parse(spy.mock.calls[0]?.[0] as string)).toMatchObject({
+      level: "error",
+      feature: "observability",
+      error: "relation \"communication_logs\" does not exist",
+    });
   });
 
   it("defaults to zero counts and a null age when the query returns no row at all", async () => {

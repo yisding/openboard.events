@@ -9,6 +9,15 @@ const FINAL_SUBMIT_FILES = new Set([
   "src/features/submissions/server/mutations.ts",
 ]);
 const IDENTITY_RESOLUTION_FILE = "src/features/event-contacts/server/identity-links.ts";
+/**
+ * `log.ts` is the sole console writer so every diagnostic line is one JSON
+ * object with the same keys and the level picks the console method. The
+ * greeting is a deliberate devtools easter egg, not a diagnostic.
+ */
+const CONSOLE_OWNERS = new Set([
+  "src/shared/lib/log.ts",
+  "src/shared/ui/console-greeting.tsx",
+]);
 const SQL_EMAIL_COLUMN_EQUALITY = /\b[a-z_][a-z0-9_]*\.email\b\s*\)*\s*=\s*(?:(?:lower|btrim)\s*\(\s*)*\b[a-z_][a-z0-9_]*\.email\b/iu;
 const IDENTITY_TABLE_NAMES = new Set(["contacts", "organizationContacts", "users"]);
 
@@ -401,6 +410,17 @@ function inspectFile(absolutePath: string): Violation[] {
     }
 
     if (ts.isCallExpression(node)) {
+      if (
+        !isTestFile
+        && !CONSOLE_OWNERS.has(path)
+        && accessName(node.expression) !== null
+        && (ts.isPropertyAccessExpression(node.expression) || ts.isElementAccessExpression(node.expression))
+        && ts.isIdentifier(node.expression.expression)
+        && node.expression.expression.text === "console"
+      ) {
+        report(node, "console-owner", "emit structured diagnostics through src/shared/lib/log.ts");
+      }
+
       if (
         !isTestFile
         && path !== IDENTITY_RESOLUTION_FILE
