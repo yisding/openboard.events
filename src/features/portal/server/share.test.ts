@@ -91,6 +91,22 @@ describe("speaker share data", () => {
     expect(data?.submissionTitle).toBe("Talk Still Being Scheduled");
   });
 
+  it("never publishes the contact's email address as their name", async () => {
+    // `/speaking/<token>` is unauthenticated, and `speakerName` reaches its
+    // <h1>, <title> and the OpenGraph/Twitter card that Slack, X and search
+    // engines scrape. `first_name`/`last_name` default to '', so a nameless
+    // contact is the ordinary state for anyone created from a submission.
+    const db = drizzle(pg);
+    await pg.query("UPDATE contacts SET first_name='', last_name='' WHERE id=$1", [SPEAKER_UNPUBLISHED]);
+    try {
+      const data = await getSpeakerShareDataIn(db, EVENT, SPEAKER_UNPUBLISHED);
+      expect(data?.speakerName).toBe("Unnamed speaker");
+      expect(JSON.stringify(data)).not.toContain("grace@example.com");
+    } finally {
+      await pg.query("UPDATE contacts SET first_name='Grace', last_name='Hopper' WHERE id=$1", [SPEAKER_UNPUBLISHED]);
+    }
+  });
+
   it("returns null for a contact with no accepted submission", async () => {
     const db = drizzle(pg);
     expect(await getSpeakerShareDataIn(db, EVENT, SPEAKER_NOT_ACCEPTED)).toBeNull();
