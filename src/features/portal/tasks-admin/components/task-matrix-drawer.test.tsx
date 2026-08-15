@@ -29,7 +29,7 @@ const TASK: AdminTaskDTO = {
   isActive: true,
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
-  counts: { completed: 1, open: 2, overdue: 1 },
+  counts: { completed: 1, open: 2, overdue: 1, recorded: 1 },
 };
 
 const REMINDER_RECOVERY: BulkReminderRecoveryController = {

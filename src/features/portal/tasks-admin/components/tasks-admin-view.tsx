@@ -23,7 +23,7 @@ type Tab = "all" | "contact" | "group" | "submission";
 
 export function mergeSavedTask(tasks: AdminTaskDTO[], saved: TaskDTO): AdminTaskDTO[] {
   const previous = tasks.find((task) => task.id === saved.id);
-  const next = { ...saved, counts: previous?.counts ?? { completed: 0, open: 0, overdue: 0 } };
+  const next = { ...saved, counts: previous?.counts ?? { completed: 0, open: 0, overdue: 0, recorded: 0 } };
   return previous
     ? tasks.map((task) => task.id === saved.id ? next : task)
     : [...tasks, next];
@@ -256,7 +256,11 @@ export function TasksAdminView({
         open={creating || editing !== null || duplicatingTask !== null}
         task={editing}
         duplicateOf={duplicatingTask}
-        locked={editing !== null && editing.counts.completed > 0}
+        // `recorded`, not `completed`: the server's lock counts `task_completions`
+        // directly, while `completed` comes from `task_assignments_v`, which
+        // drops inactive tasks. Deactivating a task with completions used to
+        // unlock these controls and then reject the save.
+        locked={editing !== null && editing.counts.recorded > 0}
         forms={forms}
         fileRequests={fileRequests}
         onClose={() => { setCreating(false); setEditing(null); setDuplicatingTask(null); }}
