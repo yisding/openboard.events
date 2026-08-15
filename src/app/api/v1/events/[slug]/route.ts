@@ -11,6 +11,6 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
     const event = await resolvePublicEvent(slug);
     return event ? data(publicEventDto(event)) : notFoundResponse();
   } catch (error) {
-    return apiV1ErrorResponse(error);
+    return apiV1ErrorResponse(error, request);
   }
 }

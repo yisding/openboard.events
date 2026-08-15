@@ -1,9 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { adminAuth, getAdminSession, portalAuth } from "@/features/auth";
-import { apiErrorSchema, type ContactId, type EventId, type FileKind, type MemberRole, type UserId } from "@/shared/contracts";
-import { AppError, isAppError, toHttp } from "@/shared/lib/errors";
+import type { ContactId, EventId, FileKind, MemberRole, UserId } from "@/shared/contracts";
+import { AppError, isAppError } from "@/shared/lib/errors";
 import { log } from "@/shared/lib/log";
-import type { AuthGuard } from "@/shared/server/handler";
+import { errorEnvelope, type AuthGuard } from "@/shared/server/handler";
 import type { FileRequester } from "@/shared/server/r2";
 
 /**
@@ -85,16 +85,14 @@ export async function jsonRoute<T>(request: NextRequest, run: () => Promise<T>):
     log({ level: "info", msg: "request.complete", requestId, feature: "uploads", durationMs: Date.now() - startedAt });
     return NextResponse.json({ data });
   } catch (error) {
-    const appError = isAppError(error) ? error : new AppError("INTERNAL", "Unexpected server error");
-    log({
-      level: appError.code === "INTERNAL" ? "error" : "warn",
-      msg: "request.failed",
-      code: appError.code,
+    // Previously mapped everything that was not an `AppError` — a `ZodError`
+    // included — to a 500, so a malformed upload request answered `INTERNAL`
+    // where every other route answers `VALIDATION` with `fieldErrors`.
+    const { envelope, status } = errorEnvelope(error, {
       requestId,
       feature: "uploads",
       durationMs: Date.now() - startedAt,
     });
-    const envelope = apiErrorSchema.parse({ error: { code: appError.code, message: appError.message } });
-    return NextResponse.json(envelope, { status: toHttp(appError.code) });
+    return NextResponse.json(envelope, { status });
   }
 }

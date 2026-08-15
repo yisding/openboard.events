@@ -1,12 +1,9 @@
 import { eq } from "drizzle-orm";
 import type { NextRequest } from "next/server";
-import { z } from "zod";
 import { db } from "@/db/client";
 import { events } from "@/db/schema";
-import { apiErrorSchema } from "@/shared/contracts";
-import { AppError, isAppError, toHttp } from "@/shared/lib/errors";
 import { checkRateLimit, clientIp } from "@/shared/server/rate-limit";
-import type { AuthSession } from "@/shared/server/handler";
+import { errorEnvelope, type AuthSession } from "@/shared/server/handler";
 
 // Public DTO responses are shared-cacheable; private (keyed) responses must
 // never enter a shared cache. Both carry permissive CORS — `/api/v1/*` is the
@@ -68,19 +65,16 @@ export function withV1PrivateHeaders(response: Response): Response {
 /**
  * `/submissions` needs a bare-array `data` *and* a sibling `meta.nextCursor` —
  * a shape `defineHandler` cannot express (it only ever answers `{ data }`).
- * This mirrors `defineHandler`'s own catch block (same error envelope, same
- * status mapping) for the one route that has to construct its response by
- * hand, the same justified exception `export.csv/route.ts` documents for its
- * own non-JSON body.
+ * The public DTO routes likewise build their own responses. All of them route
+ * failures through `defineHandler`'s own `errorEnvelope`, so a 500 on the
+ * public API is captured and alertable rather than logged nowhere.
  */
-export function apiV1ErrorResponse(error: unknown): Response {
-  const appError = isAppError(error)
-    ? error
-    : error instanceof z.ZodError
-      ? new AppError("VALIDATION", "Request validation failed")
-      : new AppError("INTERNAL", "Unexpected server error");
-  const envelope = apiErrorSchema.parse({ error: { code: appError.code, message: appError.message, data: appError.details } });
-  return Response.json(envelope, { status: toHttp(appError.code), headers: privateHeaders });
+export function apiV1ErrorResponse(error: unknown, request?: Request): Response {
+  const { envelope, status } = errorEnvelope(error, {
+    requestId: request?.headers.get("cf-ray") ?? crypto.randomUUID(),
+    feature: "api-v1",
+  });
+  return Response.json(envelope, { status, headers: privateHeaders });
 }
 
 export type PublicEvent = {

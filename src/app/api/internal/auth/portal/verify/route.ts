@@ -1,8 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { verifyPortalLogin } from "@/features/auth";
-import { isAppError, toHttp } from "@/shared/lib/errors";
 import { assertSameOrigin } from "@/shared/server/csrf";
+import { errorEnvelope } from "@/shared/server/handler";
 
 const inputSchema = z.object({
   eventSlug: z.string().min(1),
@@ -16,6 +16,7 @@ const inputSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+  const requestId = request.headers.get("cf-ray") ?? crypto.randomUUID();
   try {
     assertSameOrigin(request);
     const input = inputSchema.parse(await request.json());
@@ -28,8 +29,11 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json({ data: { eventId: session.eventId, contactId: session.contactId, alreadySignedIn: session.alreadySignedIn ?? false } });
   } catch (error) {
-    if (isAppError(error)) return NextResponse.json({ error: { code: error.code, message: error.message } }, { status: toHttp(error.code) });
-    if (error instanceof z.ZodError) return NextResponse.json({ error: { code: "VALIDATION", message: "Enter a valid code" } }, { status: 400 });
-    return NextResponse.json({ error: { code: "INTERNAL", message: "Unable to verify sign in" } }, { status: 500 });
+    const { envelope, status } = errorEnvelope(error, {
+      requestId,
+      feature: "portal-auth",
+      fallbackMessages: { validation: "Enter a valid code", internal: "Unable to verify sign in" },
+    });
+    return NextResponse.json(envelope, { status });
   }
 }

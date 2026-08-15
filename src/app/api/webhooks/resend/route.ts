@@ -1,9 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { parseResendWebhookEvent, recordSuppression, verifyResendWebhookSignature } from "@/features/comms";
 import { recordAdminAuthEmailSuppression } from "@/features/auth";
-import { AppError, isAppError, toHttp } from "@/shared/lib/errors";
+import { AppError } from "@/shared/lib/errors";
 import { getEnv } from "@/shared/lib/env";
 import { log } from "@/shared/lib/log";
+import { errorEnvelope } from "@/shared/server/handler";
 
 export const dynamic = "force-dynamic";
 
@@ -46,8 +47,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
     return NextResponse.json({ data: { ok: true } });
   } catch (error) {
-    const appError = isAppError(error) ? error : new AppError("INTERNAL", "Unexpected server error");
-    log({ level: appError.code === "INTERNAL" ? "error" : "warn", msg: "webhook.resend.failed", code: appError.code, requestId, feature: "comms" });
-    return NextResponse.json({ error: { code: appError.code, message: appError.message } }, { status: toHttp(appError.code) });
+    const { envelope, status } = errorEnvelope(error, { requestId, feature: "comms", msg: "webhook.resend.failed" });
+    return NextResponse.json(envelope, { status });
   }
 }
