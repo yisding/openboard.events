@@ -267,10 +267,11 @@ that order.
   | `E2E_SIGNUP_EMAIL` | optional dedicated address included in preview's exact email allowlist | unset |
 
   `E2E_BASE_URL` is derived from `APP_BASE_URL` for the preview E2E job and defaults to the
-  preview origin in `playwright.config.ts` — do not add it. `EMAIL_FROM` also needs no entry:
-  the sender lives in `wrangler.jsonc`'s vars for both environments (the address contains angle
-  brackets, which cannot survive `--var`, so `scripts/deploy-cloudflare.sh` only verifies it is
-  present in config before a production deploy). Leave `EMAIL_ALLOWLIST` unset too — the
+  preview origin in `playwright.config.ts` — do not add it. `EMAIL_FROM` and `EMAIL_REPLY_TO`
+  also need no entries: the stable sender and monitored reply mailbox live in `wrangler.jsonc`'s
+  vars for both environments (the From address contains angle brackets, which cannot survive
+  `--var`, so `scripts/deploy-cloudflare.sh` only verifies both values are present in config
+  before a production deploy). Leave `EMAIL_ALLOWLIST` unset too — the
   one-address preview allowlist is committed in `wrangler.jsonc`, and a GitHub value silently
   overrides it. Leave the `SMOKE_*` variables unset: the deploy workflow fills each unset one
   from `pnpm smoke:fixture-ids`; set one only to deliberately override a fixture.
@@ -302,8 +303,11 @@ stores only the credentials and direct database URL needed by the deployment wor
   (protected run 31862396508; `reportingConfigured: true`, status rev. 7).
 - [ ] Advance the DMARC policy using the runbook's evidence and dwell gates; record
   `dmarc=pass` evidence at every stage.
-- [x] Choose a real `EMAIL_FROM` mailbox or alias on that domain
-  (`AI.Engineer Sandbox <hello@mail.openboard.events>`).
+- [x] Use one stable product sender on the authenticated domain
+  (`Openboard <hello@mail.openboard.events>`).
+- [ ] Enable Resend Receiving on `mail.openboard.events`, publish and verify its inbound MX, and
+  confirm replies appear in Resend; deployed send mode requires `hello@mail.openboard.events` as
+  `EMAIL_REPLY_TO` so From and Reply-To keep one stable identity.
 - [ ] Create the production `RESEND_API_KEY` (the preview uses a domain-scoped key).
 - [x] Prove OTP delivery in a fresh Gmail inbox (`portal_login` + `submission_received`,
   status rev. 7).

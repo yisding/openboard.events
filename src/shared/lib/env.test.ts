@@ -10,6 +10,7 @@ const deployed = {
   R2_SECRET_ACCESS_KEY: "secret",
   DEPLOYMENT_ID: "31738715715-2-preview",
   RESEND_API_KEY: "resend",
+  EMAIL_REPLY_TO: "replies@example.com",
   RESEND_WEBHOOK_SECRET: "w".repeat(32),
   UNSUBSCRIBE_SECRET: "u".repeat(32),
   SPEAKER_SHARE_SECRET: "p".repeat(32),
@@ -150,7 +151,7 @@ describe("parseEnv", () => {
   });
 });
 
-describe("EMAIL_FROM", () => {
+describe("email sender identity", () => {
   const preview = {
     APP_ENV: "preview",
     APP_BASE_URL: "https://sb-web-preview.yi-ding.workers.dev",
@@ -185,5 +186,22 @@ describe("EMAIL_FROM", () => {
     expect(() => parseEnv({ ...preview, EMAIL_FROM: "AI.Engineer Sandbox" })).toThrow();
     expect(() => parseEnv({ ...preview, EMAIL_FROM: "Name <not-an-address>" })).toThrow();
     expect(emailFromAddress("Name <not-an-address>")).toBeNull();
+  });
+
+  it("accepts only a mailbox for Reply-To", () => {
+    expect(parseEnv({ EMAIL_REPLY_TO: "replies@example.com" }).EMAIL_REPLY_TO).toBe("replies@example.com");
+    expect(() => parseEnv({ EMAIL_REPLY_TO: "Openboard <replies@example.com>" })).toThrow(/EMAIL_REPLY_TO/);
+  });
+
+  it("requires Reply-To whenever deployed email sending is enabled", () => {
+    const sendPreview = {
+      ...preview,
+      EMAIL_MODE: "send",
+      EMAIL_FROM: "Openboard <hello@mail.openboard.events>",
+      EMAIL_ALLOWLIST: "speaker@example.com",
+      RESEND_API_KEY: "resend",
+    };
+    expect(() => parseEnv(sendPreview)).toThrow(/EMAIL_REPLY_TO/);
+    expect(() => parseEnv({ ...sendPreview, EMAIL_REPLY_TO: "hello@openboard.events" })).not.toThrow();
   });
 });

@@ -128,8 +128,8 @@ pnpm db:migrate
 
 export APP_BASE_URL='https://openboard.events'
 export R2_ACCOUNT_ID='<cloudflare account id>'
-# EMAIL_FROM needs no export — it lives in wrangler.jsonc's production vars and
-# deploy-cloudflare.sh only verifies it is present in config.
+# EMAIL_FROM and EMAIL_REPLY_TO need no export — they live in wrangler.jsonc's
+# production vars and deploy-cloudflare.sh verifies both are present in config.
 pnpm deploy:web:production
 pnpm deploy:jobs:production
 
