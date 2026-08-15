@@ -372,6 +372,6 @@ A successful deploy is not the full hackathon infrastructure proof.
 - [ ] Record a browser presigned upload/CORS probe, including `ETag` visibility.
 - [x] Record jobs tail output showing authenticated scheduled calls.
 - [x] Record Workers compressed size and deployed CPU/resource-limit observations.
-- [ ] Record the Resend DNS and Gmail/Outlook delivery evidence.
+- [x] Record the Resend DNS and Gmail/Outlook authentication and placement evidence.
 - [x] Record the final preview URL without recording any secret values; record production
   after its first successful deployment.
