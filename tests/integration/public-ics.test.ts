@@ -169,7 +169,7 @@ describe("buildPublicScheduleIcsIn (M53 anonymous itinerary export, reuses M35's
       expect(afterEdit.ics).toContain("SUMMARY:Edited Summary\r\n");
       expect(afterEdit.ics).toContain("DESCRIPTION:Edited details\r\n");
 
-      const restored = await restoreSessionContentIn(db, eventId, sessionContent, originalContentRevision, null);
+      const restored = await restoreSessionContentIn(db, eventId, sessionContent, originalContentRevision, edited.rowVersion, null);
       const afterRestore = required(await buildPublicScheduleIcsIn(db, eventSlug, [sessionContent], env), "expected restored content calendar");
 
       expect(restored.scheduleRevision).toBe(7);

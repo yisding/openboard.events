@@ -737,36 +737,59 @@ export async function restoreSessionContentIn(
   eventId: EventId,
   sessionId: SessionId,
   revisionId: string,
+  expectedVersion: number,
   actorUserId: UserId | null,
 ): Promise<ScheduledSessionDTO> {
   const result = await dbOrTx.execute<SessionRowShape>(sql`
     WITH source AS (
       SELECT title, description_html FROM session_content_revisions
       WHERE id = ${revisionId} AND event_id = ${eventId} AND session_id = ${sessionId}
-    ), new_revision AS (
-      INSERT INTO session_content_revisions (event_id, session_id, title, description_html, edited_by_user_id, restored_from_revision_id)
-      SELECT ${eventId}, ${sessionId}, source.title, source.description_html, ${actorUserId}, ${revisionId}
-      FROM source
-      RETURNING title, description_html
     ), updated AS (
       UPDATE sessions SET
-        title = new_revision.title,
-        description_html = new_revision.description_html,
+        title = source.title,
+        description_html = source.description_html,
         row_version = sessions.row_version + 1,
         schedule_revision = sessions.schedule_revision + CASE
           WHEN sessions.status::text = 'published' AND sessions.starts_at IS NOT NULL
-           AND (sessions.title IS DISTINCT FROM new_revision.title
-                OR sessions.description_html IS DISTINCT FROM new_revision.description_html)
+           AND (sessions.title IS DISTINCT FROM source.title
+                OR sessions.description_html IS DISTINCT FROM source.description_html)
           THEN 1 ELSE 0 END,
         updated_at = now()
-      FROM new_revision
+      FROM source
       WHERE sessions.id = ${sessionId} AND sessions.event_id = ${eventId}
+        AND sessions.row_version = ${expectedVersion}
       RETURNING sessions.*
+    ), new_revision AS (
+      -- Fed by the UPDATE's own output, so the history entry exists if and only
+      -- if the write did. Reading the session separately would not be enough:
+      -- these CTEs share one snapshot, but under READ COMMITTED the UPDATE
+      -- re-checks its predicate against a row another transaction committed
+      -- after that snapshot was taken. It can therefore match nothing while a
+      -- pre-update read still saw the expected version — and on this autocommit
+      -- handle nothing rolls the stray insert back, leaving a "restored from"
+      -- entry for an edit that never happened, shown as the current content.
+      INSERT INTO session_content_revisions (event_id, session_id, title, description_html, edited_by_user_id, restored_from_revision_id)
+      SELECT ${eventId}, ${sessionId}, updated.title, updated.description_html, ${actorUserId}, ${revisionId}
+      FROM updated
+      RETURNING id
     )
     SELECT ${RETURNED_COLUMNS} FROM updated
   `);
   const row = (result.rows ?? [])[0];
-  if (!row) throw new AppError("NOT_FOUND", "That revision could not be found");
+  // Three ways to write nothing, and the caller needs them apart: the session
+  // is gone, somebody else has written since this panel loaded, or the
+  // revision itself does not exist. Same follow-up read `deleteSessionIn` uses.
+  if (!row) {
+    const existing = await dbOrTx.execute<{ row_version: number }>(sql`
+      SELECT row_version FROM sessions WHERE id = ${sessionId} AND event_id = ${eventId}
+    `);
+    const session = (existing.rows ?? [])[0];
+    if (!session) throw new AppError("NOT_FOUND", "Session not found");
+    if (Number(session.row_version) !== expectedVersion) {
+      throw new AppError("STALE_WRITE", STALE_MESSAGE, { expectedVersion, actualVersion: Number(session.row_version) });
+    }
+    throw new AppError("NOT_FOUND", "That revision could not be found");
+  }
 
   const speakerRows = await dbOrTx.execute<{ contact_id: string }>(sql`
     SELECT contact_id FROM session_speakers WHERE session_id = ${sessionId} AND event_id = ${eventId} ORDER BY sort_order, contact_id
@@ -775,8 +798,8 @@ export async function restoreSessionContentIn(
   return toDto(row, speakerIds);
 }
 
-export const restoreSessionContent = (eventId: EventId, sessionId: SessionId, revisionId: string, actorUserId: UserId | null = null) =>
-  restoreSessionContentIn(db, eventId, sessionId, revisionId, actorUserId);
+export const restoreSessionContent = (eventId: EventId, sessionId: SessionId, revisionId: string, expectedVersion: number, actorUserId: UserId | null = null) =>
+  restoreSessionContentIn(db, eventId, sessionId, revisionId, expectedVersion, actorUserId);
 
 export async function deleteSessionIn(
   dbOrTx: DbOrTx,

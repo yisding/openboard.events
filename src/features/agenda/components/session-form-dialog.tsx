@@ -454,7 +454,14 @@ export function SessionFormDialog({
               timezone={event.timezone}
               onRestore={async (revisionId) => {
                 try {
-                  const restored = await restoreContent.mutateAsync({ id: session.id, revisionId });
+                  const restored = await restoreContent.mutateAsync({
+                    id: session.id,
+                    revisionId,
+                    // The version this dialog was opened against, exactly as
+                    // Save and Delete send it: a restore that would overwrite
+                    // somebody else's edit must be refused, not silently win.
+                    expectedVersion: session.rowVersion,
+                  });
                   setDraft((current) => ({ ...current, title: restored.title, descriptionHtml: restored.descriptionHtml }));
                   toast("Restored as the current content");
                 } catch (caught) {
