@@ -144,7 +144,9 @@ the still-open enforcement checklist. Production probes at `2026-08-15T03:50Z`
 then passed aligned DKIM, SPF, and DMARC at both Gmail and Outlook; Outlook also
 reported `compauth=pass`, but placed its message in Junk. That placement is now
 the documented pre-enforcement reputation/content baseline, not a DMARC failure,
-and must be compared with a repeat Outlook probe before quarantine-10.
+and must be compared with a repeat Outlook probe before quarantine-10. Gmail
+placed its cleanly authenticated message in Inbox, completing the other
+receiver's placement baseline.
 
 ## Sequencing and workstreams
 
@@ -383,7 +385,8 @@ operation and runbook are implemented, and live aggregate reporting began at
 observation and enforcement dwell periods remain. No quarantine or reject
 policy will be published before those evidence gates pass. Gmail and Outlook
 authentication evidence is clean; Outlook Junk placement is recorded as the
-baseline and requires a no-regression retest before the first policy change.
+baseline and Gmail Inbox placement is recorded as its counterpart. Both require
+a no-regression retest before the first policy change.
 
 ## Proposed pull-request order
 
