@@ -279,6 +279,38 @@ describe("agenda sessions", () => {
     expect(restored.title).toBe("Keynote draft");
   });
 
+  it("M52: records no revision when the restore's update writes nothing", async () => {
+    // The concurrent case the version predicate alone cannot cover: another
+    // save commits between this statement's snapshot and the moment it locks
+    // the row, so the UPDATE re-checks `row_version` against the newer row and
+    // matches nothing — while any read taken from the snapshot still saw the
+    // expected version. A BEFORE UPDATE trigger that returns NULL reproduces
+    // exactly that outcome deterministically: predicate satisfied, no row
+    // written. The history insert must not fire on its own.
+    const created = await createSession({ title: "Untouched" }, organizer);
+    const history = await listSessionContentRevisions(eventId, created.id);
+
+    await pglite.exec(`
+      CREATE FUNCTION suppress_session_update() RETURNS trigger AS $$
+      BEGIN
+        RETURN NULL;
+      END;
+      $$ LANGUAGE plpgsql;
+      CREATE TRIGGER suppress_session_update
+      BEFORE UPDATE ON sessions
+      FOR EACH ROW EXECUTE FUNCTION suppress_session_update();
+    `);
+    try {
+      const revisionId = history[0]?.id;
+      if (!revisionId) throw new Error("expected a revision to restore from");
+      await expect(restoreSessionContent(eventId, created.id, revisionId, created.rowVersion, organizer))
+        .rejects.toMatchObject({ code: "NOT_FOUND" });
+      expect(await listSessionContentRevisions(eventId, created.id)).toHaveLength(history.length);
+    } finally {
+      await pglite.exec("DROP TRIGGER suppress_session_update ON sessions; DROP FUNCTION suppress_session_update();");
+    }
+  });
+
   it("collapses a duplicated speaker id into one row", async () => {
     const created = await createSession({ title: "Deduped", speakerContactIds: [ada, ada, grace, ada] });
     expect(created.speakerIds).toEqual([ada, grace]);
