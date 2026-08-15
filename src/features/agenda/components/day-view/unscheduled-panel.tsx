@@ -77,12 +77,20 @@ export function boardJustCleared(previousCount: number, currentCount: number): b
 
 export function UnscheduledPanel({
   sessions,
+  totalCount,
   lookup,
   canPlace,
   onAutoPlace,
   onEdit,
 }: {
   sessions: ScheduledSessionDTO[];
+  /**
+   * Unscheduled count over the event's *unfiltered* session list. `sessions`
+   * arrives narrowed by the agenda's search box, so the celebration below
+   * watches this instead — a search that hides the tray is not a cleared
+   * board. Falls back to the displayed count when a caller has no filter.
+   */
+  totalCount?: number;
   lookup: NameLookup;
   canPlace: boolean;
   onAutoPlace: () => void;
@@ -92,12 +100,13 @@ export function UnscheduledPanel({
   // auto-place — earns a brief shower over the finished board. The same
   // self-cleaning overlay the app's other eggs use; a no-op under
   // prefers-reduced-motion.
-  const previousCount = useRef(sessions.length);
+  const celebrationCount = totalCount ?? sessions.length;
+  const previousCount = useRef(celebrationCount);
   useEffect(() => {
     const previous = previousCount.current;
-    previousCount.current = sessions.length;
-    if (boardJustCleared(previous, sessions.length)) emojiRain(["🗓️", "🎉", "✨"], 18);
-  }, [sessions.length]);
+    previousCount.current = celebrationCount;
+    if (boardJustCleared(previous, celebrationCount)) emojiRain(["🗓️", "🎉", "✨"], 18);
+  }, [celebrationCount]);
 
   return (
     <aside className="dv-unscheduled-panel">
