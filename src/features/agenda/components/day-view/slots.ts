@@ -67,6 +67,21 @@ export function minutesFromDayStartInZone(instant: string, day: string, timeZone
 }
 
 /**
+ * How long a session is *as the grid draws it*, in wall-clock minutes.
+ *
+ * The same frame `minutesFromDayStartInZone` establishes, for the same reason:
+ * elapsed UTC and wall-clock length differ by an hour across a DST transition,
+ * so measuring one and re-applying it as the other moves the session. A
+ * 01:00–02:00 session on a fall-back day is two elapsed hours and one drawn
+ * hour; dragging it with the elapsed figure re-laid it as two hours.
+ */
+export function wallClockDurationMinutes(startsAt: string, endsAt: string, day: string, timeZone: string): number {
+  const start = minutesFromDayStartInZone(startsAt, day, timeZone);
+  const end = minutesFromDayStartInZone(endsAt, day, timeZone);
+  return Math.max(MIN_SESSION_DURATION_MINUTES, end - start);
+}
+
+/**
  * The day's visible row range, in event-tz minutes-since-midnight.
  *
  * Earliest start rounds down to the hour, latest end rounds up to the hour —

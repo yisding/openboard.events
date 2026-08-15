@@ -22,7 +22,7 @@ import type { AgendaViewProps } from "../index.client";
 import { eventDayKeys, nameLookup, scheduledNeedingRoom, scheduledOnDay, unscheduled } from "../store";
 import { DayGrid, parseCellId } from "./day-view/day-grid";
 import { agendaDayDndContextId } from "./day-view/dnd-context-id";
-import { clampResize, computeGridRange, localWallTimeAt, minutesFromDayStartInZone, pixelDeltaToSlotDelta } from "./day-view/slots";
+import { clampResize, computeGridRange, localWallTimeAt, minutesFromDayStartInZone, pixelDeltaToSlotDelta, wallClockDurationMinutes } from "./day-view/slots";
 import { NeedsRoomPanel, UnscheduledPanel } from "./day-view/unscheduled-panel";
 import { AutoPlaceDialog } from "./auto-place-dialog";
 
@@ -105,8 +105,11 @@ function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speake
     const cell = parseCellId(overId);
     if (!cell) return;
 
+    // Wall-clock, not elapsed UTC: the two differ by an hour across a DST
+    // transition, and the value is about to be applied as a wall-clock offset
+    // from the drop cell. The resize path has always read both edges this way.
     const durationMinutes = data.type === "session" && data.session.startsAt && data.session.endsAt
-      ? Math.max(15, Math.round((Date.parse(data.session.endsAt) - Date.parse(data.session.startsAt)) / 60_000))
+      ? wallClockDurationMinutes(data.session.startsAt, data.session.endsAt, selectedDay, event.timezone)
       : formatDurationMinutes(data.session.formatId);
 
     // `cell.startMinutes + durationMinutes` can land past midnight — a 60-minute
