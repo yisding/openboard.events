@@ -1,4 +1,5 @@
 import { boolean, customType, index, integer, jsonb, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import type { CalendarCancellationSnapshotStored, CalendarEventSnapshotStored } from "@/shared/contracts";
 import { sessions } from "./agenda";
 import { contacts } from "./contacts";
 import { events } from "./core";
@@ -50,12 +51,12 @@ export const contactSuppressions = pgTable("contact_suppressions", {
 export const calendarInvites = pgTable("calendar_invites", {
   id: uuid("id").defaultRandom().primaryKey(), eventId: uuid("event_id").notNull(), contactId: uuid("contact_id").notNull().references(() => contacts.id, { onDelete: "cascade" }),
   sessionId: uuid("session_id").notNull().references(() => sessions.id, { onDelete: "cascade" }), icsUid: text("ics_uid").notNull().unique(), sequence: integer("sequence").notNull().default(0),
-  eventSnapshot: jsonb("event_snapshot").notNull(),
+  eventSnapshot: jsonb("event_snapshot").$type<CalendarEventSnapshotStored>().notNull(),
   lastMethod: icsMethodEnum("last_method").notNull().default("request"), organizerEmail: text("organizer_email").notNull(), lastSentAt: timestamp("last_sent_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [unique().on(table.contactId, table.sessionId), unique().on(table.id, table.eventId)]);
 export const calendarCancellationJobs = pgTable("calendar_cancellation_jobs", {
   communicationLogId: uuid("communication_log_id").primaryKey().references(() => communicationLogs.id, { onDelete: "cascade" }),
-  snapshot: jsonb("snapshot").notNull(),
+  snapshot: jsonb("snapshot").$type<CalendarCancellationSnapshotStored>().notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });

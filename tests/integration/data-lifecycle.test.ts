@@ -34,6 +34,7 @@ const migrationOnboardingMilestones = readFileSync(new URL("../../drizzle/0023_o
 // Reviewer invitations extend organization_invitations, so their migration
 // belongs in this fixture before organization exports query its current schema.
 const migrationReviewerInvitations = readFileSync(new URL("../../drizzle/0029_event_reviewer_invitations.sql", import.meta.url), "utf8");
+const migrationCalendarCancellationSnapshots = readFileSync(new URL("../../drizzle/0043_calendar_cancellation_snapshots.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("47000000-0000-4000-8000-000000000001");
 // Primary submitter, headshot owner, uploader — everything about them is
@@ -76,7 +77,7 @@ beforeAll(async () => {
     migration0, migration1, migrationAdminAuth, migrationRateLimits, migrationContentDeliverables, migrationEmailCompliance,
     migrationRoster, migrationProductAuth, migrationTenancy, migrationUserManagement,
     migrationBilling, migrationCrm, migrationOnboardingMilestones,
-    migrationReviewerInvitations,
+    migrationReviewerInvitations, migrationCalendarCancellationSnapshots,
   ]) {
     await pglite.exec(migration);
   }
@@ -130,8 +131,16 @@ beforeAll(async () => {
     [eventId, sessionId, contactA, contactB],
   );
   await pglite.query(
-    `INSERT INTO calendar_invites(event_id,contact_id,session_id,ics_uid,organizer_email) VALUES($1,$2,$3,'uid-a','organizer@example.com')`,
-    [eventId, contactA, sessionId],
+    `INSERT INTO calendar_invites(event_id,contact_id,session_id,ics_uid,organizer_email,event_snapshot)
+     VALUES($1,$2,$3,'uid-a','organizer@example.com',$4::jsonb)`,
+    [eventId, contactA, sessionId, JSON.stringify({
+      version: 1, eventId, sessionId, contactId: contactA,
+      title: "A Talk", descriptionHtml: null,
+      startsAt: "2026-09-15T16:00:00.000Z", endsAt: "2026-09-17T01:00:00.000Z",
+      room: null, track: null, eventName: "Lifecycle Event", eventSlug: "lifecycle-event",
+      eventLocation: null, eventTimezone: "UTC",
+      attendeeEmail: "a@example.com", attendeeFirstName: "Ada", attendeeLastName: "Erasable",
+    })],
   );
   await pglite.query(
     `INSERT INTO communication_logs(event_id,contact_id,template_key,idempotency_key,status,subject_rendered,body_rendered_html,submission_id)
@@ -498,8 +507,26 @@ describe("runDataRetentionSweepIn", () => {
     await pglite.query(
       `INSERT INTO communication_logs(id,event_id,contact_id,template_key,idempotency_key,status,subject_rendered,body_rendered_html,created_at) VALUES
          ('47000000-0000-4000-8000-000000000931',$1,$2,'submission_received','idem-old','sent','Old subject','<p>old</p>',$3),
-         ('47000000-0000-4000-8000-000000000932',$1,$2,'submission_received','idem-new','sent','New subject','<p>new</p>',$4)`,
+         ('47000000-0000-4000-8000-000000000932',$1,$2,'submission_received','idem-new','sent','New subject','<p>new</p>',$4),
+         ('47000000-0000-4000-8000-000000000933',$1,$2,'schedule_changed','cancel-terminal','sent',NULL,NULL,$3),
+         ('47000000-0000-4000-8000-000000000934',$1,$2,'schedule_changed','cancel-pending','queued',NULL,NULL,$3)`,
       [eventId, contactB, oldCreatedAt, recentCreatedAt],
+    );
+    const retainedSnapshot = JSON.stringify({
+      version: 1, eventId, sessionId, contactId: contactB,
+      title: "A Talk", descriptionHtml: null,
+      startsAt: "2026-09-15T16:00:00.000Z", endsAt: "2026-09-17T01:00:00.000Z",
+      room: null, track: null, eventName: "Lifecycle Event", eventSlug: "lifecycle-event",
+      eventLocation: null, eventTimezone: "UTC",
+      attendeeEmail: "b@example.com", attendeeFirstName: "Grace", attendeeLastName: "Stays",
+      uid: "retention-calendar@example.com", sequence: 1,
+      organizerEmail: "organizer@example.com", cancelledAt: "2026-01-01T00:00:00.000Z",
+    });
+    await pglite.query(
+      `INSERT INTO calendar_cancellation_jobs(communication_log_id,snapshot)
+       VALUES('47000000-0000-4000-8000-000000000933',$1::jsonb),
+             ('47000000-0000-4000-8000-000000000934',$1::jsonb)`,
+      [retainedSnapshot],
     );
     await pglite.query(
       "INSERT INTO rate_limit_buckets(key_hash,count,window_started_at,updated_at) VALUES('rl-idle',3,$1,$1),('rl-active',3,$2,$2)",
@@ -522,6 +549,7 @@ describe("runDataRetentionSweepIn", () => {
     expect(stats.expiredAdminSessions).toBe(1);
     expect(stats.expiredAdminVerifications).toBe(1);
     expect(stats.redactedCommunicationLogs).toBe(1);
+    expect(stats.removedStaleCalendarCancellationJobs).toBe(1);
     expect(stats.staleRateLimitBuckets).toBe(1);
     expect(stats.staleAdminLoginAttempts).toBe(2);
 
@@ -549,6 +577,11 @@ describe("runDataRetentionSweepIn", () => {
       "SELECT subject_rendered FROM communication_logs WHERE idempotency_key = 'idem-new'",
     )).rows[0];
     expect(newLog?.subject_rendered).toBe("New subject");
+    const cancellationJobs = await pglite.query<{ idempotency_key: string }>(
+      `SELECT logs.idempotency_key FROM calendar_cancellation_jobs jobs
+       JOIN communication_logs logs ON logs.id=jobs.communication_log_id`,
+    );
+    expect(cancellationJobs.rows).toEqual([{ idempotency_key: "cancel-pending" }]);
   });
 
   it("sweeps idle abuse counters but keeps recent ones and any block still in force", async () => {
@@ -570,6 +603,7 @@ describe("runDataRetentionSweepIn", () => {
       expiredPortalSessions: 0,
       expiredAdminSessions: 0,
       redactedCommunicationLogs: 0,
+      removedStaleCalendarCancellationJobs: 0,
       staleRateLimitBuckets: 0,
       staleAdminLoginAttempts: 0,
     });

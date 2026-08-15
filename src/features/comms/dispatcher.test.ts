@@ -124,7 +124,7 @@ describe("communications outbox dispatcher", () => {
     await pglite.query("DELETE FROM communication_logs");
     await pglite.query("DELETE FROM calendar_invites");
     await pglite.query("DELETE FROM portal_tokens");
-    await pglite.query("UPDATE contacts SET unsubscribed_at=NULL WHERE id=$1", [contactId]);
+    await pglite.query("UPDATE contacts SET email='speaker@example.com',unsubscribed_at=NULL WHERE id=$1", [contactId]);
     await pglite.query("DELETE FROM contact_suppressions WHERE contact_id=$1", [contactId]);
     await pglite.query("UPDATE events SET physical_address=NULL WHERE id=$1", [eventId]);
     await pglite.query("UPDATE submissions SET status='accepted' WHERE id=$1", [decisionId]);
@@ -414,6 +414,33 @@ describe("communications outbox dispatcher", () => {
     expect(terminal.rows[0]?.count).toBe(0);
   });
 
+  it("does not send a cancellation to an attendee address the contact no longer owns", async () => {
+    await seedDefaultTemplates(tx, eventId);
+    await enqueueEmail(tx, {
+      eventId,
+      contactId,
+      templateKey: "schedule_assigned",
+      idempotencyKey: `${eventId}:address-change:request`,
+      refs: { sessionId },
+    });
+    await expect(dispatchOutboxIn(tx, 50, {
+      env: sendEnv,
+      sender: vi.fn(async () => "request-sent"),
+    })).resolves.toMatchObject({ sent: 1 });
+    await deleteSessionIn(tx, eventId, sessionId, 1);
+    await pglite.query("UPDATE contacts SET email='new-speaker@example.com' WHERE id=$1", [contactId]);
+
+    const sender = vi.fn(async () => "should-not-send");
+    await expect(dispatchOutboxIn(tx, 50, { env: sendEnv, sender }))
+      .resolves.toMatchObject({ sent: 0, skipped: 1 });
+    expect(sender).not.toHaveBeenCalled();
+    const [log] = (await pglite.query<{ status: string; error: string }>(
+      "SELECT status,error FROM communication_logs WHERE idempotency_key LIKE '%:calendar_cancel:%'",
+    )).rows;
+    expect(log).toEqual({ status: "skipped", error: "attendee address changed since the invite was sent" });
+    expect((await pglite.query("SELECT communication_log_id FROM calendar_cancellation_jobs")).rows).toHaveLength(0);
+  });
+
   it("retries a failed CANCEL with the same sequence", async () => {
     await seedDefaultTemplates(tx, eventId);
     await enqueueEmail(tx, { eventId, contactId, templateKey: "schedule_assigned", idempotencyKey: `${eventId}:cancel-retry:request`, refs: { sessionId } });
@@ -425,6 +452,15 @@ describe("communications outbox dispatcher", () => {
     await expect(dispatchOutboxIn(tx, 50, { env: sendEnv, sender: failingSender })).resolves.toMatchObject({ retried: 1 });
     const prepared = await pglite.query<{ sequence: number; last_method: string }>("SELECT sequence,last_method FROM calendar_invites");
     expect(prepared.rows[0]).toEqual({ sequence: 1, last_method: "cancel" });
+    expect((await pglite.query("SELECT communication_log_id FROM calendar_cancellation_jobs")).rows).toHaveLength(1);
+
+    // Live state changes before retry, but the provider idempotency key already
+    // names a CANCEL. The retry must reproduce that exact intent, not reinterpret
+    // the row as a new REQUEST.
+    await pglite.query(
+      "INSERT INTO session_speakers(event_id,session_id,contact_id) VALUES($1,$2,$3)",
+      [eventId, sessionId, contactId],
+    );
 
     await pglite.query("UPDATE communication_logs SET next_attempt_at=now() WHERE idempotency_key=$1", [`${eventId}:cancel-retry:cancel`]);
     const retriedMessages: EmailMessage[] = [];

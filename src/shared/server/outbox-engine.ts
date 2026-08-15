@@ -1,4 +1,5 @@
 import type { JobStats } from "@/shared/contracts";
+import { isAppError } from "@/shared/lib/errors";
 
 export const OUTBOX_MAX_BATCH_SIZE = 50;
 export const OUTBOX_MAX_ATTEMPTS = 6;
@@ -47,7 +48,13 @@ export function outboxBudget(requestedBudget: number): number {
 }
 
 export function outboxErrorMessage(error: unknown): string {
-  return (error instanceof Error ? error.message : String(error)).slice(0, 1_000);
+  const message = error instanceof Error ? error.message : String(error);
+  if (!isAppError(error) || error.details === undefined) return message.slice(0, 1_000);
+  try {
+    return `${message} | details=${JSON.stringify(error.details)}`.slice(0, 1_000);
+  } catch {
+    return message.slice(0, 1_000);
+  }
 }
 
 export function outboxRetryDelayMinutes(attempts: number): number {

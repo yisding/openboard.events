@@ -772,81 +772,51 @@ export async function deleteSessionIn(
   sessionId: SessionId,
   expectedVersion: number,
 ): Promise<void> {
-  // A prepared calendar request must be cancelled even though the session and
-  // `calendar_invites` row disappear in this same statement. Preparation occurs
-  // before the provider call, so its outcome may be ambiguous. Enrich the newest
-  // unlocked schedule job when one already represents this change; otherwise
-  // enqueue a separate cancellation. In-flight and older queued updates keep no
-  // snapshot and will skip after their session FK becomes NULL.
+  // A prepared REQUEST must be cancelled even though the session and
+  // `calendar_invites` row disappear in this same statement. Always create a
+  // dedicated cancellation log: any existing schedule row may already have
+  // reached the provider, even after its claim lock expires, so changing its
+  // payload under the same provider idempotency key is never safe. A previously
+  // prepared CANCEL already owns its durable job and needs no replacement.
   const result = await dbOrTx.execute<{ id: string }>(sql`
     WITH target AS MATERIALIZED (
       SELECT id, event_id, schedule_revision
       FROM sessions
       WHERE id = ${sessionId} AND event_id = ${eventId} AND row_version = ${expectedVersion}
     ), calendar_state AS MATERIALIZED (
-      SELECT t.id AS session_id, t.event_id, t.schedule_revision,
-             ci.contact_id, ci.ics_uid, ci.sequence, ci.last_method,
+      SELECT t.id AS session_id, t.event_id, ci.contact_id, ci.ics_uid,
              ci.organizer_email, ci.event_snapshot,
-             (
-               SELECT pending.id FROM communication_logs pending
-               WHERE pending.event_id = t.event_id
-                 AND pending.contact_id = ci.contact_id
-                 AND pending.session_id = t.id
-                 AND pending.template_key IN ('schedule_assigned', 'schedule_changed')
-                 AND pending.status = 'queued'
-                 AND (pending.locked_until IS NULL OR pending.locked_until < now())
-               ORDER BY pending.created_at DESC, pending.id DESC
-               LIMIT 1
-             ) AS queued_id
+             greatest(ci.sequence + 1, t.schedule_revision) AS cancellation_sequence,
+             gen_random_uuid() AS communication_log_id
       FROM target t
       JOIN calendar_invites ci ON ci.session_id = t.id AND ci.event_id = t.event_id
-    ), planned AS MATERIALIZED (
-      SELECT calendar_state.*,
-             coalesce(calendar_state.queued_id, gen_random_uuid()) AS communication_log_id,
-             CASE
-               WHEN calendar_state.queued_id IS NULL
-                 THEN greatest(calendar_state.sequence, calendar_state.schedule_revision) + 1
-               WHEN calendar_state.last_method = 'cancel' THEN calendar_state.sequence
-               ELSE greatest(calendar_state.sequence + 1, calendar_state.schedule_revision)
-             END AS cancellation_sequence
-      FROM calendar_state
-      WHERE calendar_state.queued_id IS NOT NULL OR calendar_state.last_method = 'request'
-    ), enriched AS (
-      UPDATE communication_logs current SET
-        session_id = NULL
-      FROM planned
-      WHERE current.id = planned.queued_id
-      RETURNING current.id
+      WHERE ci.last_method = 'request'
     ), queued AS (
       INSERT INTO communication_logs (
         id, event_id, contact_id, template_key, idempotency_key, status, session_id
       )
-      SELECT planned.communication_log_id, planned.event_id, planned.contact_id, 'schedule_changed',
+      SELECT calendar_state.communication_log_id, calendar_state.event_id,
+             calendar_state.contact_id, 'schedule_changed',
              concat(
-               planned.event_id::text, ':sched:', planned.session_id::text, ':',
-               planned.contact_id::text, ':', planned.cancellation_sequence
+               calendar_state.event_id::text, ':calendar_cancel:',
+               calendar_state.session_id::text, ':',
+               calendar_state.contact_id::text, ':',
+               calendar_state.cancellation_sequence
              ),
              'queued', NULL
-      FROM planned
-      WHERE planned.queued_id IS NULL
-      ON CONFLICT (idempotency_key) DO NOTHING
+      FROM calendar_state
       RETURNING id
-    ), completed AS MATERIALIZED (
-      SELECT id FROM enriched
-      UNION ALL
-      SELECT id FROM queued
     ), jobs AS (
       INSERT INTO calendar_cancellation_jobs (communication_log_id, snapshot)
-      SELECT completed.id,
-             planned.event_snapshot || jsonb_build_object(
-               'uid', planned.ics_uid,
-               'sequence', planned.cancellation_sequence,
-               'organizerEmail', planned.organizer_email,
+      SELECT queued.id,
+             calendar_state.event_snapshot || jsonb_build_object(
+               'uid', calendar_state.ics_uid,
+               'sequence', calendar_state.cancellation_sequence,
+               'organizerEmail', calendar_state.organizer_email,
                'cancelledAt', now()
              )
-      FROM completed
-      JOIN planned ON planned.communication_log_id = completed.id
-      ON CONFLICT (communication_log_id) DO UPDATE SET snapshot = excluded.snapshot
+      FROM queued
+      JOIN calendar_state ON calendar_state.communication_log_id = queued.id
       RETURNING communication_log_id
     ), deleted AS (
       DELETE FROM sessions s USING target

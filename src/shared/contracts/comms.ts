@@ -1,6 +1,44 @@
 import { z } from "zod";
 import { commStatusSchema, templateKeySchema, type TemplateKey } from "./enums";
-import { commLogIdSchema, contactIdSchema, sessionIdSchema, submissionIdSchema, taskIdSchema } from "./ids";
+import {
+  commLogIdSchema,
+  contactIdSchema,
+  sessionIdSchema,
+  submissionIdSchema,
+  taskIdSchema,
+  type ContactId,
+  type EventId,
+  type SessionId,
+} from "./ids";
+
+/** JSON representation persisted in calendar_invites.event_snapshot. */
+export type CalendarEventSnapshotStored = {
+  version: 1;
+  eventId: EventId;
+  sessionId: SessionId;
+  contactId: ContactId;
+  title: string;
+  descriptionHtml: string | null;
+  startsAt: string;
+  endsAt: string;
+  room: string | null;
+  track: string | null;
+  eventName: string;
+  eventSlug: string;
+  eventLocation: string | null;
+  eventTimezone: string;
+  attendeeEmail: string;
+  attendeeFirstName: string;
+  attendeeLastName: string;
+};
+
+/** Self-contained JSON representation persisted for one CANCEL delivery. */
+export type CalendarCancellationSnapshotStored = CalendarEventSnapshotStored & {
+  uid: string;
+  sequence: number;
+  organizerEmail: string;
+  cancelledAt: string;
+};
 
 /**
  * One bulk reminder request deliberately writes each missing target in its own

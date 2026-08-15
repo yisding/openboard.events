@@ -5,11 +5,12 @@ import { issuePortalToken } from "@/features/auth";
 import { buildFeed, buildInvite, googleCalendarUrl, icsUid, outlookCalendarUrl, type IcsEvent } from "@/features/comms/ics";
 import { contactIdSchema, eventIdSchema, sessionIdSchema } from "@/shared/contracts";
 import { emailFromAddress, getEnv, type RuntimeEnv } from "@/shared/lib/env";
-import { AppError } from "@/shared/lib/errors";
 import { log } from "@/shared/lib/log";
 import {
+  assertSnapshotIdentity,
   parseCalendarCancellationSnapshot,
   parseCalendarEventSnapshot,
+  serializeCalendarEventSnapshot,
   type CalendarEventSnapshot,
 } from "./calendar-snapshot";
 import { stripHtml } from "./render";
@@ -43,17 +44,6 @@ function senderAddress(env: RuntimeEnv): string {
 
 function senderDomain(email: string): string {
   return email.slice(email.lastIndexOf("@") + 1);
-}
-
-function assertSnapshotIdentity(
-  snapshot: CalendarEventSnapshot,
-  row: InviteRow,
-): void {
-  if (snapshot.eventId !== row.eventId
-      || snapshot.contactId !== row.contactId
-      || (row.sessionId !== null && snapshot.sessionId !== row.sessionId)) {
-    throw new AppError("VALIDATION", "calendar snapshot does not match its outbox row");
-  }
 }
 
 function eventFromSnapshot(
@@ -171,6 +161,7 @@ export async function prepareInviteIn(
   if (!record) return null;
 
   const [existing] = await dbOrTx.select({
+    id: calendarInvites.id,
     lastMethod: calendarInvites.lastMethod,
     sequence: calendarInvites.sequence,
     icsUid: calendarInvites.icsUid,
@@ -214,32 +205,68 @@ export async function prepareInviteIn(
     : existing ? parseCalendarEventSnapshot(existing.eventSnapshot) : null;
   if (!nextSnapshot) return null;
   assertSnapshotIdentity(nextSnapshot, row);
+  const storedSnapshot = serializeCalendarEventSnapshot(nextSnapshot);
 
   let state: { sequence: number; icsUid: string; organizerEmail: string; eventSnapshot: unknown } | undefined;
-  if (method === "CANCEL" && existing?.lastMethod === "cancel") {
-    state = existing;
-  } else {
+  if (method === "REQUEST") {
     [state] = await dbOrTx.insert(calendarInvites).values({
       eventId: row.eventId,
       contactId: row.contactId,
       sessionId: row.sessionId,
       icsUid: uid,
       sequence: record.scheduleRevision,
-      lastMethod: method.toLowerCase() as "request" | "cancel",
+      lastMethod: "request",
       organizerEmail: currentOrganizer,
-      eventSnapshot: nextSnapshot,
+      eventSnapshot: storedSnapshot,
       lastSentAt: sql`now()`,
     }).onConflictDoUpdate({
       target: [calendarInvites.contactId, calendarInvites.sessionId],
       set: {
-        sequence: sql`GREATEST(${calendarInvites.sequence}, excluded.sequence)
-          + CASE WHEN excluded.last_method = 'cancel' AND ${calendarInvites.sequence} >= excluded.sequence THEN 1 ELSE 0 END`,
+        sequence: sql`GREATEST(${calendarInvites.sequence}, excluded.sequence)`,
         lastMethod: sql`excluded.last_method`,
         eventSnapshot: sql`excluded.event_snapshot`,
         lastSentAt: sql`now()`,
         updatedAt: sql`now()`,
       },
     }).returning();
+  } else if (existing) {
+    // Preparing the provider payload and persisting its exact retry intent are
+    // one database statement. A failed CANCEL must remain a CANCEL even if the
+    // live session is republished or the speaker is re-added before retry.
+    const result = await dbOrTx.execute<{
+      sequence: number; icsUid: string; organizerEmail: string; eventSnapshot: unknown;
+    }>(sql`
+      WITH state AS (
+        UPDATE calendar_invites SET
+          sequence = CASE
+            WHEN last_method = 'cancel' THEN sequence
+            ELSE greatest(sequence + 1, ${record.scheduleRevision})
+          END,
+          last_method = 'cancel',
+          event_snapshot = ${JSON.stringify(storedSnapshot)}::jsonb,
+          last_sent_at = now(),
+          updated_at = now()
+        WHERE id = ${existing.id}
+          AND event_id = ${row.eventId}
+          AND contact_id = ${row.contactId}
+          AND session_id = ${row.sessionId}
+        RETURNING sequence, ics_uid, organizer_email, event_snapshot
+      ), job AS (
+        INSERT INTO calendar_cancellation_jobs (communication_log_id, snapshot)
+        SELECT ${row.id}, state.event_snapshot || jsonb_build_object(
+          'uid', state.ics_uid,
+          'sequence', state.sequence,
+          'organizerEmail', state.organizer_email,
+          'cancelledAt', ${now.toISOString()}::timestamptz
+        )
+        FROM state
+        ON CONFLICT (communication_log_id) DO UPDATE SET snapshot = excluded.snapshot
+      )
+      SELECT sequence, ics_uid AS "icsUid", organizer_email AS "organizerEmail",
+             event_snapshot AS "eventSnapshot"
+      FROM state
+    `);
+    [state] = result.rows ?? [];
   }
   if (!state) return null;
   if (state.organizerEmail !== currentOrganizer) {

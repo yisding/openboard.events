@@ -489,18 +489,19 @@ describe("agenda sessions", () => {
        VALUES($1,$2,'schedule_assigned',$3,'sent',$4,$5,now())`,
       [eventId, ada, `${eventId}:delivered-before-delete`, created.id, uid],
     );
-    const pendingCancellationKey = idem.scheduled(eventId, created.id, ada, created.scheduleRevision + 1);
+    const pendingScheduleKey = idem.scheduled(eventId, created.id, ada, created.scheduleRevision + 1);
     await pglite.query(
       `INSERT INTO communication_logs(event_id,contact_id,template_key,idempotency_key,status,session_id)
        VALUES($1,$2,'schedule_changed',$3,'queued',$4)`,
-      [eventId, ada, pendingCancellationKey, created.id],
+      [eventId, ada, pendingScheduleKey, created.id],
     );
 
     await deleteSession(eventId, created.id, created.rowVersion);
 
     const queued = await pglite.query<{
-      session_id: string | null; sequence: number; uid: string; title: string; idempotency_key: string;
-    }>(`SELECT logs.session_id, logs.idempotency_key,
+      session_id: string | null; sequence: number; uid: string; title: string;
+      idempotency_key: string; template_key: string;
+    }>(`SELECT logs.session_id, logs.idempotency_key, logs.template_key,
           (jobs.snapshot->>'sequence')::int AS sequence,
           jobs.snapshot->>'uid' AS uid,
           jobs.snapshot->>'title' AS title
@@ -509,11 +510,20 @@ describe("agenda sessions", () => {
         WHERE logs.status='queued'`);
     expect(queued.rows).toEqual([{
       session_id: null,
+      template_key: "schedule_changed",
       sequence: created.scheduleRevision + 1,
       uid,
       title: "Delivered keynote",
-      idempotency_key: pendingCancellationKey,
+      idempotency_key: idem.calendarCancellation(eventId, created.id, ada, created.scheduleRevision + 1),
     }]);
+    const untouchedScheduleRow = await pglite.query<{ has_snapshot: boolean }>(
+      `SELECT jobs.snapshot IS NOT NULL AS has_snapshot
+       FROM communication_logs logs
+       LEFT JOIN calendar_cancellation_jobs jobs ON jobs.communication_log_id=logs.id
+       WHERE logs.idempotency_key=$1`,
+      [pendingScheduleKey],
+    );
+    expect(untouchedScheduleRow.rows).toEqual([{ has_snapshot: false }]);
     expect(await count("calendar_invites")).toBe(0);
   });
 
@@ -544,8 +554,8 @@ describe("agenda sessions", () => {
       [eventId, ada, created.id, uid, created.scheduleRevision, snapshot],
     );
     await pglite.query(
-      "UPDATE communication_logs SET locked_until=now()+interval '3 minutes' WHERE id=$1",
-      [request?.id],
+      "UPDATE communication_logs SET idempotency_key=$2,locked_until=now()+interval '3 minutes' WHERE id=$1",
+      [request?.id, idem.scheduled(eventId, created.id, ada, created.scheduleRevision + 1)],
     );
 
     await deleteSession(eventId, created.id, created.rowVersion);
@@ -563,14 +573,14 @@ describe("agenda sessions", () => {
     expect(rows.rows).toEqual([
       {
         id: request?.id,
-        idempotency_key: request?.idempotency_key,
+        idempotency_key: idem.scheduled(eventId, created.id, ada, created.scheduleRevision + 1),
         locked: true,
         has_snapshot: false,
         sequence: null,
       },
       {
         id: expect.any(String),
-        idempotency_key: idem.scheduled(eventId, created.id, ada, created.scheduleRevision + 1),
+        idempotency_key: idem.calendarCancellation(eventId, created.id, ada, created.scheduleRevision + 1),
         locked: false,
         has_snapshot: true,
         sequence: created.scheduleRevision + 1,
