@@ -167,6 +167,45 @@ describe("database-backed event mutations", () => {
     expect(formats.rows[0]?.n).toBe(5);
   });
 
+  it("refuses to heal another organization's orphan into this one", async () => {
+    // `events_slug_key` is global, so a colliding row can belong to a different
+    // tenant. Organization A's create crashes between the INSERT and
+    // `grantOwnerIn`, leaving a zero-member, unseeded row that the repair
+    // heuristic considers healable. Without an organization check the next user
+    // in organization B whose event name slugifies the same way was granted
+    // `owner` on it, and B's "new" event lived under A's `organization_id` —
+    // wrong tenant for the org directory, team access, and billing — while A's
+    // own retry was told "That slug is taken". The id branch above has always
+    // checked this.
+    const [orgA] = await database.insert(schema.organizations).values({ name: "Tenant A", slug: "tenant-a" }).returning();
+    const [orgB] = await database.insert(schema.organizations).values({ name: "Tenant B", slug: "tenant-b" }).returning();
+    const organizationA = organizationIdSchema.parse(orgA?.id);
+    const organizationB = organizationIdSchema.parse(orgB?.id);
+
+    const orphanId = "a0000000-0000-4000-8000-0000000000a7" as EventId;
+    await pglite.query(
+      "INSERT INTO events(id,name,slug,timezone,starts_at,ends_at,organization_id) VALUES($1,'Summit 2026','summit-2026','America/Los_Angeles','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z',$2)",
+      [orphanId, organizationA],
+    );
+
+    const failure = await createEventIn(database, actorUserId, baseInput({ name: "Summit 2026", slug: "summit-2026" }), organizationB)
+      .catch((thrown: unknown) => thrown);
+    expect(isAppError(failure) && failure.code).toBe("VALIDATION");
+    expect(isAppError(failure) && failure.message).toBe("That slug is taken");
+
+    // A's orphan is untouched: still A's, still unseeded, still member-less.
+    const row = await pglite.query<{ organization_id: string }>("SELECT organization_id FROM events WHERE id=$1", [orphanId]);
+    expect(row.rows[0]?.organization_id).toBe(organizationA);
+    expect((await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM event_members WHERE event_id=$1", [orphanId])).rows[0]?.n).toBe(0);
+
+    // A's own retry still heals it, which is what the repair path is for.
+    const healed = await createEventIn(database, actorUserId, baseInput({ name: "Summit 2026", slug: "summit-2026" }), organizationA);
+    expect(healed.id).toBe(orphanId);
+
+    await pglite.query("DELETE FROM events WHERE id=$1", [orphanId]);
+    await pglite.query("DELETE FROM organizations WHERE id IN ($1,$2)", [organizationA, organizationB]);
+  });
+
   it("refuses to hand ownership of a live event to a different admin, even when its format/template counts dip below the under-seeded thresholds", async () => {
     // A real owner creates a normal, fully-seeded event.
     const owner = await createEventIn(database, actorUserId, baseInput({ name: "Live Conf", slug: "live-conf" }));
