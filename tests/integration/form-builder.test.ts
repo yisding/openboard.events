@@ -8,6 +8,7 @@ import {
   createFieldIn,
   createFormIn,
   deleteFieldIn,
+  deleteFormIn,
   duplicateFormIn,
   getFormForBuilderIn,
   listFormsIn,
@@ -371,6 +372,87 @@ describe("database-backed form builder", () => {
       expect(withField.sections.flatMap((section) => section.fields)).toHaveLength(1);
       expect(withField.currentVersion).toBe(3);
     });
+  });
+
+  it("refuses to delete a form whose autosaved drafts carry answers, instead of a raw FK failure", async () => {
+    const form = await createFormIn(database, eventId, { internalName: "Draft-bearing CFP", kind: "abstract", collectParticipants: false });
+    const field = required(form.sections.flatMap((s) => s.fields)[0], "seeded field");
+
+    const contactId = "cf000000-0000-4000-8000-0000000000f1";
+    const submissionId = "cf000000-0000-4000-8000-0000000000f2";
+    await pglite.query(
+      "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'drafter@example.com','Dee','Rafter')",
+      [contactId, eventId],
+    );
+    await pglite.query(
+      `INSERT INTO submissions(id,event_id,form_id,code,status,source,title,submitter_contact_id)
+       VALUES($1,$2,$3,910000001,'draft','cfp','Half-written',$4)`,
+      [submissionId, eventId, form.id, contactId],
+    );
+    await pglite.query(
+      "INSERT INTO submission_answers(event_id,submission_id,field_id,value) VALUES($1,$2,$3,'\"typed something\"'::jsonb)",
+      [eventId, submissionId, field.id],
+    );
+
+    // `hasNonDraftSubmissionsIn` filters `status <> 'draft'` and so never saw
+    // this. But `form_fields` cascades from `forms` while
+    // `submission_answers.field_id -> form_fields` carries no ON DELETE, and
+    // `submissions.form_id` is SET NULL, so the draft survives the delete and
+    // its answers hold a dangling field id: the DELETE raised a raw FK 500 on
+    // a form someone had merely started filling in.
+    const blocked = await deleteFormIn(database, eventId, form.id).catch((thrown: unknown) => thrown);
+    expect(isAppError(blocked) && blocked.code).toBe("CONFLICT");
+    expect(isAppError(blocked) && blocked.message).toContain("saved answers");
+    expect((await pglite.query("SELECT id FROM forms WHERE id=$1", [form.id])).rows).toHaveLength(1);
+
+    // An empty draft really is deletable: its row takes the SET NULL cleanly.
+    await pglite.query("DELETE FROM submission_answers WHERE submission_id=$1", [submissionId]);
+    await deleteFormIn(database, eventId, form.id);
+    expect((await pglite.query("SELECT id FROM forms WHERE id=$1", [form.id])).rows).toHaveLength(0);
+
+    await pglite.query("DELETE FROM submissions WHERE id=$1", [submissionId]);
+    await pglite.query("DELETE FROM contacts WHERE id=$1", [contactId]);
+  });
+
+  it("refuses an option deletion that would orphan another question's visibility rule", async () => {
+    const source = await createFormIn(database, eventId, { internalName: "Orphan CFP", kind: "abstract", collectParticipants: false });
+    const section = required(source.sections[0], "abstract section");
+    let form = await createFieldIn(
+      database, eventId, source.id,
+      { sectionId: section.id, label: "Delivery style", fieldType: "dropdown" },
+      source.updatedAt,
+    );
+    const format = required(form.sections.flatMap((s) => s.fields).find((field) => field.label === "Delivery style"), "format field");
+    form = await updateFieldIn(database, eventId, source.id, format.id, { optionLabels: ["Talk", "Workshop"] }, form.updatedAt);
+    const workshop = required(
+      required(form.sections.flatMap((s) => s.fields).find((field) => field.id === format.id), "format field").options[1],
+      "workshop option",
+    );
+    form = await createFieldIn(
+      database, eventId, source.id,
+      { sectionId: section.id, label: "Workshop length", fieldType: "text" },
+      form.updatedAt,
+    );
+    const dependent = required(form.sections.flatMap((s) => s.fields).find((field) => field.label === "Workshop length"), "dependent field");
+    form = await updateFieldIn(
+      database, eventId, source.id, dependent.id,
+      { visibility: { match: "all", conditions: [{ sourceFieldId: format.id, op: "eq", value: workshop.id }] } },
+      form.updatedAt,
+    );
+
+    // Removing Workshop leaves that rule holding a vanished option id: `eq`
+    // then never matches, so "Workshop length" is unreachable on the public
+    // form forever. Nothing validated the condition's *value* against the
+    // source field's options, and nothing recomputed other fields' rules when
+    // options changed — the save just succeeded silently.
+    const orphaning = await updateFieldIn(database, eventId, source.id, format.id, { optionLabels: ["Talk"] }, form.updatedAt)
+      .catch((thrown: unknown) => thrown);
+    expect(isAppError(orphaning) && orphaning.code).toBe("VALIDATION");
+    expect(isAppError(orphaning) && orphaning.message).toContain("Workshop length");
+
+    // Unrelated option edits are untouched: adding one, and renaming in place.
+    form = await updateFieldIn(database, eventId, source.id, format.id, { optionLabels: ["Talk", "Workshop", "Panel"] }, form.updatedAt);
+    expect(form.sections.flatMap((s) => s.fields).find((field) => field.id === format.id)?.options).toHaveLength(3);
   });
 
   it("carries the per-speaker submission limit into a duplicate", async () => {

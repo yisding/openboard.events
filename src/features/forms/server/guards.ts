@@ -68,3 +68,52 @@ export function assertMapsToMatchesTarget(targetType: TaskTarget | null, mapsTo:
     throw new AppError("VALIDATION", `“${mapsTo}” cannot be used on a ${targetType} form.`, { mapsTo, targetType });
   }
 }
+
+/**
+ * Refuse an option edit that would orphan another question's visibility rule.
+ *
+ * `compileFormSnapshot` validates only that a condition's `sourceFieldId` names
+ * an *earlier* field; nothing checks the condition's `value` against that
+ * field's option ids, and nothing recomputed other fields' rules when options
+ * changed. Delete the Workshop option from a Format question and the rule
+ * "show *Workshop length* when Format is Workshop" keeps its now-vanished id:
+ * `eq` stops matching for everyone, so the dependent question is unreachable on
+ * the public form forever — or, with `is not`, shows unconditionally. The save
+ * succeeded, and nothing warned.
+ *
+ * The routing-rules side already solved this shape — `findDanglingConditions`
+ * checks `kind: "option"`, invalidated rules are soft-disabled and badged. A
+ * visibility rule has no `enabled` flag to fall back to, so this refuses the
+ * edit and names the dependent question instead of silently rewriting form
+ * logic underneath the organizer.
+ *
+ * Only *newly* orphaned conditions count. A form that already carries a
+ * dangling condition from before this guard existed stays editable, rather than
+ * having every option edit on that field blocked by damage done earlier.
+ */
+export function assertNoNewlyOrphanedVisibility(
+  fields: readonly BuilderField[],
+  fieldId: string,
+  previousOptions: readonly { id: string }[],
+  nextOptions: readonly { id: string }[],
+): void {
+  const removed = new Set(previousOptions.map((option) => option.id));
+  for (const option of nextOptions) removed.delete(option.id);
+  if (removed.size === 0) return;
+
+  for (const candidate of fields) {
+    if (candidate.id === fieldId) continue;
+    const conditions = candidate.visibility?.conditions ?? [];
+    for (const condition of conditions) {
+      if (condition.sourceFieldId !== fieldId) continue;
+      const values = Array.isArray(condition.value) ? condition.value : [condition.value];
+      if (values.some((value) => typeof value === "string" && removed.has(value))) {
+        throw new AppError(
+          "VALIDATION",
+          `“${candidate.label}” is only shown for an option you are removing. Update that question's visibility rule first.`,
+          { fieldId: candidate.id },
+        );
+      }
+    }
+  }
+}
