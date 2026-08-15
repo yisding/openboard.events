@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
 import { db, withTx, type DbOrTx } from "@/db/client";
-import { organizationContactLinks, organizationContacts, speakerBulkMessages } from "@/db/schema";
+import { organizationContactLinks, speakerBulkMessages } from "@/db/schema";
 import { composeBulkSpeakerEmailIn } from "@/features/comms";
 import {
   composeCrmBulkEmailResultSchema,
@@ -13,6 +13,7 @@ import {
   type OrganizationId,
 } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
+import { canonicalOrganizationContactIdsIn } from "./merge";
 
 /**
  * M55 — CRM bulk communication. Deliberately does not introduce a second
@@ -51,43 +52,6 @@ async function latestEventLinksIn(dbOrTx: DbOrTx, organizationId: OrganizationId
 }
 
 /** Resolves every requested CRM identity through any later merge chain. */
-async function canonicalOrganizationContactIdsIn(
-  dbOrTx: DbOrTx,
-  organizationId: OrganizationId,
-  organizationContactIds: readonly string[],
-): Promise<Map<string, string>> {
-  const parentById = new Map<string, string | null>();
-  const loaded = new Set<string>();
-  let pending = [...new Set(organizationContactIds)];
-  while (pending.length > 0) {
-    const rows = await dbOrTx.select({
-      id: organizationContacts.id,
-      mergedIntoId: organizationContacts.mergedIntoId,
-    }).from(organizationContacts).where(and(
-      eq(organizationContacts.organizationId, organizationId),
-      inArray(organizationContacts.id, pending),
-    ));
-    for (const id of pending) loaded.add(id);
-    for (const row of rows) parentById.set(row.id, row.mergedIntoId);
-    pending = [...new Set(rows.flatMap((row) => row.mergedIntoId ? [row.mergedIntoId] : []))]
-      .filter((id) => !loaded.has(id));
-  }
-
-  const canonicalById = new Map<string, string>();
-  for (const originId of organizationContactIds) {
-    let currentId = originId;
-    const seen = new Set<string>();
-    while (!seen.has(currentId)) {
-      seen.add(currentId);
-      const parentId = parentById.get(currentId);
-      if (!parentId) break;
-      currentId = parentId;
-    }
-    canonicalById.set(originId, currentId);
-  }
-  return canonicalById;
-}
-
 function crmCampaignContactId(organizationId: OrganizationId, sendId: string, idempotencyKey: string): string | null {
   const prefix = `${organizationId}:crm_bulk:`;
   const suffix = `:${sendId}`;

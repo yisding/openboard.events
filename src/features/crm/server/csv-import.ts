@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db, type DbOrTx } from "@/db/client";
 import { organizationContactActivity, organizationContacts } from "@/db/schema";
 import { parseCsv } from "@/features/portal/index.csv";
+import { canonicalOrganizationContactIdsIn } from "./merge";
 import {
   CRM_CSV_FIELDS,
   crmCsvRowOutcomeSchema,
@@ -76,8 +77,27 @@ export async function importCrmContactsCsvIn(dbOrTx: DbOrTx, organizationId: Org
     }
     seenInFile.add(row.email);
 
-    const [existing] = await dbOrTx.select().from(organizationContacts)
+    const [matched] = await dbOrTx.select().from(organizationContacts)
       .where(and(eq(organizationContacts.organizationId, organizationId), eq(organizationContacts.email, row.email))).limit(1);
+
+    // A merge never rewrites the loser's email, and `UNIQUE (organization_id,
+    // email)` means the loser holds a *different* address from its primary — so
+    // a CSV carrying that old address matched the tombstone. Every gap-fill and
+    // activity row then landed on a contact the directory, segments, metrics and
+    // every outreach audience filter out, while the survivor gained nothing and
+    // no new contact was created: the import silently no-oped for that person
+    // and reported `matched_existing`. Walk to the survivor first, the same way
+    // the bulk-email audience and the erasure path already do.
+    const existing = matched?.mergedIntoId
+      ? await (async () => {
+        const canonical = await canonicalOrganizationContactIdsIn(dbOrTx, organizationId, [matched.id]);
+        const survivorId = canonical.get(matched.id);
+        if (!survivorId || survivorId === matched.id) return matched;
+        const [survivor] = await dbOrTx.select().from(organizationContacts)
+          .where(and(eq(organizationContacts.organizationId, organizationId), eq(organizationContacts.id, survivorId))).limit(1);
+        return survivor ?? matched;
+      })()
+      : matched;
 
     if (existing) {
       matchedExisting += 1;
