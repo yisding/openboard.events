@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Client, Pool, types as pgTypes, type PoolClient, type QueryResult } from "pg";
+import { RUN_ID_VARIABLE, databasePrefix } from "./postgres-teardown";
 
 const testPostgresUrl = process.env.TEST_POSTGRES_URL;
 
@@ -95,7 +96,12 @@ class PostgresTransaction {
  */
 export class PGlite {
   readonly waitReady: Promise<void>;
-  private readonly name = `openboard_test_${process.pid}_${randomUUID().replaceAll("-", "")}`;
+  // Tagged with the run id so teardown reclaims only this run's databases.
+  // The pid fallback keeps names unique if the global setup never ran, in
+  // which case there is no teardown to match them either.
+  private readonly name =
+    databasePrefix(process.env[RUN_ID_VARIABLE] ?? process.pid.toString(16)) +
+    randomUUID().replaceAll("-", "");
   private pool: Pool | undefined;
   private isClosed = false;
 

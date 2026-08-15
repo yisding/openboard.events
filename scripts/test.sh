@@ -39,13 +39,18 @@ docker run --rm -d \
   -p 127.0.0.1::5432 \
   "$postgres_image" >/dev/null
 
+# A cold container runs initdb before it accepts connections, which on a loaded
+# or resource-constrained host takes far longer than a warm start. Bound the
+# wait by wall clock rather than a poll count, so the budget does not shrink as
+# each pg_isready gets slower under load.
 postgres_ready=0
-for ((attempt = 0; attempt < 60; attempt++)); do
+readiness_deadline=$((SECONDS + 60))
+while ((SECONDS < readiness_deadline)); do
   if docker exec "$test_container" pg_isready -U openboard -d postgres >/dev/null 2>&1; then
     postgres_ready=1
     break
   fi
-  sleep 0.1
+  sleep 0.2
 done
 
 if [[ "$postgres_ready" != "1" ]]; then

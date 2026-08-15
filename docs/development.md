@@ -135,11 +135,20 @@ probe coverage, and dependency-upgrade canary procedure are documented in the
 [Worker artifact compatibility contract](worker-artifact-contract.md).
 
 `pnpm test` preserves each integration file's isolated database but runs it on native Postgres,
-which avoids repeated Postgres-in-WASM startup and execution. The wrapper starts and removes a
-pinned local container automatically. If Docker is unavailable it falls back to PGlite; set
-`OPENBOARD_TEST_ENGINE=pglite` to request that path explicitly. CI provides its own Postgres
-service through `TEST_POSTGRES_URL`. That URL must point to a dedicated test server whose user
-may create and drop temporary databases; never point it at a shared or production server.
+which avoids repeated Postgres-in-WASM startup and execution. `scripts/test.sh` picks the engine
+in this order, and the first match wins:
+
+1. `OPENBOARD_TEST_ENGINE=pglite` — the portable in-process path, taken even when a
+   `TEST_POSTGRES_URL` is exported in the surrounding shell.
+2. `TEST_POSTGRES_URL` — an already-running server, used as it is. No container is started or
+   removed. CI supplies its own Postgres service this way.
+3. Docker — a pinned container, started and removed automatically around the run.
+4. Neither a URL nor a usable Docker daemon — PGlite, with a notice on stderr.
+
+A `TEST_POSTGRES_URL` must point to a dedicated test server whose user may create and drop
+temporary databases; never point it at a shared or production server. Each run tags the databases
+it creates with a run id and drops that set when the run ends, so two commands may share one
+server without reclaiming each other's databases.
 
 The 13 specs in [`e2e/`](../e2e) (`cfp-submit`, `abstracts-decide`, `admin-setup`,
 `agenda-schedule`, `portal-tasks`, `public-embeds`, `public-widgets-parity`,
