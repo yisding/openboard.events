@@ -1,0 +1,47 @@
+name: Production mail delivery probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      gmail_recipient:
+        description: Gmail inbox authorized for the controlled probe
+        required: true
+        type: string
+      outlook_recipient:
+        description: Outlook inbox authorized for the controlled probe
+        required: true
+        type: string
+      event_slug:
+        description: Existing production event used for the temporary session
+        required: true
+        default: ai-engineer-sandbox-event
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  calendar:
+    name: REQUEST, reschedule, and CANCEL
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    environment: production
+    concurrency:
+      group: production-mail-delivery-probe
+      cancel-in-progress: false
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL_DIRECT }}
+      DELIVERY_PROBE_CONFIRM: production
+      DELIVERY_PROBE_EVENT_SLUG: ${{ inputs.event_slug }}
+      DELIVERY_PROBE_RECIPIENTS: ${{ inputs.gmail_recipient }},${{ inputs.outlook_recipient }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with: { version: 11.21.0 }
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - name: Exercise production calendar mail lifecycle
+        run: pnpm probe:calendar-delivery
