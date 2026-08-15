@@ -31,6 +31,7 @@ const migrationEmailCompliance = readFileSync(new URL("../../drizzle/0007_email_
 // Manual agenda creates atomically consume their caller-owned id in a durable
 // receipt, so this reduced fixture needs the receipt table as well.
 const migrationAgendaCreationReceipts = readFileSync(new URL("../../drizzle/0031_agenda_session_creation_receipts.sql", import.meta.url), "utf8");
+const migrationCalendarCancellationSnapshots = readFileSync(new URL("../../drizzle/0043_calendar_cancellation_snapshots.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("a8000000-0000-4000-8000-000000000001");
 const otherEventId = eventIdSchema.parse("a8000000-0000-4000-8000-000000000002");
@@ -110,6 +111,7 @@ describe("agenda sessions", () => {
     await pglite.exec(migration6);
     await pglite.exec(migrationEmailCompliance);
     await pglite.exec(migrationAgendaCreationReceipts);
+    await pglite.exec(migrationCalendarCancellationSnapshots);
     testDb = createTestDb(pglite);
 
     await pglite.query(
@@ -316,18 +318,18 @@ describe("agenda sessions", () => {
       startsAt: at("2026-09-15T17:00:00Z"), endsAt: at("2026-09-15T17:30:00Z"),
       speakerContactIds: [ada], status: "published",
     });
-    await pglite.exec("TRUNCATE communication_logs");
+    await pglite.exec("TRUNCATE communication_logs CASCADE");
 
-    // Everything about the schedule is byte-identical; only the speaker set grew.
-    // `schedule_revision` deliberately stays put — M35's ICS SEQUENCE hangs off it
-    // — so grace's notice cannot be gated on a bump.
+    // Everything about the schedule is byte-identical; only the speaker set
+    // grew. The revision still advances so removing and later re-adding the
+    // same speaker can never collide with that speaker's earlier invite key.
     const withGrace = await saveSession(eventId, {
       id: published.id, expectedVersion: published.rowVersion, title: "Standing keynote",
       descriptionHtml: "", formatId: null, trackId: null, roomId: mainStage,
       startsAt: at("2026-09-15T17:00:00Z"), endsAt: at("2026-09-15T17:30:00Z"),
       speakerContactIds: [ada, grace], status: "published",
     });
-    expect(withGrace.scheduleRevision).toBe(published.scheduleRevision);
+    expect(withGrace.scheduleRevision).toBe(published.scheduleRevision + 1);
 
     const logs = await pglite.query<{ template_key: string; contact_id: string; idempotency_key: string }>(
       "SELECT template_key, contact_id, idempotency_key FROM communication_logs",
@@ -337,6 +339,53 @@ describe("agenda sessions", () => {
       contact_id: grace,
       idempotency_key: idem.scheduled(eventId, published.id, grace, withGrace.scheduleRevision),
     }]);
+  });
+
+  it("queues a cancellation only for a speaker removed from a published session", async () => {
+    const created = await createSession({
+      title: "Changing panel", roomId: mainStage, speakerContactIds: [ada, grace], status: "published",
+      startsAt: at("2026-09-15T17:00:00Z"), endsAt: at("2026-09-15T17:30:00Z"),
+    });
+    await pglite.exec("TRUNCATE communication_logs CASCADE");
+
+    const updated = await saveSession(eventId, {
+      id: created.id, expectedVersion: created.rowVersion, title: created.title,
+      descriptionHtml: created.descriptionHtml, formatId: null, trackId: null, roomId: mainStage,
+      startsAt: created.startsAt, endsAt: created.endsAt,
+      speakerContactIds: [ada], status: "published",
+    });
+
+    expect(updated.scheduleRevision).toBe(created.scheduleRevision + 1);
+    const logs = await pglite.query<{ template_key: string; contact_id: string; idempotency_key: string }>(
+      "SELECT template_key,contact_id,idempotency_key FROM communication_logs",
+    );
+    expect(logs.rows).toEqual([{
+      template_key: "schedule_changed",
+      contact_id: grace,
+      idempotency_key: idem.scheduled(eventId, created.id, grace, updated.scheduleRevision),
+    }]);
+
+    const readded = await saveSession(eventId, {
+      id: updated.id, expectedVersion: updated.rowVersion, title: updated.title,
+      descriptionHtml: updated.descriptionHtml, formatId: null, trackId: null, roomId: mainStage,
+      startsAt: updated.startsAt, endsAt: updated.endsAt,
+      speakerContactIds: [ada, grace], status: "published",
+    });
+    expect(readded.scheduleRevision).toBe(updated.scheduleRevision + 1);
+    const graceLogs = await pglite.query<{ template_key: string; idempotency_key: string }>(
+      "SELECT template_key,idempotency_key FROM communication_logs WHERE contact_id=$1 ORDER BY created_at,id",
+      [grace],
+    );
+    expect(graceLogs.rows).toEqual([
+      {
+        template_key: "schedule_changed",
+        idempotency_key: idem.scheduled(eventId, created.id, grace, updated.scheduleRevision),
+      },
+      {
+        template_key: "schedule_assigned",
+        idempotency_key: idem.scheduled(eventId, created.id, grace, readded.scheduleRevision),
+      },
+    ]);
   });
 
   it("does not mail a speaker added to a draft or an unscheduled session", async () => {
@@ -414,6 +463,129 @@ describe("agenda sessions", () => {
     await deleteSession(eventId, created.id, created.rowVersion);
     expect(await count("sessions")).toBe(0);
     expect(await count("session_speakers")).toBe(0);
+  });
+
+  it("preserves a delivered invite as a self-contained cancellation before hard delete", async () => {
+    const created = await createSession({
+      title: "Delivered keynote", roomId: mainStage, speakerContactIds: [ada], status: "published",
+      startsAt: at("2026-09-15T17:00:00Z"), endsAt: at("2026-09-15T17:30:00Z"),
+    });
+    const uid = `sess-${created.id}-spk-${ada}@mail.example.com`;
+    const snapshot = JSON.stringify({
+      version: 1, eventId, sessionId: created.id, contactId: ada,
+      title: created.title, descriptionHtml: created.descriptionHtml,
+      startsAt: created.startsAt, endsAt: created.endsAt,
+      room: "Main Stage", track: null, eventName: "agenda-event", eventSlug: "agenda-event",
+      eventLocation: null, eventTimezone: "America/Los_Angeles",
+      attendeeEmail: "ada@example.com", attendeeFirstName: "Ada", attendeeLastName: "Lovelace",
+    });
+    await pglite.query(
+      `INSERT INTO calendar_invites(event_id,contact_id,session_id,ics_uid,sequence,last_method,organizer_email,event_snapshot)
+       VALUES($1,$2,$3,$4,$5,'request','hello@mail.example.com',$6::jsonb)`,
+      [eventId, ada, created.id, uid, created.scheduleRevision, snapshot],
+    );
+    await pglite.query(
+      `INSERT INTO communication_logs(event_id,contact_id,template_key,idempotency_key,status,session_id,ics_uid,sent_at)
+       VALUES($1,$2,'schedule_assigned',$3,'sent',$4,$5,now())`,
+      [eventId, ada, `${eventId}:delivered-before-delete`, created.id, uid],
+    );
+    const pendingScheduleKey = idem.scheduled(eventId, created.id, ada, created.scheduleRevision + 1);
+    await pglite.query(
+      `INSERT INTO communication_logs(event_id,contact_id,template_key,idempotency_key,status,session_id)
+       VALUES($1,$2,'schedule_changed',$3,'queued',$4)`,
+      [eventId, ada, pendingScheduleKey, created.id],
+    );
+
+    await deleteSession(eventId, created.id, created.rowVersion);
+
+    const queued = await pglite.query<{
+      session_id: string | null; sequence: number; uid: string; title: string;
+      idempotency_key: string; template_key: string;
+    }>(`SELECT logs.session_id, logs.idempotency_key, logs.template_key,
+          (jobs.snapshot->>'sequence')::int AS sequence,
+          jobs.snapshot->>'uid' AS uid,
+          jobs.snapshot->>'title' AS title
+        FROM communication_logs logs
+        JOIN calendar_cancellation_jobs jobs ON jobs.communication_log_id=logs.id
+        WHERE logs.status='queued'`);
+    expect(queued.rows).toEqual([{
+      session_id: null,
+      template_key: "schedule_changed",
+      sequence: created.scheduleRevision + 1,
+      uid,
+      title: "Delivered keynote",
+      idempotency_key: idem.calendarCancellation(eventId, created.id, ada, created.scheduleRevision + 1),
+    }]);
+    const untouchedScheduleRow = await pglite.query<{ has_snapshot: boolean }>(
+      `SELECT jobs.snapshot IS NOT NULL AS has_snapshot
+       FROM communication_logs logs
+       LEFT JOIN calendar_cancellation_jobs jobs ON jobs.communication_log_id=logs.id
+       WHERE logs.idempotency_key=$1`,
+      [pendingScheduleKey],
+    );
+    expect(untouchedScheduleRow.rows).toEqual([{ has_snapshot: false }]);
+    expect(await count("calendar_invites")).toBe(0);
+  });
+
+  it("queues a separate cancellation when hard delete races a prepared REQUEST", async () => {
+    const created = await createSession({
+      title: "Prepared keynote", roomId: mainStage, speakerContactIds: [ada], status: "published",
+      startsAt: at("2026-09-15T17:00:00Z"), endsAt: at("2026-09-15T17:30:00Z"),
+    });
+    const [request] = (await pglite.query<{ id: string; idempotency_key: string }>(
+      "SELECT id,idempotency_key FROM communication_logs WHERE session_id=$1",
+      [created.id],
+    )).rows;
+    expect(request).toBeDefined();
+    const uid = `sess-${created.id}-spk-${ada}@mail.example.com`;
+    const snapshot = JSON.stringify({
+      version: 1, eventId, sessionId: created.id, contactId: ada,
+      title: created.title, descriptionHtml: created.descriptionHtml,
+      startsAt: created.startsAt, endsAt: created.endsAt,
+      room: "Main Stage", track: null, eventName: "agenda-event", eventSlug: "agenda-event",
+      eventLocation: null, eventTimezone: "America/Los_Angeles",
+      attendeeEmail: "ada@example.com", attendeeFirstName: "Ada", attendeeLastName: "Lovelace",
+    });
+    // Invite state is written before the provider call. A future lock therefore
+    // means the provider outcome is ambiguous, even though the log is not sent.
+    await pglite.query(
+      `INSERT INTO calendar_invites(event_id,contact_id,session_id,ics_uid,sequence,last_method,organizer_email,event_snapshot)
+       VALUES($1,$2,$3,$4,$5,'request','hello@mail.example.com',$6::jsonb)`,
+      [eventId, ada, created.id, uid, created.scheduleRevision, snapshot],
+    );
+    await pglite.query(
+      "UPDATE communication_logs SET idempotency_key=$2,locked_until=now()+interval '3 minutes' WHERE id=$1",
+      [request?.id, idem.scheduled(eventId, created.id, ada, created.scheduleRevision + 1)],
+    );
+
+    await deleteSession(eventId, created.id, created.rowVersion);
+
+    const rows = await pglite.query<{
+      id: string; idempotency_key: string; locked: boolean; has_snapshot: boolean; sequence: number | null;
+    }>(`SELECT logs.id, logs.idempotency_key,
+          logs.locked_until IS NOT NULL AND logs.locked_until > now() AS locked,
+          jobs.snapshot IS NOT NULL AS has_snapshot,
+          (jobs.snapshot->>'sequence')::int AS sequence
+        FROM communication_logs logs
+        LEFT JOIN calendar_cancellation_jobs jobs ON jobs.communication_log_id=logs.id
+        WHERE logs.status='queued'
+        ORDER BY logs.created_at,logs.id`);
+    expect(rows.rows).toEqual([
+      {
+        id: request?.id,
+        idempotency_key: idem.scheduled(eventId, created.id, ada, created.scheduleRevision + 1),
+        locked: true,
+        has_snapshot: false,
+        sequence: null,
+      },
+      {
+        id: expect.any(String),
+        idempotency_key: idem.calendarCancellation(eventId, created.id, ada, created.scheduleRevision + 1),
+        locked: false,
+        has_snapshot: true,
+        sequence: created.scheduleRevision + 1,
+      },
+    ]);
   });
 
   it("excludes NULL-time rows from getSchedulableSessions but keeps them in listSessions", async () => {
@@ -513,7 +685,7 @@ describe("agenda sessions", () => {
         startsAt: at("2026-09-15T17:00:00Z"), endsAt: at("2026-09-15T17:30:00Z"),
         speakerContactIds: [ada, grace],
       });
-      await pglite.exec("TRUNCATE communication_logs");
+    await pglite.exec("TRUNCATE communication_logs CASCADE");
 
       const moved = await moveSession(eventId, {
         id: created.id, version: created.rowVersion,
@@ -537,7 +709,7 @@ describe("agenda sessions", () => {
         startsAt: at("2026-09-15T17:00:00Z"), endsAt: at("2026-09-15T17:30:00Z"),
         speakerContactIds: [ada],
       });
-      await pglite.exec("TRUNCATE communication_logs");
+    await pglite.exec("TRUNCATE communication_logs CASCADE");
 
       const moved = await moveSession(eventId, {
         id: created.id, version: created.rowVersion,
@@ -609,6 +781,29 @@ describe("agenda sessions", () => {
         startsAt: at("2026-09-15T21:00:00Z"), endsAt: at("2026-09-15T21:30:00Z"), roomId: mainStage,
       });
       expect(await count("communication_logs")).toBe(0);
+    });
+
+    it("queues cancellations when a published session is moved back to the tray", async () => {
+      const created = await createSession({
+        title: "Pulled from grid", roomId: mainStage, status: "published",
+        startsAt: at("2026-09-15T17:00:00Z"), endsAt: at("2026-09-15T17:30:00Z"),
+        speakerContactIds: [ada, grace],
+      });
+    await pglite.exec("TRUNCATE communication_logs CASCADE");
+
+      const moved = await moveSession(eventId, {
+        id: created.id, version: created.rowVersion,
+        startsAt: null, endsAt: null, roomId: null,
+      });
+
+      expect(moved.session.scheduleRevision).toBe(created.scheduleRevision + 1);
+      const logs = await pglite.query<{ template_key: string; contact_id: string }>(
+        "SELECT template_key,contact_id FROM communication_logs ORDER BY contact_id",
+      );
+      expect(logs.rows).toEqual([
+        { template_key: "schedule_changed", contact_id: ada },
+        { template_key: "schedule_changed", contact_id: grace },
+      ]);
     });
 
     it("returns the day's fresh conflicts inline", async () => {
@@ -780,7 +975,7 @@ describe("agenda sessions", () => {
       const unscheduled = await createSession({
         title: "Still needs a time", speakerContactIds: [grace],
       });
-      await pglite.exec("TRUNCATE communication_logs");
+    await pglite.exec("TRUNCATE communication_logs CASCADE");
 
       await expect(bulkSetPublished(eventId, [scheduled.id, unscheduled.id], true)).rejects.toMatchObject({
         code: "VALIDATION",
@@ -817,7 +1012,7 @@ describe("agenda sessions", () => {
         title: "Bulk two", roomId: studio, speakerContactIds: [grace], status: "published",
         startsAt: at("2026-09-15T18:00:00Z"), endsAt: at("2026-09-15T18:30:00Z"),
       });
-      await pglite.exec("TRUNCATE communication_logs");
+    await pglite.exec("TRUNCATE communication_logs CASCADE");
 
       const result = await bulkSetPublished(eventId, [first.id, second.id], true);
       // `second` was already published, so it is not a change and not a second
@@ -832,14 +1027,22 @@ describe("agenda sessions", () => {
       expect(again).toEqual({ changed: 0, emailsQueued: 0 });
     });
 
-    it("unpublishes without enqueueing anything", async () => {
+    it("unpublishes with one cancellation per speaker", async () => {
       const created = await createSession({
         title: "Retract", roomId: mainStage, speakerContactIds: [ada], status: "published",
         startsAt: at("2026-09-15T17:00:00Z"), endsAt: at("2026-09-15T17:30:00Z"),
       });
-      await pglite.exec("TRUNCATE communication_logs");
-      expect(await bulkSetPublished(eventId, [created.id], false)).toEqual({ changed: 1, emailsQueued: 0 });
-      expect(await count("communication_logs")).toBe(0);
+    await pglite.exec("TRUNCATE communication_logs CASCADE");
+      expect(await bulkSetPublished(eventId, [created.id], false)).toEqual({ changed: 1, emailsQueued: 1 });
+      const logs = await pglite.query<{ template_key: string; contact_id: string }>(
+        "SELECT template_key,contact_id FROM communication_logs",
+      );
+      expect(logs.rows).toEqual([{ template_key: "schedule_changed", contact_id: ada }]);
+      const stored = await pglite.query<{ schedule_revision: number }>(
+        "SELECT schedule_revision FROM sessions WHERE id=$1",
+        [created.id],
+      );
+      expect(stored.rows[0]?.schedule_revision).toBe(created.scheduleRevision + 1);
     });
   });
 

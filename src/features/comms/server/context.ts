@@ -11,9 +11,16 @@ import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { escapeHtml } from "@/shared/lib/html";
 import { formatInZone, zoneAbbreviation } from "@/shared/lib/time";
 import { isEmailAllowed } from "@/shared/server/email-allowlist";
+import {
+  assertSnapshotIdentity,
+  parseCalendarCancellationSnapshot,
+  parseCalendarEventSnapshot,
+  type CalendarEventSnapshot,
+} from "./calendar-snapshot";
 import { signUnsubscribeToken } from "./unsubscribe";
 
 export type OutboxRow = typeof communicationLogs.$inferSelect;
+export type DeliveryOutboxRow = OutboxRow & { calendarCancellationSnapshot?: unknown | null };
 
 /**
  * M42 — admin/organizer auth mail. Grouped here because three separate
@@ -89,16 +96,73 @@ function calendarTemplateVars(args: { googleUrl: string; outlookUrl: string; dow
   return { google_url: args.googleUrl, outlook_url: args.outlookUrl, download_url: args.downloadUrl, buttons_html: buttonsHtml };
 }
 
-export function applyCalendarInvite(
-  context: BuiltContext,
-  invite: { googleUrl: string; outlookUrl: string; downloadUrl: string },
-): BuiltContext {
+// Calendar templates have one schema for REQUEST and CANCEL. A cancellation's
+// override does not render these links, but the complete context still needs
+// valid URL-shaped values to pass the same fail-closed template validation.
+const CANCELLED_CALENDAR_VARS = {
+  googleUrl: "https://openboard.invalid/cancelled",
+  outlookUrl: "https://openboard.invalid/cancelled",
+  downloadUrl: "https://openboard.invalid/cancelled",
+} as const;
+
+type CalendarCommonVars = Pick<
+  TemplateVars<"schedule_changed">,
+  "event" | "speaker" | "portal" | "unsubscribe"
+>;
+
+function snapshotVars(
+  snapshot: CalendarEventSnapshot,
+  common: CalendarCommonVars,
+): TemplateVars<"schedule_changed"> {
   return {
-    ...context,
-    vars: { ...context.vars, calendar: calendarTemplateVars(invite) } as TemplateVars,
-    calendarDownloadUrl: invite.downloadUrl,
+    ...common,
+    event: {
+      ...common.event,
+      name: snapshot.eventName,
+      location: snapshot.eventLocation?.trim() || "Location to be announced",
+      timezone: zoneAbbreviation(snapshot.startsAt, snapshot.eventTimezone),
+    },
+    speaker: {
+      first_name: snapshot.attendeeFirstName.trim() || "there",
+      last_name: snapshot.attendeeLastName.trim(),
+      email: snapshot.attendeeEmail,
+    },
+    session: {
+      title: snapshot.title,
+      start_time_local: formatInZone(snapshot.startsAt, snapshot.eventTimezone, { dateStyle: "medium", timeStyle: "short" }),
+      end_time_local: formatInZone(snapshot.endsAt, snapshot.eventTimezone, { timeStyle: "short" }),
+      timezone: zoneAbbreviation(snapshot.startsAt, snapshot.eventTimezone),
+      room: snapshot.room ?? "Room to be announced",
+      track: snapshot.track ?? "General",
+    },
+    calendar: calendarTemplateVars(CANCELLED_CALENDAR_VARS),
   };
 }
+
+function assertCurrentAttendee(snapshot: CalendarEventSnapshot, currentEmail: string): void {
+  if (snapshot.attendeeEmail.toLowerCase() !== currentEmail.toLowerCase()) {
+    throw new SkipEmail("attendee address changed since the invite was sent");
+  }
+}
+
+export function applyCalendarInvite(
+  context: BuiltContext,
+  invite: { method: "REQUEST" | "CANCEL"; googleUrl: string; outlookUrl: string; downloadUrl: string },
+): BuiltContext {
+  const calendar = invite.method === "CANCEL"
+    ? calendarTemplateVars(CANCELLED_CALENDAR_VARS)
+    : calendarTemplateVars(invite);
+  return {
+    ...context,
+    vars: { ...context.vars, calendar } as TemplateVars,
+    ...(invite.method === "REQUEST" ? { calendarDownloadUrl: invite.downloadUrl } : {}),
+  };
+}
+
+const CANCELLATION_TEMPLATE = {
+  subject: "Schedule removed: {{session.title}}",
+  bodyHtml: "<p><strong>{{session.title}}</strong> is no longer on the published schedule.</p>",
+};
 
 /**
  * M50 review mail. The reviewer is a `users` row, so the plan and the reviewer
@@ -159,7 +223,7 @@ async function buildReviewVars(row: OutboxRow, dbOrTx: DbOrTx, env: RuntimeEnv) 
   };
 }
 
-export async function buildContext(row: OutboxRow, dbOrTx: DbOrTx = db, env: RuntimeEnv = getEnv()): Promise<BuiltContext> {
+export async function buildContext(row: DeliveryOutboxRow, dbOrTx: DbOrTx = db, env: RuntimeEnv = getEnv()): Promise<BuiltContext> {
   const [base] = await dbOrTx.select({
     eventName: events.name,
     eventSlug: events.slug,
@@ -252,6 +316,8 @@ export async function buildContext(row: OutboxRow, dbOrTx: DbOrTx = db, env: Run
   let vars: TemplateVars;
   let templateOverride: BuiltContext["templateOverride"];
   let calendarDownloadUrl: string | undefined;
+  let recipientEmail = base.email;
+  let recipientName = `${base.firstName} ${base.lastName}`.trim() || base.email;
 
   if (row.templateKey.startsWith("submission_")) {
     if (!row.submissionId) throw new AppError("TEMPLATE_VAR_MISSING", "missing variable submission.id");
@@ -301,54 +367,89 @@ export async function buildContext(row: OutboxRow, dbOrTx: DbOrTx = db, env: Run
       tasks: { outstanding_list: buildOutstandingList(outstanding, base.eventTimezone) },
     } as TemplateVars;
   } else if (row.templateKey === "schedule_assigned" || row.templateKey === "schedule_changed") {
-    if (!row.sessionId) throw new AppError("TEMPLATE_VAR_MISSING", "missing variable session.id");
-    const [session] = await dbOrTx.select({
-      title: sessions.title,
-      startsAt: sessions.startsAt,
-      endsAt: sessions.endsAt,
-      status: sessions.status,
-      speakerContactId: sessionSpeakers.contactId,
-      room: rooms.name,
-      track: tracks.name,
-    }).from(sessions).leftJoin(sessionSpeakers, and(
-      eq(sessionSpeakers.eventId, sessions.eventId),
-      eq(sessionSpeakers.sessionId, sessions.id),
-      eq(sessionSpeakers.contactId, row.contactId),
-    )).leftJoin(rooms, and(eq(rooms.id, sessions.roomId), eq(rooms.eventId, sessions.eventId)))
-      .leftJoin(tracks, and(eq(tracks.id, sessions.trackId), eq(tracks.eventId, sessions.eventId)))
-      .where(and(eq(sessions.id, row.sessionId), eq(sessions.eventId, row.eventId))).limit(1);
-    if (!session) throw new SkipEmail("session no longer exists");
-    const scheduled = Boolean(session.startsAt && session.endsAt && session.status === "published" && session.speakerContactId);
-    if (!scheduled) {
-      const [existingInvite] = await dbOrTx.select({ lastMethod: calendarInvites.lastMethod }).from(calendarInvites)
-        .where(and(
-          eq(calendarInvites.eventId, row.eventId),
-          eq(calendarInvites.contactId, row.contactId),
-          eq(calendarInvites.sessionId, row.sessionId),
-        )).limit(1);
-      if (!existingInvite) throw new SkipEmail("session is no longer published and scheduled");
-      templateOverride = {
-        subject: "Schedule removed: {{session.title}}",
-        bodyHtml: "<p><strong>{{session.title}}</strong> is no longer on the published schedule.</p>{{calendar.buttons_html}}",
-      };
+    const rawCancellationSnapshot = row.calendarCancellationSnapshot ?? null;
+    const deletedSnapshot = rawCancellationSnapshot === null
+      ? null
+      : parseCalendarCancellationSnapshot(rawCancellationSnapshot);
+    if (deletedSnapshot) {
+      assertSnapshotIdentity(deletedSnapshot, row);
+      assertCurrentAttendee(deletedSnapshot, base.email);
+      if (!isEmailAllowed(deletedSnapshot.attendeeEmail, env)) throw new SkipEmail("not in EMAIL_ALLOWLIST");
+      recipientEmail = deletedSnapshot.attendeeEmail;
+      recipientName = `${deletedSnapshot.attendeeFirstName} ${deletedSnapshot.attendeeLastName}`.trim()
+        || deletedSnapshot.attendeeEmail;
+      templateOverride = CANCELLATION_TEMPLATE;
+      vars = snapshotVars(deletedSnapshot, common);
+    } else {
+      if (!row.sessionId) throw new AppError("TEMPLATE_VAR_MISSING", "missing variable session.id");
+      const [session] = await dbOrTx.select({
+        title: sessions.title,
+        startsAt: sessions.startsAt,
+        endsAt: sessions.endsAt,
+        status: sessions.status,
+        speakerContactId: sessionSpeakers.contactId,
+        room: rooms.name,
+        track: tracks.name,
+      }).from(sessions).leftJoin(sessionSpeakers, and(
+        eq(sessionSpeakers.eventId, sessions.eventId),
+        eq(sessionSpeakers.sessionId, sessions.id),
+        eq(sessionSpeakers.contactId, row.contactId),
+      )).leftJoin(rooms, and(eq(rooms.id, sessions.roomId), eq(rooms.eventId, sessions.eventId)))
+        .leftJoin(tracks, and(eq(tracks.id, sessions.trackId), eq(tracks.eventId, sessions.eventId)))
+        .where(and(eq(sessions.id, row.sessionId), eq(sessions.eventId, row.eventId))).limit(1);
+      if (!session) throw new SkipEmail("session no longer exists");
+      const scheduled = Boolean(session.startsAt && session.endsAt && session.status === "published" && session.speakerContactId);
+      let cancellationSnapshot: CalendarEventSnapshot | null = null;
+      if (!scheduled) {
+        const [existingInvite] = await dbOrTx.select({
+          eventSnapshot: calendarInvites.eventSnapshot,
+        }).from(calendarInvites)
+          .where(and(
+            eq(calendarInvites.eventId, row.eventId),
+            eq(calendarInvites.contactId, row.contactId),
+            eq(calendarInvites.sessionId, row.sessionId),
+          )).limit(1);
+        if (!existingInvite) throw new SkipEmail("session is no longer published and scheduled");
+        cancellationSnapshot = parseCalendarEventSnapshot(existingInvite.eventSnapshot);
+        assertSnapshotIdentity(cancellationSnapshot, row);
+        assertCurrentAttendee(cancellationSnapshot, base.email);
+        if (!isEmailAllowed(cancellationSnapshot.attendeeEmail, env)) throw new SkipEmail("not in EMAIL_ALLOWLIST");
+        recipientEmail = cancellationSnapshot.attendeeEmail;
+        recipientName = `${cancellationSnapshot.attendeeFirstName} ${cancellationSnapshot.attendeeLastName}`.trim()
+          || cancellationSnapshot.attendeeEmail;
+        templateOverride = CANCELLATION_TEMPLATE;
+      }
+
+      let downloadUrl = "";
+      if (scheduled) {
+        const { raw: calendarToken } = await issuePortalToken(dbOrTx, {
+          contactId,
+          eventId,
+          purpose: "ics_download",
+          ttl: "P365D",
+        });
+        downloadUrl = `${env.APP_BASE_URL}/cal/${encodeURIComponent(calendarToken)}/${encodeURIComponent(row.sessionId)}`;
+        calendarDownloadUrl = downloadUrl;
+      }
+      const startsAt = cancellationSnapshot?.startsAt ?? session.startsAt ?? base.eventStartsAt;
+      const endsAt = cancellationSnapshot?.endsAt ?? session.endsAt ?? base.eventEndsAt;
+      const title = cancellationSnapshot?.title ?? session.title;
+      const room = cancellationSnapshot?.room ?? session.room;
+      const track = cancellationSnapshot?.track ?? session.track;
+      const timezone = cancellationSnapshot?.eventTimezone ?? base.eventTimezone;
+      vars = cancellationSnapshot ? snapshotVars(cancellationSnapshot, common) : {
+        ...common,
+        session: {
+          title,
+          start_time_local: formatInZone(startsAt, timezone, { dateStyle: "medium", timeStyle: "short" }),
+          end_time_local: formatInZone(endsAt, timezone, { timeStyle: "short" }),
+          timezone: zoneAbbreviation(startsAt, timezone),
+          room: room ?? "Room to be announced",
+          track: track ?? "General",
+        },
+        calendar: buildCalendarLinks({ title, startsAt, endsAt, location: room ?? base.eventLocation ?? "", downloadUrl }),
+      } as TemplateVars;
     }
-    const { raw: calendarToken } = await issuePortalToken(dbOrTx, { contactId, eventId, purpose: "ics_download", ttl: "P365D" });
-    const downloadUrl = `${env.APP_BASE_URL}/cal/${encodeURIComponent(calendarToken)}/${encodeURIComponent(row.sessionId)}`;
-    calendarDownloadUrl = downloadUrl;
-    const startsAt = session.startsAt ?? base.eventStartsAt;
-    const endsAt = session.endsAt ?? base.eventEndsAt;
-    vars = {
-      ...common,
-      session: {
-        title: session.title,
-        start_time_local: formatInZone(startsAt, base.eventTimezone, { dateStyle: "medium", timeStyle: "short" }),
-        end_time_local: formatInZone(endsAt, base.eventTimezone, { timeStyle: "short" }),
-        timezone: zoneAbbreviation(startsAt, base.eventTimezone),
-        room: session.room ?? "Room to be announced",
-        track: session.track ?? "General",
-      },
-      calendar: buildCalendarLinks({ title: session.title, startsAt, endsAt, location: session.room ?? base.eventLocation ?? "", downloadUrl }),
-    } as TemplateVars;
   } else if (row.templateKey === "reviewer_invited" || row.templateKey === "review_reminder") {
     vars = { ...common, review: await buildReviewVars(row, dbOrTx, env) } as TemplateVars;
   } else if (row.templateKey === "speaker_bulk_message") {
@@ -407,8 +508,8 @@ export async function buildContext(row: OutboxRow, dbOrTx: DbOrTx = db, env: Run
 
   return {
     vars,
-    recipientEmail: base.email,
-    recipientName: `${base.firstName} ${base.lastName}`.trim() || base.email,
+    recipientEmail,
+    recipientName,
     eventName: base.eventName,
     unsubscribeUrl,
     ...(calendarDownloadUrl ? { calendarDownloadUrl } : {}),

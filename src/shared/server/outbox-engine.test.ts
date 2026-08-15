@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { AppError } from "@/shared/lib/errors";
 import {
   compareOutboxRows,
   drainOutbox,
@@ -28,6 +29,15 @@ describe("shared outbox engine", () => {
       `${earlier.toISOString()}:b`,
       `${later.toISOString()}:a`,
     ]);
+  });
+
+  it("persists structured AppError details for terminal diagnostics", () => {
+    const error = new AppError("VALIDATION", "stored snapshot is invalid", {
+      properties: { startsAt: { errors: ["Invalid datetime"] } },
+    });
+    expect(outboxErrorMessage(error)).toContain(
+      'details={"properties":{"startsAt":{"errors":["Invalid datetime"]}}}',
+    );
   });
 
   it("uses bounded concurrency while continuing after row failures", async () => {

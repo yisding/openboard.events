@@ -3,13 +3,20 @@ import { db, type DbOrTx } from "@/db/client";
 import { calendarInvites, contacts, events, rooms, sessions, sessionSpeakers, tracks } from "@/db/schema";
 import { issuePortalToken } from "@/features/auth";
 import { buildFeed, buildInvite, googleCalendarUrl, icsUid, outlookCalendarUrl, type IcsEvent } from "@/features/comms/ics";
-import { contactIdSchema, eventIdSchema } from "@/shared/contracts";
+import { contactIdSchema, eventIdSchema, sessionIdSchema } from "@/shared/contracts";
 import { emailFromAddress, getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { log } from "@/shared/lib/log";
+import {
+  assertSnapshotIdentity,
+  parseCalendarCancellationSnapshot,
+  parseCalendarEventSnapshot,
+  serializeCalendarEventSnapshot,
+  type CalendarEventSnapshot,
+} from "./calendar-snapshot";
 import { stripHtml } from "./render";
-import type { OutboxRow } from "./context";
+import type { DeliveryOutboxRow } from "./context";
 
-type InviteRow = OutboxRow & { contactId: string; sessionId: string };
+type InviteRow = DeliveryOutboxRow & { contactId: string };
 
 export type PreparedInvite = {
   ics: string;
@@ -39,6 +46,53 @@ function senderDomain(email: string): string {
   return email.slice(email.lastIndexOf("@") + 1);
 }
 
+function eventFromSnapshot(
+  snapshot: CalendarEventSnapshot,
+  state: { sequence: number; icsUid: string; organizerEmail: string },
+  method: "REQUEST" | "CANCEL",
+  env: RuntimeEnv,
+  now: Date,
+): IcsEvent {
+  const portalUrl = `${env.APP_BASE_URL}/portal/${encodeURIComponent(snapshot.eventSlug)}`;
+  return {
+    uid: state.icsUid,
+    sequence: state.sequence,
+    method,
+    startsAt: snapshot.startsAt,
+    endsAt: snapshot.endsAt,
+    dtstamp: now,
+    summary: snapshot.title,
+    description: [stripHtml(snapshot.descriptionHtml ?? ""), portalUrl].filter(Boolean).join("\n\n"),
+    location: [snapshot.room, snapshot.eventLocation].filter(Boolean).join(" · "),
+    url: `${env.APP_BASE_URL}/e/${encodeURIComponent(snapshot.eventSlug)}/schedule?session=${encodeURIComponent(snapshot.sessionId)}`,
+    organizer: { name: snapshot.eventName, email: state.organizerEmail },
+    attendee: {
+      name: `${snapshot.attendeeFirstName} ${snapshot.attendeeLastName}`.trim() || snapshot.attendeeEmail,
+      email: snapshot.attendeeEmail,
+    },
+    cancelled: method === "CANCEL",
+  };
+}
+
+function preparedInvite(
+  event: IcsEvent,
+  method: "REQUEST" | "CANCEL",
+  downloadUrl: string,
+): PreparedInvite {
+  return {
+    ics: buildInvite(event),
+    filename: "invite.ics",
+    contentType: `text/calendar; charset=utf-8; method=${method}`,
+    uid: event.uid,
+    sequence: event.sequence,
+    method,
+    attendeeEmail: event.attendee?.email ?? "",
+    googleUrl: method === "REQUEST" ? googleCalendarUrl(event) : "",
+    outlookUrl: method === "REQUEST" ? outlookCalendarUrl(event) : "",
+    downloadUrl,
+  };
+}
+
 export async function prepareInviteIn(
   dbOrTx: DbOrTx,
   row: InviteRow,
@@ -46,6 +100,32 @@ export async function prepareInviteIn(
   options: PrepareOptions = {},
 ): Promise<PreparedInvite | null> {
   if (row.templateKey !== "schedule_assigned" && row.templateKey !== "schedule_changed") return null;
+
+  const now = options.now ?? new Date();
+  const rawCancellationSnapshot = row.calendarCancellationSnapshot ?? null;
+  if (rawCancellationSnapshot !== null) {
+    const cancellation = parseCalendarCancellationSnapshot(rawCancellationSnapshot);
+    assertSnapshotIdentity(cancellation, row);
+    const currentOrganizer = senderAddress(env);
+    if (cancellation.organizerEmail !== currentOrganizer) {
+      log({
+        level: "warn",
+        msg: "calendar.organizer_change_ignored",
+        requestId: row.id,
+        feature: "comms",
+        eventId: row.eventId,
+        code: cancellation.organizerEmail,
+      });
+    }
+    const event = eventFromSnapshot(cancellation, {
+      sequence: cancellation.sequence,
+      icsUid: cancellation.uid,
+      organizerEmail: cancellation.organizerEmail,
+    }, "CANCEL", env, cancellation.cancelledAt);
+    return preparedInvite(event, "CANCEL", "");
+  }
+
+  if (!row.sessionId) return null;
 
   const [record] = await dbOrTx.select({
     title: sessions.title,
@@ -61,6 +141,7 @@ export async function prepareInviteIn(
     eventLocation: events.location,
     eventStartsAt: events.startsAt,
     eventEndsAt: events.endsAt,
+    eventTimezone: events.timezone,
     attendeeEmail: contacts.email,
     attendeeFirstName: contacts.firstName,
     attendeeLastName: contacts.lastName,
@@ -80,10 +161,12 @@ export async function prepareInviteIn(
   if (!record) return null;
 
   const [existing] = await dbOrTx.select({
+    id: calendarInvites.id,
     lastMethod: calendarInvites.lastMethod,
     sequence: calendarInvites.sequence,
     icsUid: calendarInvites.icsUid,
     organizerEmail: calendarInvites.organizerEmail,
+    eventSnapshot: calendarInvites.eventSnapshot,
   })
     .from(calendarInvites)
     .where(and(
@@ -98,29 +181,92 @@ export async function prepareInviteIn(
 
   const currentOrganizer = senderAddress(env);
   const uid = icsUid(row.sessionId, row.contactId, senderDomain(currentOrganizer));
-  let state: { sequence: number; icsUid: string; organizerEmail: string } | undefined;
-  if (method === "CANCEL" && existing?.lastMethod === "cancel") {
-    state = existing;
-  } else {
+  const currentSnapshot: CalendarEventSnapshot = {
+    version: 1,
+    eventId: eventIdSchema.parse(row.eventId),
+    sessionId: sessionIdSchema.parse(row.sessionId),
+    contactId: contactIdSchema.parse(row.contactId),
+    title: record.title,
+    descriptionHtml: record.descriptionHtml,
+    startsAt: record.startsAt ?? record.eventStartsAt,
+    endsAt: record.endsAt ?? record.eventEndsAt,
+    room: record.room,
+    track: record.track,
+    eventName: record.eventName,
+    eventSlug: record.eventSlug,
+    eventLocation: record.eventLocation,
+    eventTimezone: record.eventTimezone,
+    attendeeEmail: record.attendeeEmail,
+    attendeeFirstName: record.attendeeFirstName,
+    attendeeLastName: record.attendeeLastName,
+  };
+  const nextSnapshot = method === "REQUEST"
+    ? currentSnapshot
+    : existing ? parseCalendarEventSnapshot(existing.eventSnapshot) : null;
+  if (!nextSnapshot) return null;
+  assertSnapshotIdentity(nextSnapshot, row);
+  const storedSnapshot = serializeCalendarEventSnapshot(nextSnapshot);
+
+  let state: { sequence: number; icsUid: string; organizerEmail: string; eventSnapshot: unknown } | undefined;
+  if (method === "REQUEST") {
     [state] = await dbOrTx.insert(calendarInvites).values({
       eventId: row.eventId,
       contactId: row.contactId,
       sessionId: row.sessionId,
       icsUid: uid,
       sequence: record.scheduleRevision,
-      lastMethod: method.toLowerCase() as "request" | "cancel",
+      lastMethod: "request",
       organizerEmail: currentOrganizer,
+      eventSnapshot: storedSnapshot,
       lastSentAt: sql`now()`,
     }).onConflictDoUpdate({
       target: [calendarInvites.contactId, calendarInvites.sessionId],
       set: {
-        sequence: sql`GREATEST(${calendarInvites.sequence}, excluded.sequence)
-          + CASE WHEN excluded.last_method = 'cancel' AND ${calendarInvites.sequence} >= excluded.sequence THEN 1 ELSE 0 END`,
+        sequence: sql`GREATEST(${calendarInvites.sequence}, excluded.sequence)`,
         lastMethod: sql`excluded.last_method`,
+        eventSnapshot: sql`excluded.event_snapshot`,
         lastSentAt: sql`now()`,
         updatedAt: sql`now()`,
       },
     }).returning();
+  } else if (existing) {
+    // Preparing the provider payload and persisting its exact retry intent are
+    // one database statement. A failed CANCEL must remain a CANCEL even if the
+    // live session is republished or the speaker is re-added before retry.
+    const result = await dbOrTx.execute<{
+      sequence: number; icsUid: string; organizerEmail: string; eventSnapshot: unknown;
+    }>(sql`
+      WITH state AS (
+        UPDATE calendar_invites SET
+          sequence = CASE
+            WHEN last_method = 'cancel' THEN sequence
+            ELSE greatest(sequence + 1, ${record.scheduleRevision})
+          END,
+          last_method = 'cancel',
+          event_snapshot = ${JSON.stringify(storedSnapshot)}::jsonb,
+          last_sent_at = now(),
+          updated_at = now()
+        WHERE id = ${existing.id}
+          AND event_id = ${row.eventId}
+          AND contact_id = ${row.contactId}
+          AND session_id = ${row.sessionId}
+        RETURNING sequence, ics_uid, organizer_email, event_snapshot
+      ), job AS (
+        INSERT INTO calendar_cancellation_jobs (communication_log_id, snapshot)
+        SELECT ${row.id}, state.event_snapshot || jsonb_build_object(
+          'uid', state.ics_uid,
+          'sequence', state.sequence,
+          'organizerEmail', state.organizer_email,
+          'cancelledAt', ${now.toISOString()}::timestamptz
+        )
+        FROM state
+        ON CONFLICT (communication_log_id) DO UPDATE SET snapshot = excluded.snapshot
+      )
+      SELECT sequence, ics_uid AS "icsUid", organizer_email AS "organizerEmail",
+             event_snapshot AS "eventSnapshot"
+      FROM state
+    `);
+    [state] = result.rows ?? [];
   }
   if (!state) return null;
   if (state.organizerEmail !== currentOrganizer) {
@@ -134,8 +280,8 @@ export async function prepareInviteIn(
     });
   }
 
-  let downloadUrl = options.downloadUrl;
-  if (!downloadUrl) {
+  let downloadUrl = method === "REQUEST" ? options.downloadUrl : "";
+  if (method === "REQUEST" && !downloadUrl) {
     const token = await issuePortalToken(dbOrTx, {
       contactId: contactIdSchema.parse(row.contactId),
       eventId: eventIdSchema.parse(row.eventId),
@@ -145,40 +291,9 @@ export async function prepareInviteIn(
     downloadUrl = `${env.APP_BASE_URL}/cal/${encodeURIComponent(token.raw)}/${encodeURIComponent(row.sessionId)}`;
   }
 
-  const startsAt = record.startsAt ?? record.eventStartsAt;
-  const endsAt = record.endsAt ?? record.eventEndsAt;
-  const portalUrl = `${env.APP_BASE_URL}/portal/${encodeURIComponent(record.eventSlug)}`;
-  const description = [stripHtml(record.descriptionHtml ?? ""), portalUrl].filter(Boolean).join("\n\n");
-  const event: IcsEvent = {
-    uid: state.icsUid,
-    sequence: state.sequence,
-    method,
-    startsAt,
-    endsAt,
-    dtstamp: options.now ?? new Date(),
-    summary: record.title,
-    description,
-    location: [record.room, record.eventLocation].filter(Boolean).join(" · "),
-    url: `${env.APP_BASE_URL}/e/${encodeURIComponent(record.eventSlug)}/schedule?session=${encodeURIComponent(row.sessionId)}`,
-    organizer: { name: record.eventName, email: state.organizerEmail },
-    attendee: {
-      name: `${record.attendeeFirstName} ${record.attendeeLastName}`.trim() || record.attendeeEmail,
-      email: record.attendeeEmail,
-    },
-    cancelled: method === "CANCEL",
-  };
-  return {
-    ics: buildInvite(event),
-    filename: "invite.ics",
-    contentType: `text/calendar; charset=utf-8; method=${method}`,
-    uid: state.icsUid,
-    sequence: state.sequence,
-    method,
-    attendeeEmail: record.attendeeEmail,
-    googleUrl: googleCalendarUrl(event),
-    outlookUrl: outlookCalendarUrl(event),
-    downloadUrl,
-  };
+  const snapshot = parseCalendarEventSnapshot(state.eventSnapshot);
+  const event = eventFromSnapshot(snapshot, state, method, env, now);
+  return preparedInvite(event, method, downloadUrl ?? "");
 }
 
 export async function prepareInvite(row: InviteRow): Promise<PreparedInvite | null> {
