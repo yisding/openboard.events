@@ -22,12 +22,14 @@ const list = defineHandler({
 /** Restore an earlier revision as the session's current content, as a new revision. */
 const restore = defineHandler({
   auth: agendaAuth(),
-  input: z.object({ revisionId: z.uuid() }),
+  // A restore overwrites the title and description a colleague may have edited
+  // a moment ago, so it carries the same version the save and delete paths do.
+  input: z.object({ revisionId: z.uuid(), expectedVersion: z.int().positive() }),
   handler: async ({ eventId, params, input, requestId, session: authSession }) => {
     const { sessionId } = paramsSchema.parse(params);
     const scopedEventId = eventIdSchema.parse(eventId);
     const actorUserId = authSession?.actorId ? userIdSchema.parse(authSession.actorId) : null;
-    const session = await restoreSessionContent(scopedEventId, sessionId, input.revisionId, actorUserId);
+    const session = await restoreSessionContent(scopedEventId, sessionId, input.revisionId, input.expectedVersion, actorUserId);
     // A restore rewrites the title and description the public agenda renders,
     // so a published session's pages are asked back like any other content edit
     // — including the speaker pages, which print the session title beside each

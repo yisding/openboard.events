@@ -111,8 +111,8 @@ export function useSessionMutations(eventId: EventId) {
   // M52 — restore an earlier content revision as the session's current
   // title/description. It changes only the session list.
   const restoreContent = useMutation({
-    mutationFn: ({ id, revisionId }: { id: SessionId; revisionId: string }) =>
-      api(`agenda/sessions/${id}/revisions?eventId=${eventId}`, savedSchema, { method: "POST", body: { revisionId } }),
+    mutationFn: ({ id, revisionId, expectedVersion }: { id: SessionId; revisionId: string; expectedVersion: number }) =>
+      api(`agenda/sessions/${id}/revisions?eventId=${eventId}`, savedSchema, { method: "POST", body: { revisionId, expectedVersion } }),
     onSuccess: refreshSessions,
   });
 
