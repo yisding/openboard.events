@@ -22,7 +22,8 @@ export function nextFlowId(ids: readonly string[], activeId: string, direction: 
  *   previous one (`j`/`k` mirrors the reviewer queue's own existing
  *   shortcut, `ReviewQueueView`'s `n`-to-advance convention's nearest
  *   two-directional analogue).
- * - Escape closes.
+ * - Escape closes, unless an open native <dialog> is already going to raise its
+ *   own close request for the same keystroke.
  *
  * Typing in an input, textarea, select or contenteditable region (the rich
  * text editor a submission's Details panel can hold) is never hijacked —
@@ -48,6 +49,14 @@ export function useFlowKeyboardNav({
       if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
       if (target?.isContentEditable) return;
       if (event.key === "Escape") {
+        // Every overlay this hook drives is a native <dialog>, which raises its
+        // own close request for Escape. Answering the keystroke here as well ran
+        // the caller's `onClose` twice: this listener's state update flushed
+        // before the browser dispatched the close request, so an unsaved-work
+        // confirmation opened *into* that request and was dismissed by the very
+        // keystroke that raised it — Escape looked dead on a dirty drawer while
+        // the Close button worked. The top-most open dialog owns the key.
+        if (document.querySelector("dialog[open]")) return;
         onClose();
         return;
       }

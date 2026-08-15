@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { confirmationStatusSchema, speakerLogisticsFieldTypeSchema, speakerWorkflowStatusSchema } from "./enums";
 import { contactIdSchema, logisticsFieldIdSchema, unavailabilityIdSchema } from "./ids";
+import { LIMITS } from "./limits";
 import { SPEAKER_CSV_FIELDS } from "./speaker-csv-fields";
 
 /**
@@ -25,8 +26,8 @@ export const createSpeakerInputSchema = z.object({
   email: z.string().trim().toLowerCase().pipe(z.email()),
   firstName: optionalText(120),
   lastName: optionalText(120),
-  jobTitle: optionalText(160),
-  company: optionalText(160),
+  jobTitle: optionalText(LIMITS.JOB_TITLE),
+  company: optionalText(LIMITS.JOB_TITLE),
   linkedinUrl: optionalUrl,
   twitterUrl: optionalUrl,
   facebookUrl: optionalUrl,
@@ -40,8 +41,8 @@ export type CreateSpeakerInput = z.infer<typeof createSpeakerInputSchema>;
 export const updateSpeakerProfileInputSchema = z.object({
   firstName: z.string().trim().max(120).optional(),
   lastName: z.string().trim().max(120).optional(),
-  jobTitle: z.string().trim().max(160).nullable().optional(),
-  company: z.string().trim().max(160).nullable().optional(),
+  jobTitle: z.string().trim().max(LIMITS.JOB_TITLE).nullable().optional(),
+  company: z.string().trim().max(LIMITS.JOB_TITLE).nullable().optional(),
   linkedinUrl: z.union([z.url(), z.literal(""), z.null()]).optional(),
   twitterUrl: z.union([z.url(), z.literal(""), z.null()]).optional(),
   facebookUrl: z.union([z.url(), z.literal(""), z.null()]).optional(),

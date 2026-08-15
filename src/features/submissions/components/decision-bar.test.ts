@@ -22,7 +22,7 @@ const ids = {
   draft: submissionIdSchema.parse("e5000000-0000-4000-8000-000000000002"),
 };
 
-function response(data: { changed: string[]; stale: string[] }): Response {
+function response(data: { changed: string[]; stale: string[]; unpublished?: number }): Response {
   return new Response(JSON.stringify({ data }), {
     status: 200,
     headers: { "content-type": "application/json" },
@@ -41,6 +41,13 @@ function conflict(message: string): Response {
     status: 409,
     headers: { "content-type": "application/json" },
   });
+}
+
+function staleStatusConflict(from: SubmissionStatus, to: SubmissionStatus): Response {
+  return new Response(
+    JSON.stringify({ error: { code: "STALE_STATUS", message: `A submission cannot go from ${from} to ${to}`, data: { from, to } } }),
+    { status: 409, headers: { "content-type": "application/json" } },
+  );
 }
 
 function selection() {
@@ -76,6 +83,26 @@ describe("completeBulkDecision", () => {
     );
     expect(sideEffects.onDone).toHaveBeenCalledOnce();
     expect(sideEffects.refresh).toHaveBeenCalledOnce();
+  });
+
+  // The API describes the refused edge with the column's values; the organizer
+  // reads the same words the rows' badges carry.
+  it("retells a refused transition in the table's status vocabulary", async () => {
+    const request = vi.fn()
+      .mockResolvedValueOnce(response({ changed: [ids.pending], stale: [] }))
+      .mockResolvedValueOnce(staleStatusConflict("withdrawn", "decline_queue"));
+    const sideEffects = effects();
+
+    const outcome = await completeBulkDecision({
+      eventId: "event-1",
+      selected: selection(),
+      to: "decline_queue",
+      effects: sideEffects,
+      request,
+    });
+
+    expect(outcome.rejectionMessages).toEqual(["A submission cannot go from \u201CWithdrawn\u201D to \u201CQueued to decline\u201D"]);
+    expect(outcome.rejectionMessages.join()).not.toContain("decline_queue");
   });
 
   it("surfaces a deterministic 409 reason after success without advising a futile retry", async () => {
@@ -189,6 +216,25 @@ describe("completeBulkDecision", () => {
     expect(sideEffects.onDone).toHaveBeenCalledOnce();
     expect(sideEffects.refresh).toHaveBeenCalledOnce();
   });
+
+  // Reversing a decision pulls the promoted talk off the public schedule, which
+  // is invisible from this table — so the toast has to say it.
+  it("reports published sessions the reversal removed from the public schedule", async () => {
+    const request = vi.fn()
+      .mockResolvedValueOnce(response({ changed: [ids.pending], stale: [], unpublished: 2 }));
+    const sideEffects = effects();
+
+    const outcome = await completeBulkDecision({
+      eventId: "event-1",
+      selected: [{ submissionId: ids.pending, status: "pending" as SubmissionStatus }],
+      to: "declined",
+      effects: sideEffects,
+      request,
+    });
+
+    expect(outcome).toMatchObject({ moved: 1, unpublished: 2 });
+    expect(sideEffects.toast).toHaveBeenCalledWith("1 moved · 2 published sessions removed from the public schedule");
+  });
 });
 
 describe("DecisionBar selection scope", () => {
@@ -263,6 +309,7 @@ describe("DecisionEmailPreflight", () => {
         declined: 1,
         emailsQueued: 2,
         skippedNoRecipient: 1,
+        alreadyNotified: 0,
         queueRevision: "accept_queue:one:0",
         samples: [{
           decision: "accepted",
@@ -286,5 +333,29 @@ describe("DecisionEmailPreflight", () => {
     expect(html).toContain("This template is paused");
     expect(html).toContain("You are accepted");
     expect(html).toContain("Links shown in samples are placeholders");
+    expect(html).not.toContain("already had a decision email sent");
+  });
+
+  // Re-deciding after a notification sends a genuinely new email. That is the
+  // product's intent, so the preflight has to say it out loud rather than let
+  // an organizer re-tell a speaker without knowing.
+  it("warns when a queued submission has already had its decision emailed", () => {
+    const html = renderToStaticMarkup(React.createElement(DecisionEmailPreflight, {
+      preview: {
+        accepted: 0,
+        declined: 2,
+        emailsQueued: 2,
+        skippedNoRecipient: 0,
+        alreadyNotified: 1,
+        queueRevision: "decline_queue:one:1",
+        samples: [],
+      },
+      error: "",
+      loading: false,
+      onRetry: () => undefined,
+    }));
+
+    expect(html).toContain("1 queued submission has already had a decision email sent");
+    expect(html).toContain("that speaker a second time");
   });
 });

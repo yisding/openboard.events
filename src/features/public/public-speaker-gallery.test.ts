@@ -78,11 +78,20 @@ describe("PublicSpeakerGallery", () => {
     expect(html).not.toContain("Analytical Engines");
   });
 
-  it("shows the coming-soon empty state with no confirmed speakers", () => {
+  it("shows the coming-soon empty state with no confirmed speakers, and no link to an empty agenda", () => {
     const empty = { ...PUBLISHED_SPEAKERS_FIXTURE, speakers: [] };
     const html = renderToStaticMarkup(React.createElement(PublicSpeakerGallery, { eventSlug: "openboard-summit", speakers: empty }));
 
     expect(html).toContain("Speakers coming soon");
+    expect(html).not.toContain("View the agenda");
+  });
+
+  it("points the empty state at the agenda once the agenda has sessions", () => {
+    const empty = { ...PUBLISHED_SPEAKERS_FIXTURE, speakers: [] };
+    const html = renderToStaticMarkup(React.createElement(PublicSpeakerGallery, { eventSlug: "openboard-summit", speakers: empty, hasSessions: true }));
+
+    expect(html).toContain("View the agenda");
+    expect(html).toContain('href="/e/openboard-summit/agenda"');
   });
 
   it("renders session time and room on the deep-linked speaker's detail panel", () => {

@@ -10,6 +10,8 @@ import { TzTime } from "@/shared/ui/app/tz-time";
 import { Dash } from "@/shared/ui/app/dash";
 import { Button, EmptyState, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { QueryBoundary } from "@/shared/ui/app/query-boundary";
+import { statusBadgeLabel } from "@/shared/ui/status-badge";
+import { templateLabel } from "@/shared/ui/template-label";
 import { useToast } from "@/shared/ui/toast";
 import { useCommLog, useRetryFailedCommunications } from "../hooks/use-comm-log";
 import { canRetryCommunication, type RetryFailedCommunicationsResult } from "../schemas";
@@ -27,10 +29,6 @@ export function retryResultMessage(result: RetryFailedCommunicationsResult): str
   if (result.ineligible > 0) parts.push(`${result.ineligible} no longer eligible`);
   if (result.notFound > 0) parts.push(`${result.notFound} not found in this event`);
   return parts.join(" · ") || "No messages were requeued";
-}
-
-function humanizeKey(key: TemplateKey): string {
-  return key.replaceAll("_", " ");
 }
 
 type CommsLogTableProps = {
@@ -70,18 +68,31 @@ function CommsLogTableInner({ eventId, contactId, contactName, timezone }: Comms
     return all.filter((row) => `${row.recipientName} ${row.recipientEmail}`.toLowerCase().includes(needle));
   }, [query.data, search]);
 
+  // Zero rows behind a filter is not the same state as zero rows at all, and
+  // only one of the two is a dead end without a way back.
+  const filtered = Boolean(status || templateKey || search.trim());
+  function clearFilters() {
+    setStatus("");
+    setTemplateKey("");
+    setSearch("");
+  }
+
+  // `comms-log-col-*` is the handle the ≤1024/≤768 disclosure ladder in
+  // globals.css hides by, the same mechanism the submissions table uses.
+  // Status carries none: it is the column this tab exists to show.
   const columns = useMemo<Array<ColumnDef<CommLogRow, unknown>>>(() => [
     {
       id: "recipient",
       header: "Recipient",
       accessorFn: (row) => row.recipientName,
       cell: ({ row }) => <div className="submission-title-cell"><b>{row.original.recipientName}</b><span>{row.original.recipientEmail}</span></div>,
+      meta: { className: "comms-log-col-recipient" },
     },
-    { id: "templateKey", header: "Template", accessorKey: "templateKey", cell: ({ row }) => <span className="track-chip">{humanizeKey(row.original.templateKey)}</span> },
+    { id: "templateKey", header: "Template", accessorKey: "templateKey", cell: ({ row }) => <span className="track-chip">{templateLabel(row.original.templateKey)}</span>, meta: { className: "comms-log-col-template" } },
     { id: "status", header: "Status", accessorKey: "status", cell: ({ row }) => <StatusBadge value={row.original.status} /> },
-    { id: "providerMessageId", header: "Provider ID", accessorKey: "providerMessageId", cell: ({ row }) => <Dash value={row.original.providerMessageId} /> },
-    { id: "createdAt", header: "Created", accessorKey: "createdAt", cell: ({ row }) => <TzTime instant={row.original.createdAt} tz={timezone} style="date" secondary="time" /> },
-    { id: "sentAt", header: "Sent", accessorKey: "sentAt", cell: ({ row }) => <TzTime instant={row.original.sentAt} tz={timezone} style="date" secondary="time" /> },
+    { id: "providerMessageId", header: "Provider ID", accessorKey: "providerMessageId", cell: ({ row }) => <Dash value={row.original.providerMessageId} />, meta: { className: "comms-log-col-provider" } },
+    { id: "createdAt", header: "Created", accessorKey: "createdAt", cell: ({ row }) => <TzTime instant={row.original.createdAt} tz={timezone} style="date" secondary="time" />, meta: { className: "comms-log-col-created" } },
+    { id: "sentAt", header: "Sent", accessorKey: "sentAt", cell: ({ row }) => <TzTime instant={row.original.sentAt} tz={timezone} style="date" secondary="time" />, meta: { className: "comms-log-col-sent" } },
   ], [timezone]);
 
   async function retrySelected(selectedRows: CommLogRow[]): Promise<void> {
@@ -107,7 +118,7 @@ function CommsLogTableInner({ eventId, contactId, contactName, timezone }: Comms
         getRowId={(row) => row.id}
         enableSelection
         isRowSelectable={canRetryCommunication}
-        getRowLabel={(row) => `${row.recipientName}, ${humanizeKey(row.templateKey)}, ${row.status}`}
+        getRowLabel={(row) => `${row.recipientName}, ${templateLabel(row.templateKey)}, ${statusBadgeLabel(row.status)}`}
         selectionEpoch={selectionEpoch}
         renderSelectionBar={({ selectedRows, countLabel, clearSelection }) => (
           <BulkActionBar
@@ -141,11 +152,11 @@ function CommsLogTableInner({ eventId, contactId, contactName, timezone }: Comms
             )}
             <Select className="filter-button" value={status} onChange={(event) => setStatus(event.target.value as CommStatus | "")} aria-label="Filter by status">
               <option value="">All statuses</option>
-              {STATUSES.map((value) => <option key={value} value={value}>{value}</option>)}
+              {STATUSES.map((value) => <option key={value} value={value}>{statusBadgeLabel(value)}</option>)}
             </Select>
             <Select className="filter-button" value={templateKey} onChange={(event) => setTemplateKey(event.target.value as TemplateKey | "")} aria-label="Filter by template">
               <option value="">All templates</option>
-              {TEMPLATE_KEYS.map((key) => <option key={key} value={key}>{humanizeKey(key)}</option>)}
+              {TEMPLATE_KEYS.map((key) => <option key={key} value={key}>{templateLabel(key)}</option>)}
             </Select>
             {contactId && (
               <Button size="sm" variant="secondary" onClick={() => setSendingTo(true)}><Send size={14} /> Send reminder now</Button>
@@ -155,8 +166,16 @@ function CommsLogTableInner({ eventId, contactId, contactName, timezone }: Comms
         empty={
           <EmptyState
             icon={<Mail size={20} />}
-            title="No emails yet"
-            description="Emails appear here the moment a form is submitted or a decision is sent."
+            title={filtered ? "Nothing matches these filters" : "No emails yet"}
+            description={filtered
+              // Describe the filters rather than assert prior sends: an event
+              // that has never sent anything can reach this state too, and the
+              // recipient search is not rendered on the speaker embed.
+              ? (contactId
+                ? "No message matches the status or template you picked."
+                : "No message matches the status, template, or recipient you picked.")
+              : "Emails appear here the moment a form is submitted or a decision is sent."}
+            {...(filtered ? { action: <Button variant="secondary" onClick={clearFilters}>Clear filters</Button> } : {})}
           />
         }
       />

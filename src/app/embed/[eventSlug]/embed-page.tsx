@@ -9,6 +9,7 @@ import {
   type EmbedOptions,
   type PublicSurface,
 } from "@/features/public/public-event-shell";
+import { asAccentColor } from "@/shared/lib/brand-color";
 import { resolveEmbedOptions } from "./embed-options";
 
 type EmbedContentContext = {
@@ -49,7 +50,7 @@ export async function renderEmbedSurface<Content>({
       <PublicEventShell
         active={active}
         eventSlug={eventSlug}
-        event={{ name: event.name, timezone: event.timezone, accentColor: event.theme }}
+        event={{ name: event.name, timezone: event.timezone, accentColor: asAccentColor(event.theme) }}
         embed
         embedOptions={embedOptions}
       >

@@ -1,13 +1,14 @@
 "use client";
 
 import { History } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { EventId, ScheduledSessionDTO, SessionContentRevisionDTO, SessionId } from "@/shared/contracts";
 import { sessionContentRevisionDtoSchema, sessionIdSchema } from "@/shared/contracts";
 import { z } from "zod";
 import { isAppError, isDefinitiveWriteFailure } from "@/shared/lib/errors";
 import { api } from "@/shared/lib/api-client";
+import { zoneAbbreviation } from "@/shared/lib/time";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
@@ -35,6 +36,29 @@ export type SessionDraft = {
   speakerContactIds: string[];
   status: "draft" | "published";
 };
+
+/**
+ * Change the format, and re-prefill the end time with the new format's default
+ * duration — but only while the draft is still carrying a prefilled one.
+ *
+ * The default duration used to land at exactly one moment: unticking "Leave
+ * unscheduled". Choosing "Workshop" (90 min) after that left a placed session
+ * running the no-format 30 minutes, with nothing on screen saying the format's
+ * own default had been ignored. Comparing the current duration against what the
+ * *previous* format prefilled is what keeps a duration the organizer typed by
+ * hand from being overwritten.
+ */
+export function draftWithFormat(
+  draft: SessionDraft,
+  formatId: string,
+  previousDefaultMs: number,
+  nextDefaultMs: number,
+): SessionDraft {
+  const next = { ...draft, formatId };
+  if (draft.startsAt === null || draft.endsAt === null) return next;
+  if (Date.parse(draft.endsAt) - Date.parse(draft.startsAt) !== previousDefaultMs) return next;
+  return { ...next, endsAt: new Date(Date.parse(draft.startsAt) + nextDefaultMs).toISOString() };
+}
 
 export function isSessionDraftDirty(draft: SessionDraft, original: SessionDraft): boolean {
   return JSON.stringify(draft) !== JSON.stringify(original);
@@ -138,10 +162,11 @@ export function SessionFormDialog({
     setCreationId(session ? null : sessionIdSchema.parse(crypto.randomUUID()));
   }, [identity, open, session]);
 
-  const defaultDurationMs = useMemo(() => {
-    const format = formats.find((candidate) => String(candidate.id) === draft.formatId);
+  const formatDurationMs = useCallback((formatId: string) => {
+    const format = formats.find((candidate) => String(candidate.id) === formatId);
     return (format?.defaultDurationMins ?? 30) * 60_000;
-  }, [formats, draft.formatId]);
+  }, [formats]);
+  const defaultDurationMs = useMemo(() => formatDurationMs(draft.formatId), [formatDurationMs, draft.formatId]);
 
   const scheduled = draft.startsAt !== null;
 
@@ -347,7 +372,15 @@ export function SessionFormDialog({
 
           <div className="form-grid">
             <Field label="Format">
-              <Select value={draft.formatId} onChange={(changed) => setDraft((current) => ({ ...current, formatId: changed.target.value }))}>
+              <Select
+                value={draft.formatId}
+                onChange={(changed) => setDraft((current) => draftWithFormat(
+                  current,
+                  changed.target.value,
+                  formatDurationMs(current.formatId),
+                  formatDurationMs(changed.target.value),
+                ))}
+              >
                 <option value="">No format</option>
                 {formats.map((format) => <option key={String(format.id)} value={String(format.id)}>{format.name}</option>)}
               </Select>
@@ -366,7 +399,12 @@ export function SessionFormDialog({
             </Field>
           </div>
 
-          <Field label="Placement" hint={`Times are in ${event.timezone}.`}>
+          {/* `group`, not a plain label: the control here is a checkbox with its
+              own <label>, and nesting one label inside another is invalid HTML —
+              clicking the word "Placement" toggled the checkbox and the
+              accessible name ran the group label, the option and the hint
+              together. */}
+          <Field label="Placement" group hint={`Times are in ${zoneAbbreviation(draft.startsAt ?? event.startsAt, event.timezone)}.`}>
             <label className="agenda-unscheduled-toggle">
               <input
                 type="checkbox"
@@ -404,7 +442,11 @@ export function SessionFormDialog({
               event: "no contacts yet" with nothing to do about it, so the only
               way on was to abandon a half-filled dialog, create the contact on
               Speakers, and start over. The speaker is now created here. */}
-          <Field label="Speakers" hint="The first one selected is the primary speaker.">
+          {/* `group` for the same reason as Placement above: the control is a
+              list of checkboxes that each own a <label>, and a <label> wrapping
+              them is invalid HTML — it labelled only the first checkbox, with
+              an accessible name built from every *other* speaker's name. */}
+          <Field label="Speakers" group hint="The first one selected is the primary speaker.">
             <div className="agenda-speaker-picker">
               {pickableSpeakers.length === 0 && (
                 <span className="dash">No contacts on this event yet — add the speaker below</span>

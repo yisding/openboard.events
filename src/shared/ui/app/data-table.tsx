@@ -412,7 +412,15 @@ export function DataTable<Row>({
     setActiveSelectionScope("page");
     setRowSelection({});
   };
-  useEffect(() => onSelectionChange?.(selectedRows), [selectedRows, onSelectionChange]);
+  // A ref, not a dependency, for the same reason as `rowsRef` above: a caller
+  // that passes an inline arrow gets a fresh identity on every one of its
+  // renders, so keeping the callback in the dep array would re-notify "the
+  // selection changed" when it did not — stomping any state the caller set from
+  // its own bulk bar (M-fix: the agenda confirm dialog was cleared on the very
+  // render that opened it).
+  const onSelectionChangeRef = useRef(onSelectionChange);
+  onSelectionChangeRef.current = onSelectionChange;
+  useEffect(() => onSelectionChangeRef.current?.(selectedRows), [selectedRows]);
   useEffect(() => {
     const next = selectionAnnouncement(
       previousSelectionCount.current,

@@ -43,4 +43,14 @@ describe("PublicSpeakersList", () => {
 
     expect(html).not.toContain("Computing pioneer");
   });
+
+  it("only offers the agenda from its empty state when the agenda has sessions", () => {
+    const empty = { ...PUBLISHED_SPEAKERS_FIXTURE, speakers: [] };
+    const alone = renderToStaticMarkup(React.createElement(PublicSpeakersList, { eventSlug: "openboard-summit", speakers: empty }));
+    const withAgenda = renderToStaticMarkup(React.createElement(PublicSpeakersList, { eventSlug: "openboard-summit", speakers: empty, hasSessions: true }));
+
+    expect(alone).toContain("Speakers coming soon");
+    expect(alone).not.toContain("View the agenda");
+    expect(withAgenda).toContain("View the agenda");
+  });
 });

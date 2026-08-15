@@ -26,17 +26,23 @@ Object.assign(globalThis, { React, IS_REACT_ACT_ENVIRONMENT: true });
 const chrome: AdminSessionSummary = {
   id: "f0000000-0000-4000-8000-000000000001",
   ipAddress: "1.2.3.4",
-  userAgent: "Chrome on laptop",
+  userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
   createdAt: "2026-08-13T10:00:00.000Z",
   expiresAt: "2026-08-20T10:00:00.000Z",
+  isCurrent: false,
 };
 const firefox: AdminSessionSummary = {
   id: "f0000000-0000-4000-8000-000000000002",
   ipAddress: "5.6.7.8",
-  userAgent: "Firefox on phone",
+  userAgent: "Mozilla/5.0 (Android 15; Mobile; rv:143.0) Gecko/143.0 Firefox/143.0",
   createdAt: "2026-08-12T10:00:00.000Z",
   expiresAt: "2026-08-19T10:00:00.000Z",
+  isCurrent: true,
 };
+// What the panel actually prints for those agents — the raw string is never on
+// screen, because two sign-ins from one browser print it identically.
+const chromeDevice = "Chrome on Mac";
+const firefoxDevice = "Firefox on Android";
 
 let container: HTMLDivElement;
 let root: Root;
@@ -62,7 +68,7 @@ async function renderPanel() {
 
 async function confirmChromeRevoke() {
   const row = [...container.querySelectorAll("tbody tr")]
-    .find((candidate) => candidate.textContent?.includes(chrome.userAgent ?? ""));
+    .find((candidate) => candidate.textContent?.includes(chromeDevice));
   await act(async () => row?.querySelector<HTMLButtonElement>("button")?.click());
   await act(async () => buttonsNamed("Revoke").at(-1)?.click());
   await settle();
@@ -104,8 +110,8 @@ describe("session mutation recovery", () => {
     expect(apiMock.mock.calls[0]?.[2]).toEqual({ method: "DELETE" });
     expect(container.textContent).toContain("Session change unconfirmed");
     expect(container.textContent).toContain("We don’t know whether that session was revoked.");
-    expect(container.textContent).not.toContain(chrome.userAgent);
-    expect(container.textContent).toContain(firefox.userAgent);
+    expect(container.textContent).not.toContain(chromeDevice);
+    expect(container.textContent).toContain(firefoxDevice);
     expect(buttonNamed("Sign out everywhere")?.disabled).toBe(true);
     expect(buttonNamed("Revoke")?.disabled).toBe(true);
 
@@ -122,7 +128,7 @@ describe("session mutation recovery", () => {
     expect(apiMock.mock.calls[1]?.[0]).toBe(apiMock.mock.calls[0]?.[0]);
     expect(apiMock.mock.calls[1]?.[2]).toEqual(apiMock.mock.calls[0]?.[2]);
     expect(container.textContent).not.toContain("Session change unconfirmed");
-    expect(container.textContent).not.toContain(chrome.userAgent);
+    expect(container.textContent).not.toContain(chromeDevice);
     expect(buttonNamed("Sign out everywhere")?.disabled).toBe(false);
   });
 
@@ -138,8 +144,8 @@ describe("session mutation recovery", () => {
 
     expect(apiMock.mock.calls[1]?.slice(0, 1)).toEqual(["me/sessions"]);
     expect(container.textContent).not.toContain("Session change unconfirmed");
-    expect(container.textContent).not.toContain(chrome.userAgent);
-    expect(container.textContent).toContain(firefox.userAgent);
+    expect(container.textContent).not.toContain(chromeDevice);
+    expect(container.textContent).toContain(firefoxDevice);
     expect(toastMock).toHaveBeenLastCalledWith("Sessions checked — that session is not active.");
   });
 
@@ -154,7 +160,7 @@ describe("session mutation recovery", () => {
     await settle();
 
     expect(container.textContent).toContain("Session change unconfirmed");
-    expect(container.textContent).toContain(chrome.userAgent);
+    expect(container.textContent).toContain(chromeDevice);
     expect(buttonNamed("Retry exact revoke")).toBeDefined();
     expect(buttonNamed("Sign out everywhere")?.disabled).toBe(true);
     expect(toastMock).toHaveBeenLastCalledWith(
@@ -196,7 +202,7 @@ describe("session mutation recovery", () => {
     await confirmChromeRevoke();
 
     expect(container.textContent).not.toContain("Session change unconfirmed");
-    expect(container.textContent).toContain(chrome.userAgent);
+    expect(container.textContent).toContain(chromeDevice);
     expect(buttonNamed("Sign out everywhere")?.disabled).toBe(false);
     expect(buttonNamed("Revoke")?.disabled).toBe(false);
     expect(toastMock).toHaveBeenCalledWith("You cannot revoke that session", { kind: "error" });
@@ -208,8 +214,8 @@ describe("session mutation recovery", () => {
     await confirmSignOutEverywhere();
 
     expect(container.textContent).not.toContain("Session change unconfirmed");
-    expect(container.textContent).toContain(chrome.userAgent);
-    expect(container.textContent).toContain(firefox.userAgent);
+    expect(container.textContent).toContain(chromeDevice);
+    expect(container.textContent).toContain(firefoxDevice);
     expect(buttonNamed("Sign out everywhere")?.disabled).toBe(false);
     expect(toastMock).toHaveBeenCalledWith("Sign out everywhere is not allowed", { kind: "error" });
   });
@@ -248,5 +254,36 @@ describe("session mutation recovery", () => {
     expect(apiMock.mock.calls[1]?.[2]).toEqual(apiMock.mock.calls[0]?.[2]);
     expect(routerReplaceMock).toHaveBeenCalledWith("/login");
     expect(toastMock).toHaveBeenLastCalledWith("You’re signed out. Sign in again to continue.");
+  });
+});
+
+describe("identifying which session is which", () => {
+  it("names each device and marks the one doing the reading", async () => {
+    await renderPanel();
+
+    const rows = [...container.querySelectorAll("tbody tr")];
+    expect(rows.map((row) => row.textContent)).toEqual([
+      expect.stringContaining(chromeDevice),
+      expect.stringContaining(firefoxDevice),
+    ]);
+    expect(container.textContent).not.toContain("Mozilla/5.0");
+    expect(rows.filter((row) => row.textContent?.includes("This device")).map((row) => row.textContent))
+      .toEqual([expect.stringContaining(firefoxDevice)]);
+  });
+
+  it("signs the reader out instead of leaving them on a dead page when they revoke their own session", async () => {
+    apiMock.mockResolvedValueOnce({ revoked: true });
+    await renderPanel();
+
+    const row = [...container.querySelectorAll("tbody tr")]
+      .find((candidate) => candidate.textContent?.includes(firefoxDevice));
+    await act(async () => row?.querySelector<HTMLButtonElement>("button")?.click());
+    expect(container.textContent).toContain("This is the device you're using right now.");
+    await act(async () => buttonsNamed("Sign out").at(-1)?.click());
+    await settle();
+
+    expect(apiMock.mock.calls[0]?.[0]).toBe(`me/sessions/${firefox.id}`);
+    expect(routerReplaceMock).toHaveBeenCalledWith("/login");
+    expect(toastMock).toHaveBeenLastCalledWith("Signed out on this device. Sign in again to continue.");
   });
 });

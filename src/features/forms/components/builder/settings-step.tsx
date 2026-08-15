@@ -39,7 +39,7 @@ export function SettingsStep({ event, form, onChange }: {
         <p style={captionStyle}>How many sessions each submitter may have for this form.</p>
         <div className="inline-setting">
           <div>
-            <b>Set Submission Limit</b>
+            <b>Set submission limit</b>
             <small>Overrides the event&apos;s per-user default for this form only.</small>
           </div>
           <Switch

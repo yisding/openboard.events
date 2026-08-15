@@ -26,6 +26,8 @@ type Payload = {
   lastName?: string;
   pronouns?: string;
   gender?: string;
+  jobTitle?: string;
+  company?: string;
   headshotFileId?: string | null;
   linkedinUrl?: string | null;
   twitterUrl?: string | null;
@@ -41,6 +43,8 @@ export type ProfileTextDraft = {
   lastName: string;
   pronouns: string;
   gender: string;
+  jobTitle: string;
+  company: string;
   linkedinUrl: string;
   twitterUrl: string;
   facebookUrl: string;
@@ -56,6 +60,8 @@ export function profileTextDraft(profile: SpeakerProfileDTO): ProfileTextDraft {
     lastName: profile.lastName,
     pronouns: profile.pronouns ?? "",
     gender: profile.gender ?? "",
+    jobTitle: profile.jobTitle ?? "",
+    company: profile.company ?? "",
     linkedinUrl: profile.linkedinUrl ?? "",
     twitterUrl: profile.twitterUrl ?? "",
     facebookUrl: profile.facebookUrl ?? "",
@@ -113,6 +119,8 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
   const [lastName, setLastName] = useState(initialText.lastName);
   const [pronouns, setPronouns] = useState(initialText.pronouns);
   const [gender, setGender] = useState(initialText.gender);
+  const [jobTitle, setJobTitle] = useState(initialText.jobTitle);
+  const [company, setCompany] = useState(initialText.company);
   const [linkedinUrl, setLinkedinUrl] = useState(initialText.linkedinUrl);
   const [twitterUrl, setTwitterUrl] = useState(initialText.twitterUrl);
   const [facebookUrl, setFacebookUrl] = useState(initialText.facebookUrl);
@@ -124,7 +132,7 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const formRef = useRef<HTMLFormElement>(null);
   const currentText: ProfileTextDraft = {
-    bioHtml, salutation, honorific, firstName, lastName, pronouns, gender,
+    bioHtml, salutation, honorific, firstName, lastName, pronouns, gender, jobTitle, company,
     linkedinUrl, twitterUrl, facebookUrl, websiteUrl,
   };
   const dirty = profileTextChanged(currentText, savedText);
@@ -154,6 +162,8 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
       lastName: submittedText.lastName,
       pronouns: submittedText.pronouns,
       gender: submittedText.gender,
+      jobTitle: submittedText.jobTitle,
+      company: submittedText.company,
       linkedinUrl: nullIfBlank(submittedText.linkedinUrl),
       twitterUrl: nullIfBlank(submittedText.twitterUrl),
       facebookUrl: nullIfBlank(submittedText.facebookUrl),
@@ -237,6 +247,12 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
                   <option value="Non-binary" />
                 </datalist>
               </Field>
+              <Field label="Job title" hint="Shown under your name on the public site" hintId="profile-job-title-hint" error={fieldErrors.jobTitle} errorId="profile-job-title-error">
+                <input maxLength={LIMITS.JOB_TITLE} value={jobTitle} onChange={(event) => setJobTitle(event.target.value)} aria-invalid={Boolean(fieldErrors.jobTitle) || undefined} aria-describedby={fieldErrors.jobTitle ? "profile-job-title-error" : "profile-job-title-hint"} placeholder="Principal Engineer" />
+              </Field>
+              <Field label="Company" hint="Shown under your name on the public site" hintId="profile-company-hint" error={fieldErrors.company} errorId="profile-company-error">
+                <input maxLength={LIMITS.JOB_TITLE} value={company} onChange={(event) => setCompany(event.target.value)} aria-invalid={Boolean(fieldErrors.company) || undefined} aria-describedby={fieldErrors.company ? "profile-company-error" : "profile-company-hint"} placeholder="Analytical Engines" />
+              </Field>
             </div>
             <Field label="Biography" hint={`${bioLength} / ${LIMITS.BIO} characters`} hintId="profile-bio-hint" error={bioError} errorId="profile-bio-error">
               <RichTextEditor
@@ -274,6 +290,7 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
             <span className="public-preview-label">PUBLIC PREVIEW</span>
             <Avatar initials={initials} size="xl" {...(headshotUrl ? { imageUrl: headshotUrl } : {})} />
             <h3>{firstName} {lastName}</h3>
+            {(jobTitle || company) && <p>{[jobTitle, company].filter(Boolean).join(" · ")}</p>}
             {pronouns && <p>{pronouns}</p>}
             <small>{bioLength > 0 ? `${plainTextPreview(bioHtml)}…` : "No biography yet."}</small>
           </section>

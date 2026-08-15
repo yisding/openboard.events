@@ -21,7 +21,7 @@ type Step = "loading" | "preview" | "applying" | "done" | "error";
 
 const REASON_COPY: Record<PlacementPreviewDTO["unplaced"][number]["reason"], string> = {
   invalid_duration: "This session has no usable duration — set a format or a duration before placing it.",
-  no_legal_slot: "No conflict-free slot was found.",
+  no_legal_slot: "No slot was free of room and speaker clashes.",
 };
 
 function rejectionSummary(rejections: PlacementPreviewDTO["unplaced"][number]["rejections"]): string | null {
@@ -112,7 +112,7 @@ export function AutoPlaceDialog({ eventId, timezone, open, onClose }: {
       open={open}
       onClose={onClose}
       title="Auto-place unscheduled sessions"
-      description="A deterministic, conflict-safe proposal — nothing is written until you apply it."
+      description="A deterministic proposal that never double-books a room or a speaker — nothing is written until you apply it."
       wide
       footer={
         step === "preview" ? (
@@ -129,7 +129,7 @@ export function AutoPlaceDialog({ eventId, timezone, open, onClose }: {
         ) : undefined
       }
     >
-      {(step === "loading" || step === "applying") && <p className="long-copy">{step === "loading" ? "Finding conflict-safe slots…" : "Applying accepted placements…"}</p>}
+      {(step === "loading" || step === "applying") && <p className="long-copy">{step === "loading" ? "Finding open slots…" : "Applying accepted placements…"}</p>}
 
       {error && <p className="field-error" role="alert">{error}</p>}
 
@@ -138,6 +138,14 @@ export function AutoPlaceDialog({ eventId, timezone, open, onClose }: {
           <p className="long-copy">
             {preview.placed.length} session{preview.placed.length === 1 ? "" : "s"} can be placed · {preview.unplaced.length} could not
           </p>
+          {/* The planner screens room and speaker double-bookings only — track
+              overlap is a warning, not a blocker (see `conflicts.ts`), so it is
+              named here rather than silently introduced. */}
+          {preview.placed.length > 0 && (
+            <p className="long-copy">
+              Two sessions on the same track can still land at the same time. Check the Conflicts tab after applying.
+            </p>
+          )}
 
           {preview.placed.length === 0 && preview.unplaced.length === 0 && <p className="dash">Every session is already on the schedule.</p>}
 

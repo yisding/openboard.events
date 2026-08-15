@@ -38,6 +38,15 @@ const CONSOLE_OWNERS = new Set([
 ]);
 const SQL_EMAIL_COLUMN_EQUALITY = /\b[a-z_][a-z0-9_]*\.email\b\s*\)*\s*=\s*(?:(?:lower|btrim)\s*\(\s*)*\b[a-z_][a-z0-9_]*\.email\b/iu;
 const IDENTITY_TABLE_NAMES = new Set(["contacts", "organizationContacts", "users"]);
+/**
+ * Date methods that format in whatever zone the *viewer's* machine is in, with
+ * whatever format their locale prefers — "8/1/2026, 4:30:15 PM" where the rest
+ * of the product says "Aug 1, 2026" and names the zone. Every rendered time
+ * goes through `TzTime`/`formatInZone` with an explicit timezone instead; see
+ * `src/shared/ui/app/tz-time.tsx`. `toLocaleString` on a number is a thousands
+ * separator, not a time, so only its `new Date(...)` receiver is caught.
+ */
+const VIEWER_LOCAL_TIME_METHODS = new Set(["toLocaleDateString", "toLocaleTimeString"]);
 
 type Violation = {
   line: number;
@@ -151,6 +160,15 @@ function accessName(node: ts.Node): string | null {
     return node.argumentExpression.text;
   }
   return null;
+}
+
+function rendersViewerLocalTime(call: ts.CallExpression): boolean {
+  const called = accessName(call.expression);
+  if (called === null) return false;
+  if (VIEWER_LOCAL_TIME_METHODS.has(called)) return true;
+  if (called !== "toLocaleString") return false;
+  const receiver = unwrapExpression((call.expression as ts.PropertyAccessExpression | ts.ElementAccessExpression).expression);
+  return ts.isNewExpression(receiver) && ts.isIdentifier(receiver.expression) && receiver.expression.text === "Date";
 }
 
 function taggedTemplateText(node: ts.TaggedTemplateExpression): string {
@@ -527,6 +545,15 @@ function inspectFile(absolutePath: string): Violation[] {
         }
       }
 
+      if (
+        !isTestFile
+        && path !== "src/shared/lib/time.ts"
+        && (ts.isPropertyAccessExpression(node.expression) || ts.isElementAccessExpression(node.expression))
+        && rendersViewerLocalTime(node)
+      ) {
+        report(node, "viewer-local-time", "render times through TzTime/formatInZone with an explicit timezone");
+      }
+
       if (ts.isPropertyAccessExpression(node.expression) || ts.isElementAccessExpression(node.expression)) {
         const called = accessName(node.expression);
         if (called === "invalidateQueries") queryInvalidation ??= node;
@@ -670,6 +697,9 @@ function inspectFile(absolutePath: string): Violation[] {
       const inputTypes = jsxAttributeValues("type", node);
       if (inputTypes.includes("date") || inputTypes.includes("datetime-local")) {
         report(node, "native-date", "use the shared date or date-time picker");
+      }
+      if (inputTypes.includes("file") && path !== "src/shared/ui/app/file-upload.tsx") {
+        report(node, "raw-file-input", "use FileUpload or LocalFilePicker instead of a raw file input");
       }
       if (
         node.attributes.properties.some((attribute) => (

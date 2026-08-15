@@ -14,10 +14,24 @@ import type { EventRecord, SpeakerRecord } from "./types";
  */
 export type PortalShellData = { event: EventRecord; speaker: SpeakerRecord; openTaskCount: number };
 
-type PortalContextValue = { event: EventRecord; speaker: SpeakerRecord; openTaskCount: number; impersonated: boolean };
+/** The admin behind an impersonated session, resolved server-side from `impersonatedByUserId`. */
+export type PortalImpersonator = { name: string; email: string };
+
+type PortalContextValue = {
+  event: EventRecord;
+  speaker: SpeakerRecord;
+  openTaskCount: number;
+  impersonated: boolean;
+  impersonator: PortalImpersonator | null;
+};
 const PortalContext = createContext<PortalContextValue | null>(null);
 
-export function PortalProvider({ session, serverShell, children }: { session: PortalSession | null; serverShell: PortalShellData; children: React.ReactNode }) {
+export function PortalProvider({ session, serverShell, impersonator = null, children }: {
+  session: PortalSession | null;
+  serverShell: PortalShellData;
+  impersonator?: PortalImpersonator | null;
+  children: React.ReactNode;
+}) {
   const value: PortalContextValue = {
     event: serverShell.event,
     speaker: serverShell.speaker,
@@ -25,6 +39,7 @@ export function PortalProvider({ session, serverShell, children }: { session: Po
     // Impersonation is a property of the session row an organizer minted, not
     // of anything the browser can set for itself.
     impersonated: session !== null && session.impersonatedByUserId !== null,
+    impersonator,
   };
   return <PortalContext.Provider value={value}>{children}</PortalContext.Provider>;
 }

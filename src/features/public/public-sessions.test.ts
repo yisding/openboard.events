@@ -30,6 +30,19 @@ describe("PublicSessions", () => {
     expect(html).toContain("No sessions match those filters");
   });
 
+  it("searches titles and speakers only — track has its own filter", () => {
+    // The fixture session sits in the "AI Agents" track; its title and speaker
+    // carry neither word pair, so a track-name search must not surface it.
+    const html = renderToStaticMarkup(React.createElement(PublicSessions, {
+      eventSlug: "openboard-summit",
+      schedule: PUBLISHED_SCHEDULE_FIXTURE,
+      initialSearch: "AI Agents",
+    }));
+
+    expect(html).not.toContain("<h3>Agents</h3>");
+    expect(html).toContain("No sessions match those filters");
+  });
+
   it("shows the coming-soon empty state when the event has no published sessions", () => {
     const empty = { ...PUBLISHED_SCHEDULE_FIXTURE, days: [], sessions: [] };
     const html = renderToStaticMarkup(React.createElement(PublicSessions, { eventSlug: "openboard-summit", schedule: empty }));

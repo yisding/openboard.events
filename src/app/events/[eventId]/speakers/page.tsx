@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/features/auth";
+import { getEvent } from "@/features/events";
 import { getSpeakerFilterCounts, listContacts, type ContactFilters } from "@/features/portal";
 import { SpeakersAdminView } from "@/features/portal/components/speakers-admin/speakers-admin-view";
 import { parseSpeakerMissing } from "@/features/portal/speaker-deep-links";
@@ -65,17 +66,22 @@ export default async function Page({
     pageSize: 25,
   };
 
-  const [{ rows, total }, filterCounts] = await Promise.all([
+  // The flow drawer renders task due dates, and every rendered time in the
+  // product is drawn in the *event's* zone — same read the speaker profile
+  // page makes for the same reason.
+  const [{ rows, total }, filterCounts, event] = await Promise.all([
     listContacts(eventId, filters),
     getSpeakerFilterCounts(eventId, {
       ...(filters.q ? { q: filters.q } : {}),
       ...(filters.confirmation ? { confirmation: filters.confirmation } : {}),
     }),
+    getEvent(eventId),
   ]);
 
   return (
     <SpeakersAdminView
       eventId={eventId}
+      timezone={event?.timezone ?? "America/Los_Angeles"}
       rows={rows}
       total={total}
       filterCounts={filterCounts}

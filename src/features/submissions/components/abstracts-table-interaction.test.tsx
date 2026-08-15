@@ -39,6 +39,7 @@ describe("AbstractsTable workflow interaction", () => {
     const onFilter = vi.fn();
     await act(async () => root.render(
       <AbstractsTable
+        eventId="00000000-0000-4000-8000-000000000001"
         rows={[]}
         counts={COUNTS}
         view="decided"
@@ -69,6 +70,7 @@ describe("AbstractsTable workflow interaction", () => {
     const onFilter = vi.fn();
     await act(async () => root.render(
       <AbstractsTable
+        eventId="00000000-0000-4000-8000-000000000001"
         rows={[]}
         counts={COUNTS}
         view="decided"

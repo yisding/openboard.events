@@ -16,8 +16,11 @@ export type SearchResult = {
   id: string;
   /** The primary line — a title, a name. */
   label: string;
-  /** The secondary line — a code, an email, a status. Never required. */
+  /** The secondary line — a code, an email. Never required. */
   sublabel: string | null;
+  /** The row's status as the column holds it, for the rows that have one. The
+   *  palette authors the words for it: this file has no vocabulary of its own. */
+  status: string | null;
   href: string;
 };
 
@@ -43,7 +46,8 @@ function submissionResult(eventId: EventId, row: SubmissionRow): SearchResult {
     type: "submission",
     id: row.id,
     label: row.title || `SESS-${row.code}`,
-    sublabel: `SESS-${row.code} · ${row.status.replace(/_/g, " ")}`,
+    sublabel: `SESS-${row.code}`,
+    status: row.status,
     // The abstracts list reads `submission` as a one-shot "open this drawer"
     // param — the same one `SpeakerFlowDrawer`'s own cross-links already send.
     href: `/events/${eventId}/abstracts?submission=${row.id}`,
@@ -61,6 +65,7 @@ function speakerResult(eventId: EventId, row: ContactRow): SearchResult {
     id: row.id,
     label: speakerName(row),
     sublabel: row.email,
+    status: null,
     // Straight to the full profile, not the list's flow-drawer: the drawer
     // renders from a list row already in memory, and a jump target found by
     // search is very often on a different filter/page than the one open.
@@ -73,7 +78,8 @@ function sessionResult(eventId: EventId, row: SessionRow): SearchResult {
     type: "session",
     id: row.id,
     label: row.title,
-    sublabel: row.status.replace(/_/g, " "),
+    sublabel: null,
+    status: row.status,
     href: `/events/${eventId}/agenda?view=list&session=${row.id}`,
   };
 }

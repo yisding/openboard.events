@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  LIMITS,
   criterionIdSchema,
   criterionKindSchema,
   criterionValueSchema,
@@ -146,7 +147,7 @@ export const reviewInputSchema = z.object({
   submissionId: submissionIdSchema,
   overallScore: z.number().nullable().default(null),
   criterionScores: z.record(criterionIdSchema, z.union([z.number(), criterionValueSchema])).default({}),
-  comment: z.string().trim().max(2000).nullable().default(null),
+  comment: z.string().trim().max(LIMITS.REVIEW_TEXT).nullable().default(null),
 });
 export type ReviewInput = z.infer<typeof reviewInputSchema>;
 

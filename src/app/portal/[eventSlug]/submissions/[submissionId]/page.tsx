@@ -46,6 +46,7 @@ export default async function Page({
       {notice && <p className="portal-note" role="status">{notice}</p>}
       <SubmissionDetail
         submission={submission}
+        eventId={event.id}
         eventSlug={event.slug}
         timezone={event.timezone}
         editable={!("blocked" in editable)}

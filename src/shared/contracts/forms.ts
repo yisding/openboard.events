@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CONDITION_OPS, FIELD_TYPES, FORM_CONTEXTS, reviewVisibilitySchema, type ReviewVisibility } from "./enums";
+import { LIMITS } from "./limits";
 import {
   fieldIdSchema,
   fileIdSchema,
@@ -106,6 +107,21 @@ const formFieldSchema = z.object({
   reviewVisibility: reviewVisibilitySchema.default("identity"),
 });
 export type FormField = z.infer<typeof formFieldSchema>;
+
+/**
+ * The number of characters an answer to this field may actually keep.
+ *
+ * A field's authored `maxChars` is a promise to the speaker, but a field that
+ * `mapsTo` a narrower column cannot keep more than the column holds — a title
+ * authored without a cap would otherwise validate at 500 and reach `title
+ * varchar(255)`, where the only way through is a silent truncation nobody is
+ * told about. Capping here turns that into an ordinary field error, in the
+ * wizard and in the submit pipeline alike.
+ */
+export function fieldMaxChars(field: Pick<FormField, "type" | "maxChars" | "mapsTo">): number {
+  const authored = field.maxChars ?? (field.type === "richtext" ? LIMITS.RICHTEXT : LIMITS.SHORT_TEXT);
+  return field.mapsTo === "submission.title" ? Math.min(authored, LIMITS.TITLE) : authored;
+}
 
 const formSectionSchema = z.object({
   id: sectionIdSchema,

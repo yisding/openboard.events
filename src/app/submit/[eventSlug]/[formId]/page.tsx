@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { requirePortal } from "@/features/auth";
 import { getPublicForm } from "@/features/forms";
 import { CfpSteps } from "@/features/forms/components/cfp-steps";
 import { PublicFormGate } from "@/features/forms/components/public-form-gate";
@@ -21,10 +22,16 @@ export default async function Page({ params }: { params: Promise<{ eventSlug: st
     throw error;
   });
 
+  // The wizard's step lives in client state, so a reload lands back on "Verify
+  // your email" unless the session that step already established is handed down.
+  // A missing, expired or foreign cookie resolves to null and the speaker signs
+  // in as before.
+  const session = await requirePortal(eventSlug).catch(() => null);
+
   return (
     <main className="cfp-container">
       <PublicFormGate data={data}>
-        <CfpSteps data={data} />
+        <CfpSteps data={data} signedInEmail={session?.email ?? null} />
       </PublicFormGate>
     </main>
   );

@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, GripVertical, Wand2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { MAX_BULK_AGENDA_PROMOTIONS, type AcceptedForSchedulingRow, type BulkAgendaPromotionResult, type EventId, type SubmissionId } from "@/shared/contracts";
+import { formatCode } from "@/features/submissions/index.client";
 import { isAppError } from "@/shared/lib/errors";
 import { Button } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
@@ -147,9 +148,9 @@ function PromotionQueue({ eventId, accepted, promotedOnly = false }: {
                     checked={selected.has(String(row.submissionId))}
                     disabled={promoteBatch.isPending || (!selected.has(String(row.submissionId)) && selected.size >= MAX_BULK_AGENDA_PROMOTIONS)}
                     onChange={() => toggle(row.submissionId)}
-                    aria-label={`Select abstract ${row.code}: ${row.title}`}
+                    aria-label={`Select abstract ${formatCode(row.code)}: ${row.title}`}
                   />
-                  <span><small>#{row.code}</small><b>{row.title}</b></span>
+                  <span><small>{formatCode(row.code)}</small><b>{row.title}</b></span>
                 </label>
               ))}
             </div>

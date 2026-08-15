@@ -37,7 +37,7 @@ describe("manual abstract creation recovery", () => {
 
     expect(drawer).toContain("disabled={busy || recoveryRequired}");
     expect(fields).toContain("disabled={disabled}");
-    expect(richText).toContain("editor?.setEditable(!disabled)");
+    expect(richText).toContain("editor?.setEditable(!disabled");
     expect(richText).toContain("aria-disabled={disabled || undefined}");
   });
 });

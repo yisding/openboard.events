@@ -715,7 +715,11 @@ describe("CFP submit, end to end through the server path", () => {
 
   it("persists incomplete draft answers and returns them when the draft is resumed", async () => {
     await pglite.query("DELETE FROM contacts WHERE email='draft-co@example.com'");
-    await upsertDraft(eventId, speaker, formId, 1);
+    // `created` is what the wizard gates its profile prefill on: seeding the
+    // speaker's contact details on a resume would put back a mapped answer they
+    // cleared on purpose, on every reload.
+    const started = await upsertDraft(eventId, speaker, formId, 1);
+    expect(started.created).toBe(true);
     await saveCfpDraft({
       eventId,
       formId,
@@ -737,6 +741,7 @@ describe("CFP submit, end to end through the server path", () => {
     });
 
     const resumed = await upsertDraft(eventId, speaker, formId, 1);
+    expect(resumed.created).toBe(false);
     expect(resumed.answers).toEqual({ [field("title").id]: text("A work in progress") });
     expect(resumed.participants).toHaveLength(1);
     expect(resumed.participants[0]).toMatchObject({ email: "draft-co@example.com", role: "co_speaker", sortOrder: 1 });

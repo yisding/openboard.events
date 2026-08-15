@@ -258,6 +258,21 @@ describe("deriveMappedFields", () => {
     if (result.ok) return;
     expect(result.fieldErrors[TITLE.id]).toContain("255");
   });
+
+  it("rejects an over-long title on a form authored without a character cap", () => {
+    // The silent-truncation route: with no `maxChars` the answer validated
+    // against the 500-character free-text default, then lost 45 characters to
+    // the varchar(255) column with no error and nothing said about it.
+    const snapshot = structuredClone(GOLDEN_SNAPSHOT) as FormSnapshot;
+    const title = snapshot.sections.flatMap((section) => section.fields).find((field) => field.key === "title");
+    if (!title) throw new Error("the golden fixture has no title field");
+    title.maxChars = null;
+
+    const result = runSubmitPipeline(snapshot, { ...completeAnswers(), [TITLE.id]: text("a".repeat(300)) }, { requireRequired: false });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.fieldErrors[TITLE.id]).toBe("Keep this under 255 characters");
+  });
 });
 
 describe("isStructurallyCompatible", () => {

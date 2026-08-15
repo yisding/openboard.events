@@ -20,6 +20,7 @@ import {
   type OrganizationId,
 } from "@/shared/contracts";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
+import { moveRovingTab } from "@/shared/ui/app/roving-tabs";
 import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Avatar, Button, Field, Modal, PageHeader, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
@@ -47,7 +48,8 @@ const ACTIVITY_LABEL: Record<string, string> = {
 
 const updatedSchema = z.object({ updated: z.boolean() });
 
-type Tab = "overview" | "history" | "notes" | "activity";
+const CONTACT_TABS = ["overview", "history", "notes", "activity"] as const;
+type Tab = (typeof CONTACT_TABS)[number];
 
 function nameOf(contact: { firstName: string; lastName: string; email: string }): string {
   return `${contact.firstName} ${contact.lastName}`.trim() || contact.email;
@@ -90,13 +92,21 @@ function MergeSearchDialog({
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<OrganizationContactSummaryDTO[]>([]);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   async function run() {
-    if (!query.trim()) { setResults([]); return; }
+    // Clear the previous failure before the empty-query guard, or "Try again"
+    // on an emptied search box leaves the alert up while doing nothing.
+    setResults([]);
+    setError("");
+    if (!query.trim()) return;
     setBusy(true);
     try {
       const page = await api(`organizations/${organizationId}/crm/contacts?search=${encodeURIComponent(query)}&limit=8`, directoryPageDtoSchema);
       setResults(page.rows.filter((row) => row.id !== excludeId));
+    } catch (caught) {
+      setResults([]);
+      setError(isAppError(caught) ? caught.message : "The directory search did not run.");
     } finally {
       setBusy(false);
     }
@@ -110,13 +120,16 @@ function MergeSearchDialog({
           <input aria-label="Search the directory" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search the directory" autoFocus />
         </form>
         {busy && <p className="long-copy">Searching…</p>}
+        {/* The `!error` guard below is load-bearing: a failed lookup must not
+            claim the directory holds no duplicate. */}
+        {!busy && error && <p className="portal-note" role="alert">{error} <button type="button" className="text-button" onClick={() => void run()}>Try again</button></p>}
         {!busy && results.map((row) => (
           <button key={row.id} type="button" className="speaker-card" style={{ width: "100%", textAlign: "left" }} onClick={() => onPick(row)}>
             <Avatar initials={initialsFor(row)} size="sm" />
             <span className="speaker-card-copy"><b>{nameOf(row)}</b><span>{row.email}</span></span>
           </button>
         ))}
-        {!busy && query && results.length === 0 && <p className="long-copy">No other contact matches that search.</p>}
+        {!busy && !error && query && results.length === 0 && <p className="long-copy">No other contact matches that search.</p>}
       </div>
     </Modal>
   );
@@ -299,14 +312,29 @@ export function ContactDetailView({
         </header>
       </div>
 
-      <div className="drawer-tabs" style={{ marginTop: 16 }} role="tablist">
-        <button type="button" role="tab" aria-selected={tab === "overview"} className={tab === "overview" ? "active" : ""} onClick={() => setTab("overview")}>Overview</button>
-        <button type="button" role="tab" aria-selected={tab === "history"} className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}>History<span>{history.events.length}</span></button>
-        <button type="button" role="tab" aria-selected={tab === "notes"} className={tab === "notes" ? "active" : ""} onClick={() => setTab("notes")}>Notes<span>{history.notes.length}</span></button>
-        <button type="button" role="tab" aria-selected={tab === "activity"} className={tab === "activity" ? "active" : ""} onClick={() => setTab("activity")}>Activity<span>{history.activity.length}</span></button>
+      <div className="drawer-tabs" style={{ marginTop: 16 }} role="tablist" aria-label="Contact sections">
+        {CONTACT_TABS.map((candidate) => (
+          <button
+            key={candidate}
+            id={`crm-contact-tab-${candidate}`}
+            type="button"
+            role="tab"
+            aria-controls="crm-contact-panel"
+            aria-selected={tab === candidate}
+            tabIndex={tab === candidate ? 0 : -1}
+            className={tab === candidate ? "active" : ""}
+            onKeyDown={(event) => moveRovingTab(event, CONTACT_TABS, candidate, setTab)}
+            onClick={() => setTab(candidate)}
+          >
+            {candidate === "overview" ? "Overview"
+              : candidate === "history" ? <>History<span>{history.events.length}</span></>
+                : candidate === "notes" ? <>Notes<span>{history.notes.length}</span></>
+                  : <>Activity<span>{history.activity.length}</span></>}
+          </button>
+        ))}
       </div>
 
-      <div className="drawer-content" style={{ padding: "24px 0" }}>
+      <div id="crm-contact-panel" role="tabpanel" aria-labelledby={`crm-contact-tab-${tab}`} className="drawer-content" style={{ padding: "24px 0" }}>
         {tab === "overview" && (
           <div className="crm-detail-layout">
             <section className="panel settings-section">
@@ -442,13 +470,17 @@ export function ContactDetailView({
         )}
       </div>
 
-      <MergeSearchDialog
-        organizationId={organizationId}
-        excludeId={contact.id}
-        open={mergeSearchOpen}
-        onClose={() => setMergeSearchOpen(false)}
-        onPick={(row) => { setMergeWith(row); setMergeSearchOpen(false); }}
-      />
+      {/* Mounted only while open so a failed search cannot greet the organizer
+          again the next time they open it. */}
+      {mergeSearchOpen && (
+        <MergeSearchDialog
+          organizationId={organizationId}
+          excludeId={contact.id}
+          open
+          onClose={() => setMergeSearchOpen(false)}
+          onPick={(row) => { setMergeWith(row); setMergeSearchOpen(false); }}
+        />
+      )}
       {mergeWith && (
         <MergeWizardDialog
           organizationId={organizationId}

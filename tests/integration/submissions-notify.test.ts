@@ -137,6 +137,29 @@ describe("decide and notify", () => {
     expect(isAppError(error) && error.code).toBe("STALE_STATUS");
   });
 
+  // The unpublished count is the one public consequence the organizer is asked
+  // to trust. Nothing clears `sessions.status` when a decision is reversed, so
+  // the count has to look at where the row came from, not just where it is.
+  it("reports a talk pulled from the public schedule once, not on every later move", async () => {
+    await insert(toAccept, "accepted");
+    await pglite.query(
+      `INSERT INTO sessions(event_id,submission_id,title,slug,status,starts_at,ends_at)
+       VALUES($1,$2,'Proposal 11','proposal-11','published', now(), now() + interval '30 minutes')`,
+      [eventId, toAccept],
+    );
+
+    const reversed = await transitionStatus(eventId, [toAccept], "pending", "accepted");
+    expect(reversed.changed).toEqual([toAccept]);
+    expect(reversed.unpublished).toBe(1);
+
+    // The session row is still 'published'; this move changes nothing publicly.
+    const again = await transitionStatus(eventId, [toAccept], "decline_queue", "pending");
+    expect(again.changed).toEqual([toAccept]);
+    expect(again.unpublished).toBe(0);
+
+    await pglite.query("DELETE FROM sessions WHERE event_id = $1", [eventId]);
+  });
+
   it("finalizes both queues and sends exactly one email each", async () => {
     await insert(toAccept, "accept_queue");
     await insert(toDecline, "decline_queue");
@@ -189,6 +212,7 @@ describe("decide and notify", () => {
       declined: 1,
       emailsQueued: 2,
       skippedNoRecipient: 1,
+      alreadyNotified: 0,
     });
     expect(preview.queueRevision).not.toBe("empty");
     expect(preview.samples.map((sample) => sample.decision)).toEqual(["accepted", "declined"]);
@@ -282,6 +306,21 @@ describe("decide and notify", () => {
     expect(new Set(keys).size).toBe(2);
     expect(keys.some((key) => key.endsWith(":0"))).toBe(true);
     expect(keys.some((key) => key.endsWith(":1"))).toBe(true);
+  });
+
+  // Sending twice is deliberate, so the preflight has to disclose it: an
+  // organizer correcting a mis-decision must know the speaker will be told
+  // again before they press send.
+  it("tells the preflight which queued submissions have already been notified", async () => {
+    await insert(toAccept, "accept_queue");
+    await notifyQueues(eventId);
+    await transitionStatus(eventId, [toAccept], "pending", "accepted");
+    await transitionStatus(eventId, [toAccept], "decline_queue", "pending");
+    await insert(toDecline, "decline_queue");
+
+    const preview = await previewNotifyQueuesIn(tx, eventId);
+
+    expect(preview).toMatchObject({ declined: 2, emailsQueued: 2, alreadyNotified: 1 });
   });
 
   it("auto-confirms an accepted speaker, because there is no confirm button", async () => {

@@ -22,7 +22,9 @@ import { Button, EmptyState, Field, Modal, PageHeader } from "@/shared/ui/ui-kit
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
+import { statusBadgeLabel } from "@/shared/ui/status-badge";
 import { CrmNav } from "./crm-nav";
+import { STAGE_LABEL } from "./pipeline-labels";
 import { CrmBulkEmailDialog } from "./crm-bulk-email-dialog";
 
 const EMPTY_FILTER: CrmSegmentFilter = {};
@@ -167,7 +169,7 @@ function SegmentBuilderModal({ organizationId, tags, events, open, onClose, onCr
           <div className="chip-picker">
             {CRM_PIPELINE_STAGES.map((stage) => (
               <button key={stage} type="button" aria-pressed={filter.pipelineStage?.includes(stage) ?? false} className={filter.pipelineStage?.includes(stage) ? "chip chip--selected" : "chip"} onClick={() => setFilter((current) => ({ ...current, pipelineStage: toggleInArray(current.pipelineStage, stage) }))}>
-                {stage}
+                {STAGE_LABEL[stage]}
               </button>
             ))}
           </div>
@@ -176,7 +178,7 @@ function SegmentBuilderModal({ organizationId, tags, events, open, onClose, onCr
           <div className="chip-picker">
             {CRM_CONTACT_SOURCES.map((source) => (
               <button key={source} type="button" aria-pressed={filter.source?.includes(source) ?? false} className={filter.source?.includes(source) ? "chip chip--selected" : "chip"} onClick={() => setFilter((current) => ({ ...current, source: toggleInArray(current.source, source) }))}>
-                {source.replaceAll("_", " ")}
+                {statusBadgeLabel(source)}
               </button>
             ))}
           </div>

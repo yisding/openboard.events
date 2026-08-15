@@ -40,7 +40,7 @@ describe("AST source invariants", () => {
       "src/shared/lib/env.ts": 'export const value = process["env"].VALUE;',
       "src/shared/lib/log.ts": 'export const log = (entry) => { console["error"](JSON.stringify(entry)); };',
       "src/shared/lib/query-client.ts": 'import { QueryClient } from "@tanstack/react-query"; export const client = new QueryClient();',
-      "src/shared/lib/time.ts": 'export { format } from "date-fns";',
+      "src/shared/lib/time.ts": 'export { format } from "date-fns"; export const count = (total: number) => total.toLocaleString();',
       "src/shared/ui/console-greeting.tsx": 'export const Greeting = () => { console.info("hello"); return null; };',
       "src/shared/server/r2.ts": 'import { AwsClient } from "aws4fetch"; export const FILES = AwsClient;',
       "src/shared/ui/app/query-boundary.tsx": 'import { QueryClientProvider } from "@tanstack/react-query"; export const Boundary = QueryClientProvider;',
@@ -62,12 +62,14 @@ describe("AST source invariants", () => {
         export const env = globalThis.process["env"];
         export const { env: inheritedEnv } = process;
         export const bucket = getCloudflareContext().env["FILES"];
+        export const expires = new Date(row.expiresAt).toLocaleString();
+        export const day = instant.toLocaleDateString();
       `,
     });
 
     const result = check(root);
     expect(result.status).toBe(1);
-    for (const rule of ["time-import", "resend-import", "r2-import", "edge-runtime", "process-env", "r2-binding"]) {
+    for (const rule of ["time-import", "resend-import", "r2-import", "edge-runtime", "process-env", "r2-binding", "viewer-local-time"]) {
       expect(result.stderr).toContain(`[${rule}]`);
     }
   });
@@ -165,6 +167,7 @@ describe("AST source invariants", () => {
           <select />
           <button role={flag ? "switch" : "button"} />
           <input {...{ ...{ type: flag ? "datetime-local" : "text" } }} />
+          <input type="file" accept=".csv" />
           <div {...htmlProps} />
           <span style={{ fontSize: -1 }}>Tiny</span>
         </>;
@@ -173,7 +176,7 @@ describe("AST source invariants", () => {
 
     const result = check(root);
     expect(result.status).toBe(1);
-    for (const rule of ["raw-select", "raw-switch", "native-date", "raw-html", "inline-type-floor"]) {
+    for (const rule of ["raw-select", "raw-switch", "native-date", "raw-file-input", "raw-html", "inline-type-floor"]) {
       expect(result.stderr).toContain(`[${rule}]`);
     }
     expect(result.stderr.match(/\[raw-select\]/gu)).toHaveLength(1);

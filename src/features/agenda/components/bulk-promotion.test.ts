@@ -42,7 +42,10 @@ describe("agenda bulk promotion UI", () => {
     const failedRequest = source.slice(catchStart, source.indexOf("\n  return (", catchStart));
 
     expect(source).toContain('type="checkbox"');
-    expect(source).toContain('aria-label={`Select abstract ${row.code}: ${row.title}`}');
+    // One notation for a submission code everywhere: `formatCode`, never a
+    // tray-local `#${row.code}`, so the tray and the Abstracts table agree.
+    expect(source).toContain('aria-label={`Select abstract ${formatCode(row.code)}: ${row.title}`}');
+    expect(source).toContain("<small>{formatCode(row.code)}</small>");
     expect(source).toContain('aria-pressed={allSelected}');
     expect(source).toContain(': "Select all"');
     expect(source).toContain('`Add ${selectedRows.length}`');

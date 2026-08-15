@@ -155,6 +155,7 @@ describe("Speakers bulk reminder behavior", () => {
   it("resolves selected speakers to exact assignments and clears only after acknowledgement", async () => {
     await act(async () => root.render(<SpeakersAdminView
       eventId={eventId}
+      timezone="America/Los_Angeles"
       rows={[row]}
       total={1}
       filterCounts={{ all: 1, accepted: 1, missingEither: 1, missingBio: 0, missingHeadshot: 1 }}

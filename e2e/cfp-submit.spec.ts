@@ -223,30 +223,19 @@ test.describe("cfp-submit", () => {
         // committed. Submitting on it is a *retry* of that filler by the
         // server's own idempotency rule — `submitCfpForm` replays the committed
         // result before it ever reaches the limit check, and the speaker would
-        // see the filler's SESS code as a success. Restarting the wizard gives
-        // it a fresh draft, which is what a speaker starting a fourth proposal
-        // actually has.
+        // see the filler's SESS code as a success. Restarting the wizard is what
+        // a speaker starting a fourth proposal actually does.
         await page.goto(FORM_PATH);
-        await signInAtAccountStep(page, email);
       });
 
-      await test.step("a fourth submit past the seeded limit shows LIMIT_REACHED, not a 500", async () => {
-        await page.getByLabel("Title").fill(`E2E over the limit ${Date.now()}`);
-        await dropdown(page, "Track").selectOption({ label: "Platforms" });
-        await dropdown(page, "Format").selectOption({ label: "Talk" });
-        await page.getByRole("textbox", { name: "Description", exact: true }).click();
-        await page.keyboard.type("One more than allowed.");
-        await page.getByRole("button", { name: /^continue$/i }).click();
-        await page.getByLabel("First name").fill("E2E");
-        await page.getByLabel("Last name").fill("Speaker");
-        await page.getByRole("button", { name: /^review$/i }).click();
-        await page.getByRole("button", { name: /submit proposal/i }).click();
-
-        // The typed error, rendered as a sentence — not a stack trace, and not
-        // an optimistic success page.
-        const notice = page.locator(".cfp-notice");
-        await expect(notice).toBeVisible();
-        await expect(notice).toHaveText(new RegExp(`limit of ${FORMS.open.limit}`, "i"));
+      await test.step("the limit is stated before the questions, not after them", async () => {
+        // The limit is knowable the moment the speaker is identified, so the
+        // wizard says so up front — a typed sentence and a way onward, rather
+        // than a whole form filled in and refused at the Submit button.
+        await expect(page.getByRole("heading", { name: /used all your submissions/i })).toBeVisible();
+        await expect(page.getByText(new RegExp(`limit of ${FORMS.open.limit}`, "i"))).toBeVisible();
+        await expect(page.getByRole("link", { name: /open your speaker portal/i })).toBeVisible();
+        await expect(page.getByLabel("Title")).toHaveCount(0);
         await expect(page.getByRole("heading", { name: /your proposal is in/i })).toHaveCount(0);
       });
     });
@@ -272,8 +261,11 @@ test.describe("cfp-submit", () => {
         await expect(page.locator(".autosave")).toHaveText(/saved/i, { timeout: 20_000 });
 
         await page.reload();
-        await signInAtAccountStep(page, email);
+        // And the speaker is not sent back through their inbox for them: the
+        // portal session the account step established outlives the reload, so
+        // the wizard resumes on the questions with the draft already restored.
         await expect(page.getByLabel("Title")).toHaveValue(title);
+        await expect(page.getByText(`Signed in as ${email}`)).toBeVisible();
       });
     });
   });

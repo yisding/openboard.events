@@ -1,4 +1,5 @@
 import type { SearchResult } from "@/features/shell/server/search";
+import { STATUS_BADGES, type StatusBadgeValue } from "@/shared/ui/status-badge";
 
 export const COMMAND_PALETTE_SEARCH_ERROR = "Search could not be completed. Check your connection and try again.";
 
@@ -7,6 +8,19 @@ export type CommandPaletteSearchState =
   | { status: "loading"; term: string; results: SearchResult[] }
   | { status: "success"; term: string; results: SearchResult[] }
   | { status: "error"; term: string; results: SearchResult[]; message: string };
+
+/**
+ * The secondary line under a result: what kind of row it is, what identifies
+ * it, and what state it is in. The status arrives as the column holds it, so
+ * the words come from the one authored vocabulary the badges also render —
+ * "Queued to accept", never `accept_queue`.
+ */
+export function searchResultHint(kind: string, result: Pick<SearchResult, "sublabel" | "status">): string {
+  const status = result.status === null
+    ? null
+    : STATUS_BADGES[result.status as StatusBadgeValue]?.label ?? result.status.replace(/_/gu, " ");
+  return [kind, result.sublabel, status].filter(Boolean).join(" · ");
+}
 
 export function idleCommandPaletteSearch(term = ""): CommandPaletteSearchState {
   return { status: "idle", term, results: [] };

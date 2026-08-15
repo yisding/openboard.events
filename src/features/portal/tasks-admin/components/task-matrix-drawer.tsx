@@ -98,7 +98,7 @@ export function TaskMatrixDrawer({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ contactId: row.contactId, submissionId: row.submissionId }),
       }, "That completion could not be reopened");
-      if (!result.ok) { toast(result.message); return; }
+      if (!result.ok) { toast(result.message, { kind: "error" }); return; }
       toast(`${row.contactName}'s completion was reopened`);
       await load();
     } finally {

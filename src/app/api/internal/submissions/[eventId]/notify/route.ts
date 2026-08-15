@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { adminAuth } from "@/features/auth";
 import { dispatchOutbox } from "@/features/comms";
+import { revalidatePublicEvent } from "@/features/public/server/revalidate";
 import { notifyQueues } from "@/features/submissions";
 import { eventIdSchema, userIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
@@ -16,8 +17,14 @@ export const dynamic = "force-dynamic";
 const notify = defineHandler({
   auth: adminAuth({ role: "organizer" }),
   input: z.object({ queueRevision: z.string().min(1).optional() }),
-  handler: async ({ eventId, input, session }) => {
-    const result = await notifyQueues(eventIdSchema.parse(eventId), input.queueRevision, userIdSchema.parse(session?.actorId));
+  handler: async ({ eventId, input, session, requestId }) => {
+    const scopedEventId = eventIdSchema.parse(eventId);
+    const result = await notifyQueues(scopedEventId, input.queueRevision, userIdSchema.parse(session?.actorId));
+    // Finalizing moves submissions in and out of `accepted` and confirms the
+    // accepted speakers, both of which change what the public views carry.
+    if (result.accepted.length > 0 || result.declined.length > 0) {
+      await revalidatePublicEvent(scopedEventId, ["schedule", "speakers"], requestId);
+    }
     // Latency polish on top of the cron, never a substitute for it: the decision
     // is already committed, so the drain runs after the response through
     // waitUntil rather than making an organizer wait on an outbox backlog that

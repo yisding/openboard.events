@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,6 +9,7 @@ import {
   CfpStaleRecovery,
   CfpSubmitFailureNotice,
   abortCfpSubmit,
+  accountEmailError,
   beginCfpSubmit,
   cfpAutosaveDisposition,
   cfpCodeRequestRecovery,
@@ -20,8 +22,10 @@ import {
   createDeferredCfpAutosave,
   focusCfpAccountControl,
   hasIncompleteParticipantEmail,
+  initialCfpStep,
   participantEmail,
   participantFieldIds,
+  prefillProfileAnswers,
   preserveStaleCfpFailure,
   reloadUpdatedCfpForm,
   requiresCfpFormReload,
@@ -209,9 +213,70 @@ describe("CFP validation routing", () => {
     })[fieldId("workshop_duration")]).toBeUndefined();
   });
 
+  it("caps a title question at the column it fills, however the form was authored", () => {
+    const uncapped = structuredClone(GOLDEN_SNAPSHOT);
+    const title = uncapped.sections.flatMap((section) => section.fields).find((field) => field.id === fieldId("title"));
+    if (!title) throw new Error("Missing title field");
+    title.maxChars = null;
+
+    expect(stepFieldErrors(uncapped, ["abstract"], {
+      [fieldId("title")]: { t: "s", v: "x".repeat(256) },
+    })[fieldId("title")]).toBe("Keep this under 255 characters");
+    expect(stepFieldErrors(uncapped, ["abstract"], {
+      [fieldId("title")]: { t: "s", v: "x".repeat(255) },
+    })[fieldId("title")]).toBeUndefined();
+  });
+
+  it("reports a malformed email the way the server does, rather than leaving it to the browser", () => {
+    expect(stepFieldErrors(GOLDEN_SNAPSHOT, ["participant"], {
+      [fieldId("first_name")]: { t: "s", v: "Ada" },
+      [fieldId("last_name")]: { t: "s", v: "Lovelace" },
+      [fieldId("email")]: { t: "s", v: "not-an-email" },
+    })[fieldId("email")]).toBe("Enter a valid email address");
+    expect(accountEmailError("not-an-email")).toBe("Enter a valid email address");
+    expect(accountEmailError(" Ada@Example.com ")).toBe("");
+  });
+
   it("uses the organizer-configured heading for each form step", () => {
     expect(cfpStepHeading(GOLDEN_SNAPSHOT, "submission")).toBe(GOLDEN_SNAPSHOT.sections.find((section) => section.key === "abstract")?.pageHeading);
     expect(cfpStepHeading(GOLDEN_SNAPSHOT, "review")).toBe("Review your submission");
+  });
+});
+
+describe("CFP session resume", () => {
+  it("starts on the questions when the portal session survived the reload", () => {
+    expect(initialCfpStep("ada@openboard.events")).toBe("submission");
+    expect(initialCfpStep(null)).toBe("account");
+    expect(initialCfpStep(undefined)).toBe("account");
+  });
+
+  it("seeds a returning speaker's own details without overwriting their draft", () => {
+    const profile = { firstName: "Ada", lastName: "Lovelace", company: "Analytical Engines", jobTitle: "", bioHtml: "" };
+    const seeded = prefillProfileAnswers(GOLDEN_SNAPSHOT, profile, {
+      [fieldId("last_name")]: { t: "s", v: "Byron" },
+    });
+
+    expect(seeded[fieldId("first_name")]).toEqual({ t: "s", v: "Ada" });
+    expect(seeded[fieldId("company")]).toEqual({ t: "s", v: "Analytical Engines" });
+    // Already answered, and an empty profile column is not an answer.
+    expect(seeded[fieldId("last_name")]).toBeUndefined();
+    expect(seeded[fieldId("job_title")]).toBeUndefined();
+    expect(prefillProfileAnswers(GOLDEN_SNAPSHOT, null, {})).toEqual({});
+  });
+
+  it("seeds the profile only on a draft this call created, and keeps the sign-out out of the resume copy", () => {
+    const source = readFileSync(new URL("./components/cfp-steps.tsx", import.meta.url), "utf8");
+
+    // Resuming re-runs startDraft on every reload, so an ungated prefill would
+    // put back a mapped answer the speaker cleared on purpose.
+    expect(source).toContain("draft.data.created === true");
+    // The limit page replaces the whole wizard, so it carries the identity and
+    // the way off the account itself.
+    expect(source).toMatch(/<h2 id="cfp-limit-heading"[\s\S]{0,600}Use a different email/u);
+    expect(source).toContain("setLimitMessage(null);");
+    // "Restoring your draft…" belongs to the resume path, never to signing out.
+    expect(source).toContain("const [signingOut, setSigningOut] = useState(false);");
+    expect(source).toContain('disabled={busy || signingOut}>{busy ? "Restoring your draft…" : "Continue"}');
   });
 });
 

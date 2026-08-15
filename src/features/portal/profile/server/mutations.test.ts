@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { DbOrTx } from "@/db/client";
 import * as schema from "@/db/schema";
-import { contactIdSchema, eventIdSchema, fileIdSchema, LIMITS } from "@/shared/contracts";
+import { contactIdSchema, eventIdSchema, fileIdSchema, LIMITS, updateSpeakerProfileInputSchema } from "@/shared/contracts";
 import { getSpeakerProfileIn } from "./queries";
 import { profilePatchSchema, updateProfileIn } from "./mutations";
 
@@ -121,11 +121,45 @@ describe("speaker profile", () => {
     expect(after.linkedinUrl).toBe(before.linkedinUrl);
     expect(after.headshotFileId).toBe(before.headshotFileId);
 
-    // And the column this patch never mentioned — company, not part of the
-    // profile DTO at all — still carries the concurrent writer's value; this
-    // call never reverted it to an older whole-row snapshot.
+    // And the column this patch never mentioned still carries the concurrent
+    // writer's value; this call never reverted it to an older whole-row snapshot.
     const row = await pglite.query<{ company: string | null }>("SELECT company FROM contacts WHERE id=$1", [raceContact]);
     expect(row.rows[0]?.company).toBe("Raced Co");
+    expect(after.company).toBe("Raced Co");
+  });
+
+  it("writes the company and job title the public speaker card leads with", async () => {
+    const after = await updateProfileIn(db, eventId, freshContact, { jobTitle: "Principal Engineer", company: "Analytical Engines" });
+    expect(after.jobTitle).toBe("Principal Engineer");
+    expect(after.company).toBe("Analytical Engines");
+
+    const row = await pglite.query<{ job_title: string | null; company: string | null }>(
+      "SELECT job_title, company FROM contacts WHERE id=$1",
+      [freshContact],
+    );
+    expect(row.rows[0]).toMatchObject({ job_title: "Principal Engineer", company: "Analytical Engines" });
+  });
+
+  it("accepts every job title and company an organizer-side writer accepts, so an imported value never locks the form", () => {
+    const atLimit = "x".repeat(LIMITS.JOB_TITLE);
+    expect(updateSpeakerProfileInputSchema.safeParse({ jobTitle: atLimit, company: atLimit }).success).toBe(true);
+    // The form sends both fields on every save, so a cap tighter than the
+    // roster's would reject unrelated edits (a bio, a link) forever after.
+    expect(profilePatchSchema.safeParse({ jobTitle: atLimit, company: atLimit }).success).toBe(true);
+    expect(profilePatchSchema.safeParse({ jobTitle: `${atLimit}x` }).success).toBe(false);
+  });
+
+  it("clearing a job title stores NULL, the same as clearing it from the roster", async () => {
+    await updateProfileIn(db, eventId, freshContact, { jobTitle: "Principal Engineer", company: "Analytical Engines" });
+    const after = await updateProfileIn(db, eventId, freshContact, { jobTitle: "", company: "" });
+    expect(after.jobTitle).toBeNull();
+    expect(after.company).toBeNull();
+
+    const row = await pglite.query<{ job_title: string | null; company: string | null }>(
+      "SELECT job_title, company FROM contacts WHERE id=$1",
+      [freshContact],
+    );
+    expect(row.rows[0]).toMatchObject({ job_title: null, company: null });
   });
 
   it("empty patch is a no-op read, not a write with nothing to set", async () => {

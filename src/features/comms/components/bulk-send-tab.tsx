@@ -39,6 +39,7 @@ import {
   resolvedSpeakerSegmentSchema,
 } from "@/shared/contracts";
 import { Button, Field, Select } from "@/shared/ui/ui-kit";
+import { statusBadgeLabel } from "@/shared/ui/status-badge";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { useToast } from "@/shared/ui/toast";
@@ -71,10 +72,6 @@ export function bulkMessageDraftFingerprint(input: {
     bodyHtml: input.bodyHtml,
     previewSendId: input.previewSendId ?? null,
   });
-}
-
-function humanize(value: string): string {
-  return value.replaceAll("_", " ");
 }
 
 function toggle<T>(set: readonly T[], value: T): T[] {
@@ -645,7 +642,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
               {SPEAKER_WORKFLOW_STATUSES.map((status) => (
                 <label key={status} className="checkbox-row">
                   <input type="checkbox" disabled={sendBlocked} checked={workflowStatus.includes(status)} onChange={() => { invalidateAudience(); setWorkflowStatus((current) => toggle(current, status)); }} />
-                  {humanize(status)}
+                  {statusBadgeLabel(status)}
                 </label>
               ))}
             </div>
@@ -655,7 +652,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
               {CONFIRMATION_STATUSES.map((status) => (
                 <label key={status} className="checkbox-row">
                   <input type="checkbox" disabled={sendBlocked} checked={confirmationStatus.includes(status)} onChange={() => { invalidateAudience(); setConfirmationStatus((current) => toggle(current, status)); }} />
-                  {humanize(status)}
+                  {statusBadgeLabel(status)}
                 </label>
               ))}
             </div>

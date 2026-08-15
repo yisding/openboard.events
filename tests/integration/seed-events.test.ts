@@ -72,4 +72,18 @@ describe("events seed", () => {
       ends_at: eventLocal(ctx.now, 121, "17:00"),
     });
   });
+
+  // A contact row is a row in the admin Speakers list, so staff mirrored onto
+  // the empty event opened it on three unconfirmed speakers to chase — the one
+  // nav item there that never reached its empty state. The demo event still
+  // needs them: its review rounds cannot address a member with no contact.
+  it("keeps the empty event free of the staff contacts the demo event needs", async () => {
+    const staff = async (eventId: string) => (await pglite.query<{ count: number }>(
+      "SELECT count(*)::int AS count FROM contacts WHERE event_id=$1",
+      [eventId],
+    )).rows[0]?.count;
+
+    expect(await staff(SEEDED_EMPTY_EVENT_ID)).toBe(0);
+    expect(await staff(SEEDED_EVENT_ID)).toBeGreaterThan(0);
+  });
 });

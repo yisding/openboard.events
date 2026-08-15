@@ -4,6 +4,7 @@ import { Copy, FlaskConical } from "lucide-react";
 import { useMemo } from "react";
 import type { CommLogId, EventId } from "@/shared/contracts";
 import { Dash } from "@/shared/ui/app/dash";
+import { templateLabel } from "@/shared/ui/template-label";
 import { Button, Drawer, StatusBadge } from "@/shared/ui/ui-kit";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { TzTime } from "@/shared/ui/app/tz-time";
@@ -49,7 +50,7 @@ export function LogDetailSheet({ eventId, logId, timezone, onClose }: { eventId:
           </div>
           <dl>
             <div><dt>Recipient</dt><dd>{detail.recipientName} &lt;{detail.recipientEmail}&gt;</dd></div>
-            <div><dt>Template</dt><dd>{detail.templateKey.replaceAll("_", " ")}</dd></div>
+            <div><dt>Template</dt><dd>{templateLabel(detail.templateKey)}</dd></div>
             <div><dt>Created</dt><dd><TzTime instant={detail.createdAt} tz={timezone} style="dateTime" /></dd></div>
             <div><dt>Sent</dt><dd><TzTime instant={detail.sentAt} tz={timezone} style="dateTime" /></dd></div>
             <div><dt>Provider ID</dt><dd><Dash value={detail.providerMessageId} /></dd></div>
