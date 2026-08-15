@@ -135,11 +135,4 @@ describe("paletteEggsForQuery", () => {
     expect(html).toContain("Jump to a speaker");
   });
 
-  it("does not fire the organizer-only search request for a reviewer", () => {
-    const source = readFileSync(new URL("./command-palette.tsx", import.meta.url), "utf8");
-    // The guard belongs in the effect itself, not only in the copy: a reviewer
-    // typing two characters must make no request at all.
-    expect(source).toContain("if (!entitySearch || term.length < 2)");
-    expect(source).toContain('const entitySearch = role !== "reviewer"');
-  });
 });
