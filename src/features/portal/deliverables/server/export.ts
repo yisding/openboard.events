@@ -21,6 +21,7 @@ import {
   deleteObjects,
   getObjectBytes,
   publishExportAsset,
+  reportStrandedObjects,
   uploadExportPart,
   type MultipartPart,
 } from "@/shared/server/r2";
@@ -522,9 +523,7 @@ export async function pruneExpiredFileExportsIn(dbOrTx: DbOrTx): Promise<{ delet
       DELETE FROM file_assets WHERE id = ANY(${uuidArraySql(resultFileIds)}) RETURNING r2_key
     `);
     const { stranded } = await deleteObjects((keys.rows ?? []).map((row) => row.r2_key));
-    if (stranded.length > 0) {
-      log({ level: "warn", msg: "deliverables.export.object_delete_failed", requestId: "cron", feature: "portal", code: stranded.join(",") });
-    }
+    reportStrandedObjects(stranded, { feature: "portal", requestId: "cron", code: "R2_STRANDED_EXPORT_PRUNE" });
   }
   return { deleted: rows.length };
 }
