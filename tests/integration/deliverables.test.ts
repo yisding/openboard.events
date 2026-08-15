@@ -28,13 +28,18 @@ const exportR2Fake = vi.hoisted(() => ({
   // `result_file_id` foreign key requires one to exist), just not through a
   // real R2 write.
   db: null as DbOrTx | null,
+  /** Optional hook fired on every source read, so a test can interleave a concurrent writer mid-step. */
+  onGetObject: null as null | (() => Promise<void>),
 }));
 
 vi.mock("@/shared/server/r2", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/shared/server/r2")>();
   return {
     ...actual,
-    getObjectBytes: async (key: string) => exportR2Fake.sourceObjects.get(key) ?? null,
+    getObjectBytes: async (key: string) => {
+      await exportR2Fake.onGetObject?.();
+      return exportR2Fake.sourceObjects.get(key) ?? null;
+    },
     deleteObjects: async () => ({ stranded: [] as string[] }),
     beginExportMultipart: async (key: string) => {
       const uploadId = `up-${key}-${exportR2Fake.uploads.size}`;
@@ -455,6 +460,49 @@ describe("M52: the central Files view's deliverable list", () => {
       }
       expect(eocdOffset).toBeGreaterThanOrEqual(0);
       expect(view.getUint16(eocdOffset + 10, true)).toBe(3);
+    });
+
+    it("does not rewind progress a second worker made after stealing this step's lease", async () => {
+      const { createFileExportJobIn, processFileExportJobIn } = await import("@/features/portal/deliverables/server/export");
+      const job = await createFileExportJobIn(
+        db, eventId, null,
+        [
+          { taskId: bigTask, contactId: ada, submissionId: null },
+          { taskId: bigTask, contactId: grace, submissionId: null },
+          { taskId: bigTask, contactId: irene, submissionId: null },
+        ],
+        "none",
+      );
+
+      // A step reads whole objects from R2, so it can outrun its own 25-second
+      // lease. Simulate that: while this step is reading bytes, another worker
+      // re-claims the job and records progress of its own.
+      let stolen = false;
+      exportR2Fake.onGetObject = async () => {
+        if (stolen) return;
+        stolen = true;
+        await pglite.query(
+          `UPDATE file_export_jobs
+           SET export_state = export_state || jsonb_build_object('claimedAt', now(), 'nextIndex', 3)
+           WHERE id = $1`,
+          [job.id],
+        );
+      };
+
+      try {
+        await processFileExportJobIn(db, eventId, job.id);
+      } finally {
+        exportR2Fake.onGetObject = null;
+      }
+
+      const after = await pglite.query<{ export_state: { nextIndex: number } }>(
+        "SELECT export_state FROM file_export_jobs WHERE id = $1", [job.id],
+      );
+      expect(stolen).toBe(true);
+      // The stale step's own `nextIndex` of 2 must not overwrite the newer
+      // worker's 3 — that would re-read files already accounted for and orphan
+      // the multipart parts the newer worker had uploaded.
+      expect(after.rows[0]?.export_state.nextIndex).toBe(3);
     });
 
     it("a single-step job (fits under the part-size target in one call) still completes and needs no second step", async () => {
