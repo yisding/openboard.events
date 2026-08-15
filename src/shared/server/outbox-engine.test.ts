@@ -41,7 +41,14 @@ describe("shared outbox engine", () => {
   });
 
   it("uses bounded concurrency while continuing after row failures", async () => {
-    const rows = Array.from({ length: 7 }, (_, index) => ({ id: index + 1, attempts: index === 1 ? 6 : 1 }));
+    // The exhausted row also carries the delivery error that got it there: the
+    // attempt count alone no longer retires a message, since `attempts` counts
+    // claims and a claim can end without ever reaching the provider.
+    const rows = Array.from({ length: 7 }, (_, index) => ({
+      id: index + 1,
+      attempts: index === 1 ? 6 : 1,
+      error: index === 1 ? "provider unavailable" : null,
+    }));
     const transitions: Array<{ id: number; transition: OutboxFailureTransition }> = [];
     let active = 0;
     let maxActive = 0;
@@ -98,18 +105,44 @@ describe("shared outbox engine", () => {
     ]);
   });
 
+  it("does not retire a message whose attempts were spent on claims that never reached delivery", async () => {
+    // `attempts` is bumped when a row is claimed, so a tick that dies partway
+    // burns the budget of every row it never got to. Retiring on that count
+    // alone would mark a never-delivered message `failed` and null its sealed
+    // payload — an unrecoverable drop. A row that genuinely failed delivery
+    // carries `error`; one that was only ever claimed does not.
+    const transitions: OutboxFailureTransition[] = [];
+    await drainOutbox<{ id: number; attempts: number; error: string | null }>({
+      requestedBudget: 2,
+      claim: async () => [
+        { id: 1, attempts: 9, error: null },
+        { id: 2, attempts: 9, error: "provider unavailable" },
+      ],
+      deliver: async () => { throw new Error("provider unavailable"); },
+      deliveryKey: (row) => String(row.id),
+      isTerminalError: () => false,
+      transitionDelivery: async () => undefined,
+      transitionFailure: async (_row, transition) => { transitions.push(transition); },
+    });
+
+    // Never delivered before: this failure is its first, so it retries.
+    expect(transitions[0]?.outcome).toBe("retried");
+    // Already failed delivery at the cap: retired.
+    expect(transitions[1]?.outcome).toBe("failed");
+  });
+
   it("lets a feature classify permanent errors", async () => {
     const transitionFailure = vi.fn(async () => undefined);
     await drainOutbox({
       requestedBudget: 1,
-      claim: async () => [{ attempts: 1 }],
+      claim: async () => [{ attempts: 1, error: null }],
       deliver: async () => { throw new Error("invalid template"); },
       deliveryKey: () => "recipient",
       isTerminalError: (_row, error) => error instanceof Error && error.message === "invalid template",
       transitionFailure,
     });
     expect(transitionFailure).toHaveBeenCalledWith(
-      { attempts: 1 },
+      { attempts: 1, error: null },
       { outcome: "failed", errorMessage: "invalid template" },
     );
   });
@@ -119,10 +152,10 @@ describe("shared outbox engine", () => {
     const draining = drainOutbox({
       requestedBudget: 4,
       claim: async () => [
-        { id: 1, attempts: 1 },
-        { id: 2, attempts: 1 },
-        { id: 3, attempts: 1 },
-        { id: 4, attempts: 1 },
+        { id: 1, attempts: 1, error: null },
+        { id: 2, attempts: 1, error: null },
+        { id: 3, attempts: 1, error: null },
+        { id: 4, attempts: 1, error: null },
       ],
       concurrency: 2,
       deliver: async (row) => {
