@@ -158,10 +158,13 @@ describe("defineHandler error-tracking seam (PLAN P3-OPS release-gate item 5)", 
 
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ error: { code: "INTERNAL", message: "Unexpected server error" } });
-    expect(spy).toHaveBeenCalledTimes(1);
     const captured = JSON.parse(spy.mock.calls[0]?.[0] as string);
     expect(captured).toMatchObject({ level: "error", msg: "error.captured", code: "INTERNAL", error: "db pool exhausted" });
     expect(captured.stack).toContain("db pool exhausted");
+    // Both halves of one failure belong in the same stream: the capture that
+    // carries the real message and the request line that carries the timing.
+    expect(JSON.parse(spy.mock.calls[1]?.[0] as string)).toMatchObject({ level: "error", msg: "request.failed", code: "INTERNAL" });
+    expect(spy).toHaveBeenCalledTimes(2);
   });
 
   it("captures an AppError explicitly thrown with code INTERNAL, keeping its real message", async () => {
@@ -173,9 +176,9 @@ describe("defineHandler error-tracking seam (PLAN P3-OPS release-gate item 5)", 
     });
     await route(new NextRequest("https://example.test/resource"));
 
-    expect(spy).toHaveBeenCalledTimes(1);
     const captured = JSON.parse(spy.mock.calls[0]?.[0] as string);
     expect(captured.error).toBe("R2 credentials are not configured");
+    expect(spy).toHaveBeenCalledTimes(2);
   });
 
   it("does not capture an expected AppError (VALIDATION/CONFLICT/etc.)", async () => {

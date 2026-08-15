@@ -1,5 +1,5 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import type { LogEntry } from "./log";
+import { errorMessage, log } from "./log";
 import type { OperationalErrorContext } from "@/shared/server/operational-errors";
 
 export type ErrorCaptureContext = OperationalErrorContext;
@@ -20,7 +20,7 @@ export type ErrorCaptureContext = OperationalErrorContext;
  */
 export function captureError(error: unknown, context: ErrorCaptureContext): void {
   const normalized = error instanceof Error ? error : new Error(String(error));
-  const entry: LogEntry = {
+  log({
     level: "error",
     msg: "error.captured",
     requestId: context.requestId,
@@ -28,8 +28,9 @@ export function captureError(error: unknown, context: ErrorCaptureContext): void
     ...(context.eventId ? { eventId: context.eventId } : {}),
     ...(context.code ? { code: context.code } : {}),
     ...(context.route ? { route: context.route } : {}),
-  };
-  console.error(JSON.stringify({ ...entry, error: normalized.message, stack: normalized.stack }));
+    error: normalized.message,
+    ...(normalized.stack ? { stack: normalized.stack } : {}),
+  });
 
   // Next dev/test/build has no request-scoped Cloudflare context and should
   // remain credential-free. A deployed Worker supplies both the environment
@@ -42,14 +43,13 @@ export function captureError(error: unknown, context: ErrorCaptureContext): void
     const persistence = import("@/shared/server/operational-errors")
       .then(({ recordOperationalError }) => recordOperationalError(normalized, context))
       .catch((persistenceError: unknown) => {
-        const failure = persistenceError instanceof Error ? persistenceError : new Error(String(persistenceError));
-        console.error(JSON.stringify({
+        log({
           level: "error",
           msg: "error.persistence_failed",
           requestId: context.requestId,
           feature: "observability",
-          error: failure.message,
-        }));
+          error: errorMessage(persistenceError),
+        });
       });
     ctx.waitUntil(persistence);
   } catch {

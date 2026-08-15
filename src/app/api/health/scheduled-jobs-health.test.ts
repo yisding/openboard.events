@@ -42,9 +42,11 @@ describe("scheduledJobsHealth", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const result = await scheduledJobsHealth(failingSql("relation scheduled_job_heartbeats is missing"), now);
     expect(result).toEqual({ ok: false, error: "scheduled jobs health check failed" });
-    expect(spy).toHaveBeenCalledWith(
-      "scheduled jobs health check failed",
-      "relation scheduled_job_heartbeats is missing",
-    );
+    expect(JSON.parse(spy.mock.calls[0]?.[0] as string)).toMatchObject({
+      level: "error",
+      msg: "health.scheduled_jobs_failed",
+      feature: "observability",
+      error: "relation scheduled_job_heartbeats is missing",
+    });
   });
 });

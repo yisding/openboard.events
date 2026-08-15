@@ -2,6 +2,7 @@
 
 import { AlertTriangle } from "lucide-react";
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { log } from "@/shared/lib/log";
 import { EmptyState } from "@/shared/ui/ui-kit";
 
 /**
@@ -17,7 +18,16 @@ export class TabBoundary extends Component<{ children: ReactNode; name: string }
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error("comms.tab_failed", { tab: this.props.name, error, componentStack: info.componentStack });
+    log({
+      level: "error",
+      msg: "comms.tab_failed",
+      requestId: "client",
+      feature: "comms",
+      code: this.props.name,
+      error: error.message,
+      ...(error.stack ? { stack: error.stack } : {}),
+      ...(info.componentStack ? { componentStack: info.componentStack } : {}),
+    });
   }
 
   render() {

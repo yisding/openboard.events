@@ -38,8 +38,10 @@ describe("AST source invariants", () => {
       "src/app/page.tsx": "export const configured = process.env.NODE_ENV;",
       "src/features/comms/server/send.ts": 'import("resend");',
       "src/shared/lib/env.ts": 'export const value = process["env"].VALUE;',
+      "src/shared/lib/log.ts": 'export const log = (entry) => { console["error"](JSON.stringify(entry)); };',
       "src/shared/lib/query-client.ts": 'import { QueryClient } from "@tanstack/react-query"; export const client = new QueryClient();',
       "src/shared/lib/time.ts": 'export { format } from "date-fns";',
+      "src/shared/ui/console-greeting.tsx": 'export const Greeting = () => { console.info("hello"); return null; };',
       "src/shared/server/r2.ts": 'import { AwsClient } from "aws4fetch"; export const FILES = AwsClient;',
       "src/shared/ui/app/query-boundary.tsx": 'import { QueryClientProvider } from "@tanstack/react-query"; export const Boundary = QueryClientProvider;',
       "src/shared/ui/app/rich-text-view.tsx": "export const View = () => <div dangerouslySetInnerHTML={{ __html: '' }} />;",
@@ -68,6 +70,26 @@ describe("AST source invariants", () => {
     for (const rule of ["time-import", "resend-import", "r2-import", "edge-runtime", "process-env", "r2-binding"]) {
       expect(result.stderr).toContain(`[${rule}]`);
     }
+  });
+
+  it("keeps console writes in the logging module and out of product code", () => {
+    const root = fixture({
+      "src/app/api/health/route.ts": 'export const GET = () => { console.error("health check failed"); };',
+      // A computed method is the shape `log.ts` itself uses, and a bare
+      // reference handed to `.catch` writes to the console without ever
+      // appearing as a `console.x(...)` call.
+      "src/features/example/boundary.tsx": `
+        export const report = (level, error) => console[level](error);
+        export const forward = (promise) => promise.catch(console.error);
+        export const viaGlobal = () => globalThis.console.warn("indirect");
+      `,
+      "src/features/example/boundary.test.ts": 'it("spies", () => { console.log("allowed in tests"); });',
+    });
+
+    const result = check(root);
+    expect(result.status).toBe(1);
+    expect(result.stderr.match(/\[console-owner\]/gu)).toHaveLength(4);
+    expect(result.stderr).not.toContain("boundary.test.ts");
   });
 
   it("rejects syntax-aware JSX and inline style variants without matching strings", () => {

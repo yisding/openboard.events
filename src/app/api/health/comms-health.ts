@@ -1,4 +1,5 @@
 import type { NeonQueryFunction } from "@neondatabase/serverless";
+import { errorMessage, log } from "@/shared/lib/log";
 
 /**
  * M48 — deepens the health probe with outbox observability: how many
@@ -51,10 +52,10 @@ export async function commsHealth(sql: NeonQueryFunction<false, false>): Promise
     // on the wire here is readable by anyone, and this codebase's
     // convention (`defineHandler`'s catch block, `route.ts`'s own outer
     // catch just below this call) never puts internal error text where an
-    // API consumer can read it. `console.error` here matches `route.ts`'s
-    // own catch block rather than the requestId-keyed `captureError`/`log`
-    // pair `defineHandler` uses — this probe has no request to key one to.
-    console.error("comms health check failed", error instanceof Error ? error.message : "unknown error");
+    // API consumer can read it. The probe has no request to key a real
+    // requestId to, so it uses the shared `"health"` sentinel rather than
+    // the `captureError` path `defineHandler` uses.
+    log({ level: "error", msg: "health.comms_failed", requestId: "health", feature: "observability", error: errorMessage(error) });
     return { ok: false, error: "comms health check failed" };
   }
 }

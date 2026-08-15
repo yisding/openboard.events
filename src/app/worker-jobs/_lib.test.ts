@@ -19,7 +19,7 @@ describe("private job adapter", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(recordJobSuccess).mockResolvedValue(undefined);
-    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
   });
 
   it("fails closed without the entrypoint marker", async () => {
@@ -39,6 +39,7 @@ describe("private job adapter", () => {
   });
 
   it("turns implementation failures into privacy-safe responses", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const { POST } = definePrivateJobRoute("cleanup", async () => {
       throw new Error("bucket unreachable");
     });
@@ -55,6 +56,14 @@ describe("private job adapter", () => {
       requestId: expect.stringMatching(/^rpc:/u),
       feature: "jobs",
       code: "cleanup",
+    });
+    // `captureError` has no duration field, so a failed tick's timing only
+    // survives if the route logs it separately.
+    expect(JSON.parse(logged.mock.calls[0]?.[0] as string)).toMatchObject({
+      level: "error",
+      msg: "job.failed",
+      code: "cleanup",
+      durationMs: expect.any(Number),
     });
   });
 });
