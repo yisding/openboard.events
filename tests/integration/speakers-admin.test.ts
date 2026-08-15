@@ -255,6 +255,36 @@ describe("speakers admin (M27) — list, detail and the two contact writes", () 
       const asc = await listContactsIn(db, eventId, { sort: "openTasks", dir: "asc" });
       expect(asc.rows.map((row) => row.contactId)).toEqual([ada, morgan, grace, neverSubmitted]);
     });
+
+    it("pages a name tie deterministically instead of repeating or dropping a contact", async () => {
+      // Two speakers with the same name sort equal on `nameSort`. Without an id
+      // tiebreak the two LIMIT/OFFSET executions are free to order the tie
+      // differently, which puts one contact on both pages and the other on
+      // neither while `total` still counts them both.
+      const twinA = "cc000000-0000-4000-8000-0000000000e1";
+      const twinB = "cc000000-0000-4000-8000-0000000000e2";
+      await pglite.query(
+        "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'twin.a@example.com','John','Smith'),($3,$2,'twin.b@example.com','John','Smith')",
+        [twinA, eventId, twinB],
+      );
+
+      const seen: string[] = [];
+      for (let page = 1; page <= 3; page += 1) {
+        const { rows } = await listContactsIn(db, eventId, { page, pageSize: 2 });
+        seen.push(...rows.map((row) => row.contactId));
+      }
+      expect(new Set(seen).size).toBe(seen.length);
+      expect(seen).toContain(twinA);
+      expect(seen).toContain(twinB);
+      // The tie is resolved by id, so its order is a fact rather than whatever
+      // the planner produced this time. Postgres may or may not exhibit the
+      // instability on any given run, so pinning the contract is what makes
+      // this test able to fail at all.
+      expect(seen.indexOf(twinA)).toBeLessThan(seen.indexOf(twinB));
+      expect(seen.filter((id) => id === twinA || id === twinB)).toEqual([twinA, twinB]);
+
+      await pglite.query("DELETE FROM contacts WHERE id IN ($1,$2)", [twinA, twinB]);
+    });
   });
 
   describe("getSpeakerDetail", () => {

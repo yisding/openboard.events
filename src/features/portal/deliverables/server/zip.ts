@@ -226,10 +226,28 @@ export function uniqueZipNamesFrom(
     const extension = dot > 0 ? item.filename.slice(dot) : "";
     const base = `${zipSafeSegment(stem)}${extension}`;
     const key = safeGroup ? `${safeGroup}/${base}` : base;
-    const count = next[key] ?? 0;
+    const withGroup = (name: string) => (safeGroup ? `${safeGroup}/${name}` : name);
+    // Register the name actually emitted, not just the base it came from, and
+    // keep counting until the candidate is unused. Registering only the base
+    // meant a real filename that already looked like a dedupe suffix collided
+    // with one the dedupe produced: `[deck.pdf, deck.pdf, deck (2).pdf]` yielded
+    // three entries at two distinct paths. `writeZipEntry` writes both at the
+    // identical archive path, an extractor keeps whichever it saw last, and the
+    // job still reports `entry_count: 3` — so an organizer's export is silently
+    // missing a file they selected, with nothing anywhere saying so.
+    let count = next[key] ?? 0;
+    let deduped = count === 0 ? base : `${zipSafeSegment(stem)} (${count + 1})${extension}`;
+    let dedupedKey = withGroup(deduped);
+    while (count > 0 && next[dedupedKey] !== undefined) {
+      count += 1;
+      deduped = `${zipSafeSegment(stem)} (${count + 1})${extension}`;
+      dedupedKey = withGroup(deduped);
+    }
     next[key] = count + 1;
-    const deduped = count === 0 ? base : `${zipSafeSegment(stem)} (${count + 1})${extension}`;
-    return safeGroup ? `${safeGroup}/${deduped}` : deduped;
+    // On a first occurrence the emitted name *is* the base, so the two keys are
+    // the same entry and must not be counted twice.
+    if (dedupedKey !== key) next[dedupedKey] = (next[dedupedKey] ?? 0) + 1;
+    return withGroup(deduped);
   });
   return { names, seen: next };
 }

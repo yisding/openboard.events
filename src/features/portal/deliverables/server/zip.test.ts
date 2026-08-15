@@ -119,6 +119,26 @@ describe("uniqueZipNames", () => {
     expect(names).toEqual(["deck.pdf", "deck (2).pdf"]);
   });
 
+  it("keeps a real filename that already looks like a dedupe suffix distinct from a produced one", () => {
+    // The dedupe used to register only the *base* name, never the name it
+    // emitted, so a genuine `deck (2).pdf` collided with the `deck (2).pdf`
+    // the dedupe invented for the second `deck.pdf`. Both entries were then
+    // written at the identical archive path: an extractor keeps one, the job
+    // still reports three, and a file the organizer selected is silently
+    // missing from their export.
+    const items = [
+      { group: null, filename: "deck.pdf" },
+      { group: null, filename: "deck.pdf" },
+      { group: null, filename: "deck (2).pdf" },
+    ];
+    const names = uniqueZipNames(items);
+    expect(new Set(names).size).toBe(items.length);
+
+    // Order-independent: the real `deck (2).pdf` may arrive first.
+    const reversed = uniqueZipNames([...items].reverse());
+    expect(new Set(reversed).size).toBe(items.length);
+  });
+
   it("strips path separators and leading dots out of a hostile group or filename", () => {
     const names = uniqueZipNames([{ group: "../../etc", filename: "../../passwd.txt" }]);
     expect(names[0]).not.toContain("..");
@@ -142,6 +162,17 @@ describe("uniqueZipNamesFrom", () => {
       { group: "Ada Lovelace", filename: "deck.pdf" },
       { group: "Grace Hopper", filename: "deck.pdf" },
     ]));
+  });
+
+  it("keeps produced and real dedupe-suffixed names distinct across a batch split too", () => {
+    // Same collision, but with the colliding pair in different processing
+    // steps — the case the persisted `seen` state exists for.
+    const first = uniqueZipNamesFrom({}, [
+      { group: null, filename: "deck.pdf" },
+      { group: null, filename: "deck.pdf" },
+    ]);
+    const second = uniqueZipNamesFrom(first.seen, [{ group: null, filename: "deck (2).pdf" }]);
+    expect(new Set([...first.names, ...second.names]).size).toBe(3);
   });
 
   it("an empty batch just passes `seen` through unchanged", () => {
