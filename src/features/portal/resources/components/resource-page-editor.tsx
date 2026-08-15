@@ -8,6 +8,7 @@ import { Button, Field, Modal, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
 import { slugify } from "@/shared/lib/slug";
+import { readFieldErrors } from "@/shared/lib/api-client";
 import type { ResourcePageDTO } from "../server/queries";
 
 export type ResourcePageDraft = {
@@ -158,7 +159,7 @@ export function ResourcePageEditor({
         return;
       }
       if (!response.ok) {
-        const nextFieldErrors = payload?.error?.fieldErrors ?? payload?.error?.data?.fieldErrors ?? {};
+        const nextFieldErrors = readFieldErrors(payload?.error) ?? {};
         setFieldErrors(nextFieldErrors);
         if (Object.keys(nextFieldErrors).length > 0) focusResourceFieldError(formRef.current);
         toast(payload?.error?.message ?? "That page could not be saved", { kind: "error" });
