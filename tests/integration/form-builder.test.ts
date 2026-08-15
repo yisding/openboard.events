@@ -8,6 +8,7 @@ import {
   createFieldIn,
   createFormIn,
   deleteFieldIn,
+  duplicateFormIn,
   getFormForBuilderIn,
   listFormsIn,
   reorderFieldsIn,
@@ -370,5 +371,136 @@ describe("database-backed form builder", () => {
       expect(withField.sections.flatMap((section) => section.fields)).toHaveLength(1);
       expect(withField.currentVersion).toBe(3);
     });
+  });
+
+  it("carries the per-speaker submission limit into a duplicate", async () => {
+    const source = await createFormIn(database, eventId, { internalName: "Capped CFP", kind: "abstract", collectParticipants: false });
+    const capped = await updateFormIn(database, eventId, source.id, { submissionLimit: 1 }, source.updatedAt);
+    expect(capped.submissionLimit).toBe(1);
+
+    // The copy dropped it, and `public-form.ts` then falls back to the
+    // event-wide `submissionCapPerUser` — so a form limited to one proposal
+    // per speaker duplicated into one accepting the event default. It is a
+    // setting, not part of the submissions/analytics trail the copy is
+    // documented as leaving behind.
+    const copy = await duplicateFormIn(database, eventId, source.id);
+    expect(copy.submissionLimit).toBe(1);
+  });
+
+  it("keeps a track-mapped question editable after its track is renamed", async () => {
+    const source = await createFormIn(database, eventId, { internalName: "Mapped CFP", kind: "abstract", collectParticipants: false });
+    // The seeded CFP already carries the one track-mapped question a form is
+    // allowed (`assertUniqueMapsTo`), which is the field this is about.
+    let form = source;
+    const trackField = required(
+      form.sections.flatMap((s) => s.fields).find((field) => field.mapsTo === "submission.track_id"),
+      "track field",
+    );
+    expect(trackField.options.map((option) => option.label)).toContain("AI Agents");
+
+    await pglite.query("UPDATE tracks SET name='AI & ML' WHERE event_id=$1 AND name='AI Agents'", [eventId]);
+
+    // Nothing propagates a rename into `form_fields.options[].label`, and
+    // `updateFieldIn` re-runs the mapped-option reconcile on *every* patch to
+    // this field — with the stale stored labels, since the patch does not
+    // touch options. Resolving by label alone made this throw
+    // `"AI Agents" is not an event track`, permanently: the question could
+    // never be saved again until every label was retyped by hand.
+    form = await updateFieldIn(database, eventId, source.id, trackField.id, { helpText: "Pick one" }, form.updatedAt);
+
+    const healed = required(form.sections.flatMap((s) => s.fields).find((field) => field.id === trackField.id), "track field");
+    expect(healed.helpText).toBe("Pick one");
+    // The stored label follows the rename rather than staying stale.
+    expect(healed.options.map((option) => option.label)).toContain("AI & ML");
+    expect(healed.options.map((option) => option.label)).not.toContain("AI Agents");
+
+    await pglite.query("UPDATE tracks SET name='AI Agents' WHERE event_id=$1 AND name='AI & ML'", [eventId]);
+  });
+
+  it("re-points a duplicated form's conditional rules at the copy's own fields", async () => {
+    const source = await createFormIn(database, eventId, { internalName: "Conditional CFP", kind: "abstract", collectParticipants: false });
+    const section = required(source.sections[0], "abstract section");
+    let form = await createFieldIn(
+      database, eventId, source.id,
+      { sectionId: section.id, label: "Delivery style", fieldType: "dropdown" },
+      source.updatedAt,
+    );
+    const format = required(form.sections.flatMap((s) => s.fields).find((field) => field.label === "Delivery style"), "format field");
+    form = await updateFieldIn(database, eventId, source.id, format.id, { optionLabels: ["Talk", "Workshop"] }, form.updatedAt);
+    const workshop = required(
+      required(form.sections.flatMap((s) => s.fields).find((field) => field.id === format.id), "format field").options[1],
+      "workshop option",
+    );
+    form = await createFieldIn(
+      database, eventId, source.id,
+      { sectionId: section.id, label: "Workshop duration", fieldType: "text" },
+      form.updatedAt,
+    );
+    const duration = required(form.sections.flatMap((s) => s.fields).find((field) => field.label === "Workshop duration"), "duration field");
+    form = await updateFieldIn(
+      database, eventId, source.id, duration.id,
+      { visibility: { match: "all", conditions: [{ sourceFieldId: format.id, op: "eq", value: workshop.id }] } },
+      form.updatedAt,
+    );
+
+    // Duplication is the escape hatch the product itself points organizers at
+    // once a form has submissions ("Duplicate it to change its structure"), so
+    // it has to survive the feature that most needs it.
+    const copy = await duplicateFormIn(database, eventId, source.id);
+
+    const copiedFields = copy.sections.flatMap((s) => s.fields);
+    const copiedFormat = required(copiedFields.find((field) => field.label === "Delivery style"), "copied format field");
+    const copiedDuration = required(copiedFields.find((field) => field.label === "Workshop duration"), "copied duration field");
+    expect(copiedFormat.id).not.toBe(format.id);
+    // The rule must name the copy's own field, not the source form's.
+    expect(copiedDuration.visibility?.conditions[0]?.sourceFieldId).toBe(copiedFormat.id);
+    expect(copiedDuration.visibility?.conditions[0]?.sourceFieldId).not.toBe(format.id);
+
+    // And the copy must be usable: the snapshot compiles and resolves the rule.
+    const stored = await pglite.query<{ snapshot: unknown }>(
+      "SELECT snapshot FROM form_versions WHERE form_id=$1 AND version=1", [copy.id],
+    );
+    const snapshot = formSnapshotSchema.parse(stored.rows[0]?.snapshot);
+    const snapshotDuration = required(
+      snapshot.sections.flatMap((s) => s.fields).find((field) => field.label === "Workshop duration"),
+      "snapshot duration field",
+    );
+    expect(snapshotDuration.visibility?.conditions[0]?.sourceFieldId).toBe(copiedDuration.visibility?.conditions[0]?.sourceFieldId);
+  });
+
+  it("keeps the portal link in a saved confirmation email body", async () => {
+    // The stored body is what is re-rendered at send time. `sanitize()` drops
+    // any href that is not http(s)/mailto — which is every merge token — so a
+    // confirmation edited in the builder reached speakers with a dead "Open
+    // your speaker portal", exactly the link the shipped default is built on.
+    const formId = required((await listFormsIn(database, eventId))[0], "created form").id;
+    const form = await getFormForBuilderIn(database, eventId, formId);
+    const saved = await updateFormIn(database, eventId, formId, {
+      confirmationBodyHtml: '<p>Thanks! <a href="{{portal.magic_link}}">Open your speaker portal</a></p>',
+    }, form.updatedAt);
+
+    expect(saved.confirmationBodyHtml).toContain('href="{{portal.magic_link}}"');
+  });
+
+  it("gives a field added after a delete a position of its own", async () => {
+    const source = await createFormIn(database, eventId, { internalName: "Sort order CFP", kind: "abstract", collectParticipants: false });
+    const section = required(source.sections[0], "abstract section");
+    let form = source;
+    for (const label of ["First", "Second", "Third"]) {
+      form = await createFieldIn(database, eventId, source.id, { sectionId: section.id, label, fieldType: "text" }, form.updatedAt);
+    }
+    const fields = () => form.sections.flatMap((candidate) => candidate.fields).filter((field) => field.sectionId === section.id);
+    const second = required(fields().find((field) => field.label === "Second"), "second field");
+
+    // Soft delete leaves the row and its sort_order behind, so deriving the new
+    // position from the *count* of live fields reuses one that is still taken.
+    form = await deleteFieldIn(database, eventId, source.id, second.id, form.updatedAt);
+    form = await createFieldIn(database, eventId, source.id, { sectionId: section.id, label: "Fourth", fieldType: "text" }, form.updatedAt);
+
+    const orders = fields().map((field) => field.sortOrder);
+    expect(new Set(orders).size).toBe(orders.length);
+    const fourth = required(fields().find((field) => field.label === "Fourth"), "fourth field");
+    const third = required(fields().find((field) => field.label === "Third"), "third field");
+    expect(fourth.sortOrder).toBeGreaterThan(third.sortOrder);
   });
 });

@@ -46,6 +46,23 @@ describe("speaker roster responsive forms", () => {
     expect(mobile).toContain(`${responsiveSelector}{grid-template-columns:1fr}`);
   });
 
+  it("hangs the roster column ladder on classes the live table actually stamps", () => {
+    const view = readFileSync(new URL("./speakers-admin-view.tsx", import.meta.url), "utf8");
+    const stages = [
+      { query: "@media (max-width: 1024px)", columnClass: "speakers-col-submissions" },
+      { query: "@media (max-width: 768px)", columnClass: "speakers-col-missing" },
+    ];
+
+    for (const { query, columnClass } of stages) {
+      expect(view).toContain(`meta: { className: "${columnClass}" }`);
+      expect(mediaBlockContaining(css, query, `.data-table td.${columnClass}`)).toContain("display: none");
+    }
+    // The nth-child ladder these replaced was scoped to `.speakers-table`, a
+    // hand-rolled demo table deleted in 25e56a13 — every rule went inert with
+    // it and no column hid at any width.
+    expect(css).not.toContain(".speakers-table");
+  });
+
   it("fits status controls into the speaker detail panel on phones", () => {
     const mobile = mediaBlockContaining(css, "@media(max-width:768px)", ".confirmation-options{");
     const narrow = mediaBlockContaining(css, "@media(max-width:340px)", ".confirmation-options{");

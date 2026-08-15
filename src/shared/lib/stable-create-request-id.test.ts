@@ -82,7 +82,7 @@ describe("stable create request ids", () => {
 
     expect(eventSource.match(/createRequestId\.current\.reset\(\)/gu)).toHaveLength(1);
     expect(eventSource.indexOf("createRequestId.current.reset()")).toBeGreaterThan(eventSource.indexOf('await api("events"'));
-    expect(eventSource).toContain("setRecoveryRequired(eventCreateOutcomeUnknown(caught))");
+    expect(eventSource).toContain("setRecoveryRequired(!isDefinitiveWriteFailure(caught))");
     expect(eventSource.match(/disabled=\{saving \|\| recoveryRequired\}/gu)?.length).toBeGreaterThanOrEqual(8);
     expect(eventSource).toContain("Retry event creation");
 

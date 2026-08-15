@@ -1,6 +1,7 @@
 import { sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
+import { isUniqueViolation } from "@/db/errors";
 import {
   contactIdSchema,
   formatIdSchema,
@@ -107,31 +108,40 @@ export type MoveSessionInput = z.infer<typeof moveSessionInputSchema>;
 const STALE_MESSAGE = "Session changed since you loaded it — refresh and try again";
 
 /**
- * `enqueueEmail` is typed against `TxDb` because most of its callers are audited
- * transactions. `saveSession`'s publish path is deliberately not one — the same
- * accommodation the reminder scan makes, and for the same reason: the outbox
- * insert is a single statement either way.
+ * A session may not *become* published without a time.
+ *
+ * `published_sessions_v` filters on `starts_at IS NOT NULL`, so such a row is
+ * on no public surface; `schedule_revision` never leaves 0, so `notifySchedule`
+ * mails nobody. The List view badges it "Published" and the dialog's own option
+ * reads "Published — visible and speakers notified", which is then true of
+ * neither. `setSessionsPublished` already refuses exactly this in SQL, calling
+ * the predicate "the final defense against ever writing a
+ * published-but-publicly-invisible row" — the dialog simply reaches a different
+ * write path.
+ *
+ * Leaving an already-published session is a different act and stays allowed:
+ * dragging one back to the tray is a supported operation, and `notifySchedule`
+ * tells every speaker their calendar item is cancelled.
  */
-function asOutboxWriter(dbOrTx: DbOrTx): TxDb {
-  return dbOrTx as TxDb;
+function assertPublishable(
+  priorStatus: SessionStatus | null,
+  next: { status: SessionStatus; startsAt: string | null },
+): void {
+  if (next.status !== "published" || next.startsAt !== null) return;
+  if (priorStatus === "published") return;
+  throw new AppError(
+    "VALIDATION",
+    "Schedule this session before publishing it, or save it as a draft",
+    undefined,
+    { startsAt: "Schedule this session before publishing it, or save it as a draft" },
+  );
 }
+
 
 /** A bound `uuid[]`, built element by element so no id is ever pasted into SQL. */
 function uuidArraySql(ids: readonly string[]): SQL {
   if (ids.length === 0) return sql`'{}'::uuid[]`;
   return sql`ARRAY[${sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `)}]`;
-}
-
-function isUniqueViolation(error: unknown): boolean {
-  if (typeof error !== "object" || error === null) return false;
-  const code = (error as { code?: unknown }).code;
-  if (code === "23505") return true;
-  const cause = error instanceof Error ? error.cause : undefined;
-  const causeCode = typeof cause === "object" && cause !== null ? (cause as { code?: unknown }).code : undefined;
-  if (causeCode === "23505") return true;
-  const message = error instanceof Error ? error.message : "";
-  const causeMessage = cause instanceof Error ? cause.message : "";
-  return /duplicate key value|unique constraint/i.test(`${message} ${causeMessage}`);
 }
 
 /** Deduped, order-preserving: the PK is `(session_id, contact_id)`, so a repeat in the array must not reach the database twice. */
@@ -263,7 +273,7 @@ export async function notifySchedule(
   // calendar item the recipient already has.
   const templateKey: TemplateKey = isScheduled && !wasScheduled ? "schedule_assigned" : "schedule_changed";
   for (const contactId of recipients) {
-    await enqueueEmail(asOutboxWriter(dbOrTx), {
+    await enqueueEmail(dbOrTx, {
       eventId,
       templateKey,
       contactId,
@@ -296,7 +306,7 @@ async function notifyAddedSpeakers(
 ): Promise<number> {
   if (next.status !== "published" || next.startsAt === null) return 0;
   for (const contactId of added) {
-    await enqueueEmail(asOutboxWriter(dbOrTx), {
+    await enqueueEmail(dbOrTx, {
       eventId,
       templateKey: "schedule_assigned",
       contactId,
@@ -319,7 +329,7 @@ async function notifyRemovedSpeakers(
   if (prior.status !== "published" || prior.startsAt === null) return 0;
   if (next.scheduleRevision <= prior.scheduleRevision) return 0;
   for (const contactId of removed) {
-    await enqueueEmail(asOutboxWriter(dbOrTx), {
+    await enqueueEmail(dbOrTx, {
       eventId,
       templateKey: "schedule_changed",
       contactId,
@@ -508,6 +518,7 @@ export async function saveSessionIn(
     // replay is proof of an already committed operation and must be recovered
     // above even if the event was narrowed after that commit.
     await assertWithinEventBounds(dbOrTx, eventId, input.startsAt, input.endsAt);
+    assertPublishable(null, input);
     const base = slugify(input.title) || "session";
     // Retry on the constraint rather than pre-checking: a pre-check races, the
     // unique index does not. This is why `saveSession` runs on the autocommitting
@@ -575,6 +586,7 @@ export async function saveSessionIn(
   `);
   const prior = (before.rows ?? [])[0];
   if (!prior) throw new AppError("NOT_FOUND", "Session not found");
+  assertPublishable(prior.status, input);
   const priorSpeakers = new Set((prior.speaker_ids ?? []) as ContactId[]);
   const speakerSetChanged = speakers.length !== priorSpeakers.size
     || speakers.some((contactId) => !priorSpeakers.has(contactId));
@@ -725,36 +737,59 @@ export async function restoreSessionContentIn(
   eventId: EventId,
   sessionId: SessionId,
   revisionId: string,
+  expectedVersion: number,
   actorUserId: UserId | null,
 ): Promise<ScheduledSessionDTO> {
   const result = await dbOrTx.execute<SessionRowShape>(sql`
     WITH source AS (
       SELECT title, description_html FROM session_content_revisions
       WHERE id = ${revisionId} AND event_id = ${eventId} AND session_id = ${sessionId}
-    ), new_revision AS (
-      INSERT INTO session_content_revisions (event_id, session_id, title, description_html, edited_by_user_id, restored_from_revision_id)
-      SELECT ${eventId}, ${sessionId}, source.title, source.description_html, ${actorUserId}, ${revisionId}
-      FROM source
-      RETURNING title, description_html
     ), updated AS (
       UPDATE sessions SET
-        title = new_revision.title,
-        description_html = new_revision.description_html,
+        title = source.title,
+        description_html = source.description_html,
         row_version = sessions.row_version + 1,
         schedule_revision = sessions.schedule_revision + CASE
           WHEN sessions.status::text = 'published' AND sessions.starts_at IS NOT NULL
-           AND (sessions.title IS DISTINCT FROM new_revision.title
-                OR sessions.description_html IS DISTINCT FROM new_revision.description_html)
+           AND (sessions.title IS DISTINCT FROM source.title
+                OR sessions.description_html IS DISTINCT FROM source.description_html)
           THEN 1 ELSE 0 END,
         updated_at = now()
-      FROM new_revision
+      FROM source
       WHERE sessions.id = ${sessionId} AND sessions.event_id = ${eventId}
+        AND sessions.row_version = ${expectedVersion}
       RETURNING sessions.*
+    ), new_revision AS (
+      -- Fed by the UPDATE's own output, so the history entry exists if and only
+      -- if the write did. Reading the session separately would not be enough:
+      -- these CTEs share one snapshot, but under READ COMMITTED the UPDATE
+      -- re-checks its predicate against a row another transaction committed
+      -- after that snapshot was taken. It can therefore match nothing while a
+      -- pre-update read still saw the expected version — and on this autocommit
+      -- handle nothing rolls the stray insert back, leaving a "restored from"
+      -- entry for an edit that never happened, shown as the current content.
+      INSERT INTO session_content_revisions (event_id, session_id, title, description_html, edited_by_user_id, restored_from_revision_id)
+      SELECT ${eventId}, ${sessionId}, updated.title, updated.description_html, ${actorUserId}, ${revisionId}
+      FROM updated
+      RETURNING id
     )
     SELECT ${RETURNED_COLUMNS} FROM updated
   `);
   const row = (result.rows ?? [])[0];
-  if (!row) throw new AppError("NOT_FOUND", "That revision could not be found");
+  // Three ways to write nothing, and the caller needs them apart: the session
+  // is gone, somebody else has written since this panel loaded, or the
+  // revision itself does not exist. Same follow-up read `deleteSessionIn` uses.
+  if (!row) {
+    const existing = await dbOrTx.execute<{ row_version: number }>(sql`
+      SELECT row_version FROM sessions WHERE id = ${sessionId} AND event_id = ${eventId}
+    `);
+    const session = (existing.rows ?? [])[0];
+    if (!session) throw new AppError("NOT_FOUND", "Session not found");
+    if (Number(session.row_version) !== expectedVersion) {
+      throw new AppError("STALE_WRITE", STALE_MESSAGE, { expectedVersion, actualVersion: Number(session.row_version) });
+    }
+    throw new AppError("NOT_FOUND", "That revision could not be found");
+  }
 
   const speakerRows = await dbOrTx.execute<{ contact_id: string }>(sql`
     SELECT contact_id FROM session_speakers WHERE session_id = ${sessionId} AND event_id = ${eventId} ORDER BY sort_order, contact_id
@@ -763,8 +798,8 @@ export async function restoreSessionContentIn(
   return toDto(row, speakerIds);
 }
 
-export const restoreSessionContent = (eventId: EventId, sessionId: SessionId, revisionId: string, actorUserId: UserId | null = null) =>
-  restoreSessionContentIn(db, eventId, sessionId, revisionId, actorUserId);
+export const restoreSessionContent = (eventId: EventId, sessionId: SessionId, revisionId: string, expectedVersion: number, actorUserId: UserId | null = null) =>
+  restoreSessionContentIn(db, eventId, sessionId, revisionId, expectedVersion, actorUserId);
 
 export async function deleteSessionIn(
   dbOrTx: DbOrTx,

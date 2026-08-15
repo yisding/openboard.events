@@ -18,13 +18,14 @@ const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql",
 const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
 const migrationPublicScheduleRevision = readFileSync(new URL("../../drizzle/0034_public_schedule_revision.sql", import.meta.url), "utf8");
 // First Fair added `events.is_demo`, which `resolveEventBySlug` now names on
-// every `select()` it runs — this fixture needs 0044 even though it never
-// touches a demo event, the same reason `public-ics.test.ts` needed it. 0044
+// every `select()` it runs — this fixture needs 0047 even though it never
+// touches a demo event, the same reason `public-ics.test.ts` needed it. 0047
 // also widens 0023's milestone CHECK (which itself needs organization tenancy
 // for `organizations`' FK), so both of those have to be present too.
 const migrationOrganizationTenancy = readFileSync(new URL("../../drizzle/0010_organization_tenancy.sql", import.meta.url), "utf8");
 const migrationOnboardingMilestones = readFileSync(new URL("../../drizzle/0023_onboarding_milestones.sql", import.meta.url), "utf8");
-const migrationDemoEvents = readFileSync(new URL("../../drizzle/0044_demo_events_and_tour.sql", import.meta.url), "utf8");
+const migrationSubmissionStatusViews = readFileSync(new URL("../../drizzle/0045_public_views_submission_status.sql", import.meta.url), "utf8");
+const migrationDemoEvents = readFileSync(new URL("../../drizzle/0047_demo_events_and_tour.sql", import.meta.url), "utf8");
 
 const eventId = "a1000000-0000-4000-8000-000000000001";
 const otherEventId = "a1000000-0000-4000-8000-000000000002";
@@ -39,6 +40,14 @@ const sessionPublished = "a1000000-0000-4000-8000-000000000031";
 const sessionUnconfirmedOnly = "a1000000-0000-4000-8000-000000000032";
 const sessionDeclinedSpeaker = "a1000000-0000-4000-8000-000000000033";
 const sessionOtherEvent = "a1000000-0000-4000-8000-000000000040";
+const sessionFromAccepted = "a1000000-0000-4000-8000-000000000034";
+const sessionFromDeclined = "a1000000-0000-4000-8000-000000000035";
+const sessionFromWithdrawn = "a1000000-0000-4000-8000-000000000036";
+
+const submissionAccepted = "a1000000-0000-4000-8000-000000000070";
+const submissionDeclined = "a1000000-0000-4000-8000-000000000071";
+const submissionWithdrawn = "a1000000-0000-4000-8000-000000000072";
+const speakerReversed = "a1000000-0000-4000-8000-000000000023";
 
 const headshotFileId = "a1000000-0000-4000-8000-000000000050";
 const roomId = "a1000000-0000-4000-8000-000000000060";
@@ -57,6 +66,7 @@ describe("public schedule + speaker gallery published-view queries", () => {
     await pglite.exec(migrationPublicScheduleRevision);
     await pglite.exec(migrationOrganizationTenancy);
     await pglite.exec(migrationOnboardingMilestones);
+    await pglite.exec(migrationSubmissionStatusViews);
     await pglite.exec(migrationDemoEvents);
     db = drizzle(pglite, { schema }) as unknown as DbOrTx;
 
@@ -115,6 +125,35 @@ describe("public schedule + speaker gallery published-view queries", () => {
     await pglite.query("INSERT INTO session_speakers(event_id,session_id,contact_id,sort_order) VALUES($1,$2,$3,0)", [eventId, sessionPublished, speakerConfirmed]);
     await pglite.query("INSERT INTO session_speakers(event_id,session_id,contact_id,sort_order) VALUES($1,$2,$3,0)", [eventId, sessionUnconfirmedOnly, speakerUnconfirmed]);
     await pglite.query("INSERT INTO session_speakers(event_id,session_id,contact_id,sort_order) VALUES($1,$2,$3,0)", [eventId, sessionDeclinedSpeaker, speakerDeclined]);
+    // A promoted session per submission status. Only the accepted one may be
+    // public: reversing a decision (declined) or a speaker withdrawing must
+    // take the talk and its speaker off every public surface.
+    await pglite.query(
+      "INSERT INTO contacts(id,event_id,email,first_name,last_name,confirmation_status) VALUES($1,$2,'reversed@example.com','Reversed','Speaker','confirmed')",
+      [speakerReversed, eventId],
+    );
+    for (const [submissionId, status] of [
+      [submissionAccepted, "accepted"],
+      [submissionDeclined, "declined"],
+      [submissionWithdrawn, "withdrawn"],
+    ] as const) {
+      await pglite.query(
+        "INSERT INTO submissions(id,event_id,code,status,title) VALUES($1,$2,$3,$4,'Promoted abstract')",
+        [submissionId, eventId, Number(submissionId.slice(-3)), status],
+      );
+    }
+    for (const [sessionId, submissionId, slug] of [
+      [sessionFromAccepted, submissionAccepted, "accepted-abstract-talk"],
+      [sessionFromDeclined, submissionDeclined, "declined-abstract-talk"],
+      [sessionFromWithdrawn, submissionWithdrawn, "withdrawn-abstract-talk"],
+    ] as const) {
+      await pglite.query(
+        "INSERT INTO sessions(id,event_id,submission_id,title,slug,starts_at,ends_at,status) VALUES($1,$2,$3,'Promoted Talk',$4,'2026-09-15T20:00:00Z','2026-09-15T20:30:00Z','published')",
+        [sessionId, eventId, submissionId, slug],
+      );
+      await pglite.query("INSERT INTO session_speakers(event_id,session_id,contact_id,sort_order) VALUES($1,$2,$3,0)", [eventId, sessionId, speakerReversed]);
+    }
+
     // The draft session also has the confirmed speaker attached — it must
     // still never surface, proving the leak firewall is the session's own
     // status, not merely "does this speaker ever appear published".
@@ -170,7 +209,7 @@ describe("public schedule + speaker gallery published-view queries", () => {
     const speakers = required(await getPublishedSpeakersIn(db, eventSlug), "expected speakers");
     const ids = speakers.speakers.map((s) => s.contactId);
 
-    expect(ids).toEqual([speakerConfirmed]);
+    expect(ids).toEqual([speakerConfirmed, speakerReversed]);
     expect(ids).not.toContain(speakerUnconfirmed);
     expect(ids).not.toContain(speakerDeclined);
   });
@@ -185,6 +224,26 @@ describe("public schedule + speaker gallery published-view queries", () => {
       track: { id: trackId, name: "AI Agents", color: "#00a878" },
       format: { id: formatId, name: "Talk" },
     }]);
+  });
+
+  it("drops a published session whose abstract left accepted, and keeps agenda-native sessions", async () => {
+    const schedule = required(await getPublishedScheduleIn(db, eventSlug), "expected a schedule");
+    const ids = schedule.sessions.map((s) => s.id);
+
+    expect(ids).toContain(sessionFromAccepted);
+    expect(ids).not.toContain(sessionFromDeclined);
+    expect(ids).not.toContain(sessionFromWithdrawn);
+    // Keynotes and breaks are created straight in the agenda and carry no
+    // submission at all; the guard must not take them down with the rest.
+    expect(ids).toContain(sessionPublished);
+  });
+
+  it("keeps a reversed submission's session out of its speaker's public sessions[]", async () => {
+    const speakers = required(await getPublishedSpeakersIn(db, eventSlug), "expected speakers");
+    const reversed = speakers.speakers.find((s) => s.contactId === speakerReversed);
+    // The same speaker sits on all three promoted sessions; only the one whose
+    // abstract is still accepted may appear.
+    expect(reversed?.sessions.map((session) => session.id)).toEqual([sessionFromAccepted]);
   });
 
   it("carries job title/company on session speaker references, and room/track/format on speaker session references", async () => {

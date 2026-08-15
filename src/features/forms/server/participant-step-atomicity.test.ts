@@ -245,8 +245,10 @@ describe("atomic participant-step save", () => {
       expect(fulfilled).toHaveLength(1);
       expect(rejected).toHaveLength(1);
       expect(rejected[0]?.reason).toMatchObject({ code: "STALE_WRITE" });
-      expect(outcomes[0]?.status).toBe("fulfilled");
-      expect(outcomes[1]?.status).toBe("rejected");
+      // Which of the two same-baseline writers commits first is a scheduling
+      // detail — the `pg_sleep` trigger biases it but cannot guarantee it under
+      // load. The contract is that exactly one wins, the loser is told the
+      // baseline moved, and the snapshot below matches whichever won.
 
       const current = await getFormForBuilderIn(database, eventId, form.id);
       const stored = await pg.query<{ snapshot: { sections: Array<{ id: string; title: string; pageHeading: string; descriptionHtml: string }> } }>(

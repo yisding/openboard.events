@@ -34,6 +34,12 @@ export type SubmissionStatusHistoryEntry = {
 /** Strips markup for the list's preview column; the detail view renders the HTML. */
 const DESCRIPTION_PLAIN = sql`nullif(btrim(regexp_replace(coalesce(s.description_html, ''), '<[^>]*>', ' ', 'g')), '')`;
 
+/** `%`, `_` and `\` are characters an organizer typed, not wildcards: without
+ *  this, searching "%" returns the whole event and the tab counts agree with it.
+ *  Backslash is already LIKE's default escape character, so the patterns below
+ *  need no `ESCAPE` clause — and writing one in a template literal is a trap. */
+const escapeLike = (term: string) => term.replace(/[\\%_]/g, "\\$&");
+
 function whereClause(
   eventId: EventId,
   filters: Omit<SubmissionFilters, "page" | "pageSize" | "sort">,
@@ -55,7 +61,7 @@ function whereClause(
   if (filters.search) {
     // Code, title and speaker name are the three things an organizer types into
     // a search box; matching only the title makes the box feel broken.
-    const like = `%${filters.search.toLowerCase()}%`;
+    const like = `%${escapeLike(filters.search.toLowerCase())}%`;
     clauses.push(sql`(
       lower(s.title) LIKE ${like}
       OR s.code::text LIKE ${like}

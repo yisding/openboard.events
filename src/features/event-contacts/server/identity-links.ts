@@ -1,5 +1,5 @@
 import { and, eq, sql } from "drizzle-orm";
-import type { DbOrTx, TxDb } from "@/db/client";
+import type { DbOrTx } from "@/db/client";
 import { rowsOf } from "@/db/query-result";
 import {
   contacts,
@@ -208,7 +208,7 @@ export async function linkUserContactIn(
     `);
     const [row] = rowsOf<{ email: string }>(account);
     if (!row) return resolution;
-    contactId = await getOrCreateContact(dbOrTx as TxDb, eventId, row.email);
+    contactId = await getOrCreateContact(dbOrTx, eventId, row.email);
   }
 
   await dbOrTx.insert(userContactLinks)

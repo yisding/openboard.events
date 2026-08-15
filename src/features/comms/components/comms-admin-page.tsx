@@ -1,11 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, type KeyboardEvent } from "react";
+import { useState } from "react";
 import { Activity, BellRing, FileText, History, Send, ShieldOff } from "lucide-react";
 import type { EventId } from "@/shared/contracts";
 import { PageHeader } from "@/shared/ui/ui-kit";
 import { useGuardedAction } from "@/shared/ui/app/unsaved-work-guard";
+import { moveRovingTab } from "@/shared/ui/app/roving-tabs";
 import { QueryBoundary } from "@/shared/ui/app/query-boundary";
 import type { QuerySeed } from "@/shared/lib/query-client";
 import { BulkSendTab } from "./bulk-send-tab";
@@ -27,6 +28,7 @@ const TABS: Array<{ id: CommsTab; label: string; icon: typeof FileText }> = [
   { id: "deliverability", label: "Deliverability", icon: Activity },
   { id: "bulk", label: "Bulk send", icon: Send },
 ];
+const TAB_IDS = TABS.map((entry) => entry.id);
 
 /**
  * `/events/[eventId]/communications` — the comms admin page's six tabs:
@@ -57,32 +59,20 @@ export function CommsAdminPage({
   const [tab, setTab] = useState<CommsTab>(initialTab);
   const { runGuarded, allowNextNavigation } = useGuardedAction();
 
-  function selectTab(next: CommsTab, focusAfter = false) {
-    if (next === tab) return;
+  // Reports whether the switch actually happened: `runGuarded` runs the action
+  // synchronously when nothing is dirty, but defers it behind a confirmation
+  // otherwise. Arrow-key navigation reads the answer so keyboard focus does not
+  // travel to a tab the guard just refused to select.
+  function selectTab(next: CommsTab): boolean {
+    if (next === tab) return false;
     const destination = `/events/${eventId}/communications?tab=${next}`;
+    let selected = false;
     runGuarded(() => allowNextNavigation(() => {
+      selected = true;
       setTab(next);
       router.replace(destination, { scroll: false });
-      if (focusAfter) requestAnimationFrame(() => document.getElementById(`communications-tab-${next}`)?.focus());
     }, { destination }));
-  }
-
-  function moveTab(event: KeyboardEvent<HTMLButtonElement>, current: CommsTab) {
-    const currentIndex = TABS.findIndex((entry) => entry.id === current);
-    const nextIndex = event.key === "ArrowRight"
-      ? (currentIndex + 1) % TABS.length
-      : event.key === "ArrowLeft"
-        ? (currentIndex - 1 + TABS.length) % TABS.length
-        : event.key === "Home"
-          ? 0
-          : event.key === "End"
-            ? TABS.length - 1
-            : null;
-    if (nextIndex === null) return;
-    event.preventDefault();
-    const next = TABS[nextIndex]?.id;
-    if (!next) return;
-    selectTab(next, true);
+    return selected;
   }
 
   return (
@@ -108,7 +98,7 @@ export function CommsAdminPage({
                 aria-selected={tab === entry.id}
                 tabIndex={tab === entry.id ? 0 : -1}
                 className={tab === entry.id ? "active" : ""}
-                onKeyDown={(event) => moveTab(event, entry.id)}
+                onKeyDown={(event) => moveRovingTab(event, TAB_IDS, entry.id, selectTab)}
                 onClick={() => selectTab(entry.id)}
               >
                 <Icon size={16} aria-hidden="true" />

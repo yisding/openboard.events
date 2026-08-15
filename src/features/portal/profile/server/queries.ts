@@ -25,6 +25,8 @@ export type SpeakerProfileDTO = {
   honorific: string | null;
   pronouns: string | null;
   gender: string | null;
+  jobTitle: string | null;
+  company: string | null;
   bioHtml: string | null;
   headshotFileId: string | null;
   headshotUrl: string | null;
@@ -43,6 +45,8 @@ type ContactRow = {
   honorific: string | null;
   pronouns: string | null;
   gender: string | null;
+  jobTitle: string | null;
+  company: string | null;
   bioHtml: string | null;
   headshotFileId: string | null;
   linkedinUrl: string | null;
@@ -61,6 +65,8 @@ function toDto(row: ContactRow): SpeakerProfileDTO {
     honorific: row.honorific,
     pronouns: row.pronouns,
     gender: row.gender,
+    jobTitle: row.jobTitle,
+    company: row.company,
     bioHtml: row.bioHtml,
     headshotFileId: row.headshotFileId,
     headshotUrl: row.headshotFileId ? `/f/${row.headshotFileId}` : null,
@@ -83,6 +89,8 @@ export async function getSpeakerProfileIn(dbOrTx: DbOrTx, eventId: EventId, cont
       honorific: contacts.honorific,
       pronouns: contacts.pronouns,
       gender: contacts.gender,
+      jobTitle: contacts.jobTitle,
+      company: contacts.company,
       bioHtml: contacts.bioHtml,
       headshotFileId: contacts.headshotFileId,
       linkedinUrl: contacts.linkedinUrl,

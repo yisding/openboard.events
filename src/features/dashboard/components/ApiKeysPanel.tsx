@@ -11,12 +11,12 @@ import { Button, EmptyState, Field, Modal } from "@/shared/ui/ui-kit";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
+import { isDefinitiveWriteFailure } from "@/shared/lib/errors";
 import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import {
   API_KEY_LABEL_MAX_LENGTH,
   API_KEY_LABEL_TOO_LONG_MESSAGE,
   apiKeyCreationLabelError,
-  isDefinitiveApiKeyCreationError,
   newApiKeyCreationOperation,
   type ApiKeyCreationOperation,
 } from "../api-key-creation";
@@ -87,7 +87,7 @@ export function ApiKeysPanel({ eventId, initialKeys, timezone }: { eventId: Even
       setLabel("");
       setLabelError(null);
     } catch (caught) {
-      if (isDefinitiveApiKeyCreationError(caught)) {
+      if (isDefinitiveWriteFailure(caught)) {
         setCreationRecovery(null);
         toast(caught.message, { kind: "error" });
       } else {

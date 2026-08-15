@@ -11,6 +11,7 @@ import { useToast } from "@/shared/ui/toast";
 import { taskDtoSchema, type TaskDTO } from "@/shared/contracts";
 import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
 import { endOfDayInTz, eventDayKey } from "@/shared/lib/time";
+import { readFieldErrors } from "@/shared/lib/api-client";
 import type { AdminTaskDTO, FileRequestDTO, FormOption } from "../server/queries";
 
 export type TaskDraft = {
@@ -214,7 +215,7 @@ export function TaskEditor({
         return;
       }
       if (!response.ok || !saved.success) {
-        setFieldErrors(payload?.error?.fieldErrors ?? {});
+        setFieldErrors(readFieldErrors(payload?.error) ?? {});
         toast(payload?.error?.message ?? "That task could not be saved", { kind: "error" });
         return;
       }

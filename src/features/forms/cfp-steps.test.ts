@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,6 +9,7 @@ import {
   CfpStaleRecovery,
   CfpSubmitFailureNotice,
   abortCfpSubmit,
+  accountEmailError,
   beginCfpSubmit,
   cfpAutosaveDisposition,
   cfpCodeRequestRecovery,
@@ -20,8 +22,10 @@ import {
   createDeferredCfpAutosave,
   focusCfpAccountControl,
   hasIncompleteParticipantEmail,
+  initialCfpStep,
   participantEmail,
   participantFieldIds,
+  prefillProfileAnswers,
   preserveStaleCfpFailure,
   reloadUpdatedCfpForm,
   requiresCfpFormReload,
@@ -29,11 +33,14 @@ import {
   scheduleCfpRecoveryFocus,
   settleCfpSubmitFailure,
   settleCfpSubmitSuccess,
+  abstractAnswersOnly,
   stepFieldErrors,
   schedulePortalRedirect,
   saveWithRetry,
   serializeAutosaves,
+  cfpFieldErrorHint,
   stepForErrors,
+  stepsWithErrors,
   type AutosaveState,
 } from "./components/cfp-steps";
 
@@ -81,6 +88,40 @@ describe("CFP validation routing", () => {
     expect(stepForErrors(GOLDEN_SNAPSHOT, { [fieldId("title")]: "Title is required" })).toBe("submission");
   });
 
+  it("reports every step a failed submit left with an error", () => {
+    // One submit can fail on both sections: the step validator checks required
+    // and length only, so a malformed email and a retired dropdown option both
+    // pass Continue and come back together.
+    const both = {
+      [fieldId("title")]: "Choose one of the offered options",
+      [`participant:panelist-1:${fieldId("first_name")}`]: "First name is required",
+    };
+    expect(stepsWithErrors(GOLDEN_SNAPSHOT, both)).toEqual(["submission", "speaker"]);
+    // The earliest one, so fixing runs forwards through the wizard. This used
+    // to resolve to "speaker" and strand the abstract error off screen.
+    expect(stepForErrors(GOLDEN_SNAPSHOT, both)).toBe("submission");
+  });
+
+  it("names the other step in the failure message when both need work", () => {
+    const both = {
+      [fieldId("title")]: "Title is required",
+      [fieldId("first_name")]: "First name is required",
+    };
+    const hint = cfpFieldErrorHint(GOLDEN_SNAPSHOT, both);
+    expect(hint).toContain(cfpStepHeading(GOLDEN_SNAPSHOT, "speaker"));
+
+    const failure = cfpSubmitFailure({ ok: false, data: {}, message: "Could not submit", fieldErrors: both }, hint);
+    expect(failure.message).toContain("Some answers need attention");
+    expect(failure.message).toContain(cfpStepHeading(GOLDEN_SNAPSHOT, "speaker"));
+  });
+
+  it("says nothing extra when only one step needs work", () => {
+    const only = { [fieldId("title")]: "Title is required" };
+    expect(cfpFieldErrorHint(GOLDEN_SNAPSHOT, only)).toBeUndefined();
+    expect(cfpSubmitFailure({ ok: false, data: {}, message: "Could not submit", fieldErrors: only }).message)
+      .toBe("Some answers need attention");
+  });
+
   it("keeps co-speaker answers scoped to participant fields", () => {
     const ids = participantFieldIds(GOLDEN_SNAPSHOT);
     expect(ids.has(fieldId("first_name"))).toBe(true);
@@ -95,6 +136,36 @@ describe("CFP validation routing", () => {
       role: "co_speaker",
       answers: { [fieldId("email")]: { t: "s", v: "co@example.com" } },
     }])).toBe(false);
+  });
+
+  it("evaluates a co-speaker's conditional questions without the primary's answers", () => {
+    // The server builds a participant's visibility context from the abstract
+    // answers plus that participant's own (`submit.ts`'s `abstractContext`).
+    // Handing a co-speaker the wizard's whole `answers` object also handed them
+    // the *primary's* participant answers, so the two sides disagreed about
+    // which questions exist — leaving a submission blocked on a question the
+    // co-speaker's form never rendered.
+    const snapshot = structuredClone(GOLDEN_SNAPSHOT);
+    const participantSection = snapshot.sections.find((section) => section.key === "participant");
+    if (!participantSection) throw new Error("fixture has no participant section");
+    const gate = participantSection.fields[0];
+    const dependent = participantSection.fields.find((field) => field.id !== gate?.id);
+    if (!gate || !dependent) throw new Error("fixture needs two participant fields");
+    dependent.required = true;
+    dependent.visibility = { match: "all", conditions: [{ sourceFieldId: gate.id, op: "answered" }] };
+
+    // The primary answered the gate; this co-speaker did not.
+    const primaryAnswers = { [gate.id]: { t: "s" as const, v: "Primary" } };
+    const coSpeakerAnswers = {};
+
+    expect(abstractAnswersOnly(snapshot, primaryAnswers)).toEqual({});
+    // With the abstract-only context the dependent stays hidden, so it is not
+    // demanded of a co-speaker who never saw it.
+    expect(stepFieldErrors(snapshot, ["participant"], coSpeakerAnswers, abstractAnswersOnly(snapshot, primaryAnswers))[dependent.id])
+      .toBeUndefined();
+    // Passing the primary's answers through is what produced the dead end.
+    expect(stepFieldErrors(snapshot, ["participant"], coSpeakerAnswers, primaryAnswers)[dependent.id])
+      .toEqual(expect.stringContaining("required"));
   });
 
   it("blocks an empty required field before leaving its step", () => {
@@ -142,9 +213,70 @@ describe("CFP validation routing", () => {
     })[fieldId("workshop_duration")]).toBeUndefined();
   });
 
+  it("caps a title question at the column it fills, however the form was authored", () => {
+    const uncapped = structuredClone(GOLDEN_SNAPSHOT);
+    const title = uncapped.sections.flatMap((section) => section.fields).find((field) => field.id === fieldId("title"));
+    if (!title) throw new Error("Missing title field");
+    title.maxChars = null;
+
+    expect(stepFieldErrors(uncapped, ["abstract"], {
+      [fieldId("title")]: { t: "s", v: "x".repeat(256) },
+    })[fieldId("title")]).toBe("Keep this under 255 characters");
+    expect(stepFieldErrors(uncapped, ["abstract"], {
+      [fieldId("title")]: { t: "s", v: "x".repeat(255) },
+    })[fieldId("title")]).toBeUndefined();
+  });
+
+  it("reports a malformed email the way the server does, rather than leaving it to the browser", () => {
+    expect(stepFieldErrors(GOLDEN_SNAPSHOT, ["participant"], {
+      [fieldId("first_name")]: { t: "s", v: "Ada" },
+      [fieldId("last_name")]: { t: "s", v: "Lovelace" },
+      [fieldId("email")]: { t: "s", v: "not-an-email" },
+    })[fieldId("email")]).toBe("Enter a valid email address");
+    expect(accountEmailError("not-an-email")).toBe("Enter a valid email address");
+    expect(accountEmailError(" Ada@Example.com ")).toBe("");
+  });
+
   it("uses the organizer-configured heading for each form step", () => {
     expect(cfpStepHeading(GOLDEN_SNAPSHOT, "submission")).toBe(GOLDEN_SNAPSHOT.sections.find((section) => section.key === "abstract")?.pageHeading);
     expect(cfpStepHeading(GOLDEN_SNAPSHOT, "review")).toBe("Review your submission");
+  });
+});
+
+describe("CFP session resume", () => {
+  it("starts on the questions when the portal session survived the reload", () => {
+    expect(initialCfpStep("ada@openboard.events")).toBe("submission");
+    expect(initialCfpStep(null)).toBe("account");
+    expect(initialCfpStep(undefined)).toBe("account");
+  });
+
+  it("seeds a returning speaker's own details without overwriting their draft", () => {
+    const profile = { firstName: "Ada", lastName: "Lovelace", company: "Analytical Engines", jobTitle: "", bioHtml: "" };
+    const seeded = prefillProfileAnswers(GOLDEN_SNAPSHOT, profile, {
+      [fieldId("last_name")]: { t: "s", v: "Byron" },
+    });
+
+    expect(seeded[fieldId("first_name")]).toEqual({ t: "s", v: "Ada" });
+    expect(seeded[fieldId("company")]).toEqual({ t: "s", v: "Analytical Engines" });
+    // Already answered, and an empty profile column is not an answer.
+    expect(seeded[fieldId("last_name")]).toBeUndefined();
+    expect(seeded[fieldId("job_title")]).toBeUndefined();
+    expect(prefillProfileAnswers(GOLDEN_SNAPSHOT, null, {})).toEqual({});
+  });
+
+  it("seeds the profile only on a draft this call created, and keeps the sign-out out of the resume copy", () => {
+    const source = readFileSync(new URL("./components/cfp-steps.tsx", import.meta.url), "utf8");
+
+    // Resuming re-runs startDraft on every reload, so an ungated prefill would
+    // put back a mapped answer the speaker cleared on purpose.
+    expect(source).toContain("draft.data.created === true");
+    // The limit page replaces the whole wizard, so it carries the identity and
+    // the way off the account itself.
+    expect(source).toMatch(/<h2 id="cfp-limit-heading"[\s\S]{0,600}Use a different email/u);
+    expect(source).toContain("setLimitMessage(null);");
+    // "Restoring your draft…" belongs to the resume path, never to signing out.
+    expect(source).toContain("const [signingOut, setSigningOut] = useState(false);");
+    expect(source).toContain('disabled={busy || signingOut}>{busy ? "Restoring your draft…" : "Continue"}');
   });
 });
 

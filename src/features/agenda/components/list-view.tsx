@@ -1,7 +1,7 @@
 "use client";
 
 import type { ColumnDef } from "@tanstack/react-table";
-import { AlertTriangle, CalendarDays } from "lucide-react";
+import { AlertTriangle, CalendarDays, Plus } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import type { ScheduledSessionDTO, SessionId } from "@/shared/contracts";
 import { ColorChip } from "@/shared/ui/app/color-chip";
@@ -25,7 +25,19 @@ import { bulkPublishFailureMessage, bulkPublishPreflight, type BulkPublishPrefli
  * a session with no room, no track and no time is a normal row here, not an
  * edge case that crashes the table.
  */
-export function ListView({ eventId, event, sessions, conflicts, rooms, tracks, formats, speakers, onEdit }: AgendaViewProps) {
+export function ListView({
+  eventId,
+  event,
+  sessions,
+  conflicts,
+  rooms,
+  tracks,
+  formats,
+  speakers,
+  onEdit,
+  onCreate,
+  searchActive = false,
+}: AgendaViewProps & { onCreate?: () => void; searchActive?: boolean }) {
   const { toast } = useToast();
   const { setPublished } = useSessionMutations(eventId);
   const [selected, setSelected] = useState<ScheduledSessionDTO[]>([]);
@@ -34,18 +46,6 @@ export function ListView({ eventId, event, sessions, conflicts, rooms, tracks, f
   const [publishBlockerCount, setPublishBlockerCount] = useState(0);
 
   const lookup = useMemo(() => nameLookup({ rooms, tracks, formats, speakers }), [rooms, tracks, formats, speakers]);
-
-  // Stable identity is load-bearing, not cosmetic: `DataTable` re-invokes this
-  // callback from a `useEffect` keyed on its own identity, so an inline arrow
-  // here (a fresh function every ListView render) re-fires that effect on
-  // *every* re-render of this component — including the one triggered by
-  // `setPendingPublish(preflight)` itself, which immediately clobbers that
-  // same state back to null before the confirm dialog can ever paint.
-  const handleSelectionChange = useCallback((rows: ScheduledSessionDTO[]) => {
-    setSelected(rows);
-    setPublishBlockerCount(0);
-    setPendingPublish(null);
-  }, []);
 
   const columns = useMemo<Array<ColumnDef<ScheduledSessionDTO, unknown>>>(() => [
     {
@@ -157,6 +157,18 @@ export function ListView({ eventId, event, sessions, conflicts, rooms, tracks, f
     setPendingPublish(preflight);
   }
 
+  // Stable identity on purpose, as belt and braces. `DataTable` holds this
+  // callback in a ref and notifies only when the selection itself changed (see
+  // `data-table.tsx`), so an inline literal is safe there today — but this
+  // handler clears the confirm dialog, and an unstable one re-fired on every
+  // render used to wipe that state on the very render that opened it. Keeping
+  // the identity stable stops that outcome depending on DataTable's internals.
+  const onSelectionChanged = useCallback((rows: ScheduledSessionDTO[]) => {
+    setSelected(rows);
+    setPublishBlockerCount(0);
+    setPendingPublish(null);
+  }, []);
+
   return (
     <section className="panel data-panel">
       {publishBlockerCount > 0 && (
@@ -176,7 +188,7 @@ export function ListView({ eventId, event, sessions, conflicts, rooms, tracks, f
         selectionEpoch={selectionEpoch}
         columnVisibilityKey={`agenda-list:${eventId}`}
         getRowId={(row) => String(row.id)}
-        onSelectionChange={handleSelectionChange}
+        onSelectionChange={onSelectionChanged}
         renderSelectionBar={({ selectedRows, countLabel, clearSelection }) => (
           <BulkActionBar
             count={selectedRows.length}
@@ -196,8 +208,11 @@ export function ListView({ eventId, event, sessions, conflicts, rooms, tracks, f
         empty={(
           <EmptyState
             icon={<CalendarDays size={26} />}
-            title="Nothing here yet"
-            description="Sessions will appear here in list view"
+            title={searchActive ? "No sessions match your search" : "No sessions yet"}
+            description={searchActive
+              ? "Try another session title or clear the search."
+              : "Add a session to start building the schedule."}
+            {...(!searchActive && onCreate ? { action: <Button onClick={onCreate}><Plus size={14} aria-hidden /> Add session</Button> } : {})}
           />
         )}
       />

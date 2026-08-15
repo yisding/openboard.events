@@ -10,6 +10,10 @@ export function formatCode(code: number): string {
  * The seven-state lifecycle, enforced in one place. The transition table is
  * frozen in contracts and the database trigger enforces the same edges, so a
  * caller that gets past this still cannot write an illegal state.
+ *
+ * `details` carries the pair verbatim: the words an organizer reads are authored
+ * in the UI's status vocabulary (`decision-bar.tsx`), not here, so this message
+ * stays the API's plain description of the refused edge.
  */
 export function assertTransition(from: SubmissionStatus, to: SubmissionStatus): void {
   if (!canTransition(from, to)) {

@@ -10,6 +10,7 @@ import {
   gridRowCount,
   minutesFromDayStartInZone,
   minutesToGridRow,
+  roomTrackSize,
   SLOT_MINUTES,
   SLOT_ROW_HEIGHT_PX,
   type GridRange,
@@ -117,10 +118,13 @@ export function DayGrid({
     <div
       className="dv-grid"
       style={{
-        gridTemplateColumns: `56px ${rooms.map((room) => {
-          const laneCount = roomLaneCounts.get(String(room.id)) ?? 1;
-          return laneCount > 1 ? `minmax(${laneCount * 340}px, ${laneCount}fr)` : "minmax(160px, 1fr)";
-        }).join(" ") || "minmax(160px, 1fr)"}`,
+        // A room running two sessions at once needs room for both lanes to
+        // stay readable — `roomTrackSize` owns those floors and documents why
+        // a narrower lane re-truncates a conflict card's title. A five-room
+        // day with a busy room therefore overflows `.dv-scroll` horizontally
+        // rather than shrinking its lanes.
+        gridTemplateColumns: `56px ${rooms.map((room) =>
+          roomTrackSize(roomLaneCounts.get(String(room.id)) ?? 1)).join(" ") || roomTrackSize(1)}`,
         gridTemplateRows: `40px repeat(${rowCount}, ${SLOT_ROW_HEIGHT_PX}px)`,
       }}
     >

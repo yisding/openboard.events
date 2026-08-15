@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { isAppError } from "@/shared/lib/errors";
+import { isDefinitiveWriteFailure } from "@/shared/lib/errors";
 import { bulkSendPreviewFingerprint } from "./bulk-send-attempt";
 
 export const BULK_SEND_RECOVERY_VERSION = 1 as const;
@@ -326,6 +326,6 @@ export function classifyBulkSendFailure(
   completedResults: readonly BulkSendRecoveryBatchResult[],
   retryingRecovery = false,
 ): BulkSendFailureClassification {
-  if (retryingRecovery || completedResults.length > 0 || !isAppError(error) || error.code === "INTERNAL") return "unknown";
+  if (retryingRecovery || completedResults.length > 0 || !isDefinitiveWriteFailure(error)) return "unknown";
   return "definite";
 }

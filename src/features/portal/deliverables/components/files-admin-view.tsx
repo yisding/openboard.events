@@ -2,7 +2,8 @@
 
 import type { ColumnDef } from "@tanstack/react-table";
 import { Bell, Download, FolderOpen, MessageSquare, Paperclip, Search, X } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DeliverableRowDTO, EventId, FileCommentDTO, FileExportJobDTO, FileVersionDTO } from "@/shared/contracts";
 import { BulkReminderRecoveryDialog, bulkReminderTargetSetFingerprint, useBulkReminderRecovery } from "@/features/comms/index.client";
@@ -223,6 +224,7 @@ export function FilesAdminView({
 }) {
   const { toast } = useToast();
   const router = useRouter();
+  const pathname = usePathname();
   const params = useSearchParams();
   const [draftSearch, setDraftSearch] = useState(search);
   useEffect(() => setDraftSearch(search), [search]);
@@ -262,6 +264,43 @@ export function FilesAdminView({
     setDraftSearch("");
     onFilter({ search: "" });
   }
+  // Every reset cancels the pending keystroke: a queued `onFilter` would push
+  // the search term the organizer just cleared straight back onto the URL.
+  function resetFilters() {
+    if (searchDebounce.current) clearTimeout(searchDebounce.current);
+    setDraftSearch("");
+    router.push(pathname);
+  }
+
+  /**
+   * An empty table means one of three different things and blaming the filters
+   * for all three is what an event with no file requests at all used to be
+   * told. `contactId` is read straight from the URL because a drill-down from a
+   * speaker sets it without this view holding it in a prop — a "clear filters"
+   * that left it behind would be a lie.
+   */
+  const filtersActive = state !== "all"
+    || Boolean(taskId || fileRequestId || hasUpload || search || params.get("contactId"));
+  const emptyState = filtersActive
+    ? {
+      title: "No deliverables match these filters",
+      description: "Clear them to see every deliverable requested for this event.",
+      action: <Button onClick={resetFilters}>Clear filters</Button>,
+    }
+    : fileRequests.length === 0
+      ? {
+        title: "No file requests yet",
+        description: "Ask speakers for slides, a headshot or a bio by adding a file-request task, and every upload lands here.",
+        // Straight to the section that creates one — the Tasks segment has no
+        // create-file-request affordance, and with no requests yet its
+        // file-request picker is empty too.
+        action: <Link className="button button-primary" href={`/events/${eventId}/tasks?section=file_requests`}>Create a file request</Link>,
+      }
+      : {
+        title: "No deliverables yet",
+        description: "Assign one of your file-request tasks to a speaker and their upload shows up here.",
+        action: <Link className="button button-primary" href={`/events/${eventId}/tasks`}>Assign a file request</Link>,
+      };
 
   // Local mirror of the server-filtered `rows` prop: the table renders this,
   // not the prop directly, so an in-place comment-count bump (below) does not
@@ -303,7 +342,7 @@ export function FilesAdminView({
   async function startExport(groupBy: "none" | "session" | "speaker", selection = selected) {
     const targets = selection.filter((row) => row.latestVersion !== null);
     if (targets.length === 0) {
-      toast("Select at least one deliverable that has a file uploaded");
+      toast("Select at least one deliverable that has a file uploaded", { kind: "error" });
       return;
     }
     setExporting(true);
@@ -402,13 +441,15 @@ export function FilesAdminView({
         description="Every deliverable requested from a speaker, in one place — versions, comments, and follow-up."
       />
 
-      <div className="abstract-status-tabs" role="tablist">
+      {/* A filter strip over the table below, not a tab strip — no panel to
+          control, so `group` + `aria-pressed` rather than tabs. Same shape as
+          the CRM directory's stage filter and `public-agenda.tsx`. */}
+      <div className="abstract-status-tabs" role="group" aria-label="Deliverable status">
         {(["all", "open", "overdue", "completed"] as const).map((option) => (
           <button
             key={option}
             type="button"
-            role="tab"
-            aria-selected={state === option}
+            aria-pressed={state === option}
             className={state === option ? "active" : ""}
             onClick={() => onFilter({ state: option })}
           >
@@ -463,7 +504,7 @@ export function FilesAdminView({
         <DataTable
           columns={columns}
           data={displayRows}
-          empty={<EmptyState icon={<FolderOpen size={28} />} title="No deliverables match" description="Adjust the filters above, or wait for speakers to complete their tasks." />}
+          empty={<EmptyState icon={<FolderOpen size={28} />} {...emptyState} />}
           enableSelection
           allRowsSelection={FILES_ALL_ROWS_SELECTION}
           getRowLabel={(row) => `${row.contactName}, ${row.fileRequestTitle}`}
@@ -588,7 +629,7 @@ function DeliverableDrawer({
       setDraft((current) => current.key === key
         ? { ...current, attemptedId: null, attemptedBody: null }
         : current);
-      toast("The original comment was sent — your edited reply is still unsent");
+      toast("The original comment was sent — your edited reply is still unsent", { kind: "error" });
     }
   }, [currentDetail, draft, eventId, key, toast]);
 

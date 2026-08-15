@@ -12,6 +12,7 @@ import { Button, EmptyState, PageHeader, ProgressBar, StatusBadge } from "@/shar
 import { useToast } from "@/shared/ui/toast";
 import type { OrganizationInvitationDTO } from "@/shared/contracts";
 import { assignmentLockGuidance, assignmentLockReason, nextAssignmentLockRefreshMs } from "../assignment-writability";
+import { planStatusBadge } from "../plan-status";
 import type { PlanDTO } from "../types";
 import { AssignmentDrawer } from "./assignment-drawer";
 import { PlanEditor } from "./plan-editor";
@@ -335,7 +336,14 @@ export function PlansView({
         </div>
       ),
     },
-    { id: "status", header: "Status", accessorKey: "status", cell: ({ row }) => <StatusBadge value={row.original.status} /> },
+    {
+      id: "status",
+      header: "Status",
+      // Derived rather than `plan.status`, so sorting groups the rows the way
+      // the chips read them.
+      accessorFn: (plan) => planStatusBadge(plan, new Date(assignmentNowMs)),
+      cell: ({ row }) => <StatusBadge value={planStatusBadge(row.original, new Date(assignmentNowMs))} />,
+    },
     {
       id: "actions",
       header: "",
@@ -391,7 +399,14 @@ export function PlansView({
       />
 
       {(creating || editing) && (
+        // Keyed by the round, because the editor holds identity in mount-time
+        // state — the plan id it PATCHes, the id it would create under, the
+        // baseline it diffs against. Without the key a second round could
+        // inherit the first one's, and a save would target the wrong record.
+        // The id is stable across `router.refresh()`, so the `[plan]` rebase
+        // inside the editor still owns concurrent-edit merging.
         <PlanEditor
+          key={editing?.id ?? "new"}
           eventId={eventId}
           plan={editing}
           tracks={tracks}
@@ -402,7 +417,7 @@ export function PlansView({
         />
       )}
 
-      {assigning && <AssignmentDrawer eventId={eventId} plan={assigning} onClose={() => setAssigningPlanId(null)} />}
+      {assigning && <AssignmentDrawer key={assigning.id} eventId={eventId} plan={assigning} onClose={() => setAssigningPlanId(null)} />}
       {inviting && <ReviewerInviteDialog eventId={eventId} initialPendingInvitations={pendingReviewerInvitations} timezone={timezone} onClose={() => setInviting(false)} />}
 
       <ConfirmDialog

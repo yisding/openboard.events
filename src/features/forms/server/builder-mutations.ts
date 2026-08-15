@@ -37,6 +37,7 @@ import {
   fieldPatchIsStructural,
 } from "./guards";
 import { getFormForBuilderIn, hasNonDraftSubmissionsIn } from "./builder-queries";
+import { sanitizeTemplateBody } from "@/shared/lib/template-body";
 
 type CreateFormInput = {
   id?: FormId | undefined;
@@ -270,7 +271,17 @@ export async function createFormIn(dbOrTx: DbOrTx, eventId: EventId, input: Crea
     ],
     createdAt: now,
     updatedAt: now,
-  }).onConflictDoNothing({ target: forms.id }).returning();
+    // No arbiter. `ON CONFLICT (id)` only absorbs a violation of *that* index,
+    // and `forms` carries a second one — `UNIQUE (id, event_id)`
+    // (0000_init.sql:150). Two genuinely concurrent stable creates of the same
+    // id can trip the composite index first, and the DO NOTHING never applies:
+    // the insert raises, and a create that this path exists to make idempotent
+    // fails with a raw 500 instead of converging on the row the other attempt
+    // wrote. Untargeted is not looser here — every unique index on `forms` is
+    // keyed on `id`, so any row it could collide with is the same form — and it
+    // no longer depends on which index Postgres happens to check first. (PGlite
+    // is single-connection, so this only ever reproduced on native Postgres.)
+  }).onConflictDoNothing().returning();
   const [storedForm] = await dbOrTx.select({
     eventId: forms.eventId,
     context: forms.context,
@@ -346,7 +357,10 @@ export async function updateFormIn(dbOrTx: DbOrTx, eventId: EventId, formId: For
     ...(patch.externalTitle !== undefined ? { externalTitle: patch.externalTitle.trim() } : {}),
     ...(patch.welcomeHtml !== undefined ? { welcomeHtml: sanitize(patch.welcomeHtml) } : {}),
     ...(patch.successHtml !== undefined ? { successHtml: sanitize(patch.successHtml) } : {}),
-    ...(patch.confirmationBodyHtml !== undefined ? { confirmationBodyHtml: sanitize(patch.confirmationBodyHtml) } : {}),
+    // The confirmation email is a template, not page copy: `sanitize` would
+    // strip the `{{portal.magic_link}}` href the shipped default is built
+    // around, leaving the speaker a dead "Open your speaker portal".
+    ...(patch.confirmationBodyHtml !== undefined ? { confirmationBodyHtml: sanitizeTemplateBody(patch.confirmationBodyHtml) } : {}),
   };
   const hypothetical = { ...form, ...cleaned } as BuilderForm;
   const snapshot = nextSnapshot(hypothetical);
@@ -614,7 +628,14 @@ export async function createFieldIn(dbOrTx: DbOrTx, eventId: EventId, formId: Fo
     visibility: null,
     mapsTo: null,
     reviewVisibility: "identity",
-    sortOrder: section.fields.length,
+    // Max + 1, not count: `getFormForBuilderIn` filters `deleted_at IS NULL`,
+    // but a soft-deleted row keeps its `sort_order`. After deleting the field
+    // at position 1 of three, `length` is 2 — the position the live last field
+    // already holds. `compileFormSnapshot` breaks that tie on field id, so the
+    // new question lands before or after its neighbour at random, and a
+    // visibility rule's "must be an earlier field" check resolves on the same
+    // coin flip.
+    sortOrder: section.fields.reduce((highest, existing) => Math.max(highest, existing.sortOrder), -1) + 1,
   };
   const nextMapsTo = input.mapsTo ?? null;
   assertUniqueMapsTo(fields, field.id, nextMapsTo);
@@ -669,10 +690,28 @@ async function reconcileOptions(
     ? await dbOrTx.select({ id: tracks.id, name: tracks.name }).from(tracks).where(eq(tracks.eventId, eventId))
     : await dbOrTx.select({ id: sessionFormats.id, name: sessionFormats.name }).from(sessionFormats).where(eq(sessionFormats.eventId, eventId));
   const byLabel = new Map(vocabulary.map((row) => [row.name.trim().toLocaleLowerCase(), row]));
+  const byId = new Map(vocabulary.map((row) => [row.id, row]));
   const seenBindings = new Set<string>();
 
+  const boundIdFor = (label: string): string | null => {
+    const existing = field.options.find((option) => option.label.trim().toLocaleLowerCase() === label.toLocaleLowerCase());
+    return (mapsTo === "submission.track_id" ? existing?.trackId : existing?.formatId) ?? null;
+  };
+
   return labels.map((label) => label.trim()).filter(Boolean).map((label) => {
-    const row = byLabel.get(label.toLocaleLowerCase());
+    // Label first, then the binding the stored option already carries. Nothing
+    // propagates a track or format rename into `form_fields.options[].label`,
+    // and `updateFieldIn` re-runs this reconcile on *every* patch to a mapped
+    // field — feeding it the stale stored labels even when the patch never
+    // touched options. Resolving by label alone therefore meant renaming a
+    // track permanently bricked the question bound to it: editing that
+    // question's help text failed with `"AI" is not an event track`, and it
+    // could never be saved again until every label was retyped by hand. The
+    // id lookup below already existed for the identity half of this; it just
+    // sat behind the throw. Adopting `row.name` heals the stored label as a
+    // side effect, so the rename propagates on the next save.
+    const row = byLabel.get(label.toLocaleLowerCase())
+      ?? ((bound) => (bound ? byId.get(bound) : undefined))(boundIdFor(label));
     if (!row) {
       const kind = mapsTo === "submission.track_id" ? "track" : "session format";
       throw new AppError("VALIDATION", `“${label}” is not an event ${kind}. Choose an existing ${kind} before saving.`);
@@ -788,8 +827,19 @@ export async function duplicateFormIn(dbOrTx: DbOrTx, eventId: EventId, formId: 
     sectionIdMap.set(section.id, id);
     return { id, key: section.key, title: section.title, pageHeading: section.pageHeading, descriptionHtml: section.descriptionHtml, sortOrder: section.sortOrder };
   });
+  // Every copied field gets a fresh id, so a conditional rule copied verbatim
+  // would still name the *source* form's field — a source that does not exist
+  // in the copy. `compileFormSnapshot` resolves visibility sources by position
+  // within the new form, finds nothing, and rejects the whole duplicate. Map
+  // the ids first, then rewrite each rule through the map.
+  const fieldIdMap = new Map<string, ReturnType<typeof fieldIdSchema.parse>>();
+  for (const section of source.sections) {
+    for (const field of section.fields) {
+      fieldIdMap.set(field.id, fieldIdSchema.parse(crypto.randomUUID()));
+    }
+  }
   const fields: FormAuthoringRows["fields"] = source.sections.flatMap((section) => section.fields.map((field) => ({
-    id: fieldIdSchema.parse(crypto.randomUUID()),
+    id: fieldIdMap.get(field.id) ?? fieldIdSchema.parse(crypto.randomUUID()),
     sectionId: sectionIdMap.get(section.id) ?? section.id,
     key: field.key,
     label: field.label,
@@ -799,7 +849,15 @@ export async function duplicateFormIn(dbOrTx: DbOrTx, eventId: EventId, formId: 
     maxChars: field.maxChars,
     helpText: field.helpText,
     options: field.options,
-    visibility: field.visibility,
+    visibility: field.visibility
+      ? {
+          ...field.visibility,
+          conditions: field.visibility.conditions.map((condition) => ({
+            ...condition,
+            sourceFieldId: fieldIdMap.get(condition.sourceFieldId) ?? condition.sourceFieldId,
+          })),
+        }
+      : field.visibility,
     mapsTo: field.mapsTo,
     reviewVisibility: field.reviewVisibility,
     sortOrder: field.sortOrder,
@@ -819,6 +877,13 @@ export async function duplicateFormIn(dbOrTx: DbOrTx, eventId: EventId, formId: 
     kind: source.kind,
     collectParticipants: source.collectParticipants,
     targetType: source.targetType,
+    // A per-speaker cap is a setting, not part of the submissions/analytics
+    // trail this copy deliberately leaves behind — and the docstring above
+    // enumerates what it omits, which never included this. Dropping it made the
+    // copy silently fall back to the event-wide `submissionCapPerUser`
+    // (`public-form.ts`), so a form limited to one proposal per speaker
+    // duplicated into one that accepts the event default.
+    submissionLimit: source.submissionLimit,
     showWelcome: source.showWelcome,
     welcomeHtml: source.welcomeHtml,
     successHtml: source.successHtml,

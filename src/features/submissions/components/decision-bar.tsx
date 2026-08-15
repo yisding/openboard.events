@@ -8,6 +8,7 @@ import type { NotifyPreview } from "@/features/submissions";
 import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { emitTourSignal } from "@/shared/ui/app/guided-tour/signals";
+import { STATUS_BADGES, type StatusBadgeValue } from "@/shared/ui/status-badge";
 import { Button } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { MessagePreview } from "@/features/comms/index.client";
@@ -18,6 +19,8 @@ type DecisionTransitionRequest = (url: string, init: RequestInit) => Promise<Res
 export type BulkDecisionOutcome = {
   moved: number;
   unchanged: number;
+  /** Published sessions these moves removed from the public schedule. */
+  unpublished: number;
   rejected: number;
   unconfirmed: number;
   confirmedGroups: number;
@@ -26,6 +29,28 @@ export type BulkDecisionOutcome = {
   rejectionMessages: string[];
   unconfirmedMessages: string[];
 };
+
+type TransitionErrorPayload = {
+  code?: string;
+  message?: string;
+  data?: { from?: unknown; to?: unknown };
+};
+
+/**
+ * What the organizer reads when the server refuses a move. `STALE_STATUS`
+ * describes the refused edge with the column's own values (`decline_queue`),
+ * which is not a word this screen uses anywhere else — so the pair is
+ * re-rendered in the same vocabulary the rows' badges carry.
+ */
+export function transitionRejectionMessage(error: TransitionErrorPayload | undefined, status: number): string {
+  const from = error?.data?.from;
+  const to = error?.data?.to;
+  if (error?.code === "STALE_STATUS" && typeof from === "string" && typeof to === "string") {
+    const label = (value: string) => STATUS_BADGES[value as StatusBadgeValue]?.label ?? value.replace(/_/g, " ");
+    return `A submission cannot go from “${label(from)}” to “${label(to)}”`;
+  }
+  return error?.message ?? `Transition rejected (${status})`;
+}
 
 type BulkDecisionEffects = {
   onDone: () => void;
@@ -67,6 +92,7 @@ export async function completeBulkDecision({
   const outcome: BulkDecisionOutcome = {
     moved: 0,
     unchanged: selected.filter((row) => row.status === to).length,
+    unpublished: 0,
     rejected: 0,
     unconfirmed: 0,
     confirmedGroups: 0,
@@ -84,11 +110,12 @@ export async function completeBulkDecision({
         body: JSON.stringify({ ids, to, expectedFrom: observed }),
       });
       const payload = await response.json().catch(() => null) as {
-        data?: { changed?: unknown; stale?: unknown };
-        error?: { message?: string };
+        data?: { changed?: unknown; stale?: unknown; unpublished?: unknown };
+        error?: TransitionErrorPayload;
       } | null;
       const changed = payload?.data?.changed;
       const stale = payload?.data?.stale;
+      const unpublished = payload?.data?.unpublished;
       // 408, 425, and 429 explicitly invite a later retry. Other 4xx statuses
       // deterministically reject this request, notably assertTransition's 409
       // for an invalid source -> target pair.
@@ -98,7 +125,7 @@ export async function completeBulkDecision({
       if (deterministicRejection) {
         outcome.rejected += ids.length;
         outcome.rejectedGroups += 1;
-        outcome.rejectionMessages.push(payload?.error?.message ?? `Transition rejected (${response.status})`);
+        outcome.rejectionMessages.push(transitionRejectionMessage(payload?.error, response.status));
         continue;
       }
       if (!response.ok || !Array.isArray(changed) || !Array.isArray(stale)) {
@@ -109,6 +136,7 @@ export async function completeBulkDecision({
       }
       outcome.moved += changed.length;
       outcome.unchanged += stale.length;
+      outcome.unpublished += typeof unpublished === "number" ? unpublished : 0;
       outcome.confirmedGroups += 1;
     } catch {
       outcome.unconfirmed += ids.length;
@@ -117,10 +145,19 @@ export async function completeBulkDecision({
     }
   }
 
+  // Reversing a decision on an already-published talk removes it and its
+  // speaker from the public schedule. That is the one consequence of this bar
+  // an organizer cannot see from the abstracts table, so it is said out loud.
+  const unpublishedSummary = outcome.unpublished > 0
+    ? `${outcome.unpublished} published ${outcome.unpublished === 1 ? "session" : "sessions"} removed from the public schedule`
+    : null;
+
   if (outcome.rejected === 0 && outcome.unconfirmed === 0) {
-    effects.toast(outcome.unchanged === 0
-      ? `${outcome.moved} moved`
-      : `${outcome.moved} moved · ${outcome.unchanged} unchanged, someone else had already moved them`);
+    effects.toast([
+      `${outcome.moved} moved`,
+      unpublishedSummary,
+      outcome.unchanged === 0 ? null : `${outcome.unchanged} unchanged, someone else had already moved them`,
+    ].filter(Boolean).join(" · "));
     effects.onDone();
     effects.refresh();
     return outcome;
@@ -129,6 +166,7 @@ export async function completeBulkDecision({
   const confirmedAnyGroup = outcome.confirmedGroups > 0;
   const confirmedSummary = [
     ...(outcome.moved > 0 ? [`${outcome.moved} moved`] : []),
+    ...(unpublishedSummary ? [unpublishedSummary] : []),
     ...(outcome.unchanged > 0 ? [`${outcome.unchanged} unchanged`] : []),
   ];
   const rejectionReasons = [...new Set(outcome.rejectionMessages)].join("; ");
@@ -339,6 +377,13 @@ export function DecisionEmailPreflight({
   return <div className="form-stack decision-email-preflight">
     <p><b>{total} queued decision{total === 1 ? "" : "s"}</b> · {preview.accepted} accepted · {preview.declined} declined · {preview.emailsQueued} email{preview.emailsQueued === 1 ? "" : "s"}</p>
     {preview.skippedNoRecipient > 0 && <p className="portal-note" role="alert">{preview.skippedNoRecipient} submission{preview.skippedNoRecipient === 1 ? " has" : "s have"} no recipient and will be finalized without email.</p>}
+    {/* Re-deciding after a notification is legitimate and deliberately sends a
+        new email; the organizer correcting a mis-decision still has to know
+        the speaker is being told twice before they press send. */}
+    {preview.alreadyNotified > 0 && <p className="portal-note" role="alert">
+      {preview.alreadyNotified} queued submission{preview.alreadyNotified === 1 ? " has" : "s have"} already had a decision email sent —
+      queuing now emails {preview.alreadyNotified === 1 ? "that speaker" : "those speakers"} a second time.
+    </p>}
     {preview.samples.map((sample) => <section key={sample.decision}>
       <p><b>{sample.decision === "accepted" ? "Acceptance" : "Decline"} sample</b> · {sample.recipientName} ({sample.recipientEmail}) · {sample.submissionTitle}</p>
       {!sample.templateEnabled && <p className="portal-note" role="alert">This template is paused, so its messages will be skipped until it is enabled.</p>}

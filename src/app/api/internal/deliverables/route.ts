@@ -3,16 +3,11 @@ import { db } from "@/db/client";
 import { listDeliverablesIn, type DeliverableFilters } from "@/features/portal/deliverables/server/queries";
 import { deliverableFiltersSchema } from "@/features/portal/deliverables/server/filters";
 import { getEventTimezoneIn, tasksAdminAuth } from "@/features/portal/tasks-admin/server/queries";
+import { dueRangeFilters } from "@/features/portal/deliverables";
 import { eventIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
-import { endOfDayInTz, zonedTimeToInstant } from "@/shared/lib/time";
 
 const listInput = deliverableFiltersSchema;
-
-function startOfDayInTz(dateISO: string, timeZone: string): Date {
-  const [year, month, day] = dateISO.split("-").map(Number);
-  return zonedTimeToInstant(year ?? 1970, month ?? 1, day ?? 1, 0, 0, timeZone);
-}
 
 /**
  * The central Files view's list read (M52). Date-only filters are resolved
@@ -33,8 +28,7 @@ const list = defineHandler({
       ...(input.state ? { state: input.state } : {}),
       ...(input.hasUpload !== undefined ? { hasUpload: input.hasUpload === "true" } : {}),
       ...(input.search ? { search: input.search } : {}),
-      ...(input.dueOnOrAfter && timezone ? { dueAfter: startOfDayInTz(input.dueOnOrAfter, timezone).toISOString() } : {}),
-      ...(input.dueOnOrBefore && timezone ? { dueBefore: endOfDayInTz(input.dueOnOrBefore, timezone).toISOString() } : {}),
+      ...(timezone ? dueRangeFilters(input, timezone) : {}),
     };
     return listDeliverablesIn(db, scopedEventId, filters);
   },

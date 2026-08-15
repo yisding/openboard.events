@@ -4,11 +4,15 @@ import { useEffect, useRef, useState } from "react";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { editorDraftChanged, requestGuardedEditorClose } from "@/shared/ui/app/modal-editor-guard";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
+import { moveRovingTab } from "@/shared/ui/app/roving-tabs";
 import { Button, Field, Modal, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
 import { slugify } from "@/shared/lib/slug";
+import { readFieldErrors } from "@/shared/lib/api-client";
 import type { ResourcePageDTO } from "../server/queries";
+
+const BODY_MODES = ["rich", "source"] as const;
 
 export type ResourcePageDraft = {
   id?: string;
@@ -73,7 +77,7 @@ export function ResourcePageEditor({
   const [draft, setDraft] = useState<ResourcePageDraft>(initialDraft);
   const [baseline, setBaseline] = useState<ResourcePageDraft>(initialDraft);
   const [slugTouched, setSlugTouched] = useState(Boolean(page));
-  const [mode, setMode] = useState<"rich" | "source">("rich");
+  const [mode, setMode] = useState<(typeof BODY_MODES)[number]>("rich");
   const [saving, setSaving] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const createRequestId = useRef(createStableCreateRequestId());
@@ -158,7 +162,7 @@ export function ResourcePageEditor({
         return;
       }
       if (!response.ok) {
-        const nextFieldErrors = payload?.error?.fieldErrors ?? payload?.error?.data?.fieldErrors ?? {};
+        const nextFieldErrors = readFieldErrors(payload?.error) ?? {};
         setFieldErrors(nextFieldErrors);
         if (Object.keys(nextFieldErrors).length > 0) focusResourceFieldError(formRef.current);
         toast(payload?.error?.message ?? "That page could not be saved", { kind: "error" });
@@ -198,21 +202,23 @@ export function ResourcePageEditor({
 
         <Field label="Body" group>
           <div className="rich-text-mode-toggle" role="tablist" aria-label="Body editing mode">
-            <button type="button" role="tab" aria-selected={mode === "rich"} className={mode === "rich" ? "active" : ""} onClick={() => setMode("rich")}>Rich text</button>
-            <button type="button" role="tab" aria-selected={mode === "source"} className={mode === "source" ? "active" : ""} onClick={() => setMode("source")}>HTML source</button>
+            <button type="button" role="tab" id="resource-body-tab-rich" aria-controls="resource-body-panel" aria-selected={mode === "rich"} tabIndex={mode === "rich" ? 0 : -1} className={mode === "rich" ? "active" : ""} onKeyDown={(event) => moveRovingTab(event, BODY_MODES, "rich", setMode)} onClick={() => setMode("rich")}>Rich text</button>
+            <button type="button" role="tab" id="resource-body-tab-source" aria-controls="resource-body-panel" aria-selected={mode === "source"} tabIndex={mode === "source" ? 0 : -1} className={mode === "source" ? "active" : ""} onKeyDown={(event) => moveRovingTab(event, BODY_MODES, "source", setMode)} onClick={() => setMode("source")}>HTML source</button>
           </div>
-          {mode === "rich"
-            ? <RichTextEditor ariaLabel="Resource page body" value={draft.bodyHtml} onChange={(html) => setDraft((current) => ({ ...current, bodyHtml: html }))} placeholder="Write the page…" />
-            : (
-              <textarea
-                className="html-source-editor"
-                value={draft.bodyHtml}
-                onChange={(event) => setDraft((current) => ({ ...current, bodyHtml: event.target.value }))}
-                placeholder='<iframe src="https://www.youtube.com/embed/…" allowfullscreen></iframe>'
-                spellCheck={false}
-                aria-label="HTML source"
-              />
-            )}
+          <div id="resource-body-panel" role="tabpanel" aria-labelledby={`resource-body-tab-${mode}`}>
+            {mode === "rich"
+              ? <RichTextEditor ariaLabel="Resource page body" value={draft.bodyHtml} onChange={(html) => setDraft((current) => ({ ...current, bodyHtml: html }))} placeholder="Write the page…" />
+              : (
+                <textarea
+                  className="html-source-editor"
+                  value={draft.bodyHtml}
+                  onChange={(event) => setDraft((current) => ({ ...current, bodyHtml: event.target.value }))}
+                  placeholder='<iframe src="https://www.youtube.com/embed/…" allowfullscreen></iframe>'
+                  spellCheck={false}
+                  aria-label="HTML source"
+                />
+              )}
+          </div>
           <p className="field-note">
             HTML source is the only place to paste a video or map embed — the rich text toolbar never offers one.
             Both are sanitized on save and again on render: script tags and event handlers are always stripped, and

@@ -90,6 +90,6 @@ describe("portal shell data (M06b portal chrome)", () => {
     const first = await getPortalShellDataIn(database, eventId, speaker);
     const second = await getPortalShellDataIn(database, eventId, speaker);
     expect(first?.speaker.avatarColor).toBe(second?.speaker.avatarColor);
-    expect(first?.speaker.avatarColor).toMatch(/^#[0-9a-f]{6}$/);
+    expect(first?.speaker.avatarColor).toMatch(/^var\(--avatar-hue-(?:[1-9]|10)\)$/);
   });
 });

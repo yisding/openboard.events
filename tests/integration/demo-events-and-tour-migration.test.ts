@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 const base = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const tenancy = readFileSync(new URL("../../drizzle/0010_organization_tenancy.sql", import.meta.url), "utf8");
 const milestones = readFileSync(new URL("../../drizzle/0023_onboarding_milestones.sql", import.meta.url), "utf8");
-const demoEventsAndTour = readFileSync(new URL("../../drizzle/0044_demo_events_and_tour.sql", import.meta.url), "utf8");
+const demoEventsAndTour = readFileSync(new URL("../../drizzle/0047_demo_events_and_tour.sql", import.meta.url), "utf8");
 
 const organizationId = "d4400000-0000-4000-8000-000000000001";
 const otherOrganizationId = "d4400000-0000-4000-8000-000000000002";

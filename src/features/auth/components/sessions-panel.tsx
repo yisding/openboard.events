@@ -6,12 +6,14 @@ import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { z } from "zod";
 import { DataTable } from "@/shared/ui/app/data-table";
-import { Button, EmptyState } from "@/shared/ui/ui-kit";
+import { Button, EmptyState, StatusBadge } from "@/shared/ui/ui-kit";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
-import { type AppError, isAppError } from "@/shared/lib/errors";
+import { isAppError, isDefinitiveWriteFailure } from "@/shared/lib/errors";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
+import { LocalTime } from "@/shared/ui/app/local-time";
+import { deviceLabel } from "../device-label";
 
 // Server-provided props, not user input parsed off the wire — so this is a
 // plain type, not a zod schema (unlike `revokedSchema`/`revokedAllSchema`
@@ -22,6 +24,7 @@ export type AdminSessionSummary = {
   userAgent: string | null;
   createdAt: string;
   expiresAt: string;
+  isCurrent: boolean;
 };
 const revokedSchema = z.object({ revoked: z.boolean() });
 const revokedAllSchema = z.object({ revoked: z.number() });
@@ -31,16 +34,13 @@ const sessionSummarySchema = z.object({
   userAgent: z.string().nullable(),
   createdAt: z.string(),
   expiresAt: z.string(),
+  isCurrent: z.boolean(),
 });
 const sessionsSchema = z.array(sessionSummarySchema);
 
 type SessionMutationRecovery =
   | { action: "revoke"; target: AdminSessionSummary; originalIndex: number }
   | { action: "revoke-all" };
-
-function isDefinitiveSessionMutationError(error: unknown): error is AppError {
-  return isAppError(error) && error.code !== "INTERNAL";
-}
 
 function recoveryCopy(recovery: SessionMutationRecovery): string {
   return recovery.action === "revoke"
@@ -96,11 +96,17 @@ export function SessionsPanel({ initialSessions }: { initialSessions: AdminSessi
     setPendingRevoke(null);
     try {
       await api(`me/sessions/${operation.target.id}`, revokedSchema, { method: "DELETE" });
+      // Revoking your own row is a sign-out: staying here would leave the
+      // reader on a page whose every button now answers UNAUTHORIZED.
+      if (operation.target.isCurrent) {
+        goToLogin("Signed out on this device. Sign in again to continue.");
+        return;
+      }
       toast("Session revoked");
     } catch (caught) {
       if (isAppError(caught) && caught.code === "UNAUTHORIZED") {
         goToLogin("This sign-in is no longer active. Sign in again to continue.");
-      } else if (isDefinitiveSessionMutationError(caught)) {
+      } else if (isDefinitiveWriteFailure(caught)) {
         restoreTarget(operation);
         toast(caught.message, { kind: "error" });
       } else {
@@ -122,7 +128,7 @@ export function SessionsPanel({ initialSessions }: { initialSessions: AdminSessi
     } catch (caught) {
       if (isAppError(caught) && caught.code === "UNAUTHORIZED") {
         goToLogin("You’re signed out everywhere. Sign in again to continue.");
-      } else if (isDefinitiveSessionMutationError(caught)) {
+      } else if (isDefinitiveWriteFailure(caught)) {
         toast(caught.message, { kind: "error" });
       } else {
         setRecovery({ action: "revoke-all" });
@@ -150,7 +156,7 @@ export function SessionsPanel({ initialSessions }: { initialSessions: AdminSessi
     } catch (caught) {
       if (isAppError(caught) && caught.code === "UNAUTHORIZED") {
         goToLogin("You’re signed out. Sign in again to continue.");
-      } else if (isDefinitiveSessionMutationError(caught)) {
+      } else if (isDefinitiveWriteFailure(caught)) {
         toast(`${caught.message} The earlier outcome is still unconfirmed; check sessions before leaving.`, { kind: "error" });
       } else {
         toast("The session change is still unconfirmed. Restore your connection, then retry this exact action or check sessions.", { kind: "error" });
@@ -182,7 +188,7 @@ export function SessionsPanel({ initialSessions }: { initialSessions: AdminSessi
     } catch (caught) {
       if (isAppError(caught) && caught.code === "UNAUTHORIZED") {
         goToLogin("You’re signed out. Sign in again to continue.");
-      } else if (isDefinitiveSessionMutationError(caught)) {
+      } else if (isDefinitiveWriteFailure(caught)) {
         toast(`${caught.message} The session change remains unconfirmed.`, { kind: "error" });
       } else {
         toast("Sessions still couldn’t be checked. Restore your connection and try again.", { kind: "error" });
@@ -193,10 +199,17 @@ export function SessionsPanel({ initialSessions }: { initialSessions: AdminSessi
   }
 
   const columns = useMemo<Array<ColumnDef<AdminSessionSummary, unknown>>>(() => [
-    { id: "device", header: "Device", cell: ({ row }) => row.original.userAgent ?? "Unknown device" },
+    {
+      id: "device",
+      header: "Device",
+      cell: ({ row }) => <div className="session-device">
+        <strong>{deviceLabel(row.original.userAgent)}</strong>
+        {row.original.isCurrent && <StatusBadge value="current_device" />}
+      </div>,
+    },
     { id: "ip", header: "IP address", cell: ({ row }) => row.original.ipAddress ?? "—" },
-    { id: "createdAt", header: "Signed in", cell: ({ row }) => new Date(row.original.createdAt).toLocaleString() },
-    { id: "expiresAt", header: "Expires", cell: ({ row }) => new Date(row.original.expiresAt).toLocaleString() },
+    { id: "createdAt", header: "Signed in", cell: ({ row }) => <LocalTime instant={row.original.createdAt} /> },
+    { id: "expiresAt", header: "Expires", cell: ({ row }) => <LocalTime instant={row.original.expiresAt} /> },
     { id: "actions", header: "", cell: ({ row }) => <Button variant="danger" size="sm" disabled={locked} onClick={() => setPendingRevoke(row.original)}>Revoke</Button> },
   ], [locked]);
 
@@ -229,9 +242,11 @@ export function SessionsPanel({ initialSessions }: { initialSessions: AdminSessi
     />
     <ConfirmDialog
       open={pendingRevoke !== null && !locked}
-      title="Revoke this session?"
-      body="That device is signed out immediately."
-      confirmLabel="Revoke"
+      title={pendingRevoke?.isCurrent ? "Sign out this device?" : "Revoke this session?"}
+      body={pendingRevoke?.isCurrent
+        ? "This is the device you're using right now. You'll be signed out here and need to sign in again."
+        : `${deviceLabel(pendingRevoke?.userAgent ?? null)} is signed out immediately.`}
+      confirmLabel={pendingRevoke?.isCurrent ? "Sign out" : "Revoke"}
       onConfirm={() => void confirmRevoke()}
       onCancel={() => setPendingRevoke(null)}
     />

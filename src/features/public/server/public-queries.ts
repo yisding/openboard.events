@@ -10,15 +10,16 @@ import {
   type PublishedScheduleDTO,
   type PublishedSpeakersDTO,
 } from "@/shared/contracts";
-import { DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
+import { asAccentColor, DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
 import { eventDayKey } from "@/shared/lib/time";
 import { cachePublicRead } from "./cache";
 
 /**
  * The public schedule and speaker gallery's only reads. Every row comes from
  * `published_sessions_v` / `published_speakers_v` — the draft-leak firewall
- * lives in those views (status='published', starts_at set; confirmation_status
- * ='confirmed' joined to a published session), not here. The one raw-table
+ * lives in those views (status='published', starts_at set; a promoted session's
+ * submission still 'accepted'; confirmation_status='confirmed' joined to a
+ * published session), not here. The one raw-table
  * touch, `session_speakers`, is the bridge described in the M32 work order: it
  * is only ever joined against ids that already came out of a trusted view in
  * the same query, so it cannot surface a draft session's speaker or an
@@ -181,7 +182,7 @@ async function getPublishedScheduleForEventIn(dbOrTx: DbOrTx, event: PublicEvent
       timezone: event.timezone,
       startsAt: event.startsAt.toISOString(),
       endsAt: event.endsAt.toISOString(),
-      accentColor: event.theme ?? null,
+      accentColor: asAccentColor(event.theme),
       logoUrl: event.logoFileId ? `/f/${event.logoFileId}` : null,
       backgroundUrl: event.backgroundFileId ? `/f/${event.backgroundFileId}` : null,
       isDemo: event.isDemo,
@@ -277,7 +278,7 @@ async function getPublishedSpeakersForEventIn(dbOrTx: DbOrTx, event: PublicEvent
     event: {
       name: event.name,
       timezone: event.timezone,
-      accentColor: event.theme ?? null,
+      accentColor: asAccentColor(event.theme),
       logoUrl: event.logoFileId ? `/f/${event.logoFileId}` : null,
       backgroundUrl: event.backgroundFileId ? `/f/${event.backgroundFileId}` : null,
       isDemo: event.isDemo,

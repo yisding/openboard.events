@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { submissionDetailDtoSchema, type SubmissionDetailDTO } from "@/shared/contracts";
 import { SubmissionDrawer } from "./submission-drawer";
+import { settle } from "@tests/support/react";
 
 const routerMock = vi.hoisted(() => ({ refresh: vi.fn() }));
 const toastMock = vi.hoisted(() => vi.fn());
@@ -83,11 +84,6 @@ let container: HTMLDivElement;
 let root: Root;
 let fetchMock: ReturnType<typeof vi.fn<typeof fetch>>;
 
-async function settle() {
-  await act(async () => {
-    for (let step = 0; step < 5; step += 1) await Promise.resolve();
-  });
-}
 
 async function mount(canEdit = false) {
   await act(async () => {
@@ -177,6 +173,21 @@ describe("submission detail drawer recovery", () => {
     expect(container.textContent).toContain("Unexpected server error");
     expect(container.textContent).not.toContain("Check your connection");
     expect(buttonNamed("Retry")).toBeDefined();
+  });
+
+  it("says the save did not land when the write drops, and leaves the edit retryable", async () => {
+    fetchMock
+      .mockResolvedValueOnce(Response.json({ data: detail() }))
+      .mockRejectedValueOnce(new TypeError("offline"));
+    await mount(true);
+
+    await act(async () => { editTitle("My unsaved edit"); });
+    await act(async () => buttonNamed("Save changes")?.click());
+    await settle();
+
+    expect(container.textContent).toContain("Could not reach the server. This abstract was not saved.");
+    expect(toastMock).not.toHaveBeenCalledWith("Submission saved");
+    expect(buttonNamed("Save changes")?.disabled).toBe(false);
   });
 
   it("keeps stale fields locked until the rejected row version is replaced", async () => {

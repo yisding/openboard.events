@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, Clock3, X } from "lucide-react";
 import { cn } from "@/shared/lib/cn";
-import { endOfDayInTz, eventDayKey, formatDayKeyInZone, hourMinuteInZone, zoneAbbreviation, zonedInputToUtc } from "@/shared/lib/time";
+import { endOfDayInTz, eventDayKey, formatDayKeyInZone, formatInZone, hourMinuteInZone, wallTimeExistsInZone, zoneAbbreviation, zonedInputToUtc } from "@/shared/lib/time";
 import { Button, Select } from "@/shared/ui/ui-kit";
 
 type PickerMode = "datetime" | "date";
@@ -43,10 +43,12 @@ export function calendarCells(year: number, month: number): CalendarCell[] {
 }
 
 export function localDateTimeExists(value: DraftValue, tz: string): boolean {
-  const local = `${value.dayKey}T${String(value.hour).padStart(2, "0")}:${String(value.minute).padStart(2, "0")}`;
-  const instant = zonedInputToUtc(local, tz);
-  const time = hourMinuteInZone(instant, tz);
-  return eventDayKey(instant, tz) === value.dayKey && time.hour === value.hour && time.minute === value.minute;
+  // `wallTimeExistsInZone` is the same round-trip, shared with the agenda day
+  // grid so the two paths cannot drift on which wall times they accept.
+  return wallTimeExistsInZone(
+    `${value.dayKey}T${String(value.hour).padStart(2, "0")}:${String(value.minute).padStart(2, "0")}`,
+    tz,
+  );
 }
 
 export function draftZoneAbbreviation(value: DraftValue, tz: string): string {
@@ -86,10 +88,19 @@ export function pagedCalendarDay(fromDay: string, year: number, month: number, a
 }
 
 function monthLabel(year: number, month: number): string {
-  return new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric", timeZone: "UTC" })
-    .format(new Date(Date.UTC(year, month, 1)));
+  // The grid is a calendar, not an instant: it is built in UTC throughout so
+  // the same day never lands in two months for two viewers.
+  return formatInZone(new Date(Date.UTC(year, month, 1)), "UTC", { month: "long", year: "numeric" });
 }
 
+/**
+ * The one formatter that must *not* go through `formatInZone`: it appends a
+ * zone abbreviation to any component format that renders a time, and this
+ * control already shows the zone in its own `.datetime-zone` badge beside the
+ * input. The zone is explicit and never the viewer's, so the `viewer-time`
+ * invariant's concern does not apply — it allows this file's construction by
+ * name.
+ */
 function displayInstant(value: string, tz: string, mode: PickerMode): string {
   return new Intl.DateTimeFormat("en-US", mode === "date"
     ? { timeZone: tz, month: "short", day: "numeric", year: "numeric" }

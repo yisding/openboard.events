@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { parseCsv } from "@/features/portal/index.csv";
 import { SPEAKER_CSV_FIELDS, type ImportSpeakersCsvResult, type SpeakerCsvColumnMapping, type SpeakerCsvField } from "@/shared/contracts";
 import { Button, Field, Modal, Select, StatusBadge } from "@/shared/ui/ui-kit";
+import { LocalFilePicker } from "@/shared/ui/app/file-upload";
 import { useToast } from "@/shared/ui/toast";
 
 const FIELD_LABELS: Record<SpeakerCsvField, string> = {
@@ -170,8 +171,8 @@ export function SpeakerImportDialog({ eventId, open, onClose }: { eventId: strin
       {step === "upload" && (
         <div className="form-stack">
           <p className="long-copy">A row is matched to an existing speaker by normalized email; a new email creates a speaker. No field already filled in is ever overwritten — the preview names every change before anything is written.</p>
-          <Field label="CSV file" required>
-            <input ref={fileInput} type="file" accept=".csv,text/csv" required onChange={(event) => { const file = event.target.files?.[0]; if (file) onFile(file); }} />
+          <Field label="CSV file" required group>
+            <LocalFilePicker accept=".csv,text/csv" label="Choose a CSV file" hint="One header row, comma separated" inputRef={fileInput} onPick={onFile} />
           </Field>
           {error && <p className="field-error" role="alert">{error}</p>}
         </div>

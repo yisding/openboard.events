@@ -10,6 +10,9 @@ fail=0
 # this shell wrapper for repository literals and the CSS declaration floor.
 node_modules/.bin/tsx scripts/check-source-invariants.ts
 
+# Design Phase 1: :root is the only place a colour may be spelled as a hex.
+node_modules/.bin/tsx scripts/check-css-color-tokens.ts
+
 # rg exits 0 on match, 1 on no match, >1 on operational error. Only exit 1 is
 # success here; anything else means the check did not run and must fail closed.
 check_forbidden() {

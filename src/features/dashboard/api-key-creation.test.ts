@@ -1,12 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
-import { AppError } from "@/shared/lib/errors";
 import {
   API_KEY_LABEL_REQUIRED_MESSAGE,
   API_KEY_LABEL_TOO_LONG_MESSAGE,
   apiKeyCreationLabelError,
   apiKeyCreationOperationSchema,
-  isDefinitiveApiKeyCreationError,
   newApiKeyCreationOperation,
 } from "./api-key-creation";
 
@@ -40,12 +37,5 @@ describe("API key creation operations", () => {
     expect(apiKeyCreationLabelError(`${"A".repeat(120)} `)).toBe(API_KEY_LABEL_TOO_LONG_MESSAGE);
     expect(apiKeyCreationLabelError("   ")).toBe(API_KEY_LABEL_REQUIRED_MESSAGE);
     expect(apiKeyCreationOperationSchema.parse({ ...operation, label: "  Judge export  " }).label).toBe("Judge export");
-  });
-
-  it("classifies only non-INTERNAL AppErrors as definitive", () => {
-    expect(isDefinitiveApiKeyCreationError(new AppError("VALIDATION", "Fix the label"))).toBe(true);
-    expect(isDefinitiveApiKeyCreationError(new AppError("INTERNAL", "Unknown outcome"))).toBe(false);
-    expect(isDefinitiveApiKeyCreationError(new TypeError("offline"))).toBe(false);
-    expect(isDefinitiveApiKeyCreationError(z.object({ id: z.uuid() }).safeParse({ id: "malformed" }).error)).toBe(false);
   });
 });

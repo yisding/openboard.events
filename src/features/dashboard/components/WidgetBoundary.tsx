@@ -1,6 +1,7 @@
 "use client";
 
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { log } from "@/shared/lib/log";
 
 export class WidgetBoundary extends Component<{ children: ReactNode; name: string }, { failed: boolean }> {
   state = { failed: false };
@@ -10,7 +11,16 @@ export class WidgetBoundary extends Component<{ children: ReactNode; name: strin
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error("dashboard.widget_failed", { widget: this.props.name, error, componentStack: info.componentStack });
+    log({
+      level: "error",
+      msg: "dashboard.widget_failed",
+      requestId: "client",
+      feature: "dashboard",
+      code: this.props.name,
+      error: error.message,
+      ...(error.stack ? { stack: error.stack } : {}),
+      ...(info.componentStack ? { componentStack: info.componentStack } : {}),
+    });
   }
 
   render() {

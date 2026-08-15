@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { DbOrTx } from "@/db/client";
+import { isUniqueViolation } from "@/db/errors";
 import { db } from "@/db/client";
 import { LIMITS, plainTextLength, type ConfirmationStatus, type ContactId, type EventId, type FileId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
@@ -21,18 +22,6 @@ import { updateContactFields } from "@/features/event-contacts";
 // (`z.email().trim()`), the format check runs on the untrimmed, mixed-case
 // input and rejects a perfectly fixable "  Ada@Example.com  ".
 const speakerEmailSchema = z.string().trim().toLowerCase().pipe(z.email());
-
-function isUniqueViolation(error: unknown): boolean {
-  if (typeof error !== "object" || error === null) return false;
-  const code = (error as { code?: unknown }).code;
-  if (code === "23505") return true;
-  const cause = error instanceof Error ? error.cause : undefined;
-  const causeCode = typeof cause === "object" && cause !== null ? (cause as { code?: unknown }).code : undefined;
-  if (causeCode === "23505") return true;
-  const message = error instanceof Error ? error.message : "";
-  const causeMessage = cause instanceof Error ? cause.message : "";
-  return /duplicate key value|unique constraint/i.test(`${message} ${causeMessage}`);
-}
 
 /**
  * Normalizes to `lower(btrim(email))` (matching `updateContactFields`'s own

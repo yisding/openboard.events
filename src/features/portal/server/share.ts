@@ -83,7 +83,6 @@ export type SpeakerShareDTO = {
 type ShareRow = {
   first_name: string;
   last_name: string;
-  email: string;
   headshot_file_id: string | null;
   submission_code: number;
   submission_title: string;
@@ -96,9 +95,22 @@ type ShareRow = {
   room_name: string | null;
 };
 
-function displayName(first: string, last: string, email: string): string {
+/**
+ * `/speaking/<token>` is an unauthenticated page whose `<h1>`, `<title>` and
+ * OpenGraph/Twitter cards all carry this string, and `announce.ts` mints one
+ * such link for every accepted speaker and hands the bundle to the organizer
+ * to distribute. Falling back to the email address therefore publishes it —
+ * into markup that Slack, X and search engines scrape and cache.
+ *
+ * `first_name`/`last_name` default to `''` (`db/schema/contacts.ts`), so a
+ * nameless contact is the ordinary state for anyone created from a submission
+ * or an invitation. Every other public serializer says "Unnamed speaker"
+ * (`api/v1/server/queries.ts`, `public/server/public-queries.ts`); the email
+ * fallback is the *admin* roster's rule, which drifted onto a public surface.
+ */
+function displayName(first: string, last: string): string {
   const name = `${first} ${last}`.trim();
-  return name.length > 0 ? name : email;
+  return name.length > 0 ? name : "Unnamed speaker";
 }
 
 function iso(value: string | Date | null): string | null {
@@ -118,7 +130,7 @@ function iso(value: string | Date | null): string | null {
 export async function getSpeakerShareDataIn(dbOrTx: ShareDb, eventId: EventId, contactId: ContactId): Promise<SpeakerShareDTO | null> {
   const result = await dbOrTx.execute(sql`
     SELECT
-      c.first_name, c.last_name, c.email, c.headshot_file_id,
+      c.first_name, c.last_name, c.headshot_file_id,
       s.code AS submission_code, s.title AS submission_title,
       e.name AS event_name, e.slug AS event_slug, e.timezone AS event_timezone,
       sess.status AS session_status, sess.starts_at, sess.ends_at, r.name AS room_name
@@ -140,7 +152,7 @@ export async function getSpeakerShareDataIn(dbOrTx: ShareDb, eventId: EventId, c
     eventName: row.event_name,
     eventSlug: row.event_slug,
     eventTimezone: row.event_timezone,
-    speakerName: displayName(row.first_name, row.last_name, row.email),
+    speakerName: displayName(row.first_name, row.last_name),
     headshotUrl: row.headshot_file_id ? `/f/${row.headshot_file_id}` : null,
     submissionCode: row.submission_code,
     submissionTitle: row.submission_title,

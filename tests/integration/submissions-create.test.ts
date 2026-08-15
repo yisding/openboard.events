@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
 import {
@@ -127,8 +127,21 @@ describe("createSubmission", () => {
     await pglite.close();
   });
 
-  it("retries random code collisions for both final submissions and drafts", async () => {
+  /**
+   * Derived state, reset between tests rather than by each test's first line.
+   *
+   * Most tests below opened with `DELETE FROM submissions`; two did not, and
+   * silently inherited whatever the previous test left — while a neighbour
+   * asserts the per-user submission limit is exhausted, so that residue is
+   * load-bearing for the wrong reason. The seeded event, form, and contacts
+   * stay in `beforeAll`; only what the tests themselves create is cleared here.
+   */
+  beforeEach(async () => {
     await pglite.query("DELETE FROM submissions");
+    await pglite.query("DELETE FROM communication_logs");
+  });
+
+  it("retries random code collisions for both final submissions and drafts", async () => {
     const collisionCode = 123_456_789;
     await pglite.query(
       "INSERT INTO submissions(event_id,code,status,source,title) VALUES($1,$2,'pending','manual','Existing code')",
@@ -156,8 +169,6 @@ describe("createSubmission", () => {
   });
 
   it("serializes concurrent cap decisions on one durable speaker/form guard", async () => {
-    await pglite.query("DELETE FROM submissions");
-    await pglite.query("DELETE FROM communication_logs");
     await pglite.query("UPDATE forms SET submission_limit=1 WHERE id=$1", [openForm]);
     try {
       const settled = await Promise.allSettled([
@@ -181,7 +192,6 @@ describe("createSubmission", () => {
   });
 
   it("accepts 50 unrelated speakers concurrently without duplicate codes or touching the event counter", async () => {
-    await pglite.query("DELETE FROM submissions");
     const contacts = Array.from({ length: 50 }, (_, index) => contactIdSchema.parse(
       `e1000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
     ));
@@ -221,8 +231,6 @@ describe("createSubmission", () => {
   }, 30_000);
 
   it("creates a CFP submission with exactly one confirmation email", async () => {
-    await pglite.query("DELETE FROM submissions");
-    await pglite.query("DELETE FROM communication_logs");
     const result = await createSubmission(eventId, cfpInput());
     expect(result.status).toBe("pending");
     expect(result.promotedFromDraft).toBe(false);
@@ -241,7 +249,6 @@ describe("createSubmission", () => {
   });
 
   it("uses the form kind for a new form-backed submission", async () => {
-    await pglite.query("DELETE FROM submissions");
     const result = await createSubmission(eventId, cfpInput({ kind: "session", sendConfirmation: false }));
     const rows = await pglite.query<{ kind: string }>("SELECT kind FROM submissions WHERE id=$1", [result.submissionId]);
     expect(rows.rows[0]?.kind).toBe("abstract");
@@ -253,23 +260,50 @@ describe("createSubmission", () => {
   });
 
   it("refuses once the per-user limit is used up, and drafts do not count", async () => {
-    await pglite.query("DELETE FROM submissions");
-    await pglite.query("DELETE FROM communication_logs");
     await createSubmission(eventId, cfpInput({ fields: { title: "First talk" } }));
-    await createSubmission(eventId, cfpInput({ fields: { title: "Second talk" } }));
+    // One slot used and one draft open: the draft must not be the second, or
+    // this submit would be refused instead of promoting it.
     const draft = await upsertDraft(eventId, speaker, openForm, 1);
+    const second = await createSubmission(eventId, cfpInput({ fields: { title: "Second talk" } }));
+    expect(second.submissionId).toBe(draft.submissionId);
 
     const error = await createSubmission(eventId, cfpInput({ fields: { title: "Third talk" } }))
       .catch((thrown: unknown) => thrown);
     expect(isAppError(error) && error.code).toBe("LIMIT_REACHED");
+    // And the speaker is told before they fill anything in, rather than after a
+    // whole wizard: a draft they could never submit is not started at all.
+    const draftError = await upsertDraft(eventId, speaker, openForm, 1).catch((thrown: unknown) => thrown);
+    expect(isAppError(draftError) && draftError.code).toBe("LIMIT_REACHED");
     expect(await countRows("submissions", "status='pending'")).toBe(2);
-    expect(await countRows("submissions", "status='draft'")).toBe(1);
-    const rows = await pglite.query<{ status: string }>("SELECT status FROM submissions WHERE id=$1", [draft.submissionId]);
-    expect(rows.rows[0]?.status).toBe("draft");
+    expect(await countRows("submissions", "status='draft'")).toBe(0);
+  });
+
+  // The cap refuses to open one more draft, never to reopen the one a speaker is
+  // already writing. A slot can disappear under them — an organizer restores a
+  // withdrawn abstract, or the cap is lowered mid-CFP — and half-written work
+  // plus its SESS code has to stay reachable, not vanish behind the wall page.
+  it("still resumes an open draft after the speaker's slots fill up", async () => {
+    await pglite.query("DELETE FROM submissions");
+    const draft = await upsertDraft(eventId, speaker, openForm, 1);
+    for (const code of [9001, 9002]) {
+      await pglite.query(
+        `INSERT INTO submissions(id,event_id,form_id,form_version,code,status,source,title,submitter_contact_id,submitted_at)
+         VALUES(gen_random_uuid(),$1,$2,1,$3,'pending','cfp','Already submitted',$4, now())`,
+        [eventId, openForm, code, speaker],
+      );
+    }
+
+    const resumed = await upsertDraft(eventId, speaker, openForm, 1);
+    expect(resumed.submissionId).toBe(draft.submissionId);
+    expect(resumed.code).toBe(draft.code);
+
+    // Opening a *new* draft at the cap is still refused.
+    await pglite.query("DELETE FROM submissions WHERE status='draft'");
+    const error = await upsertDraft(eventId, speaker, openForm, 1).catch((thrown: unknown) => thrown);
+    expect(isAppError(error) && error.code).toBe("LIMIT_REACHED");
   });
 
   it("promotes a draft in place, keeping the code the speaker was shown", async () => {
-    await pglite.query("DELETE FROM submissions");
     const draft = await upsertDraft(eventId, speaker, openForm, 3);
     const submitted = await createSubmission(eventId, cfpInput({ formVersion: 3 }));
 
@@ -280,7 +314,6 @@ describe("createSubmission", () => {
   });
 
   it("keeps the form kind when a caller promotes a draft with a mismatched kind", async () => {
-    await pglite.query("DELETE FROM submissions");
     const draft = await upsertDraft(eventId, speaker, openForm, 3);
     await createSubmission(eventId, cfpInput({ formVersion: 3, kind: "session", sendConfirmation: false }));
     const rows = await pglite.query<{ kind: string }>("SELECT kind FROM submissions WHERE id=$1", [draft.submissionId]);
@@ -288,7 +321,6 @@ describe("createSubmission", () => {
   });
 
   it("rejects an illegal draft promotion before the database trigger", async () => {
-    await pglite.query("DELETE FROM submissions");
     const draft = await upsertDraft(eventId, speaker, openForm, 1);
 
     const error = await createSubmission(eventId, cfpInput({ initialStatus: "accepted" }))
@@ -303,7 +335,6 @@ describe("createSubmission", () => {
   });
 
   it("rolls back a partially written submission", async () => {
-    await pglite.query("DELETE FROM submissions");
     const before = await pglite.query<{ submission_seq: number }>("SELECT submission_seq FROM events WHERE id=$1", [eventId]);
 
     const error = await createSubmission(eventId, cfpInput({
@@ -317,8 +348,6 @@ describe("createSubmission", () => {
   });
 
   it("writes a manual row with no deadline, limit or confirmation", async () => {
-    await pglite.query("DELETE FROM submissions");
-    await pglite.query("DELETE FROM communication_logs");
 
     const result = await createSubmission(eventId, cfpInput({
       formId: closedForm,
@@ -333,7 +362,6 @@ describe("createSubmission", () => {
   });
 
   it("replays a manual creation request without duplicating its code, speakers, or tags", async () => {
-    await pglite.query("DELETE FROM submissions");
     await pglite.query(
       "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'panelist@example.com','Second','Panelist') ON CONFLICT DO NOTHING",
       [coSpeaker, eventId],
@@ -368,7 +396,6 @@ describe("createSubmission", () => {
   });
 
   it("does not accept organizer creation request ids on CFP submissions", async () => {
-    await pglite.query("DELETE FROM submissions");
 
     const error = await createSubmission(eventId, cfpInput({ requestedSubmissionId: manualRequest }))
       .catch((thrown: unknown) => thrown);
@@ -382,8 +409,6 @@ describe("createSubmission", () => {
   // to nobody. A manual row must be able to name who is giving the talk, and
   // still email none of them.
   it("attributes a manual row to its speakers, primary first, and still sends nothing", async () => {
-    await pglite.query("DELETE FROM submissions");
-    await pglite.query("DELETE FROM communication_logs");
     await pglite.query(
       "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'panelist@example.com','Second','Panelist') ON CONFLICT DO NOTHING",
       [coSpeaker, eventId],
@@ -416,7 +441,6 @@ describe("createSubmission", () => {
   });
 
   it("refuses a manual row whose speakers have no single primary", async () => {
-    await pglite.query("DELETE FROM submissions");
 
     const error = await createSubmission(eventId, cfpInput({
       formId: null,
@@ -437,8 +461,6 @@ describe("createSubmission", () => {
   });
 
   it("honours the form's own confirmation toggle when the caller passes none", async () => {
-    await pglite.query("DELETE FROM submissions");
-    await pglite.query("DELETE FROM communication_logs");
     await pglite.query("UPDATE forms SET send_confirmation=false WHERE id=$1", [openForm]);
 
     try {
@@ -451,8 +473,6 @@ describe("createSubmission", () => {
   });
 
   it("is idempotent when the same submit is retried", async () => {
-    await pglite.query("DELETE FROM submissions");
-    await pglite.query("DELETE FROM communication_logs");
     const draft = await upsertDraft(eventId, speaker, openForm, 1);
 
     const first = await createSubmission(eventId, cfpInput({ draftSubmissionId: draft.submissionId }));
@@ -467,8 +487,6 @@ describe("createSubmission", () => {
   });
 
   it("returns an already submitted draft before rechecking the now-consumed limit", async () => {
-    await pglite.query("DELETE FROM submissions");
-    await pglite.query("DELETE FROM communication_logs");
     await pglite.query("UPDATE events SET submission_cap_per_user=1 WHERE id=$1", [eventId]);
     const draft = await upsertDraft(eventId, speaker, openForm, 1);
 
@@ -481,7 +499,6 @@ describe("createSubmission", () => {
   });
 
   it("never promotes a speaker's draft into an organizer's manual submission", async () => {
-    await pglite.query("DELETE FROM submissions");
     const draft = await upsertDraft(eventId, speaker, openForm, 1);
 
     const manual = await createSubmission(eventId, cfpInput({
@@ -509,7 +526,6 @@ describe("createSubmission", () => {
   });
 
   it("upsertDraft returns the same row and code when called twice", async () => {
-    await pglite.query("DELETE FROM submissions");
     const first = await upsertDraft(eventId, speaker, openForm, 1);
     const second = await upsertDraft(eventId, speaker, openForm, 2);
 
@@ -533,7 +549,6 @@ describe("createSubmission", () => {
     }
 
     it("writes every answer, participant-scoped ones included", async () => {
-      await pglite.query("DELETE FROM submissions");
       const result = await createSubmission(eventId, cfpInput({
         answers: cleanAnswersSchema.parse([
           { fieldId: titleField, participantId: null, value: { t: "s", v: "Batched" } },
@@ -560,7 +575,6 @@ describe("createSubmission", () => {
     });
 
     it("rejects an answer pinned to a participant who is not on the submission", async () => {
-      await pglite.query("DELETE FROM submissions");
       const error = await createSubmission(eventId, cfpInput({
         answers: cleanAnswersSchema.parse([
           { fieldId: titleField, participantId: missingContact, value: { t: "s", v: "Nobody" } },

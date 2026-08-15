@@ -176,13 +176,13 @@ export function PublicAgenda({
     </div>
   ) : null;
 
+  // See `public-sessions.tsx`: with nothing published there are no confirmed
+  // speakers to send anyone to either, so this empty state offers no link.
   const body = schedule.sessions.length === 0 ? (
     <PublicComingSoon
       icon={Star}
       title="Agenda coming soon"
-      description={`The day-by-day program lands closer to ${formatInZone(event.startsAt, event.timezone, { month: "long", day: "numeric" })} — meet the confirmed speakers meanwhile.`}
-      linkHref={`/e/${eventSlug}/speakers`}
-      linkLabel="Speaker gallery"
+      description={`The day-by-day program lands closer to ${formatInZone(event.startsAt, event.timezone, { month: "long", day: "numeric" })} — check back then for the full lineup.`}
     />
   ) : sessions.length === 0 ? (
     <PublicComingSoon

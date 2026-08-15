@@ -5,34 +5,17 @@ import Link from "next/link";
 import { useState } from "react";
 import type { SpeakerDetailDTO, SpeakerRosterExtras } from "@/features/portal";
 import { participantRoleLabel } from "../../lib/participant-role";
-import { LIMITS, plainTextLength, type ConfirmationStatus, type TemplateKey } from "@/shared/contracts";
+import { LIMITS, plainTextLength, type ConfirmationStatus } from "@/shared/contracts";
 import { FileUpload } from "@/shared/ui/app/file-upload";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { TzTime } from "@/shared/ui/app/tz-time";
+import { templateLabel } from "@/shared/ui/template-label";
 import { Button, Field, PageHeader, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { SpeakerHeadshot } from "./speaker-headshot";
 import { SpeakerRosterPanels } from "./speaker-roster-panels";
 import { SpeakerStatusOptions } from "./speaker-status-options";
-
-/** One map, beside the timeline it labels — never reimplemented per row. */
-const TEMPLATE_LABELS: Record<TemplateKey, string> = {
-  submission_received: "Submission received",
-  submission_accepted: "Submission accepted",
-  submission_declined: "Submission declined",
-  task_assigned: "Task assigned",
-  task_reminder: "Task reminder",
-  schedule_assigned: "Schedule assigned",
-  schedule_changed: "Schedule changed",
-  portal_login: "Portal sign-in",
-  reviewer_invited: "Reviewer invited",
-  review_reminder: "Review reminder",
-  speaker_bulk_message: "Message",
-  admin_password_reset: "Password reset",
-  admin_email_verification: "Email verification",
-  organization_invited: "Team invitation",
-};
 
 const CONFIRMATION_OPTIONS: ConfirmationStatus[] = ["unconfirmed", "confirmed", "declined"];
 
@@ -81,13 +64,13 @@ function ImpersonateButton({ eventId, contactId, firstName }: { eventId: string;
         }).then((response) => {
           if (!response.ok || !tab) {
             tab?.close();
-            toast("Could not start impersonation");
+            toast("Could not start impersonation", { kind: "error" });
             return;
           }
           tab.location.href = response.url;
         }).catch(() => {
           tab?.close();
-          toast("Could not start impersonation");
+          toast("Could not start impersonation", { kind: "error" });
         }).finally(() => setPending(false));
       }}
     >
@@ -156,7 +139,7 @@ function HeadshotField({ eventId, contactId, headshotFileId, onSaved }: {
       toast("Photo updated");
       return true;
     } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not save that photo");
+      toast(error instanceof Error ? error.message : "Could not save that photo", { kind: "error" });
       return false;
     }
   }
@@ -203,7 +186,7 @@ function BioField({ eventId, contactId, bioHtml, onSaved }: {
               setEditing(false);
               toast("Biography updated");
             } catch (error) {
-              toast(error instanceof Error ? error.message : "Could not save that change");
+              toast(error instanceof Error ? error.message : "Could not save that change", { kind: "error" });
             } finally {
               setSaving(false);
             }
@@ -231,7 +214,7 @@ export function SpeakerDetailView({ eventId, timezone, initialDetail, initialExt
       setDetail(next);
       toast(status === "declined" ? "Confirmation set to declined — removed from the public gallery" : "Confirmation updated");
     } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not update confirmation");
+      toast(error instanceof Error ? error.message : "Could not update confirmation", { kind: "error" });
     } finally {
       setSavingConfirmation(false);
     }
@@ -339,7 +322,7 @@ export function SpeakerDetailView({ eventId, timezone, initialDetail, initialExt
             <div key={log.id}>
               <span />
               <p>
-                <b>{TEMPLATE_LABELS[log.templateKey]}{log.subjectRendered ? ` — ${log.subjectRendered}` : ""}</b>
+                <b>{templateLabel(log.templateKey)}{log.subjectRendered ? ` — ${log.subjectRendered}` : ""}</b>
                 <small>
                   {log.sentAt ? <TzTime instant={log.sentAt} tz={timezone} style="dateTime" /> : <TzTime instant={log.createdAt} tz={timezone} style="dateTime" />}
                   {" · "}<StatusBadge value={log.status} />

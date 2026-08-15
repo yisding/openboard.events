@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { eventIdSchema } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
-import { defineHandler } from "./handler";
+import { defineHandler, errorEnvelope } from "./handler";
 import * as rateLimitModule from "./rate-limit";
 
 const publicGuard = async () => null;
@@ -158,10 +158,13 @@ describe("defineHandler error-tracking seam (PLAN P3-OPS release-gate item 5)", 
 
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ error: { code: "INTERNAL", message: "Unexpected server error" } });
-    expect(spy).toHaveBeenCalledTimes(1);
     const captured = JSON.parse(spy.mock.calls[0]?.[0] as string);
     expect(captured).toMatchObject({ level: "error", msg: "error.captured", code: "INTERNAL", error: "db pool exhausted" });
     expect(captured.stack).toContain("db pool exhausted");
+    // Both halves of one failure belong in the same stream: the capture that
+    // carries the real message and the request line that carries the timing.
+    expect(JSON.parse(spy.mock.calls[1]?.[0] as string)).toMatchObject({ level: "error", msg: "request.failed", code: "INTERNAL" });
+    expect(spy).toHaveBeenCalledTimes(2);
   });
 
   it("captures an AppError explicitly thrown with code INTERNAL, keeping its real message", async () => {
@@ -173,9 +176,43 @@ describe("defineHandler error-tracking seam (PLAN P3-OPS release-gate item 5)", 
     });
     await route(new NextRequest("https://example.test/resource"));
 
-    expect(spy).toHaveBeenCalledTimes(1);
     const captured = JSON.parse(spy.mock.calls[0]?.[0] as string);
     expect(captured.error).toBe("R2 credentials are not configured");
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it("captures and maps for a route that cannot use defineHandler", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { envelope, status } = errorEnvelope(new Error("R2 unreachable"), { requestId: "ray-9", feature: "api-v1" });
+
+    expect(status).toBe(500);
+    expect(envelope).toEqual({ error: { code: "INTERNAL", message: "Unexpected server error" } });
+    // The whole point of the shared seam: a 500 on a hand-rolled route reaches
+    // `operational_errors` instead of being logged nowhere.
+    expect(JSON.parse(spy.mock.calls[0]?.[0] as string)).toMatchObject({
+      msg: "error.captured",
+      feature: "api-v1",
+      error: "R2 unreachable",
+    });
+  });
+
+  it("maps a ZodError to a 400 with field errors, and lets a route override the copy", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const zodError = await z.object({ code: z.string() }).safeParseAsync({});
+    if (zodError.success) throw new Error("test setup: expected a parse failure");
+
+    const generic = errorEnvelope(zodError.error, { requestId: "ray-1", feature: "uploads" });
+    expect(generic.status).toBe(400);
+    expect(generic.envelope.error.code).toBe("VALIDATION");
+    expect(generic.envelope.error.fieldErrors?.code).toEqual(expect.any(String));
+
+    const portal = errorEnvelope(zodError.error, {
+      requestId: "ray-2",
+      feature: "portal-auth",
+      fallbackMessages: { validation: "Enter a valid code" },
+    });
+    expect(portal.envelope.error.message).toBe("Enter a valid code");
+    expect(portal.status).toBe(400);
   });
 
   it("does not capture an expected AppError (VALIDATION/CONFLICT/etc.)", async () => {

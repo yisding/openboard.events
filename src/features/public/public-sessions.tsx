@@ -97,7 +97,12 @@ export function PublicSessions({
         if (format !== ALL && session.format?.name !== format) return false;
         if (location !== ALL && session.room?.name !== location) return false;
         if (!needle) return true;
-        const haystack = `${session.title} ${session.track?.name ?? ""} ${session.speakers.map((s) => s.name).join(" ")}`.toLowerCase();
+        // Title and speaker only, exactly as the header copy and the input
+        // promise. Track is printed on every card (session-card-eyebrow below)
+        // but is narrowed through its own dropdown right here, so free-text
+        // track matches would duplicate that control with no way to see or
+        // clear them.
+        const haystack = `${session.title} ${session.speakers.map((s) => s.name).join(" ")}`.toLowerCase();
         return haystack.includes(needle);
       })
       .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
@@ -107,13 +112,16 @@ export function PublicSessions({
     setExpandedId((prev) => (prev === id ? null : id));
   }
 
+  // No cross-link to the speaker surfaces here on purpose: `published_speakers_v`
+  // only carries speakers on a published session, so an event with nothing on
+  // the program has nobody in the gallery either — offering it would promise
+  // confirmed speakers that cannot exist and land the visitor on a second
+  // empty state pointing back.
   const body = allSessions.length === 0 ? (
     <PublicComingSoon
       icon={Search}
       title="Sessions coming soon"
-      description={`The program lands closer to ${formatInZone(event.startsAt, event.timezone, { month: "long", day: "numeric" })} — meet the confirmed speakers meanwhile.`}
-      linkHref={`/e/${eventSlug}/speakers`}
-      linkLabel="Speaker gallery"
+      description={`The program lands closer to ${formatInZone(event.startsAt, event.timezone, { month: "long", day: "numeric" })} — check back then for the full lineup.`}
     />
   ) : sessions.length === 0 ? (
     <PublicComingSoon

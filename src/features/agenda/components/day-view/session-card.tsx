@@ -52,7 +52,14 @@ export function SessionCard({
   timezone: string;
   onEdit?: (id: string) => void;
 }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+  // `attributes` is deliberately not spread onto the card. dnd-kit's defaults
+  // announce "press the space bar to pick up a draggable item", but this grid
+  // registers a PointerSensor only (`day-view.tsx`), so that instruction would
+  // describe an interaction that does nothing. Pointer drag stays an
+  // enhancement; the card describes itself below as what it really is for a
+  // keyboard — a button that opens the session editor, exactly like a List
+  // view row. Rescheduling without a pointer happens in that dialog.
+  const { listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: String(session.id),
     data: { type: "session", session },
   });
@@ -100,10 +107,18 @@ export function SessionCard({
         durationMinutes < 30 && "dv-session-card--single-line",
         isDragging && "dv-session-card--dragging",
       )}
-      aria-label={`${session.title}${severity ? ", has a scheduling conflict" : ""}, drag to reschedule`}
+      role="button"
+      tabIndex={0}
+      aria-label={`${session.title}${severity ? ", has a scheduling conflict" : ""}, press Enter to edit`}
+      aria-keyshortcuts="Enter Space"
       title={speakerNames.length > 0 ? `${session.title} · ${speakerNames.join(", ")}` : session.title}
       onDoubleClick={() => onEdit?.(String(session.id))}
-      {...attributes}
+      onKeyDown={(keyEvent) => {
+        if (keyEvent.target !== keyEvent.currentTarget) return;
+        if (keyEvent.key !== "Enter" && keyEvent.key !== " ") return;
+        keyEvent.preventDefault();
+        onEdit?.(String(session.id));
+      }}
       {...listeners}
     >
       <ResizeHandles session={session} />

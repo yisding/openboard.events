@@ -32,6 +32,41 @@ const MIN_SESSION_DURATION_MINUTES = 15;
  */
 export const SLOT_ROW_HEIGHT_PX = 16;
 
+/** A room column with nothing overlapping: the width family every room starts in. */
+export const ROOM_MIN_WIDTH_PX = 160;
+
+/**
+ * The minimum width one *lane* of a double-booked room gets.
+ *
+ * Measured against the card, not picked for looks. A lane card is
+ * `calc(100%/lanes - 8px)` of its column and spends ~34px of that on its
+ * borders, its text padding and the 24px right gutter the conflict triangle
+ * sits in, so a 340px lane leaves ~298px of text box — enough for the seeded
+ * room-conflict pair ("⚠ Demo conflict A — Vector search at scale", ~250px at
+ * `--text-xs`) to render whole. A 45-minute card draws its title on one
+ * `text-overflow:ellipsis` line, so a narrower lane does not wrap it, it
+ * truncates it, and e2e/agenda-schedule.spec.ts asserts the opposite
+ * (`scrollWidth <= clientWidth` on both cards of the side-by-side pair).
+ *
+ * The cost is that a five-room day with one busy room overflows `.dv-scroll`
+ * horizontally — which is what that scroller is for. Buying the room back for
+ * real means reflowing the day view's two 220px rails (the promotion tray and
+ * `.dv-side-panels`), a layout decision rather than a track size.
+ */
+export const LANE_MIN_WIDTH_PX = 340;
+
+/**
+ * One room column's `grid-template-columns` entry. The `Nfr` maximum still
+ * gives a busy room proportionally more width whenever the viewport has it to
+ * give; only the floor differs.
+ */
+export function roomTrackSize(laneCount: number): string {
+  const lanes = Math.max(1, Math.round(laneCount));
+  return lanes > 1
+    ? `minmax(${lanes * LANE_MIN_WIDTH_PX}px, ${lanes}fr)`
+    : `minmax(${ROOM_MIN_WIDTH_PX}px, 1fr)`;
+}
+
 const DEFAULT_GRID_START_MINUTES = 8 * 60;
 const DEFAULT_GRID_END_MINUTES = 18 * 60;
 
@@ -64,6 +99,21 @@ export function minutesFromDayStartInZone(instant: string, day: string, timeZone
     / (MINUTES_PER_DAY * 60_000),
   );
   return minutesSinceMidnightInZone(instant, timeZone) + dayOffset * MINUTES_PER_DAY;
+}
+
+/**
+ * How long a session is *as the grid draws it*, in wall-clock minutes.
+ *
+ * The same frame `minutesFromDayStartInZone` establishes, for the same reason:
+ * elapsed UTC and wall-clock length differ by an hour across a DST transition,
+ * so measuring one and re-applying it as the other moves the session. A
+ * 01:00–02:00 session on a fall-back day is two elapsed hours and one drawn
+ * hour; dragging it with the elapsed figure re-laid it as two hours.
+ */
+export function wallClockDurationMinutes(startsAt: string, endsAt: string, day: string, timeZone: string): number {
+  const start = minutesFromDayStartInZone(startsAt, day, timeZone);
+  const end = minutesFromDayStartInZone(endsAt, day, timeZone);
+  return Math.max(MIN_SESSION_DURATION_MINUTES, end - start);
 }
 
 /**
@@ -148,6 +198,18 @@ export function localWallTimeAt(day: string, minutes: number): string {
   const hh = String(Math.floor(minuteOfDay / 60)).padStart(2, "0");
   const mm = String(minuteOfDay % 60).padStart(2, "0");
   return `${shiftDayKey(day, dayOffset)}T${hh}:${mm}:00`;
+}
+
+/**
+ * A slot start as a wall-clock label — `555 -> "9:15 AM"`. Used by the Day
+ * view's drag announcements, which must name a room and a time rather than the
+ * cell id a screen reader would otherwise be read.
+ */
+export function slotTimeLabel(minutes: number): string {
+  const minuteOfDay = ((minutes % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+  const hour24 = Math.floor(minuteOfDay / 60);
+  const hour = hour24 % 12 === 0 ? 12 : hour24 % 12;
+  return `${hour}:${String(minuteOfDay % 60).padStart(2, "0")} ${hour24 < 12 ? "AM" : "PM"}`;
 }
 
 /** Pixels moved -> whole slots moved, rounding the *delta* rather than the

@@ -30,7 +30,7 @@ const migrationOnboardingMilestones = readFileSync(new URL("../../../../drizzle/
 // insert, so `createEventIn` needs the column to exist even though this suite
 // never provisions a demo. 0044 also widens the milestone CHECK, which is why
 // it follows 0023 here.
-const migrationDemoEvents = readFileSync(new URL("../../../../drizzle/0044_demo_events_and_tour.sql", import.meta.url), "utf8");
+const migrationDemoEvents = readFileSync(new URL("../../../../drizzle/0047_demo_events_and_tour.sql", import.meta.url), "utf8");
 
 function baseInput(overrides: Partial<Parameters<typeof provisionOrganizationEventIn>[3]> = {}) {
   return {
@@ -385,6 +385,22 @@ describe("self-serve onboarding — provisionOrganizationEvent (M45)", () => {
         [cappedOrg.id],
       );
       expect(counter.rows[0]?.count).toBe(5);
+    });
+
+    it("serializes the runtime entry point per organization so the cap holds", async () => {
+      // The gate above is a check, not a lock: `countOrganizationEventsIn` takes
+      // none and cannot take one, because the rows it would need to lock are the
+      // ones not inserted yet. Two requests overlapping between the count and the
+      // insert therefore both see room, which is what the runtime entry point's
+      // per-organization lock exists to prevent.
+      //
+      // The lock itself cannot be exercised here — it needs a real Neon pool,
+      // and PGlite runs one statement at a time, so this suite cannot even stage
+      // the overlap. What is checkable is that the runtime entry takes the lock
+      // at all, and that it is keyed per organization rather than globally.
+      const source = readFileSync(new URL("./provisioning.ts", import.meta.url), "utf8");
+      expect(source).toContain("withAdvisoryLock(\n  eventCapLockKey(organizationId),");
+      expect(source).toContain("`billing:event-cap:${organizationId}`");
     });
   });
 });

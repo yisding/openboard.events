@@ -216,6 +216,84 @@ describe("evaluation plans and reviewer routing", () => {
     expect((await getActivePlanIn(db, eventId))?.id).toBe(roundOne);
   });
 
+  it("does not hand a newly added criterion the id of one deleted in the same edit", async () => {
+    // A create that supplies its own `planId` (the retry-safe path) derives its
+    // criterion ids from the plan and the array index, so the seeded criterion
+    // owns `criterion:0`.
+    const planId = planIdSchema.parse("b2000000-0000-4000-8000-000000000091");
+    await savePlanIn(runEvaluationTransaction, eventId, planInput({
+      planId, name: "Inheritance round", round: 21, criteria: [{ label: "Relevance", weight: 1 }],
+    }));
+    const seeded = await pglite.query<{ id: string }>(
+      "SELECT id FROM evaluation_criteria WHERE plan_id=$1 ORDER BY sort_order", [planId],
+    );
+    const relevance = seeded.rows[0]?.id;
+    if (!relevance) throw new Error("test setup: expected a seeded criterion id");
+
+    // Delete it and add a different criterion in its place. Keyed on index
+    // alone, the new one derives the deleted one's id: `dropped` spares that
+    // row and `kept` UPDATEs it, so the new criterion silently inherits every
+    // `criterion_scores` answer already recorded against the old one.
+    await savePlanIn(runEvaluationTransaction, eventId, planInput({
+      planId, name: "Inheritance round", round: 21, criteria: [{ label: "Originality", weight: 1 }],
+    }));
+
+    const after = await pglite.query<{ id: string; label: string }>(
+      "SELECT id, label FROM evaluation_criteria WHERE plan_id=$1 ORDER BY sort_order", [planId],
+    );
+    expect(after.rows.map((row) => row.label)).toEqual(["Originality"]);
+    expect(after.rows[0]?.id).not.toBe(relevance);
+  });
+
+  it("keeps a moved criterion's id distinct from a new one added in the same edit", async () => {
+    const planId = planIdSchema.parse("b2000000-0000-4000-8000-000000000092");
+    await savePlanIn(runEvaluationTransaction, eventId, planInput({
+      planId, name: "Collision round", round: 22,
+      criteria: [{ label: "Relevance", weight: 1 }, { label: "Delivery", weight: 1 }],
+    }));
+    const seeded = await pglite.query<{ id: string }>(
+      "SELECT id FROM evaluation_criteria WHERE plan_id=$1 ORDER BY sort_order", [planId],
+    );
+    const delivery = seeded.rows[1]?.id;
+    if (!delivery) throw new Error("test setup: expected two seeded criterion ids");
+
+    // Drop the first criterion and add a new one. Delivery keeps its claimed id
+    // but moves to index 0, so an index-keyed derivation gave the new criterion
+    // the id Delivery already holds — both then reached
+    // `ON CONFLICT … DO UPDATE` in one statement, which Postgres rejects with
+    // 21000: an unmapped INTERNAL that repeats on every retry.
+    await savePlanIn(runEvaluationTransaction, eventId, planInput({
+      planId, name: "Collision round", round: 22,
+      criteria: [{ id: delivery, label: "Delivery", weight: 1 }, { label: "Originality", weight: 1 }],
+    }));
+
+    const after = await pglite.query<{ id: string; label: string }>(
+      "SELECT id, label FROM evaluation_criteria WHERE plan_id=$1 ORDER BY sort_order", [planId],
+    );
+    expect(after.rows.map((row) => row.label)).toEqual(["Delivery", "Originality"]);
+    expect(after.rows[0]?.id).toBe(delivery);
+    expect(after.rows[1]?.id).not.toBe(delivery);
+  });
+
+  it("refuses a caller that claims one criterion id twice instead of failing as a 500", async () => {
+    const planId = planIdSchema.parse("b2000000-0000-4000-8000-000000000093");
+    await savePlanIn(runEvaluationTransaction, eventId, planInput({
+      planId, name: "Duplicate claim round", round: 23, criteria: [{ label: "Relevance", weight: 1 }],
+    }));
+    const seeded = await pglite.query<{ id: string }>(
+      "SELECT id FROM evaluation_criteria WHERE plan_id=$1 ORDER BY sort_order", [planId],
+    );
+    const relevance = seeded.rows[0]?.id;
+    if (!relevance) throw new Error("test setup: expected a seeded criterion id");
+
+    const collided = await savePlanIn(runEvaluationTransaction, eventId, planInput({
+      planId, name: "Duplicate claim round", round: 23,
+      criteria: [{ id: relevance, label: "One", weight: 1 }, { id: relevance, label: "Two", weight: 1 }],
+    })).catch((error: unknown) => error);
+
+    expect(isAppError(collided) && collided.code).toBe("VALIDATION");
+  });
+
   it("keeps criterion ids across an edit so existing scores stay attached", async () => {
     const planId = await seedPlan({ criteria: [{ label: "Relevance", weight: 1 }] });
     const before = await getActivePlanIn(db, eventId);
@@ -411,6 +489,29 @@ describe("evaluation plans and reviewer routing", () => {
     // of scope the moment the plan names a track.
     expect(plan?.progress.total).toBe(1);
     expect(plan?.reviewers[0]?.assigned).toBe(1);
+  });
+
+  it("stops counting a withdrawn submission as work the reviewer can still do", async () => {
+    const planId = await seedPlan();
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: grace, trackIds: null }]);
+    const before = (await listPlansIn(db, eventId))[0]?.reviewers[0]?.assigned ?? 0;
+    expect(before).toBeGreaterThan(0);
+
+    const priorStatus = (await pglite.query<{ status: string }>(
+      "SELECT status FROM submissions WHERE id = $1", [agentsTalk],
+    )).rows[0]?.status ?? "pending";
+    await pglite.query("UPDATE submissions SET status = 'withdrawn' WHERE id = $1", [agentsTalk]);
+
+    try {
+      // The queue already hid it. The per-reviewer counter did not, so the plan
+      // row sat at n-1/n forever with nothing the reviewer could clear — and
+      // the reminder path mailed them about it.
+      const after = (await listPlansIn(db, eventId))[0]?.reviewers[0]?.assigned ?? 0;
+      expect(after).toBe(before - 1);
+    } finally {
+      // Shared seed row: hand it back the way the other cases expect it.
+      await pglite.query("UPDATE submissions SET status = $2 WHERE id = $1", [agentsTalk, priorStatus]);
+    }
   });
 
   it("refuses to route submissions to someone who is not a member", async () => {

@@ -29,7 +29,7 @@ const migrationPublicScheduleRevision = readFileSync(new URL("../../drizzle/0034
 // 0044 also widens 0023's milestone CHECK, so that migration has to be present
 // for the ALTER to find a constraint to replace.
 const migrationOnboardingMilestones = readFileSync(new URL("../../drizzle/0023_onboarding_milestones.sql", import.meta.url), "utf8");
-const migrationDemoEvents = readFileSync(new URL("../../drizzle/0044_demo_events_and_tour.sql", import.meta.url), "utf8");
+const migrationDemoEvents = readFileSync(new URL("../../drizzle/0047_demo_events_and_tour.sql", import.meta.url), "utf8");
 
 const env = parseEnv({
   APP_ENV: "local",
@@ -178,7 +178,7 @@ describe("buildPublicScheduleIcsIn (M53 anonymous itinerary export, reuses M35's
       expect(afterEdit.ics).toContain("SUMMARY:Edited Summary\r\n");
       expect(afterEdit.ics).toContain("DESCRIPTION:Edited details\r\n");
 
-      const restored = await restoreSessionContentIn(db, eventId, sessionContent, originalContentRevision, null);
+      const restored = await restoreSessionContentIn(db, eventId, sessionContent, originalContentRevision, edited.rowVersion, null);
       const afterRestore = required(await buildPublicScheduleIcsIn(db, eventSlug, [sessionContent], env), "expected restored content calendar");
 
       expect(restored.scheduleRevision).toBe(7);

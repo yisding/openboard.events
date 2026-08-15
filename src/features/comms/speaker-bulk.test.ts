@@ -35,7 +35,7 @@ const migrationCalendarCancellationSnapshots = readFileSync(new URL("../../../dr
 // barrier), so every dispatcher fixture needs the column. 0044 widens 0023's
 // milestone CHECK, which is why the milestone table comes along with it.
 const migrationOnboardingMilestones = readFileSync(new URL("../../../drizzle/0023_onboarding_milestones.sql", import.meta.url), "utf8");
-const migrationDemoEvents = readFileSync(new URL("../../../drizzle/0044_demo_events_and_tour.sql", import.meta.url), "utf8");
+const migrationDemoEvents = readFileSync(new URL("../../../drizzle/0047_demo_events_and_tour.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("e1000000-0000-4000-8000-000000000001");
 const ada = contactIdSchema.parse("e1000000-0000-4000-8000-000000000010");

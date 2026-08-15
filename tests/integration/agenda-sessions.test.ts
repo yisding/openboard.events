@@ -238,7 +238,7 @@ describe("agenda sessions", () => {
     expect(history[1]?.title).toBe("Original title");
     if (!originalRevisionId) throw new Error("expected an original revision to restore from");
 
-    const restored = await restoreSessionContent(eventId, edited.id, originalRevisionId, organizer);
+    const restored = await restoreSessionContent(eventId, edited.id, originalRevisionId, edited.rowVersion, organizer);
     expect(restored.title).toBe("Original title");
     expect(restored.descriptionHtml).toBe("<p>Hello</p>");
     // Publication is untouched by a content restore (the module's own
@@ -250,6 +250,65 @@ describe("agenda sessions", () => {
     expect(finalHistory[0]?.title).toBe("Original title");
     expect(finalHistory[0]?.restoredFromRevisionId).toBe(originalRevisionId);
     expect(finalHistory[0]?.editedByName).toBe("Maya Lin");
+  });
+
+  it("M52: refuses a restore that would overwrite an edit made since the panel loaded", async () => {
+    const created = await createSession({ title: "Keynote draft" }, organizer);
+    const edited = await saveSession(eventId, {
+      id: created.id, expectedVersion: created.rowVersion, title: "Keynote, second pass",
+      descriptionHtml: "<p>Second pass</p>", formatId: null, trackId: null, roomId: null,
+      startsAt: null, endsAt: null, speakerContactIds: [], status: "draft",
+    });
+    const history = await listSessionContentRevisions(eventId, created.id);
+    const firstRevisionId = history[history.length - 1]?.id;
+    if (!firstRevisionId) throw new Error("expected an original revision to restore from");
+
+    // The version the other organizer's history panel loaded, before the edit
+    // above landed. Their restore has to lose, the way their save would.
+    await expect(restoreSessionContent(eventId, created.id, firstRevisionId, created.rowVersion, organizer))
+      .rejects.toMatchObject({ code: "STALE_WRITE" });
+
+    const after = await pglite.query<{ title: string }>("SELECT title FROM sessions WHERE id=$1", [created.id]);
+    expect(after.rows[0]?.title).toBe("Keynote, second pass");
+    // A refused restore records no history either — the "restored from" entry
+    // would otherwise describe an edit that never happened.
+    expect(await listSessionContentRevisions(eventId, created.id)).toHaveLength(history.length);
+
+    // Reloading is the fix, and then it goes through.
+    const restored = await restoreSessionContent(eventId, created.id, firstRevisionId, edited.rowVersion, organizer);
+    expect(restored.title).toBe("Keynote draft");
+  });
+
+  it("M52: records no revision when the restore's update writes nothing", async () => {
+    // The concurrent case the version predicate alone cannot cover: another
+    // save commits between this statement's snapshot and the moment it locks
+    // the row, so the UPDATE re-checks `row_version` against the newer row and
+    // matches nothing — while any read taken from the snapshot still saw the
+    // expected version. A BEFORE UPDATE trigger that returns NULL reproduces
+    // exactly that outcome deterministically: predicate satisfied, no row
+    // written. The history insert must not fire on its own.
+    const created = await createSession({ title: "Untouched" }, organizer);
+    const history = await listSessionContentRevisions(eventId, created.id);
+
+    await pglite.exec(`
+      CREATE FUNCTION suppress_session_update() RETURNS trigger AS $$
+      BEGIN
+        RETURN NULL;
+      END;
+      $$ LANGUAGE plpgsql;
+      CREATE TRIGGER suppress_session_update
+      BEFORE UPDATE ON sessions
+      FOR EACH ROW EXECUTE FUNCTION suppress_session_update();
+    `);
+    try {
+      const revisionId = history[0]?.id;
+      if (!revisionId) throw new Error("expected a revision to restore from");
+      await expect(restoreSessionContent(eventId, created.id, revisionId, created.rowVersion, organizer))
+        .rejects.toMatchObject({ code: "NOT_FOUND" });
+      expect(await listSessionContentRevisions(eventId, created.id)).toHaveLength(history.length);
+    } finally {
+      await pglite.exec("DROP TRIGGER suppress_session_update ON sessions; DROP FUNCTION suppress_session_update();");
+    }
   });
 
   it("collapses a duplicated speaker id into one row", async () => {
@@ -400,13 +459,46 @@ describe("agenda sessions", () => {
       speakerContactIds: [ada, grace], status: "draft",
     });
 
-    const untimed = await createSession({ title: "Published but unplaced", speakerContactIds: [ada], status: "published" });
+    // A published session with no time can only be reached by unscheduling one
+    // that had a time — publishing an unscheduled session is refused below.
+    // Adding a speaker to it must still mail nobody: the session is on no
+    // public schedule, so there is no calendar item to assign.
+    const timed = await createSession({
+      title: "Published but unplaced", speakerContactIds: [ada], status: "published",
+      startsAt: at("2026-09-15T19:00:00Z"), endsAt: at("2026-09-15T19:30:00Z"),
+    });
+    const unscheduled = await moveSession(eventId, {
+      id: timed.id, version: timed.rowVersion, startsAt: null, endsAt: null, roomId: null,
+    });
+    await pglite.exec("TRUNCATE communication_logs CASCADE");
+
     await saveSession(eventId, {
-      id: untimed.id, expectedVersion: untimed.rowVersion, title: "Published but unplaced",
+      id: timed.id, expectedVersion: unscheduled.session.rowVersion, title: "Published but unplaced",
       descriptionHtml: "", formatId: null, trackId: null, roomId: null,
       startsAt: null, endsAt: null, speakerContactIds: [ada, grace], status: "published",
     });
 
+    expect(await count("communication_logs")).toBe(0);
+  });
+
+  it("refuses to publish a session that has no time", async () => {
+    // `setSessionsPublished` already refuses this in SQL. The dialog reaches a
+    // different path, and its own option reads "Published — visible and
+    // speakers notified" — true of neither for an unscheduled session.
+    const created = await saveSession(eventId, {
+      creationId: sessionIdSchema.parse(crypto.randomUUID()),
+      title: "Publish without a slot", descriptionHtml: "", formatId: null, trackId: null, roomId: null,
+      startsAt: null, endsAt: null, speakerContactIds: [ada], status: "published",
+    }).catch((error: unknown) => error);
+    expect(isAppError(created) && created.code).toBe("VALIDATION");
+
+    const draft = await createSession({ title: "Still unplaced", speakerContactIds: [ada] });
+    const promoted = await saveSession(eventId, {
+      id: draft.id, expectedVersion: draft.rowVersion, title: "Still unplaced",
+      descriptionHtml: "", formatId: null, trackId: null, roomId: null,
+      startsAt: null, endsAt: null, speakerContactIds: [ada], status: "published",
+    }).catch((error: unknown) => error);
+    expect(isAppError(promoted) && promoted.code).toBe("VALIDATION");
     expect(await count("communication_logs")).toBe(0);
   });
 

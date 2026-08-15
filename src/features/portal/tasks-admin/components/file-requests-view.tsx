@@ -9,7 +9,7 @@ import { Button, EmptyState, Field, Modal } from "@/shared/ui/ui-kit";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { useToast } from "@/shared/ui/toast";
 import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
-import { DEFAULT_ACCEPTED_EXTENSIONS } from "../constants";
+import { DEFAULT_ACCEPTED_EXTENSIONS, FILE_REQUEST_MAX_SIZE_MB } from "../constants";
 import type { FileRequestDTO } from "../server/queries";
 import { taskMutation } from "./task-mutation";
 
@@ -190,7 +190,7 @@ export function FileRequestsView({
               <input value={draft.acceptedExtensions} onChange={(event) => setDraft((current) => ({ ...current, acceptedExtensions: event.target.value }))} placeholder="pdf, ppt, pptx" />
             </Field>
             <Field label="Max size (MB)">
-              <input type="number" min={1} max={5000} value={draft.maxSizeMb} onChange={(event) => setDraft((current) => ({ ...current, maxSizeMb: Number(event.target.value) || 1 }))} />
+              <input type="number" min={1} max={FILE_REQUEST_MAX_SIZE_MB} value={draft.maxSizeMb} onChange={(event) => setDraft((current) => ({ ...current, maxSizeMb: Number(event.target.value) || 1 }))} />
             </Field>
           </div>
         </div>

@@ -8,6 +8,7 @@ import { eventIdSchema, userIdSchema, type EventAccessOverviewDTO } from "@/shar
 import { AppError } from "@/shared/lib/errors";
 import { UnsavedWorkGuardProvider, useGuardedAction } from "@/shared/ui/app/unsaved-work-guard";
 import { EventAccessTab } from "./event-access-tab";
+import { settle } from "@tests/support/react";
 
 const apiMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
@@ -101,11 +102,6 @@ async function renderAccess() {
   await settle();
 }
 
-async function settle() {
-  await act(async () => {
-    for (let step = 0; step < 8; step += 1) await Promise.resolve();
-  });
-}
 
 function buttonNamed(name: string, within: ParentNode = container): HTMLButtonElement | undefined {
   return [...within.querySelectorAll<HTMLButtonElement>("button")]

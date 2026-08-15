@@ -57,7 +57,7 @@ const migrationBilling = readFileSync(new URL("../../drizzle/0012_billing_scaffo
 // 0044 also widens 0023's milestone CHECK, so that migration has to be present
 // for the ALTER to find a constraint to replace.
 const migrationOnboardingMilestones = readFileSync(new URL("../../drizzle/0023_onboarding_milestones.sql", import.meta.url), "utf8");
-const migrationDemoEvents = readFileSync(new URL("../../drizzle/0044_demo_events_and_tour.sql", import.meta.url), "utf8");
+const migrationDemoEvents = readFileSync(new URL("../../drizzle/0047_demo_events_and_tour.sql", import.meta.url), "utf8");
 
 // Two events and three users that exist *before* the tenancy migration runs —
 // this is the "existing single-org data" the migration has to backfill.

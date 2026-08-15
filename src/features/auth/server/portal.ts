@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { and, count, desc, eq, gt, gte, isNotNull, isNull } from "drizzle-orm";
 import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
-import { contacts, events, portalSessions, portalTokens } from "@/db/schema";
+import { contacts, events, portalSessions, portalTokens, users } from "@/db/schema";
 import { getOrCreateContact } from "@/features/event-contacts";
 import type { ContactId, EventId, UserId } from "@/shared/contracts";
 import { idem } from "@/shared/contracts";
@@ -149,6 +149,20 @@ export async function requirePortalByEventId(eventId: EventId): Promise<PortalSe
     email: session.email,
     impersonatedByUserId: session.impersonatedByUserId as UserId | null,
   };
+}
+
+/**
+ * Who opened an impersonated portal session. The banner names the speaker being
+ * viewed; without this it names nobody accountable, so on a shared machine
+ * there is no way to tell from the portal which organizer started the session.
+ */
+export async function getPortalImpersonator(userId: UserId): Promise<{ name: string; email: string } | null> {
+  const [user] = await db.select({ name: users.name, email: users.email })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  if (!user) return null;
+  return { name: user.name.trim() || user.email, email: user.email };
 }
 
 export async function requirePortal(eventSlug: string): Promise<PortalSession> {

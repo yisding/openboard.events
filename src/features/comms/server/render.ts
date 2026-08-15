@@ -9,6 +9,8 @@ const TOKEN = /\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/gu;
 // Built by buildOutstandingList from individually escaped task names/dates.
 // Built by buildCalendarButtons from individually escaped application URLs.
 const PRE_ESCAPED = new Set(["tasks.outstanding_list", "calendar.buttons_html"]);
+/** Tokens whose empty value is a fact about the contact, not a missing variable. */
+const OPTIONAL_WHEN_EMPTY = new Set(["speaker.last_name"]);
 
 const COMMON_TOKENS = [
   "event.name", "event.start_date", "event.location", "event.timezone",
@@ -51,12 +53,41 @@ const TOKENS_BY_KEY: Record<TemplateKey, readonly string[]> = {
   ],
 };
 
+/**
+ * `&amp;` is decoded last, and the order matters. Decoding it first turns the
+ * escaped text `&amp;lt;` into `&lt;` in time for the very next replacement to
+ * read it as markup and hand back `<` — a tag the author had escaped on
+ * purpose. Unescaping the ampersand once everything else is done leaves it as
+ * the literal `&` it stands for.
+ */
 function decodeEntities(value: string): string {
-  return value.replaceAll("&nbsp;", " ").replaceAll("&amp;", "&").replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&quot;", '"').replaceAll("&#39;", "'").replace(/&#(\d+);/gu, (_match, code: string) => String.fromCodePoint(Number(code)));
+  return value.replaceAll("&nbsp;", " ").replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&quot;", '"').replaceAll("&#39;", "'").replace(/&#(\d+);/gu, (_match, code: string) => String.fromCodePoint(Number(code))).replaceAll("&amp;", "&");
 }
 
-export function stripHtml(html: string): string {
-  const withLines = html.replace(/<br\s*\/?\s*>/giu, "\n").replace(/<\/p\s*>/giu, "\n");
+const ANCHOR = /<a\b[^>]*\bhref\s*=\s*"([^"]*)"[^>]*>([\s\S]*?)<\/a\s*>/giu;
+
+/**
+ * Put each link's destination beside its label, the way every html-to-text
+ * converter does: `Open your speaker portal (https://…)`.
+ *
+ * Stripping tags alone deletes the `href`, so the plain-text alternative of
+ * every message carried the *words* of each link and none of the addresses —
+ * "Open your speaker portal" with nothing to open, and an unsubscribe line
+ * with nowhere to go, for any recipient reading text/plain.
+ */
+function withLinkTargets(html: string): string {
+  return html.replace(ANCHOR, (match, href: string, inner: string) => {
+    const url = decodeEntities(href).trim();
+    if (!/^https?:\/\//iu.test(url)) return match;
+    // A label that is already the URL does not want it twice.
+    const label = decodeEntities(parseTag(inner, () => "", (value) => value)).trim();
+    return label && label !== url ? `${inner} (${url})` : inner;
+  });
+}
+
+export function stripHtml(html: string, options: { keepLinkTargets?: boolean } = {}): string {
+  const source = options.keepLinkTargets === true ? withLinkTargets(html) : html;
+  const withLines = source.replace(/<br\s*\/?\s*>/giu, "\n").replace(/<\/p\s*>/giu, "\n");
   const withoutTags = parseTag(withLines, () => "", (value) => value);
   return decodeEntities(withoutTags).replace(/[ \t]+\n/gu, "\n").replace(/\n[ \t]+/gu, "\n").replace(/\n{3,}/gu, "\n\n").replace(/[ \t]{2,}/gu, " ").trim();
 }
@@ -66,7 +97,17 @@ function resolve(vars: TemplateVars, path: string): string {
   for (const part of path.split(".")) {
     value = typeof value === "object" && value !== null ? (value as Record<string, unknown>)[part] : undefined;
   }
-  if (value === undefined || value === null || value === "" || typeof value === "object") {
+  if (value === undefined || value === null || typeof value === "object") {
+    throw new AppError("TEMPLATE_VAR_MISSING", `missing variable ${path}`);
+  }
+  // An empty string usually means the context failed to supply something, and
+  // `isTerminalFailure` treats TEMPLATE_VAR_MISSING as unretryable — so an
+  // empty value permanently fails the message. For a genuinely optional field
+  // that is wrong: `contacts.last_name` is `NOT NULL DEFAULT ''`, the contract
+  // types it `z.string()` (empty is valid), and `speaker.first_name` already
+  // has a `"there"` fallback for exactly this. A surname has no sensible
+  // filler, so the empty value renders as itself instead of killing the send.
+  if (value === "" && !OPTIONAL_WHEN_EMPTY.has(path)) {
     throw new AppError("TEMPLATE_VAR_MISSING", `missing variable ${path}`);
   }
   const text = String(value);
@@ -104,7 +145,7 @@ export function renderTemplateContent(key: TemplateKey, subjectTemplate: string,
     ...(layoutMeta?.unsubscribeUrl ? { unsubscribeUrl: escapeHtml(layoutMeta.unsubscribeUrl) } : {}),
     ...(layoutMeta?.physicalAddress ? { physicalAddress: escapeHtml(layoutMeta.physicalAddress) } : {}),
   });
-  const text = stripHtml(html);
+  const text = stripHtml(html, { keepLinkTargets: true });
   if (!text) throw new AppError("TEMPLATE_VAR_MISSING", "rendered email text is empty");
   return { subject, html, text };
 }

@@ -1,5 +1,5 @@
 import { and, eq, inArray } from "drizzle-orm";
-import { db, type DbOrTx, type TxDb } from "@/db/client";
+import { db, type DbOrTx } from "@/db/client";
 import { contacts, contactSuppressions, events, speakerBulkMessages } from "@/db/schema";
 import {
   contactIdSchema,
@@ -13,22 +13,11 @@ import {
 } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { getEnv } from "@/shared/lib/env";
-import { sanitize } from "@/shared/lib/sanitize";
 import { formatInZone, zoneAbbreviation } from "@/shared/lib/time";
 import { enqueueEmail } from "@/shared/server/enqueue-email";
 import { renderTemplateContent, validateTemplateBody } from "./render";
+import { sanitizeTemplateBody } from "@/shared/lib/template-body";
 
-/**
- * M51 — personalized bulk speaker email. `enqueueEmail` is typed against
- * `TxDb` because its other callers are the audited transactional writers;
- * this compose action is a per-recipient loop of single-statement inserts,
- * not a transaction, and must not become a ninth `withTx` path (resolution
- * #4) — the same cast M50's reviewer provisioning and M36's reminder scan
- * already use.
- */
-function asOutboxWriter(dbOrTx: DbOrTx): TxDb {
-  return dbOrTx as TxDb;
-}
 
 type RecipientRow = {
   contactId: string;
@@ -99,7 +88,12 @@ export async function composeBulkSpeakerEmailIn(dbOrTx: DbOrTx, eventId: EventId
   // every downstream use (unknown-token validation, preview render, and the
   // row actually stored/re-rendered at send time) reads this one sanitized
   // value rather than the raw request body.
-  const bodyHtml = sanitize(input.bodyHtml);
+  // `sanitizeTemplateBody`, not `sanitize`: the shared allowlist drops any
+  // href whose value is not http(s)/mailto, which is every merge token. The
+  // composer's own variable picker offers `{{portal.magic_link}}`, so a bulk
+  // message written with a portal link was stored — and sent — as link-less
+  // text.
+  const bodyHtml = sanitizeTemplateBody(input.bodyHtml);
   const validation = validateTemplateBody("speaker_bulk_message", input.subject, bodyHtml);
   if (!validation.ok) {
     throw new AppError(
@@ -165,7 +159,7 @@ export async function composeBulkSpeakerEmailIn(dbOrTx: DbOrTx, eventId: EventId
       // outbox inserts still self-heals. CRM's latest link may have changed
       // since this message row committed; the stored event/contact is the
       // approved attempt's authoritative destination.
-      await enqueueEmail(asOutboxWriter(dbOrTx), {
+      await enqueueEmail(dbOrTx, {
         eventId: eventIdSchema.parse(existing.eventId),
         templateKey: "speaker_bulk_message",
         contactId: contactIdSchema.parse(existing.contactId),
@@ -208,7 +202,7 @@ export async function composeBulkSpeakerEmailIn(dbOrTx: DbOrTx, eventId: EventId
       enqueueEventId = eventIdSchema.parse(winner.eventId);
       enqueueContactId = contactIdSchema.parse(winner.contactId);
     }
-    await enqueueEmail(asOutboxWriter(dbOrTx), {
+    await enqueueEmail(dbOrTx, {
       eventId: enqueueEventId,
       templateKey: "speaker_bulk_message",
       contactId: enqueueContactId,

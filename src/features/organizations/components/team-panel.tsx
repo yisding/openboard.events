@@ -22,10 +22,14 @@ import {
 } from "@/shared/contracts";
 import { DataTable } from "@/shared/ui/app/data-table";
 import { Button, EmptyState, Field, Modal, Select, StatusBadge } from "@/shared/ui/ui-kit";
+// The same authored labels the role badge two rows over renders, so the select
+// and the badge can never disagree on what a role is called.
+import { STATUS_BADGES } from "@/shared/ui/status-badge";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
-import { type AppError, isAppError } from "@/shared/lib/errors";
+import { isAppError, isDefinitiveWriteFailure } from "@/shared/lib/errors";
+import { LocalTime } from "@/shared/ui/app/local-time";
 
 const ROLES: MemberRole[] = ["owner", "organizer", "reviewer"];
 
@@ -57,10 +61,6 @@ function recoveryDescription(recovery: TeamWriteRecovery): string {
     case "event-role": return `${recovery.member.email}'s access to ${recovery.event.eventName} changed`;
     case "event-remove": return `${recovery.member.email}'s access to ${recovery.event.eventName} was removed`;
   }
-}
-
-function isDefinitiveTeamWriteError(error: unknown): error is AppError {
-  return isAppError(error) && error.code !== "INTERNAL";
 }
 
 /**
@@ -221,7 +221,7 @@ export function TeamPanel({
       await api(`organizations/${organizationId}/members/${member.userId}`, organizationMemberDtoSchema.pick({ userId: true, role: true }), { method: "PATCH", body: { role } });
       toast(`${member.email} is now ${role}`);
     } catch (caught) {
-      if (isDefinitiveTeamWriteError(caught)) {
+      if (isDefinitiveWriteFailure(caught)) {
         setMembers((current) => current.map((row) => row.userId === member.userId ? { ...row, role: member.role } : row));
         toast(caught.message, { kind: "error" });
       } else if (!await reconcileMembership({ action: "role", member, requestedRole: role })) {
@@ -283,7 +283,7 @@ export function TeamPanel({
       }
       toast(`${accessMember.email} now has ${updated.role} access to ${row.eventName}`);
     } catch (caught) {
-      if (isDefinitiveTeamWriteError(caught)) {
+      if (isDefinitiveWriteFailure(caught)) {
         toast(caught.message, { kind: "error" });
       } else if (!await reconcileMembership({
         action: "event-role",
@@ -317,7 +317,7 @@ export function TeamPanel({
       toast(`${accessMember.email} no longer has access to ${row.eventName}`);
       setPendingAccessRemoval(null);
     } catch (caught) {
-      if (isDefinitiveTeamWriteError(caught)) {
+      if (isDefinitiveWriteFailure(caught)) {
         toast(caught.message, { kind: "error" });
       } else if (!await reconcileMembership({ action: "event-remove", member: accessMember, event: row })) {
         toast("That event access removal is unconfirmed. Restore your connection, then check the team before making another access change.", { kind: "error" });
@@ -337,7 +337,7 @@ export function TeamPanel({
       await api(`organizations/${organizationId}/members/${removed.userId}`, removedSchema, { method: "DELETE" });
       toast(`${removed.email} removed from the organization`);
     } catch (caught) {
-      if (isDefinitiveTeamWriteError(caught)) {
+      if (isDefinitiveWriteFailure(caught)) {
         setMembers((current) => current.some((member) => member.userId === removed.userId)
           ? current
           : [...current, removed].sort((left, right) => left.email.localeCompare(right.email)));
@@ -365,7 +365,7 @@ export function TeamPanel({
       setInviteEmail("");
       setInviteRole("organizer");
     } catch (caught) {
-      if (isDefinitiveTeamWriteError(caught)) {
+      if (isDefinitiveWriteFailure(caught)) {
         toast(caught.message, { kind: "error" });
       } else if (!await reconcileMembership({ action: "invite", email })) {
         toast("That invitation is unconfirmed. Restore your connection, then check the team before making another access change.", { kind: "error" });
@@ -385,7 +385,7 @@ export function TeamPanel({
       await api(`organizations/${organizationId}/invitations/${revoked.id}`, revokedSchema, { method: "DELETE" });
       toast(`Invitation to ${revoked.email} revoked`);
     } catch (caught) {
-      if (isDefinitiveTeamWriteError(caught)) {
+      if (isDefinitiveWriteFailure(caught)) {
         setInvitations((current) => [revoked, ...current]);
         toast(caught.message, { kind: "error" });
       } else if (!await reconcileMembership({ action: "revoke", invitation: revoked })) {
@@ -405,7 +405,7 @@ export function TeamPanel({
       meta: { className: "organization-member-role" },
       cell: ({ row }) => canManage
         ? <Select aria-label={`Role for ${row.original.name || row.original.email}`} value={row.original.role} onChange={(event) => void changeRole(row.original, event.target.value as MemberRole)} disabled={teamWritesLocked || (row.original.userId === currentUserId && currentRole !== "owner")}>
-            {ROLES.map((role) => <option key={role} value={role}>{role}</option>)}
+            {ROLES.map((role) => <option key={role} value={role}>{STATUS_BADGES[role].label}</option>)}
           </Select>
         : <StatusBadge value={row.original.role} />,
     },
@@ -427,7 +427,7 @@ export function TeamPanel({
   const invitationColumns = useMemo<Array<ColumnDef<OrganizationInvitationDTO, unknown>>>(() => [
     { id: "email", header: "Invited", accessorKey: "email" },
     { id: "role", header: "Role", cell: ({ row }) => <StatusBadge value={row.original.role} /> },
-    { id: "expiresAt", header: "Expires", cell: ({ row }) => new Date(row.original.expiresAt).toLocaleDateString() },
+    { id: "expiresAt", header: "Expires", cell: ({ row }) => <LocalTime instant={row.original.expiresAt} style="date" /> },
     { id: "actions", header: "", cell: ({ row }) => canManage ? <Button variant="danger" size="sm" disabled={teamWritesLocked} onClick={() => setPendingRevoke(row.original)}>Revoke</Button> : null },
   ], [canManage, teamWritesLocked]);
 

@@ -170,12 +170,16 @@ export async function seedEvents(ctx: SeedCtx): Promise<void> {
     // Left `unconfirmed` with no bio, headshot or submission, so it stays out
     // of `published_speakers_v` and every accepted-speaker surface: this is
     // staff, not a speaker.
+    //
+    // The demo event only. A contact row is still a row in the admin Speakers
+    // list, so mirroring staff onto the empty event opened it on "All 3 /
+    // Awaiting confirmation" — three speakers to chase on an event that has
+    // none, and the one nav item there that never reached its empty state. The
+    // empty event has no review round to address, so it needs no contacts.
     const [first = admin.name, ...rest] = admin.name.split(" ");
-    for (const memberEventId of [ctx.eventId, ctx.emptyEventId]) {
-      await tx.insert(contacts)
-        .values({ id: ctx.id("contact", `staff-${admin.key}-${memberEventId}`), eventId: memberEventId, email: admin.email, firstName: first, lastName: rest.join(" ") })
-        .onConflictDoUpdate({ target: contacts.id, set: { firstName: first, lastName: rest.join(" "), updatedAt: new Date() } });
-    }
+    await tx.insert(contacts)
+      .values({ id: ctx.id("contact", `staff-${admin.key}-${ctx.eventId}`), eventId: ctx.eventId, email: admin.email, firstName: first, lastName: rest.join(" ") })
+      .onConflictDoUpdate({ target: contacts.id, set: { firstName: first, lastName: rest.join(" "), updatedAt: new Date() } });
   }
 
   ctx.log(`seeded 2 events, ${TRACKS.length} tracks, ${ROOMS.length} rooms, ${FORMATS.length} formats, ${TAGS.length} tags, ${ADMINS.length} admins`);

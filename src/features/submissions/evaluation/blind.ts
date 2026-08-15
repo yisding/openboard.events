@@ -29,6 +29,30 @@ function contentFieldIds(snapshot: FormSnapshot | null): Set<string> {
   return ids;
 }
 
+/**
+ * A surviving content field keeps its conditional rule only if every source it
+ * names survived too.
+ *
+ * The reviewer's answer panel renders through `FormFieldRenderer`, which
+ * re-runs `evaluateVisibility` against the blinded snapshot. A rule whose
+ * source was stripped as identity therefore resolves against an answer that is
+ * no longer there: `answered`/`eq`/`in` all read `undefined` as false and hide
+ * the field. So blinding could remove a *content* answer the reviewer is meant
+ * to score — "Workshop duration", shown only when an identity question was
+ * answered, silently disappears.
+ *
+ * The rule cannot be evaluated once its source is gone, so it is dropped
+ * rather than left to fail one way. What the submitter actually filled in is
+ * already what `answers` carries.
+ */
+function withEvaluableVisibility(allowed: ReadonlySet<string>) {
+  return <T extends { visibility?: { conditions: { sourceFieldId: string }[] } | null }>(field: T): T => {
+    if (!field.visibility) return field;
+    const evaluable = field.visibility.conditions.every((condition) => allowed.has(condition.sourceFieldId));
+    return evaluable ? field : { ...field, visibility: null };
+  };
+}
+
 function blindAnswerPanel(panel: AnswerPanelData): AnswerPanelData {
   const allowed = contentFieldIds(panel.snapshot);
   const answers = panel.answers.filter((answer) => allowed.has(answer.fieldId));
@@ -38,7 +62,10 @@ function blindAnswerPanel(panel: AnswerPanelData): AnswerPanelData {
     snapshot: panel.snapshot === null ? null : {
       ...panel.snapshot,
       sections: panel.snapshot.sections
-        .map((section) => ({ ...section, fields: section.fields.filter((field) => allowed.has(field.id)) }))
+        .map((section) => ({
+          ...section,
+          fields: section.fields.filter((field) => allowed.has(field.id)).map(withEvaluableVisibility(allowed)),
+        }))
         // A section left with no content questions is itself a hint about the
         // form ("Speaker details"), so it goes too.
         .filter((section) => section.fields.length > 0),

@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { activePlanIdSql, formatCode } from "@/features/submissions";
 import { db, type DbOrTx } from "@/db/client";
 import type { CommLogRow, EventId, SubmissionKind, SubmissionStatus } from "@/shared/contracts";
+import { AppError } from "@/shared/lib/errors";
 
 /**
  * The reads behind the four keyed `/api/v1` endpoints. Every one of them is a
@@ -59,6 +60,26 @@ export async function listPublicSubmissionsIn(
   eventId: EventId,
   filters: PublicSubmissionFilters,
 ): Promise<{ rows: PublicSubmissionRow[]; nextCursor: string | null }> {
+  // Resolve the cursor anchor before paging rather than inlining the lookup as
+  // a correlated subquery. A code that no longer resolves — the anchor
+  // submission was deleted between two pages, or the caller passed a code from
+  // another event — made that subquery return NULL, which turned the whole
+  // `(created_at, id) > (NULL, NULL)` comparison NULL and answered an empty
+  // page with `nextCursor: null`. To a paging client that is indistinguishable
+  // from reaching the end of the collection, so the remainder of the event's
+  // submissions is silently dropped. Failing the request instead makes the
+  // caller retry from the start, which is the only correct recovery.
+  let anchor: { created_at: string; id: string } | null = null;
+  if (filters.cursorCode !== null) {
+    const cursorRows = await dbOrTx.execute<{ created_at: string; id: string }>(sql`
+      SELECT created_at, id FROM submissions
+      WHERE event_id = ${eventId} AND code = ${filters.cursorCode}
+      LIMIT 1
+    `);
+    anchor = (cursorRows.rows ?? [])[0] ?? null;
+    if (!anchor) throw new AppError("VALIDATION", "cursor does not resolve to a submission in this event; restart paging without it");
+  }
+
   const result = await dbOrTx.execute<SubmissionQueryRow>(sql`
     SELECT s.code, s.title, s.status, s.kind, t.name AS track_name, sc.email AS submitter_email,
       COALESCE((
@@ -83,11 +104,7 @@ export async function listPublicSubmissionsIn(
     ) r ON TRUE
     WHERE s.event_id = ${eventId} AND s.status <> 'draft'
       ${filters.status ? sql`AND s.status = ${filters.status}` : sql``}
-      ${filters.cursorCode !== null ? sql`AND (s.created_at, s.id) > (
-        SELECT cursor_row.created_at, cursor_row.id
-        FROM submissions cursor_row
-        WHERE cursor_row.event_id = ${eventId} AND cursor_row.code = ${filters.cursorCode}
-      )` : sql``}
+      ${anchor ? sql`AND (s.created_at, s.id) > (${anchor.created_at}::timestamptz, ${anchor.id}::uuid)` : sql``}
     ORDER BY s.created_at ASC, s.id ASC
     LIMIT ${filters.limit + 1}
   `);

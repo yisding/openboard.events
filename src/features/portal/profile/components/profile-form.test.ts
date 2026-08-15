@@ -13,6 +13,8 @@ const profile: SpeakerProfileDTO = {
   honorific: null,
   pronouns: null,
   gender: null,
+  jobTitle: null,
+  company: null,
   headshotFileId: null,
   headshotUrl: null,
   linkedinUrl: null,
@@ -67,11 +69,22 @@ describe("speaker profile unsaved-work guard", () => {
     expect(guard).not.toContain("restorationDirection");
   });
 
-  it("guards the owned impersonation return without breaking modified clicks", () => {
+  it("exits impersonation from a button, so no link gesture can skip the sign-out", () => {
     const banner = readFileSync(new URL("../../../auth/components/impersonation-banner.tsx", import.meta.url), "utf8");
 
-    expect(banner).toContain("data-unsaved-guard-owned");
-    expect(banner).toContain("event.metaKey || event.ctrlKey");
-    expect(banner).toContain("router.push(backHref)");
+    expect(banner).toContain('<button type="button"');
+    // An anchor would let cmd/middle-click reach the admin URL with the
+    // impersonated portal session still live.
+    expect(banner).not.toContain("<Link");
+    expect(banner).toContain("runGuarded(");
+    expect(banner).toContain("window.location.assign(backHref)");
+  });
+
+  it("ends the impersonated portal session before returning to admin", () => {
+    const banner = readFileSync(new URL("../../../auth/components/impersonation-banner.tsx", import.meta.url), "utf8");
+
+    expect(banner).toContain('fetch("/api/internal/auth/portal/logout"');
+    // The return navigation only happens once the session row is gone.
+    expect(banner.indexOf("if (!response.ok)")).toBeLessThan(banner.indexOf("window.location.assign(backHref)"));
   });
 });

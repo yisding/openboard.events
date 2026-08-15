@@ -1,4 +1,4 @@
-import { and, eq, inArray, lte, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
 import {
@@ -196,6 +196,30 @@ export async function previewCrmMergeIn(dbOrTx: DbOrTx, organizationId: Organiza
 export const previewCrmMerge = (organizationId: OrganizationId, input: PreviewCrmMergeInput): Promise<CrmMergePreviewDTO> =>
   previewCrmMergeIn(db, organizationId, input);
 
+/**
+ * Point a losing contact at its winner, but only while it is still un-merged.
+ *
+ * Exported so the guard is directly testable: the race it defends against
+ * needs two live connections, which the integration harness cannot produce
+ * (PGlite is single-connection), but calling this twice reproduces exactly the
+ * state the loser's row is in when the second transaction wakes up.
+ */
+export async function tombstoneMergedContactIn(
+  tx: TxDb,
+  organizationId: OrganizationId,
+  mergedContactId: OrganizationContactId,
+  primaryContactId: OrganizationContactId,
+): Promise<void> {
+  const [tombstoned] = await tx.update(organizationContacts).set({ mergedIntoId: primaryContactId, updatedAt: new Date() })
+    .where(and(
+      eq(organizationContacts.id, mergedContactId),
+      eq(organizationContacts.organizationId, organizationId),
+      isNull(organizationContacts.mergedIntoId),
+    ))
+    .returning({ id: organizationContacts.id });
+  if (!tombstoned) throw new AppError("CONFLICT", "This contact was merged by someone else at the same time");
+}
+
 /** The audited transactional commit. `tx` is always a real `withTx` handle —
  * see `mergeOrganizationContacts` below, this run's caller of `withTx`. */
 export async function mergeOrganizationContactsIn(tx: TxDb, organizationId: OrganizationId, input: MergeCrmContactsInput, actorUserId: UserId | null): Promise<CrmMergeAuditDTO> {
@@ -265,15 +289,17 @@ export async function mergeOrganizationContactsIn(tx: TxDb, organizationId: Orga
   }).returning();
   if (!auditRow) throw new AppError("INTERNAL", "Merge audit insert did not return a row");
 
-  // Guarded tombstone: only succeeds if the loser is still un-merged, which
-  // it always is inside this same transaction (nothing else can have
-  // written to it) — the guard exists for defense-in-depth if this function
-  // is ever invoked twice concurrently against the same pair before the
-  // first transaction commits.
-  const [tombstoned] = await tx.update(organizationContacts).set({ mergedIntoId: primary.id, updatedAt: new Date() })
-    .where(and(eq(organizationContacts.id, merged.id), eq(organizationContacts.organizationId, organizationId)))
-    .returning({ id: organizationContacts.id });
-  if (!tombstoned) throw new AppError("CONFLICT", "This contact was merged by someone else at the same time");
+  // Guarded tombstone: only succeeds if the loser is still un-merged. The
+  // `merged_into_id IS NULL` term is what makes that true — `loadMergePairIn`
+  // reads the pair with a plain SELECT, so under READ COMMITTED two merges of
+  // the same loser can both pass its precondition check, and without this term
+  // the UPDATE always matches and the CONFLICT below is unreachable. The second
+  // transaction blocks here on the first's row lock, re-reads after it commits,
+  // matches nothing, and is rolled back whole — which is the point: its own
+  // reference moves have already been silently no-oped by the first (the child
+  // rows no longer point at the loser), so its audit row and recovery snapshot
+  // would claim references the winner never received.
+  await tombstoneMergedContactIn(tx, organizationId, merged.id, primary.id);
 
   await tx.insert(organizationContactActivity).values({ organizationId, organizationContactId: primary.id, kind: "merged_from", actorUserId: actorUserId ?? null, metadata: { mergedContactId: merged.id } });
   await tx.insert(organizationContactActivity).values({ organizationId, organizationContactId: merged.id, kind: "merged_into", actorUserId: actorUserId ?? null, metadata: { primaryContactId: primary.id } });

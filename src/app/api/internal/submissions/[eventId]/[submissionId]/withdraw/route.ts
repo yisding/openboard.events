@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { portalAuth } from "@/features/auth";
+import { revalidatePublicEvent } from "@/features/public/server/revalidate";
 import { withdraw } from "@/features/submissions";
 import { contactIdSchema, eventIdSchema, submissionIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
@@ -20,13 +21,17 @@ export const dynamic = "force-dynamic";
 const withdrawSubmission = defineHandler({
   auth: portalAuth(),
   input: z.object({}),
-  handler: async ({ eventId, params, session }) => {
+  handler: async ({ eventId, params, session, requestId }) => {
     const submissionId = submissionIdSchema.parse(params.submissionId);
+    const scopedEventId = eventIdSchema.parse(eventId);
     await withdraw(
-      eventIdSchema.parse(eventId),
+      scopedEventId,
       contactIdSchema.parse(session?.actorId),
       submissionId,
     );
+    // A withdrawn abstract drops its promoted session and its speaker from the
+    // public views; refresh them now rather than after the ISR window.
+    await revalidatePublicEvent(scopedEventId, ["schedule", "speakers"], requestId);
     return { submissionId, status: "withdrawn" as const };
   },
 });

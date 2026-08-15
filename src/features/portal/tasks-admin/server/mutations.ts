@@ -16,10 +16,11 @@ import {
   type TaskId,
 } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
+import { UPLOAD_MAX_SIZE_MB } from "@/shared/server/r2";
 import { sanitize } from "@/shared/lib/sanitize";
 import { endOfDayInTz } from "@/shared/lib/time";
 import { getEventTimezoneIn, type FileRequestDTO } from "./queries";
-import { DEFAULT_ACCEPTED_EXTENSIONS } from "../constants";
+import { DEFAULT_ACCEPTED_EXTENSIONS, FILE_REQUEST_MAX_SIZE_MB } from "../constants";
 
 /**
  * A date-only picker input, `YYYY-MM-DD` — never a full timestamp. Accepting
@@ -249,13 +250,27 @@ export async function reopenCompletionIn(
 
 export { DEFAULT_ACCEPTED_EXTENSIONS } from "../constants";
 
+/**
+ * Clamped to what the server will actually presign. `createUpload` and
+ * `/api/uploads/presign` both `Math.min(…, UPLOAD_MAX_SIZE_MB)`, but a request
+ * could be saved at up to 5000 MB — and both the admin card and the speaker's
+ * task page render "up to N MB" from that number, while `FileUpload` uses it to
+ * *raise* its own client-side gate above the 100 MB default. A 500 MB request
+ * therefore promised a speaker something the presign call would reject only
+ * after they had picked the file.
+ *
+ * The annotation is the pin: `UPLOAD_MAX_SIZE_MB` is a literal type, so this
+ * line stops compiling if the client-safe copy ever diverges from it.
+ */
+const MAX_SIZE_MB: typeof UPLOAD_MAX_SIZE_MB = FILE_REQUEST_MAX_SIZE_MB;
+
 export const saveFileRequestInputSchema = z.object({
   id: fileRequestIdSchema.optional(),
   title: z.string().trim().min(1).max(255),
   targetType: taskTargetSchema,
   instructionsHtml: z.string().max(100_000).default(""),
   acceptedExtensions: z.array(z.string().trim().toLowerCase().min(1).max(10)).min(1).default([...DEFAULT_ACCEPTED_EXTENSIONS]),
-  maxSizeMb: z.number().int().positive().max(5000).default(100),
+  maxSizeMb: z.number().int().positive().max(MAX_SIZE_MB).default(MAX_SIZE_MB),
 });
 export type SaveFileRequestInput = z.infer<typeof saveFileRequestInputSchema>;
 

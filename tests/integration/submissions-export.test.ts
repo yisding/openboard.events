@@ -34,7 +34,7 @@ const migrationTenancy = readFileSync(new URL("../../drizzle/0010_organization_t
 // 0044 also widens 0023's milestone CHECK, so that migration has to be present
 // for the ALTER to find a constraint to replace.
 const migrationOnboardingMilestones = readFileSync(new URL("../../drizzle/0023_onboarding_milestones.sql", import.meta.url), "utf8");
-const migrationDemoEvents = readFileSync(new URL("../../drizzle/0044_demo_events_and_tour.sql", import.meta.url), "utf8");
+const migrationDemoEvents = readFileSync(new URL("../../drizzle/0047_demo_events_and_tour.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("e1000000-0000-4000-8000-000000000001");
 const capEventId = eventIdSchema.parse("e1000000-0000-4000-8000-000000000002");
@@ -120,7 +120,7 @@ describe("submissions CSV export", () => {
     // Code, Status, Source, Title — the guarded title is the fourth field.
     // toCsv's own field-value tests already cover the exact escaping; here
     // the point is only that the guard actually reaches a DB-sourced field.
-    expect(dataLine.startsWith("SESS-302,pending,Manual,'=cmd|")).toBe(true);
+    expect(dataLine.startsWith("SESS-302,Pending review,Manual,'=cmd|")).toBe(true);
   });
 
   it("formats Submitted At / Notified At in the event's own zone, and leaves an un-submitted field empty, not the string 'null'", async () => {

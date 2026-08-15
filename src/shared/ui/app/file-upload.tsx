@@ -275,6 +275,46 @@ export function FileUpload({
   );
 }
 
+/**
+ * A file the browser reads locally — the CSV importers parse the bytes in the
+ * page and never touch R2, so `FileUpload` above (presign → PUT → finalize) is
+ * the wrong primitive for them. What they do share is the chrome: a hidden
+ * native input driven by the designed dropzone, which is what keeps the OS
+ * "Choose File / No file chosen" widget off a dialog full of kit controls.
+ */
+export function LocalFilePicker({ accept, label, hint, disabled, inputRef, onPick }: {
+  accept: string;
+  label: string;
+  hint?: string;
+  disabled?: boolean;
+  inputRef?: React.RefObject<HTMLInputElement | null>;
+  onPick: (file: File) => void;
+}) {
+  const ownRef = useRef<HTMLInputElement>(null);
+  const ref = inputRef ?? ownRef;
+  return (
+    <div className="file-upload">
+      <input
+        ref={ref}
+        type="file"
+        accept={accept}
+        hidden
+        onChange={(event) => {
+          const picked = event.target.files?.[0];
+          // Clearing first so re-picking the same file still fires a change.
+          event.target.value = "";
+          if (picked) onPick(picked);
+        }}
+      />
+      <button type="button" className="file-upload__drop" disabled={disabled} onClick={() => ref.current?.click()}>
+        <Upload size={18} />
+        <span>{label}</span>
+        {hint && <small>{hint}</small>}
+      </button>
+    </div>
+  );
+}
+
 const PHASE_LABEL: Record<Phase, string> = {
   idle: "",
   validating: "Checking the file…",

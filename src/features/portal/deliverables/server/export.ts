@@ -21,6 +21,7 @@ import {
   deleteObjects,
   getObjectBytes,
   publishExportAsset,
+  reportStrandedObjects,
   uploadExportPart,
   type MultipartPart,
 } from "@/shared/server/r2";
@@ -86,6 +87,9 @@ function toDto(row: JobRow): FileExportJobDTO {
 }
 
 const JOB_COLUMNS = sql`id, status, group_by, entry_count, result_file_id, error, created_at, completed_at, expires_at`;
+
+/** Stalled jobs advanced by one step per cleanup tick — see `nudgeStalledFileExportsIn`. */
+const NUDGE_BATCH_SIZE = 20;
 
 function uuidArraySql(ids: readonly string[]): SQL {
   if (ids.length === 0) return sql`'{}'::uuid[]`;
@@ -224,7 +228,7 @@ function toZipStreamState(state: ExportState): ZipStreamState {
  */
 async function claimStepIn(
   dbOrTx: DbOrTx, eventId: EventId, jobId: string,
-): Promise<{ groupBy: FileExportGroupBy; fileUploadIds: string[]; state: ExportState } | null> {
+): Promise<{ groupBy: FileExportGroupBy; fileUploadIds: string[]; state: ExportState; lease: string } | null> {
   const claimed = await dbOrTx.execute<{ group_by: FileExportGroupBy; file_upload_ids: string[] | null; export_state: unknown }>(sql`
     UPDATE file_export_jobs
     SET status = 'processing', updated_at = now(),
@@ -236,22 +240,63 @@ async function claimStepIn(
   `);
   const row = (claimed.rows ?? [])[0];
   if (!row) return null;
-  return { groupBy: row.group_by, fileUploadIds: row.file_upload_ids ?? [], state: parseExportState(row.export_state) };
+  const state = parseExportState(row.export_state);
+  // `RETURNING` gives back the `claimedAt` this statement just wrote, which is
+  // the token every later write in this step must present.
+  if (!state.claimedAt) return null;
+  return { groupBy: row.group_by, fileUploadIds: row.file_upload_ids ?? [], state, lease: state.claimedAt };
 }
 
-async function failJobIn(dbOrTx: DbOrTx, eventId: EventId, jobId: string, message: string): Promise<void> {
-  await dbOrTx.execute(sql`
+/**
+ * The lease this call is holding, as taken by `claimStepIn`. Every write that
+ * ends a step carries it, so a step that overran the 25-second lease and was
+ * re-claimed by another worker cannot overwrite that worker's newer progress
+ * on its way out — which would rewind `nextIndex` and orphan the multipart
+ * parts the newer worker had already uploaded.
+ */
+function heldLeaseSql(lease: string): SQL {
+  return sql`(export_state->>'claimedAt')::timestamptz = ${lease}::timestamptz`;
+}
+
+/** True when the write landed; false means the lease was lost to another worker. */
+async function stillHoldsLease(
+  dbOrTx: DbOrTx, eventId: EventId, jobId: string, statement: SQL,
+): Promise<boolean> {
+  const result = await dbOrTx.execute<{ id: string }>(statement);
+  const kept = (result.rows ?? []).length > 0;
+  if (!kept) {
+    log({
+      level: "warn",
+      msg: "file_export.lease_lost",
+      requestId: `export:${jobId}`,
+      feature: "deliverables",
+      eventId,
+    });
+  }
+  return kept;
+}
+
+async function failJobIn(
+  dbOrTx: DbOrTx, eventId: EventId, jobId: string, lease: string, message: string,
+): Promise<void> {
+  // Without the lease this could mark `failed` a job another worker has since
+  // re-claimed and completed.
+  await stillHoldsLease(dbOrTx, eventId, jobId, sql`
     UPDATE file_export_jobs SET status = 'failed', error = ${message.slice(0, 1000)}, updated_at = now(), completed_at = now()
-    WHERE id = ${jobId} AND event_id = ${eventId}
+    WHERE id = ${jobId} AND event_id = ${eventId} AND ${heldLeaseSql(lease)}
+    RETURNING id
   `);
 }
 
 /** Persists progress after a non-final step; clears the lease so the next poll can proceed immediately. */
-async function persistStepIn(dbOrTx: DbOrTx, eventId: EventId, jobId: string, state: ExportState): Promise<void> {
+async function persistStepIn(
+  dbOrTx: DbOrTx, eventId: EventId, jobId: string, lease: string, state: ExportState,
+): Promise<void> {
   const toStore = { ...state, claimedAt: null };
-  await dbOrTx.execute(sql`
+  await stillHoldsLease(dbOrTx, eventId, jobId, sql`
     UPDATE file_export_jobs SET status = 'processing', updated_at = now(), export_state = ${JSON.stringify(toStore)}::jsonb
-    WHERE id = ${jobId} AND event_id = ${eventId}
+    WHERE id = ${jobId} AND event_id = ${eventId} AND ${heldLeaseSql(lease)}
+    RETURNING id
   `);
 }
 
@@ -306,7 +351,7 @@ export function planExportBatch<T extends { sizeBytes: number }>(
 export async function processFileExportJobIn(dbOrTx: DbOrTx, eventId: EventId, jobId: string): Promise<void> {
   const claim = await claimStepIn(dbOrTx, eventId, jobId);
   if (!claim) return;
-  const { groupBy, fileUploadIds, state } = claim;
+  const { groupBy, fileUploadIds, state, lease } = claim;
 
   // Tracked outside the try block (and updated the instant each is known,
   // not only on success) so the catch handler can abort whatever multipart
@@ -385,7 +430,8 @@ export async function processFileExportJobIn(dbOrTx: DbOrTx, eventId: EventId, j
         UPDATE file_export_jobs
         SET status = 'completed', result_file_id = ${exportFileId}, entry_count = ${appended.state.count},
             updated_at = now(), completed_at = now(), export_state = export_state || jsonb_build_object('claimedAt', null)
-        WHERE id = ${jobId} AND event_id = ${eventId}
+        WHERE id = ${jobId} AND event_id = ${eventId} AND ${heldLeaseSql(lease)}
+        RETURNING id
       `);
       return;
     }
@@ -407,7 +453,7 @@ export async function processFileExportJobIn(dbOrTx: DbOrTx, eventId: EventId, j
       newUploadedParts.push(uploadedPart);
       nextPartNumber = partNumber;
     }
-    await persistStepIn(dbOrTx, eventId, jobId, {
+    await persistStepIn(dbOrTx, eventId, jobId, lease, {
       nextIndex: state.nextIndex + consumed,
       exportFileId,
       uploadId,
@@ -424,7 +470,7 @@ export async function processFileExportJobIn(dbOrTx: DbOrTx, eventId: EventId, j
     if (currentUploadId && currentExportFileId) {
       await abortExportMultipart(buildExportZipKey(eventId, currentExportFileId), currentUploadId);
     }
-    await failJobIn(dbOrTx, eventId, jobId, error instanceof Error ? error.message : String(error));
+    await failJobIn(dbOrTx, eventId, jobId, lease, error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -477,9 +523,7 @@ export async function pruneExpiredFileExportsIn(dbOrTx: DbOrTx): Promise<{ delet
       DELETE FROM file_assets WHERE id = ANY(${uuidArraySql(resultFileIds)}) RETURNING r2_key
     `);
     const { stranded } = await deleteObjects((keys.rows ?? []).map((row) => row.r2_key));
-    if (stranded.length > 0) {
-      log({ level: "warn", msg: "deliverables.export.object_delete_failed", requestId: "cron", feature: "portal", code: stranded.join(",") });
-    }
+    reportStrandedObjects(stranded, { feature: "portal", requestId: "cron", code: "R2_STRANDED_EXPORT_PRUNE" });
   }
   return { deleted: rows.length };
 }
@@ -488,24 +532,38 @@ export const pruneExpiredFileExports = () => pruneExpiredFileExportsIn(db);
 
 /**
  * Belt-and-braces forward progress for a job nobody is polling (a closed
- * browser tab): advances every not-yet-expired `processing` job whose lease
- * is currently free by exactly one step, the same bounded unit
- * `processFileExportJobIn` always uses. Wired into the same cron tick as
+ * browser tab): advances every not-yet-expired job whose lease is currently
+ * free by exactly one step, the same bounded unit `processFileExportJobIn`
+ * always uses.
+ *
+ * The status set matches `claimStepIn`'s on purpose. A job is created
+ * `pending` and only becomes `processing` once a step has actually run, so
+ * filtering on `processing` alone excluded exactly the case this sweep exists
+ * for: the POST route kicks off the first step through `ctx.waitUntil(...)`
+ * with `.catch(() => undefined)`, so a transient failure there — or no Worker
+ * context at all — leaves the job `pending` with nobody polling it and nothing
+ * able to pick it up, until it silently expires 24 hours later. Wired into the same cron tick as
  * `pruneExpiredFileExportsIn`; the ordinary path is still the Files view's
  * poll loop, which converges far faster than a once-a-day cron tick would.
  */
-export async function nudgeStalledFileExportsIn(dbOrTx: DbOrTx): Promise<{ nudged: number }> {
-  const stalled = await dbOrTx.execute<{ id: string; event_id: string }>(sql`
-    SELECT id, event_id FROM file_export_jobs
-    WHERE status = 'processing'
+export async function nudgeStalledFileExportsIn(dbOrTx: DbOrTx): Promise<{ nudged: number; deferred: number }> {
+  const stalled = await dbOrTx.execute<{ id: string; event_id: string; total: number }>(sql`
+    SELECT id, event_id, count(*) OVER () AS total FROM file_export_jobs
+    WHERE status IN ('pending', 'processing')
       AND (expires_at IS NULL OR expires_at > now())
       AND coalesce((export_state->>'claimedAt')::timestamptz, 'epoch'::timestamptz) < now() - interval '25 seconds'
+    ORDER BY updated_at
+    LIMIT ${NUDGE_BATCH_SIZE}
   `);
   const rows = stalled.rows ?? [];
   for (const row of rows) {
     await processFileExportJobIn(dbOrTx, row.event_id as EventId, row.id);
   }
-  return { nudged: rows.length };
+  // Each step reads whole R2 objects, so an unbounded sweep would let a backlog
+  // run one cron tick past its CPU budget and drop the whole batch. Oldest
+  // first, bounded, and the remainder is reported rather than silently skipped.
+  const deferred = Math.max(0, Number(rows[0]?.total ?? 0) - rows.length);
+  return { nudged: rows.length, deferred };
 }
 
 export const nudgeStalledFileExports = () => nudgeStalledFileExportsIn(db);

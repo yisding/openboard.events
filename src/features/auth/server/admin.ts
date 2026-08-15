@@ -126,6 +126,21 @@ export async function getAdminSession(): Promise<AdminIdentity | null> {
 }
 
 /**
+ * The `admin_sessions` row this request is authenticated by.
+ *
+ * Only the session list needs it, and it needs it for one reason: with two
+ * sign-ins from the same browser the rows are otherwise indistinguishable, so
+ * "end the one I don't recognise" becomes a coin flip. Deliberately not folded
+ * into `AdminIdentity` — every other caller authorizes a *person*, and none of
+ * them should start branching on which tab that person is in.
+ */
+export async function getCurrentAdminSessionId(): Promise<string | null> {
+  const { getAdminAuth } = await import("./better-auth");
+  const session = await getAdminAuth().api.getSession({ headers: await headers() });
+  return session?.session.id ?? null;
+}
+
+/**
  * M43 — the organization-scoped half of the guard pair.
  *
  * This is a *composition*, not a replacement. `requireAdmin(eventId, role?)`

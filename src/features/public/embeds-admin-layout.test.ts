@@ -80,6 +80,14 @@ describe("embeds admin layout", () => {
     expect(source).toContain('toast("Copy failed — use the manual copy field below", { kind: "error" })');
   });
 
+  it("reddens the accent control when the hex is rejected, not just its message", () => {
+    // Both accent inputs sit inside `.color-input`, so the child combinators in
+    // this rule cannot reach them on their own.
+    expect(source).toContain('error={accentValid ? undefined : "Use a hex color like #00a878"}');
+    expect(source).toContain('<div className="color-input">');
+    expect(css).toContain(".field-invalid .color-input input { border-color: var(--red); }");
+  });
+
   it("recommends an accessible auto-resizing install while preserving the script-free fallback", () => {
     expect(source).toContain("Recommended: the loader resizes automatically");
     expect(source).toContain("Copy auto-resizing embed");

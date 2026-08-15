@@ -19,7 +19,7 @@ export type OutboxFailureTransition =
   | { outcome: "failed"; errorMessage: string }
   | { outcome: "retried"; errorMessage: string; retryDelayMinutes: number };
 
-type OutboxRow = { attempts: number };
+type OutboxRow = { attempts: number; error: string | null };
 
 export function compareOutboxRows(
   left: { id: string; createdAt: Date },
@@ -67,7 +67,20 @@ function failureTransition<Row extends OutboxRow>(
   isTerminalError: DrainOutboxOptions<Row>["isTerminalError"],
 ): OutboxFailureTransition {
   const errorMessage = outboxErrorMessage(error);
-  const terminal = row.attempts >= OUTBOX_MAX_ATTEMPTS
+  // `attempts` is incremented when a row is *claimed*, not when it is
+  // delivered, so a tick that dies partway — CPU or subrequest ceiling, isolate
+  // eviction — burns the budget of every row it claimed and never reached.
+  // Six of those and the next transient error would mark a message `failed` and
+  // null its `secretPayloadCiphertext`, permanently dropping mail that was
+  // never actually attempted six times.
+  //
+  // A row that has genuinely reached delivery and failed carries `error`, which
+  // both the retry and the terminal write set. Requiring it means the count can
+  // only retire a message that really did exhaust its attempts, while a claimed
+  // row that keeps killing the isolate still increments and still stops being
+  // re-claimed by the lease.
+  const exhausted = row.attempts >= OUTBOX_MAX_ATTEMPTS && row.error !== null;
+  const terminal = exhausted
     || errorMessage.includes("email sending is not configured")
     || isTerminalError(row, error);
   return terminal

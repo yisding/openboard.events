@@ -2,6 +2,7 @@
 
 import { AlertCircle, CheckCircle2, X } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { raiseTopLayerStack, registerTopLayerStack } from "./top-layer";
 
 export type ToastKind = "success" | "error";
 export type ToastAction = { label: string; onClick: () => void };
@@ -26,8 +27,31 @@ export function ToastMessage({ message, kind, action, onDismiss }: Omit<ToastSta
   );
 }
 
+/**
+ * Drawers and dialogs are `<dialog>` elements opened with `showModal()`, which
+ * promotes them to the top layer — painted above every z-index there is, and
+ * dimmed behind their own `::backdrop`. A toast raised *by* a form inside one
+ * was therefore clipped by the panel's edge, losing roughly half of the very
+ * message the organizer needed to read.
+ *
+ * Showing the stack as a manual popover puts it in the top layer too, and
+ * re-showing it whenever the set of toasts changes keeps it last in top-layer
+ * order — above whichever dialog is currently open. `top-layer.ts` owns the
+ * showing itself, because `ModalDialog` has to redo it from the other
+ * direction: a drawer opened over a toast that is already up goes in *above*
+ * it, which leaves the toast pointer-inert and out of the accessibility tree.
+ */
+function useTopLayerToasts(stack: HTMLDivElement | null, toasts: readonly ToastState[]) {
+  useEffect(() => {
+    registerTopLayerStack(stack);
+    raiseTopLayerStack();
+    return () => registerTopLayerStack(null);
+  }, [stack, toasts]);
+}
+
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<ToastState[]>([]);
+  const [stack, setStack] = useState<HTMLDivElement | null>(null);
   const toastsRef = useRef<ToastState[]>([]);
   const nextIdRef = useRef(0);
   const timersRef = useRef(new Map<number, number>());
@@ -64,11 +88,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     timersRef.current.clear();
   }, []);
   const value = useMemo(() => ({ toast }), [toast]);
+  useTopLayerToasts(stack, toasts);
   return (
     <ToastContext.Provider value={value}>
       {children}
       {toasts.length > 0 && (
-        <div className="toast-stack">
+        <div className="toast-stack" ref={setStack}>
           {toasts.map(({ id, ...item }) => <ToastMessage key={id} {...item} onDismiss={() => dismiss(id)} />)}
         </div>
       )}

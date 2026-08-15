@@ -42,7 +42,15 @@ vi.mock("@/db/client", async (importOriginal) => {
   return {
     ...actual,
     db: new Proxy({}, { get: (_target, property) => Reflect.get(tx as object, property, tx) }),
-    withTx: async (work: (handle: TxDb) => Promise<unknown>) => work(tx),
+    // A real `BEGIN`, not the ambient handle. `notifyQueues` and
+    // `transitionStatus` are two of the audited `withTx` compositions, and
+    // their contract is atomicity: running the callback outside a transaction
+    // means a mid-batch failure leaves partial status writes and queued email
+    // behind while every assertion here still passes, and the concurrency test
+    // below has no row lock to serialize on.
+    withTx: async (work: (handle: TxDb) => Promise<unknown>) => (
+      tx as unknown as { transaction: (callback: (handle: TxDb) => Promise<unknown>) => Promise<unknown> }
+    ).transaction(work),
   };
 });
 
@@ -129,6 +137,29 @@ describe("decide and notify", () => {
     expect(isAppError(error) && error.code).toBe("STALE_STATUS");
   });
 
+  // The unpublished count is the one public consequence the organizer is asked
+  // to trust. Nothing clears `sessions.status` when a decision is reversed, so
+  // the count has to look at where the row came from, not just where it is.
+  it("reports a talk pulled from the public schedule once, not on every later move", async () => {
+    await insert(toAccept, "accepted");
+    await pglite.query(
+      `INSERT INTO sessions(event_id,submission_id,title,slug,status,starts_at,ends_at)
+       VALUES($1,$2,'Proposal 11','proposal-11','published', now(), now() + interval '30 minutes')`,
+      [eventId, toAccept],
+    );
+
+    const reversed = await transitionStatus(eventId, [toAccept], "pending", "accepted");
+    expect(reversed.changed).toEqual([toAccept]);
+    expect(reversed.unpublished).toBe(1);
+
+    // The session row is still 'published'; this move changes nothing publicly.
+    const again = await transitionStatus(eventId, [toAccept], "decline_queue", "pending");
+    expect(again.changed).toEqual([toAccept]);
+    expect(again.unpublished).toBe(0);
+
+    await pglite.query("DELETE FROM sessions WHERE event_id = $1", [eventId]);
+  });
+
   it("finalizes both queues and sends exactly one email each", async () => {
     await insert(toAccept, "accept_queue");
     await insert(toDecline, "decline_queue");
@@ -181,6 +212,7 @@ describe("decide and notify", () => {
       declined: 1,
       emailsQueued: 2,
       skippedNoRecipient: 1,
+      alreadyNotified: 0,
     });
     expect(preview.queueRevision).not.toBe("empty");
     expect(preview.samples.map((sample) => sample.decision)).toEqual(["accepted", "declined"]);
@@ -214,6 +246,39 @@ describe("decide and notify", () => {
     expect(await commsFor("submission_declined")).toHaveLength(0);
   });
 
+  it("rolls the whole batch back when one decision email cannot be queued", async () => {
+    await insert(toAccept, "accept_queue");
+    await insert(toDecline, "decline_queue");
+    await pglite.exec(`
+      CREATE FUNCTION fail_decline_email() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.template_key = 'submission_declined' THEN
+          RAISE EXCEPTION 'forced decision email failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+      CREATE TRIGGER fail_decline_email BEFORE INSERT ON communication_logs
+      FOR EACH ROW EXECUTE FUNCTION fail_decline_email();
+    `);
+
+    const historyBefore = (await listSubmissionStatusHistoryIn(tx, eventId, toAccept)).length;
+
+    try {
+      await expect(notifyQueues(eventId)).rejects.toThrow();
+
+      // The half that succeeded must not survive its sibling's failure. If it
+      // did, the queue would show the acceptance already sent while its email
+      // never was, and pressing Notify again would skip it.
+      const statuses = await pglite.query<{ status: string }>("SELECT status FROM submissions ORDER BY code");
+      expect(statuses.rows.map((row) => row.status)).toEqual(["accept_queue", "decline_queue"]);
+      expect(await commsFor("submission_accepted")).toHaveLength(0);
+      expect(await listSubmissionStatusHistoryIn(tx, eventId, toAccept)).toHaveLength(historyBefore);
+    } finally {
+      await pglite.exec("DROP TRIGGER fail_decline_email ON communication_logs; DROP FUNCTION fail_decline_email();");
+    }
+  });
+
   it("does nothing at all the second time Notify is pressed", async () => {
     await insert(toAccept, "accept_queue");
     await notifyQueues(eventId);
@@ -243,11 +308,88 @@ describe("decide and notify", () => {
     expect(keys.some((key) => key.endsWith(":1"))).toBe(true);
   });
 
+  // Sending twice is deliberate, so the preflight has to disclose it: an
+  // organizer correcting a mis-decision must know the speaker will be told
+  // again before they press send.
+  it("tells the preflight which queued submissions have already been notified", async () => {
+    await insert(toAccept, "accept_queue");
+    await notifyQueues(eventId);
+    await transitionStatus(eventId, [toAccept], "pending", "accepted");
+    await transitionStatus(eventId, [toAccept], "decline_queue", "pending");
+    await insert(toDecline, "decline_queue");
+
+    const preview = await previewNotifyQueuesIn(tx, eventId);
+
+    expect(preview).toMatchObject({ declined: 2, emailsQueued: 2, alreadyNotified: 1 });
+  });
+
   it("auto-confirms an accepted speaker, because there is no confirm button", async () => {
     await insert(toAccept, "accept_queue");
     await notifyQueues(eventId);
     const rows = await pglite.query<{ confirmation_status: string }>("SELECT confirmation_status FROM contacts WHERE id=$1", [speaker]);
     expect(rows.rows[0]?.confirmation_status).toBe("confirmed");
+  });
+
+  it("confirms every participant, so a co-speaker is not published off the session", async () => {
+    // `published_speakers_v` requires `confirmation_status = 'confirmed'`, and
+    // the public schedule joins through it. A co-speaker left unconfirmed is
+    // joined away, so the session publishes listing only its primary speaker.
+    const coSpeaker = "d1000000-0000-4000-8000-000000000021";
+    await pglite.query(
+      "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'co@example.com','Co','Speaker') ON CONFLICT DO NOTHING",
+      [coSpeaker, eventId],
+    );
+    await insert(toAccept, "accept_queue");
+    await pglite.query(
+      "INSERT INTO submission_participants(event_id,submission_id,contact_id,is_primary,sort_order) VALUES($1,$2,$3,true,0)",
+      [eventId, toAccept, speaker],
+    );
+    await pglite.query(
+      "INSERT INTO submission_participants(event_id,submission_id,contact_id,is_primary,sort_order) VALUES($1,$2,$3,false,1)",
+      [eventId, toAccept, coSpeaker],
+    );
+
+    await notifyQueues(eventId);
+
+    const rows = await pglite.query<{ id: string; confirmation_status: string }>(
+      "SELECT id, confirmation_status FROM contacts WHERE id = ANY($1::uuid[])", [[speaker, coSpeaker]],
+    );
+    const byId = Object.fromEntries(rows.rows.map((row) => [row.id, row.confirmation_status]));
+    expect(byId[speaker]).toBe("confirmed");
+    expect(byId[coSpeaker]).toBe("confirmed");
+  });
+
+  it("confirms participants of a submission accepted without a decision email", async () => {
+    // A direct move to `accepted` skips `notifyQueues`, so nothing confirmed
+    // anyone and the session published with an empty speaker array.
+    await insert(toAccept, "pending");
+    await pglite.query(
+      "INSERT INTO submission_participants(event_id,submission_id,contact_id,is_primary,sort_order) VALUES($1,$2,$3,true,0)",
+      [eventId, toAccept, speaker],
+    );
+
+    await transitionStatus(eventId, [toAccept], "accepted", "pending");
+
+    const rows = await pglite.query<{ confirmation_status: string }>(
+      "SELECT confirmation_status FROM contacts WHERE id=$1", [speaker],
+    );
+    expect(rows.rows[0]?.confirmation_status).toBe("confirmed");
+  });
+
+  it("does not re-confirm a speaker an organizer marked declined", async () => {
+    await pglite.query("UPDATE contacts SET confirmation_status='declined' WHERE id=$1", [speaker]);
+    await insert(toAccept, "pending");
+    await pglite.query(
+      "INSERT INTO submission_participants(event_id,submission_id,contact_id,is_primary,sort_order) VALUES($1,$2,$3,true,0)",
+      [eventId, toAccept, speaker],
+    );
+
+    await transitionStatus(eventId, [toAccept], "accepted", "pending");
+
+    const rows = await pglite.query<{ confirmation_status: string }>(
+      "SELECT confirmation_status FROM contacts WHERE id=$1", [speaker],
+    );
+    expect(rows.rows[0]?.confirmation_status).toBe("declined");
   });
 
   it("confirms the primary participant, not whoever filled the form in", async () => {

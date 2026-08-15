@@ -1,4 +1,5 @@
 import type { SearchResult } from "@/features/shell/server/search";
+import { STATUS_BADGES, type StatusBadgeValue } from "@/shared/ui/status-badge";
 
 export const COMMAND_PALETTE_SEARCH_ERROR = "Search could not be completed. Check your connection and try again.";
 
@@ -7,6 +8,19 @@ export type CommandPaletteSearchState =
   | { status: "loading"; term: string; results: SearchResult[] }
   | { status: "success"; term: string; results: SearchResult[] }
   | { status: "error"; term: string; results: SearchResult[]; message: string };
+
+/**
+ * The secondary line under a result: what kind of row it is, what identifies
+ * it, and what state it is in. The status arrives as the column holds it, so
+ * the words come from the one authored vocabulary the badges also render —
+ * "Queued to accept", never `accept_queue`.
+ */
+export function searchResultHint(kind: string, result: Pick<SearchResult, "sublabel" | "status">): string {
+  const status = result.status === null
+    ? null
+    : STATUS_BADGES[result.status as StatusBadgeValue]?.label ?? result.status.replace(/_/gu, " ");
+  return [kind, result.sublabel, status].filter(Boolean).join(" · ");
+}
 
 export function idleCommandPaletteSearch(term = ""): CommandPaletteSearchState {
   return { status: "idle", term, results: [] };
@@ -60,9 +74,15 @@ export async function settleCommandPaletteSearch({
   }
 }
 
+/**
+ * `entitySearch: false` is the verbs-only palette a reviewer gets. The idle
+ * copy has to change with it: "Keep typing to search speakers, submissions, and
+ * sessions" is an invitation to wait for results that are never coming.
+ */
 export function commandPaletteSearchFeedback(
   state: CommandPaletteSearchState,
   itemCount: number,
+  { entitySearch = true }: { entitySearch?: boolean } = {},
 ): { message: string; visible: boolean; retry: boolean } {
   if (state.status === "loading") {
     return { message: `Searching for “${state.term}”…`, visible: true, retry: false };
@@ -76,9 +96,12 @@ export function commandPaletteSearchFeedback(
       : { message: `${itemCount} ${itemCount === 1 ? "option" : "options"} available.`, visible: false, retry: false };
   }
   if (state.term) {
-    return itemCount === 0
+    if (itemCount > 0) {
+      return { message: `${itemCount} matching ${itemCount === 1 ? "command" : "commands"} available.`, visible: false, retry: false };
+    }
+    return entitySearch
       ? { message: "Keep typing to search speakers, submissions, and sessions.", visible: true, retry: false }
-      : { message: `${itemCount} matching ${itemCount === 1 ? "command" : "commands"} available.`, visible: false, retry: false };
+      : { message: `No commands match “${state.term}”.`, visible: true, retry: false };
   }
   return { message: `${itemCount} ${itemCount === 1 ? "command is" : "commands are"} ready.`, visible: false, retry: false };
 }

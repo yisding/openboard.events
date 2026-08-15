@@ -62,7 +62,7 @@ const RETIREMENT_MIGRATION = "0033_retire_fallback_auth";
 // event before it can queue real mail about a conference that does not exist.
 // This file applies a hand-picked upgrade path rather than the whole journal,
 // so the column it now depends on has to be named here.
-const DEMO_FLAG_MIGRATION = "0044_demo_events_and_tour";
+const DEMO_FLAG_MIGRATION = "0047_demo_events_and_tour";
 
 const eventA = eventIdSchema.parse("b0000000-0000-4000-8000-000000000001");
 const eventB = eventIdSchema.parse("b0000000-0000-4000-8000-000000000002");

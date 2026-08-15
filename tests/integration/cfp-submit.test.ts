@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
 import { scopedParticipantFieldErrorKey } from "@/features/forms/participant-errors";
@@ -146,6 +146,23 @@ describe("CFP submit, end to end through the server path", () => {
     await pglite.close();
   });
 
+  /**
+   * Derived state, reset between tests rather than by each test's first line.
+   *
+   * Almost every test below opened with `DELETE FROM submissions`; three did
+   * not, and silently inherited whatever the previous test left. Since the
+   * shared event carries `submission_cap_per_user = 3`, that residue moved
+   * those three toward the cap — so adding an `it` above one of them could
+   * change what it saw. The seeded event, form, and contacts stay in
+   * `beforeAll`; only what the tests themselves create is cleared here.
+   */
+  beforeEach(async () => {
+    await pglite.query("DELETE FROM submissions");
+    await pglite.query("DELETE FROM communication_logs");
+    await pglite.query("DELETE FROM routing_rules");
+    await pglite.query("DELETE FROM form_versions WHERE version <> 1");
+  });
+
   it("stores a submission with its answers and one confirmation email", async () => {
     const result = await submitCfpForm({ eventId, formId, contactId: speaker, formVersion: 1, answers: answers() });
 
@@ -173,7 +190,6 @@ describe("CFP submit, end to end through the server path", () => {
   });
 
   it("stores participant answers on the primary participant and updates their profile", async () => {
-    await pglite.query("DELETE FROM submissions");
     await pglite.query("UPDATE contacts SET first_name='', last_name='' WHERE id=$1", [speaker]);
     const result = await submitCfpForm({
       eventId,
@@ -201,7 +217,6 @@ describe("CFP submit, end to end through the server path", () => {
   });
 
   it("does not require or store participant answers when collection is disabled", async () => {
-    await pglite.query("DELETE FROM submissions");
     await pglite.query("UPDATE forms SET collect_participants=false WHERE id=$1", [formId]);
     const abstractOnly = answers();
     for (const key of ["first_name", "last_name", "email"]) delete abstractOnly[field(key).id];
@@ -225,7 +240,6 @@ describe("CFP submit, end to end through the server path", () => {
   });
 
   it("rejects a primary participant email other than the signed-in speaker", async () => {
-    await pglite.query("DELETE FROM submissions");
     const otherContact = contactIdSchema.parse("f0000000-0000-4000-8000-000000000004");
     await pglite.query(
       "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'other@example.com','Other','Speaker') ON CONFLICT DO NOTHING",
@@ -247,7 +261,6 @@ describe("CFP submit, end to end through the server path", () => {
   });
 
   it("keeps the configured form kind on both the draft and final submission", async () => {
-    await pglite.query("DELETE FROM submissions");
     await pglite.query("UPDATE forms SET kind='session' WHERE id=$1", [formId]);
     try {
       const draft = await upsertDraft(eventId, speaker, formId, 1);
@@ -270,7 +283,6 @@ describe("CFP submit, end to end through the server path", () => {
   });
 
   it("accepts enabled canonical roles and rejects disabled roles", async () => {
-    await pglite.query("DELETE FROM submissions");
     const moderatorOnly = DEFAULT_PARTICIPANT_ROLES.map((setting) => ({
       ...setting,
       enabled: setting.role === "speaker" || setting.role === "moderator",
@@ -301,6 +313,9 @@ describe("CFP submit, end to end through the server path", () => {
       );
       expect(roles.rows.map((row) => row.role)).toEqual(["speaker", "moderator"]);
 
+      // Mid-test reset: the assertion below is that the *rejected* attempt
+      // wrote nothing, which only means something once the accepted one above
+      // is cleared.
       await pglite.query("DELETE FROM submissions");
       const disabled = await submitCfpForm({
         eventId,
@@ -328,7 +343,6 @@ describe("CFP submit, end to end through the server path", () => {
   });
 
   it("scopes an additional participant's field errors to its client ID", async () => {
-    await pglite.query("DELETE FROM submissions");
     const incomplete = answers({ [field("email").id]: text("incomplete@example.com") });
     delete incomplete[field("first_name").id];
     const error = await submitCfpForm({
@@ -359,7 +373,6 @@ describe("CFP submit, end to end through the server path", () => {
   });
 
   it("resolves co-speaker emails and remaps their answers to stored participants", async () => {
-    await pglite.query("DELETE FROM submissions");
     await pglite.query("DELETE FROM contacts WHERE email='grace@example.com'");
 
     const result = await submitCfpForm({
@@ -417,7 +430,6 @@ describe("CFP submit, end to end through the server path", () => {
   });
 
   it("does not let the submitter overwrite an existing co-speaker profile", async () => {
-    await pglite.query("DELETE FROM submissions");
     const existing = contactIdSchema.parse("f0000000-0000-4000-8000-000000000006");
     await pglite.query(
       `INSERT INTO contacts(id,event_id,email,first_name,last_name,company)
@@ -458,7 +470,6 @@ describe("CFP submit, end to end through the server path", () => {
   });
 
   it("rejects a primary mapped email that contradicts the authenticated identity", async () => {
-    await pglite.query("DELETE FROM submissions");
     const error = await submitCfpForm({
       eventId,
       formId,
@@ -480,7 +491,6 @@ describe("CFP submit, end to end through the server path", () => {
   });
 
   it("rejects a co-speaker mapped email that contradicts their canonical email", async () => {
-    await pglite.query("DELETE FROM submissions");
     await pglite.query("DELETE FROM contacts WHERE email='grace@example.com'");
     const error = await submitCfpForm({
       eventId,
@@ -507,7 +517,6 @@ describe("CFP submit, end to end through the server path", () => {
   });
 
   it("returns an already-submitted draft without applying a changed retry payload", async () => {
-    await pglite.query("DELETE FROM submissions");
     await pglite.query("DELETE FROM contacts WHERE email='retry-only@example.com'");
     const draft = await upsertDraft(eventId, speaker, formId, 1);
     const created = await submitCfpForm({
@@ -545,7 +554,6 @@ describe("CFP submit, end to end through the server path", () => {
   });
 
   it("returns an already-submitted draft after the form changes structurally", async () => {
-    await pglite.query("DELETE FROM submissions");
     await pglite.query("DELETE FROM contacts WHERE email='stale-retry-only@example.com'");
     const draft = await upsertDraft(eventId, speaker, formId, 1);
     const created = await submitCfpForm({
@@ -596,11 +604,9 @@ describe("CFP submit, end to end through the server path", () => {
     expect(retried).toEqual(created);
     expect((await pglite.query<{ count: number }>("SELECT count(*)::int AS count FROM contacts WHERE email='stale-retry-only@example.com'")).rows[0]?.count).toBe(0);
     await pglite.query("UPDATE forms SET current_version=1 WHERE id=$1", [formId]);
-    await pglite.query("DELETE FROM form_versions WHERE version=2");
   });
 
   it("serializes mixed draft-backed and fresh submits without deadlocking", async () => {
-    await pglite.query("DELETE FROM submissions");
     const draft = await upsertDraft(eventId, speaker, formId, 1);
     const settled = await Promise.allSettled([
       submitCfpForm({
@@ -623,7 +629,6 @@ describe("CFP submit, end to end through the server path", () => {
   }, 20_000);
 
   it("rejects a submitted draft ID that belongs to another speaker", async () => {
-    await pglite.query("DELETE FROM submissions");
     await pglite.query("DELETE FROM contacts WHERE email IN ('owner@example.com','foreign-side-effect@example.com')");
     const owner = contactIdSchema.parse("f0000000-0000-4000-8000-000000000005");
     await pglite.query(
@@ -665,7 +670,6 @@ describe("CFP submit, end to end through the server path", () => {
   });
 
   it("uses abstract answers when evaluating participant field visibility", async () => {
-    await pglite.query("DELETE FROM submissions");
     const crossSection = structuredClone(GOLDEN_SNAPSHOT) as typeof GOLDEN_SNAPSHOT;
     crossSection.version = 2;
     const company = crossSection.sections.flatMap((section) => section.fields).find((candidate) => candidate.key === "company");
@@ -688,14 +692,9 @@ describe("CFP submit, end to end through the server path", () => {
       [result.submissionId, field("company").id],
     );
     expect(stored.rows[0]?.value.v).toBe("Analytical Engines");
-
-    await pglite.query("DELETE FROM submissions");
-    await pglite.query("DELETE FROM form_versions WHERE version=2");
   });
 
   it("rolls back submission creation when the profile update fails", async () => {
-    await pglite.query("DELETE FROM submissions");
-    await pglite.query("DELETE FROM communication_logs");
     await pglite.query("ALTER TABLE contacts DROP CONSTRAINT IF EXISTS contacts_reject_test_name");
     await pglite.query("ALTER TABLE contacts ADD CONSTRAINT contacts_reject_test_name CHECK (first_name <> 'ROLLBACK')");
 
@@ -715,9 +714,12 @@ describe("CFP submit, end to end through the server path", () => {
   });
 
   it("persists incomplete draft answers and returns them when the draft is resumed", async () => {
-    await pglite.query("DELETE FROM submissions");
     await pglite.query("DELETE FROM contacts WHERE email='draft-co@example.com'");
-    await upsertDraft(eventId, speaker, formId, 1);
+    // `created` is what the wizard gates its profile prefill on: seeding the
+    // speaker's contact details on a resume would put back a mapped answer they
+    // cleared on purpose, on every reload.
+    const started = await upsertDraft(eventId, speaker, formId, 1);
+    expect(started.created).toBe(true);
     await saveCfpDraft({
       eventId,
       formId,
@@ -739,6 +741,7 @@ describe("CFP submit, end to end through the server path", () => {
     });
 
     const resumed = await upsertDraft(eventId, speaker, formId, 1);
+    expect(resumed.created).toBe(false);
     expect(resumed.answers).toEqual({ [field("title").id]: text("A work in progress") });
     expect(resumed.participants).toHaveLength(1);
     expect(resumed.participants[0]).toMatchObject({ email: "draft-co@example.com", role: "co_speaker", sortOrder: 1 });
@@ -749,7 +752,6 @@ describe("CFP submit, end to end through the server path", () => {
   });
 
   it("persists enabled non-speaker draft roles and rejects disabled ones", async () => {
-    await pglite.query("DELETE FROM submissions");
     const moderatorOnly = DEFAULT_PARTICIPANT_ROLES.map((setting) => ({
       ...setting,
       enabled: setting.role === "speaker" || setting.role === "moderator",
@@ -774,8 +776,6 @@ describe("CFP submit, end to end through the server path", () => {
       });
       const resumed = await upsertDraft(eventId, speaker, formId, 1);
       expect(resumed.participants[0]).toMatchObject({ role: "moderator", email: "draft-moderator@example.com" });
-
-      await pglite.query("DELETE FROM submissions");
       await upsertDraft(eventId, speaker, formId, 1);
       const disabled = await saveCfpDraft({
         eventId,
@@ -802,7 +802,6 @@ describe("CFP submit, end to end through the server path", () => {
   // submit promotes the draft row in place. Reporting that as NOT_FOUND put a
   // 404 in the console of a speaker who had just been given their SESS code.
   it("treats an autosave that lands after submit as a no-op on the promoted row", async () => {
-    await pglite.query("DELETE FROM submissions");
     const draft = await upsertDraft(eventId, speaker, formId, 1);
     const created = await submitCfpForm({
       eventId,
@@ -831,7 +830,6 @@ describe("CFP submit, end to end through the server path", () => {
   });
 
   it("still refuses an autosave from a speaker with no submission for the form", async () => {
-    await pglite.query("DELETE FROM submissions");
     const failure = await saveCfpDraft({
       eventId,
       formId,
@@ -844,7 +842,6 @@ describe("CFP submit, end to end through the server path", () => {
   });
 
   it("never stores an answer to a question the speaker could not see", async () => {
-    await pglite.query("DELETE FROM submissions");
     const result = await submitCfpForm({
       eventId,
       formId,
@@ -862,7 +859,6 @@ describe("CFP submit, end to end through the server path", () => {
   });
 
   it("applies a routing rule to the stored track and tags", async () => {
-    await pglite.query("DELETE FROM submissions");
     await pglite.query(
       `INSERT INTO routing_rules(event_id,form_id,sort_order,match,conditions,set_track_id,add_tag_ids,enabled)
        VALUES($1,$2,0,'all',$3::jsonb,$4,ARRAY[$5]::uuid[],true)`,
@@ -881,8 +877,6 @@ describe("CFP submit, end to end through the server path", () => {
     expect(rows.rows[0]?.track_id).toBe(trackId);
     const tags = await pglite.query<{ tag_id: string }>("SELECT tag_id FROM submission_tags WHERE submission_id=$1", [result.submissionId]);
     expect(tags.rows.map((row) => row.tag_id)).toEqual([tagId]);
-
-    await pglite.query("DELETE FROM routing_rules");
   });
 
   it("returns FORM_VERSION_STALE with the fresh snapshot when the form changed structurally", async () => {
@@ -903,12 +897,9 @@ describe("CFP submit, end to end through the server path", () => {
     expect(isAppError(error) && error.code).toBe("FORM_VERSION_STALE");
     const details = isAppError(error) ? error.details as { version: number } : null;
     expect(details?.version).toBe(2);
-
-    await pglite.query("DELETE FROM form_versions WHERE version=2");
   });
 
   it("reports field errors without writing anything", async () => {
-    await pglite.query("DELETE FROM submissions");
     const incomplete = answers();
     delete incomplete[field("title").id];
 
@@ -927,7 +918,6 @@ describe("CFP submit, end to end through the server path", () => {
   });
 
   it("stores multi-select answers as given", async () => {
-    await pglite.query("DELETE FROM submissions");
     const result = await submitCfpForm({
       eventId,
       formId,

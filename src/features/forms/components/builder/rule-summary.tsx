@@ -7,9 +7,17 @@ function fieldLabel(fields: readonly SummaryField[], fieldId: string): string {
   return fields.find((field) => field.id === fieldId)?.label ?? "a deleted question";
 }
 
-function describeValue(fields: readonly SummaryField[], condition: Condition): string {
+/**
+ * `only === "first"` for `eq`/`neq`, because that is all `expectedScalar` reads.
+ * The builder can no longer put a second value under those operators, but rules
+ * saved before it stopped can still hold one, and joining them here read as an
+ * OR the evaluator never performed — "Topics is Frontend, Backend" for a rule
+ * that only ever matched Frontend. Describe what runs.
+ */
+function describeValue(fields: readonly SummaryField[], condition: Condition, only?: "first"): string {
   const field = fields.find((candidate) => candidate.id === condition.sourceFieldId);
-  const values = Array.isArray(condition.value) ? condition.value : condition.value !== undefined ? [condition.value] : [];
+  const all = Array.isArray(condition.value) ? condition.value : condition.value !== undefined ? [condition.value] : [];
+  const values = only === "first" ? all.slice(0, 1) : all;
   if (values.length === 0) return "";
   const labels = values.map((value) => field?.options.find((option) => option.id === value)?.label ?? value);
   return labels.join(", ");
@@ -20,8 +28,8 @@ function conditionPhrase(condition: Condition, fields: readonly SummaryField[]):
   switch (condition.op) {
     case "answered": return `${label} is answered`;
     case "empty": return `${label} is empty`;
-    case "eq": return `${label} is ${describeValue(fields, condition)}`;
-    case "neq": return `${label} is not ${describeValue(fields, condition)}`;
+    case "eq": return `${label} is ${describeValue(fields, condition, "first")}`;
+    case "neq": return `${label} is not ${describeValue(fields, condition, "first")}`;
     case "in": return `${label} is any of ${describeValue(fields, condition)}`;
     case "not_in": return `${label} is none of ${describeValue(fields, condition)}`;
   }

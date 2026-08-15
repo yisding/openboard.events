@@ -1,4 +1,5 @@
 import { Pool, neon } from "@neondatabase/serverless";
+import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { drizzle as drizzleWs } from "drizzle-orm/neon-serverless";
 import { AppError } from "@/shared/lib/errors";
@@ -114,6 +115,41 @@ export async function withTx<T>(work: (tx: TxDb) => Promise<T>): Promise<T> {
   const pool = new Pool({ connectionString: databaseUrl() });
   try {
     return await createWsDb(pool).transaction(work);
+  } finally {
+    await pool.end();
+  }
+}
+
+/**
+ * Serialize `work` against everyone else naming the same key, without putting
+ * `work` in a transaction.
+ *
+ * Most serialization here is `pg_advisory_xact_lock` inside `withTx`, and that
+ * is the right tool whenever the work is transactional anyway. This is for the
+ * case it cannot cover: a check-then-act whose act *depends on catching SQL
+ * errors*. `createEventIn` is the example — a duplicate slug is an ordinary
+ * user mistake it recovers from by catching the unique violation and reading
+ * the colliding row. Inside a transaction that read fails, because the failed
+ * statement has already poisoned it, and a routine "That slug is taken" would
+ * become a 500.
+ *
+ * So the lock lives on its own connection and the work stays on the autocommit
+ * HTTP handle. A session-level lock, not a transaction-level one, because there
+ * is no transaction to scope it to; it is released explicitly, and by the
+ * server anyway if the connection dies. Each statement of `work` then takes its
+ * own fresh snapshot, which is exactly what a count-then-insert needs: the
+ * waiter's count runs after the holder's insert has committed and sees it.
+ */
+export async function withAdvisoryLock<T>(key: string, work: () => Promise<T>): Promise<T> {
+  const pool = new Pool({ connectionString: databaseUrl() });
+  try {
+    const database = createWsDb(pool);
+    await database.execute(sql`SELECT pg_advisory_lock(hashtextextended(${key}, 0))`);
+    try {
+      return await work();
+    } finally {
+      await database.execute(sql`SELECT pg_advisory_unlock(hashtextextended(${key}, 0))`);
+    }
   } finally {
     await pool.end();
   }

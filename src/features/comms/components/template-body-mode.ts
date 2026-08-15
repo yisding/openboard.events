@@ -1,4 +1,4 @@
-import { sanitizeTemplateBody } from "@/features/comms/template-body";
+import { sanitizeTemplateBody } from "@/shared/lib/template-body";
 
 export type TemplateBodyMode = "rich" | "html";
 

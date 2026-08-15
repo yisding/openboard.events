@@ -9,14 +9,14 @@ import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
-import { isAppError } from "@/shared/lib/errors";
+import { isAppError, isDefinitiveWriteFailure } from "@/shared/lib/errors";
 import { eventDtoSchema, trackDtoSchema, type EventDTO, type OrganizationId, type TrackDTO } from "@/shared/contracts";
 import type { OnboardingStep } from "../progress-types";
 import { EVENT_TYPES, type EventType } from "@/features/events/index.schemas";
 import { formOpenState, type FormOpenReason } from "@/features/forms/index.availability";
 import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
 import { DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
-import { endOfDayInTz, eventDayKey, formatInZone, timeZoneOptionLabel } from "@/shared/lib/time";
+import { endOfDayInTz, eventDayKey, formatInZone, timeZoneOptionLabel, viewerTimeZone } from "@/shared/lib/time";
 
 const DEFAULT_TZ = "America/Los_Angeles";
 const CUSTOM_TRACK_COLOR = DEFAULT_BRAND_COLOR;
@@ -81,10 +81,6 @@ type OnboardingEventFields = {
 };
 
 export type CfpDeadlineChoice = "four_weeks" | "two_weeks" | "one_week" | "custom" | "none";
-
-export function onboardingEventCreateOutcomeUnknown(error: unknown): boolean {
-  return !isAppError(error) || error.code === "INTERNAL";
-}
 
 export function retainOnboardingEventCreateFields(
   retained: OnboardingEventFields | null,
@@ -183,13 +179,13 @@ export async function createAndReconcileOnboardingTrack(input: {
   try {
     return { status: "added", track: await input.create() };
   } catch (error) {
-    if (isAppError(error) && error.code !== "INTERNAL") return { status: "refused", error };
+    if (isDefinitiveWriteFailure(error)) return { status: "refused", error };
     try {
       // The create endpoint treats this stable id as a correlation token, so
       // a replay either creates the row or returns the exact committed row.
       return { status: "added", track: await input.create() };
     } catch (retryError) {
-      if (isAppError(retryError) && retryError.code !== "INTERNAL") {
+      if (isDefinitiveWriteFailure(retryError)) {
         return { status: "refused", error: retryError };
       }
       try {
@@ -221,7 +217,7 @@ export async function deleteAndReconcileOnboardingTrack(input: {
     // request and refused it before the mutation. In that case a list read is
     // causally safe and can restore the authoritative row (or observe a
     // concurrent deletion by someone else).
-    if (!isAppError(error) || error.code === "INTERNAL") {
+    if (!isDefinitiveWriteFailure(error)) {
       try {
         // DELETE is idempotent. Waiting for a successful replay establishes
         // completion even when the first request is still running after its
@@ -380,7 +376,7 @@ export function OnboardingWizard({
 
   useEffect(() => {
     if (initialState?.event) return;
-    setTimezone(preferredTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone, timeZones));
+    setTimezone(preferredTimeZone(viewerTimeZone(), timeZones));
   }, [initialState?.event, timeZones]);
 
   useEffect(() => {
@@ -472,7 +468,7 @@ export function OnboardingWizard({
       });
       toast("Brought over your demo's tracks, rooms and call for speakers");
     } catch {
-      toast("Could not copy your demo's setup — the event was created without it");
+      toast("Could not copy your demo's setup — the event was created without it", { kind: "error" });
     }
   }
 
@@ -524,7 +520,7 @@ export function OnboardingWizard({
       if (!event && copyFromDemo) await copyDemoScaffoldOnto(saved.id);
       setStep(2);
     } catch (caught) {
-      const outcomeUnknown = !event && onboardingEventCreateOutcomeUnknown(caught);
+      const outcomeUnknown = !event && !isDefinitiveWriteFailure(caught);
       setEventCreateRecoveryRequired(outcomeUnknown);
       if (!outcomeUnknown) eventCreateFieldsRef.current = null;
       const fields = isAppError(caught) ? caught.fieldErrors : undefined;

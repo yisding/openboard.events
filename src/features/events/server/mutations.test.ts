@@ -47,7 +47,7 @@ const migrationAgendaCreationReceipts = readFileSync(new URL("../../../../drizzl
 // migration has to be in the fixture for the ALTER to have a constraint to
 // replace.
 const migrationOnboardingMilestones = readFileSync(new URL("../../../../drizzle/0023_onboarding_milestones.sql", import.meta.url), "utf8");
-const migrationDemoEvents = readFileSync(new URL("../../../../drizzle/0044_demo_events_and_tour.sql", import.meta.url), "utf8");
+const migrationDemoEvents = readFileSync(new URL("../../../../drizzle/0047_demo_events_and_tour.sql", import.meta.url), "utf8");
 
 function baseInput(overrides: Partial<Parameters<typeof createEventIn>[2]> = {}) {
   return {

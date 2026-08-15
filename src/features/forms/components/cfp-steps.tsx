@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { z } from "zod";
 import type { PublicForm } from "@/features/forms";
 import { splitParticipantFieldErrors } from "../participant-errors";
 import { enabledSecondaryParticipantRoles, secondaryParticipantRoleSchema, type SecondaryParticipantRole } from "../participant-roles";
 import { FormFieldRenderer } from "./form-field-renderer";
-import { LIMITS, plainTextLength, type AnswerValue, type FieldId, type FormField, type FormSnapshot } from "@/shared/contracts";
+import { fieldMaxChars, plainTextLength, type AnswerValue, type FieldId, type FormField, type FormSnapshot, type MapsToTarget } from "@/shared/contracts";
+import { cn } from "@/shared/lib/cn";
 import { evaluateVisibility } from "@/shared/lib/conditions";
 import { FormUploadProvider } from "@/shared/ui/app/form-upload-context";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
@@ -95,6 +97,39 @@ function answerIsEmpty(field: FormField, value: AnswerValue | undefined): boolea
   return false;
 }
 
+/**
+ * The answers a co-speaker's conditional questions may be evaluated against.
+ *
+ * The server evaluates a participant section against the abstract answers plus
+ * that participant's own (`submit.ts` builds `abstractContext` from the
+ * abstract snapshot alone). Handing a co-speaker the wizard's whole `answers`
+ * object also hands them the *primary's* participant answers, so client and
+ * server disagree: a question gated on another participant field renders for
+ * one and not the other. In the `answered`/`eq` direction the co-speaker fills
+ * in a field the server then discards as hidden; in the `empty`/`neq`
+ * direction the server requires one their form never showed them, and the
+ * submission cannot be completed at all.
+ */
+export function abstractAnswersOnly(snapshot: FormSnapshot, answers: Answers): Answers {
+  const abstractIds = new Set(
+    snapshot.sections.filter((section) => section.key !== "participant").flatMap((section) => section.fields.map((field) => field.id)),
+  );
+  return Object.fromEntries(Object.entries(answers).filter(([fieldId]) => abstractIds.has(fieldId as FieldId))) as Answers;
+}
+
+/**
+ * The formats the browser used to police with its own bubble. The wizard turns
+ * native validation off so every error is a designed, per-field one, which means
+ * the checks the bubble was doing have to live here — with the same messages the
+ * submit pipeline returns, so a field never changes its mind between the two.
+ */
+function badFormat(field: FormField, value: AnswerValue): string | null {
+  if (value.t !== "s" || value.v.trim() === "") return null;
+  if (field.type === "email" && !z.email().safeParse(value.v).success) return "Enter a valid email address";
+  if (field.type === "url" && !z.url().safeParse(value.v).success) return "Enter a valid URL";
+  return null;
+}
+
 export function stepFieldErrors(
   snapshot: FormSnapshot,
   sectionKeys: string[],
@@ -114,13 +149,65 @@ export function stepFieldErrors(
         continue;
       }
       if (value?.t === "s") {
-        const max = field.maxChars ?? (field.type === "richtext" ? LIMITS.RICHTEXT : LIMITS.SHORT_TEXT);
+        const max = fieldMaxChars(field);
         const used = field.type === "richtext" ? plainTextLength(value.v) : value.v.length;
         if (used > max) errors[field.id] = `Keep this under ${max} characters`;
+      }
+      if (!errors[field.id] && value) {
+        const format = badFormat(field, value);
+        if (format) errors[field.id] = format;
       }
     }
   }
   return errors;
+}
+
+/** The account step's own email control, which no form snapshot covers. */
+export function accountEmailError(email: string): string {
+  return z.email().safeParse(email.trim().toLowerCase()).success ? "" : "Enter a valid email address";
+}
+
+/**
+ * A reload must not cost a trip through the speaker's inbox. The portal session
+ * the account step established outlives the page, so a signed-in speaker starts
+ * back on the questions while their draft is fetched, not on "Verify your email".
+ */
+export function initialCfpStep(signedInEmail: string | null | undefined): Step {
+  return signedInEmail ? "submission" : "account";
+}
+
+/** What the speaker already told this event, by the column each question feeds. */
+const PROFILE_PREFILL_TARGETS: Partial<Record<MapsToTarget, string>> = {
+  "contact.first_name": "firstName",
+  "contact.last_name": "lastName",
+  "contact.company": "company",
+  "contact.job_title": "jobTitle",
+  "contact.bio_html": "bioHtml",
+};
+
+/**
+ * Seed a returning speaker's own details. They proved who they are with a code,
+ * so making them retype the name and company already on their contact record is
+ * work the wizard can do for them — and only where they have not answered
+ * already, so a draft never loses an edit to a prefill. Callers run this on a
+ * newly created draft only: on a resume an unanswered mapped question is a
+ * question the speaker cleared, and seeding it again would undo that.
+ */
+export function prefillProfileAnswers(
+  snapshot: FormSnapshot,
+  profile: Record<string, unknown> | null | undefined,
+  answers: Answers,
+): Answers {
+  if (!profile) return {};
+  const seeded: Record<string, AnswerValue> = {};
+  for (const field of snapshot.sections.flatMap((section) => section.fields)) {
+    const key = field.mapsTo ? PROFILE_PREFILL_TARGETS[field.mapsTo] : undefined;
+    if (!key || !answerIsEmpty(field, answers[field.id])) continue;
+    const value = profile[key];
+    if (typeof value !== "string" || value.trim() === "") continue;
+    seeded[field.id] = { t: "s", v: value };
+  }
+  return seeded;
 }
 
 export function cfpStepHeading(snapshot: FormSnapshot, step: Exclude<Step, "done">): string {
@@ -217,10 +304,13 @@ export function cfpCodeRequestRecovery(result: RequestResult): {
     : { acceptCode: false, message: result.message, kind: "error" };
 }
 
-export function cfpSubmitFailure(result: RequestResult): CfpSubmitFailure {
-  return result.code === "FORM_VERSION_STALE"
-    ? { kind: "stale", message: STALE_FORM_MESSAGE }
-    : { kind: "ordinary", message: result.fieldErrors ? "Some answers need attention" : result.message };
+export function cfpSubmitFailure(result: RequestResult, fieldErrorHint?: string): CfpSubmitFailure {
+  if (result.code === "FORM_VERSION_STALE") return { kind: "stale", message: STALE_FORM_MESSAGE };
+  if (!result.fieldErrors) return { kind: "ordinary", message: result.message };
+  return {
+    kind: "ordinary",
+    message: fieldErrorHint ? `Some answers need attention. ${fieldErrorHint}` : "Some answers need attention",
+  };
 }
 
 export function requiresCfpFormReload(
@@ -390,10 +480,12 @@ export function serializeAutosaves<T>(save: (snapshot: T) => Promise<boolean>): 
   };
 }
 
-export function CfpSteps({ data }: { data: PublicForm }) {
+export function CfpSteps({ data, signedInEmail }: { data: PublicForm; signedInEmail?: string | null }) {
   const { event, form, snapshot } = data;
-  const [step, setStep] = useState<Step>("account");
-  const [email, setEmail] = useState("");
+  const [step, setStep] = useState<Step>(initialCfpStep(signedInEmail));
+  const [email, setEmail] = useState(signedInEmail ?? "");
+  const [emailError, setEmailError] = useState("");
+  const [limitMessage, setLimitMessage] = useState<string | null>(null);
   const [code, setCode] = useState("");
   const [codeRequested, setCodeRequested] = useState(false);
   const [fallbackOtp, setFallbackOtp] = useState<string | null>(null);
@@ -403,6 +495,10 @@ export function CfpSteps({ data }: { data: PublicForm }) {
   const [notice, setNotice] = useState("");
   const [noticeKind, setNoticeKind] = useState<"status" | "error">("status");
   const [busy, setBusy] = useState(false);
+  // Signing out is tracked apart from `busy`: the submission step's button copy
+  // reads "Restoring your draft…" while busy, which is the opposite of what
+  // leaving the account does.
+  const [signingOut, setSigningOut] = useState(false);
   const [draftId, setDraftId] = useState<string | null>(null);
   const [draftRestored, setDraftRestored] = useState(false);
   const [coSpeakers, setCoSpeakers] = useState<ParticipantDraft[]>([]);
@@ -421,6 +517,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
    * editing; a stale-version rejection locks this snapshot until a full reload.
    */
   const snapshotLock = useRef<CfpSnapshotLock>({ submitting: false, versionStale: false, submitted: false });
+  const resumed = useRef(false);
   const nextCoSpeaker = useRef(1);
   const stepRegion = useRef<HTMLElement>(null);
   const previousStep = useRef<Step>(step);
@@ -519,6 +616,19 @@ export function CfpSteps({ data }: { data: PublicForm }) {
   ), [form.autoRedirectToPortal, portalHref, step]);
 
   useEffect(() => {
+    // The portal session survives a reload; the wizard's step state does not.
+    // Resuming here is what stops a refresh costing a second six-digit code.
+    if (!signedInEmail || resumed.current) return;
+    resumed.current = true;
+    setBusy(true);
+    void startDraft(signedInEmail).then((started) => {
+      setBusy(false);
+      if (!started) setStep("account");
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signedInEmail]);
+
+  useEffect(() => {
     if (!draftId) return;
     setSaveState("saving");
     const timer = window.setTimeout(() => {
@@ -528,6 +638,12 @@ export function CfpSteps({ data }: { data: PublicForm }) {
   }, [answers, coSpeakers, draftId]);
 
   async function requestCode() {
+    const invalidEmail = accountEmailError(email);
+    setEmailError(invalidEmail);
+    if (invalidEmail) {
+      emailInput.current?.focus();
+      return;
+    }
     setBusy(true);
     showNotice("");
     const sent = await cfpRequest("/api/internal/auth/portal/request", { eventSlug: event.slug, email: email.trim().toLowerCase() });
@@ -551,11 +667,25 @@ export function CfpSteps({ data }: { data: PublicForm }) {
     showNotice("");
     const verified = await cfpRequest("/api/internal/auth/portal/verify", { eventSlug: event.slug, email: email.trim().toLowerCase(), code });
     if (!verified.ok) { setBusy(false); showNotice(verified.message, "error"); return; }
+    await startDraft(email.trim().toLowerCase());
+    setBusy(false);
+  }
 
+  /**
+   * Everything the account step does once the email is proven — and everything a
+   * reload has to redo, which is why it is one function rather than the tail of
+   * `verifyAndStart`.
+   */
+  async function startDraft(address: string): Promise<boolean> {
     // The draft exists from this moment, pinned to the version being rendered.
     const draft = await cfpRequest(`/api/internal/forms/${form.id}/draft`, { formVersion: snapshot.version });
-    setBusy(false);
-    if (!draft.ok) { showNotice(draft.message, "error"); return; }
+    if (!draft.ok) {
+      // The limit is knowable before a single question is answered, so it is a
+      // page of its own rather than an error under the Submit button.
+      if (draft.code === "LIMIT_REACHED") { setLimitMessage(draft.message); return false; }
+      showNotice(draft.message, "error");
+      return false;
+    }
     setDraftId(String(draft.data.submissionId));
     const restored = (draft.data.answers ?? {}) as Answers;
     const restoredParticipants = Array.isArray(draft.data.participants)
@@ -575,12 +705,48 @@ export function CfpSteps({ data }: { data: PublicForm }) {
       }));
     setDraftRestored(Object.keys(restored).length > 0 || restoredParticipants.length > 0);
     const emailField = snapshot.sections.flatMap((section) => section.fields).find((field) => field.key === "email");
+    // Only a draft born on this call is seeded. Resuming must not re-seed, or a
+    // mapped answer the speaker cleared on purpose comes back — and is autosaved
+    // back into the draft — on every reload.
+    const prefill = draft.data.created === true
+      ? prefillProfileAnswers(snapshot, draft.data.profile as Record<string, unknown> | undefined, restored)
+      : {};
     setAnswers((current) => ({
+      ...prefill,
       ...restored,
       ...current,
-      ...(emailField ? { [emailField.id]: { t: "s", v: email.trim().toLowerCase() } as const } : {}),
+      ...(emailField ? { [emailField.id]: { t: "s", v: address } as const } : {}),
     }));
     setStep("submission");
+    return true;
+  }
+
+  async function switchAccount() {
+    setSigningOut(true);
+    // A failed sign-out must not pretend to succeed: the previous speaker's
+    // portal cookie would still be live, and the account step would hand the
+    // next reload straight back into their draft.
+    const signedOut = await cfpRequest("/api/internal/auth/portal/logout", { eventSlug: event.slug });
+    setSigningOut(false);
+    if (!signedOut.ok) {
+      showNotice(signedOut.message, "error");
+      return;
+    }
+    // The limit belongs to the account being left behind, so clearing it is what
+    // makes the account step reachable again from the limit page.
+    setLimitMessage(null);
+    setDraftId(null);
+    setDraftRestored(false);
+    setAnswers({});
+    setCoSpeakers([]);
+    setErrors({});
+    setCoSpeakerErrors({});
+    setSaveState("idle");
+    setCode("");
+    setCodeRequested(false);
+    setEmail("");
+    showNotice("");
+    setStep("account");
   }
 
   function continueFromSubmission() {
@@ -598,7 +764,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
     const primaryErrors = stepFieldErrors(snapshot, ["participant"], answers);
     const participantErrors = Object.fromEntries(coSpeakers.map((participant) => [
       participant.clientId,
-      stepFieldErrors(snapshot, ["participant"], participant.answers, answers),
+      stepFieldErrors(snapshot, ["participant"], participant.answers, abstractAnswersOnly(snapshot, answers)),
     ]));
     setErrors(primaryErrors);
     setCoSpeakerErrors(participantErrors);
@@ -684,7 +850,10 @@ export function CfpSteps({ data }: { data: PublicForm }) {
     });
     setBusy(false);
     if (!sent.ok) {
-      const failure = cfpSubmitFailure(sent);
+      const failure = cfpSubmitFailure(
+        sent,
+        sent.fieldErrors ? cfpFieldErrorHint(snapshot, sent.fieldErrors) : undefined,
+      );
       const deferredEdits = deferredAutosave.current?.hasPending() ?? false;
       settleCfpSubmitFailure(snapshotLock.current, failure);
       const settlement = requiresCfpFormReload(failure) ? "stale-failure" : "ordinary-failure";
@@ -699,6 +868,9 @@ export function CfpSteps({ data }: { data: PublicForm }) {
         setSaveState("failed");
         setStaleUnsavedEdits(deferredEdits || saveState !== "saved");
       }
+      // The account step normally catches this first; a slot used up in another
+      // tab meanwhile still deserves the limit page, not a line under Submit.
+      if (sent.code === "LIMIT_REACHED") setLimitMessage(sent.message);
       // Field errors belong next to their fields; anything else is a message.
       if (sent.fieldErrors) {
         const split = splitParticipantFieldErrors(sent.fieldErrors);
@@ -740,6 +912,28 @@ export function CfpSteps({ data }: { data: PublicForm }) {
     );
   }
 
+  // Nothing to fill in: the speaker has used every slot this form allows, which
+  // is worth saying before the questions rather than after them.
+  if (limitMessage) {
+    return (
+      <section ref={stepRegion} className="cfp-step cfp-step--compact" role="alert" aria-labelledby="cfp-limit-heading">
+        <h2 id="cfp-limit-heading" data-cfp-step-heading tabIndex={-1}>You have used all your submissions</h2>
+        <p>{limitMessage}</p>
+        {/* The limit belongs to whoever the portal cookie says is signed in,
+            which on a shared device is not always the person reading this — so
+            this page has to name the account and offer the way off it. */}
+        {email && (
+          <div className="cfp-draft-resume">
+            <b>Signed in as {email}</b>
+            <button className="text-button" type="button" disabled={signingOut} onClick={() => void switchAccount()}>Use a different email</button>
+          </div>
+        )}
+        <p>Your speaker portal has everything you sent {event.name}. Withdraw a submission there to free up a slot.</p>
+        <a className="button button-primary" href={portalHref}>Open your speaker portal</a>
+      </section>
+    );
+  }
+
   const activeStepIndex = flowSteps.findIndex((name) => name === step);
 
   return (
@@ -760,10 +954,23 @@ export function CfpSteps({ data }: { data: PublicForm }) {
       {step === "account" && (
         <>
         <h2 data-cfp-step-heading tabIndex={-1}>{cfpStepHeading(snapshot, step)}</h2>
-        <form className="form-grid cfp-account-form" onSubmit={(event) => { event.preventDefault(); void (codeRequested ? verifyAndStart() : requestCode()); }}>
-          <label className="field">
+        {/* `noValidate` throughout: every error on this form is a designed,
+            per-field one, and the browser's own bubble shows only the first
+            invalid control, in its own idiom, then hides it on the next click. */}
+        <form noValidate className="form-grid cfp-account-form" onSubmit={(event) => { event.preventDefault(); void (codeRequested ? verifyAndStart() : requestCode()); }}>
+          <label className={cn("field", emailError && "field-invalid")}>
             <span>Email address</span>
-            <input ref={emailInput} type="email" required value={email} onChange={(change) => setEmail(change.target.value)} autoComplete="email" />
+            <input
+              ref={emailInput}
+              type="email"
+              required
+              aria-invalid={emailError ? true : undefined}
+              aria-describedby={emailError ? "cfp-email-error" : undefined}
+              value={email}
+              onChange={(change) => { setEmail(change.target.value); setEmailError(""); }}
+              autoComplete="email"
+            />
+            {emailError && <small id="cfp-email-error" className="field-error" role="alert">{emailError}</small>}
           </label>
           {!codeRequested ? (
             <Button type="submit" disabled={busy || email.trim() === ""}>{busy ? "Sending…" : "Send me a code"}</Button>
@@ -787,7 +994,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
       )}
 
       {step === "submission" && (
-        <form onSubmit={(event) => { event.preventDefault(); continueFromSubmission(); }}>
+        <form noValidate onSubmit={(event) => { event.preventDefault(); continueFromSubmission(); }}>
           <h2 data-cfp-step-heading tabIndex={-1}>{cfpStepHeading(snapshot, step)}</h2>
           {draftRestored && (
             <div className="cfp-draft-resume" role="status">
@@ -795,15 +1002,27 @@ export function CfpSteps({ data }: { data: PublicForm }) {
               <span>Your previous answers are back. Continue when ready.</span>
             </div>
           )}
+          {/* Resuming skips the account step, so this is the only place a shared
+              device says whose submission this is — and the way back off it. */}
+          {email && (
+            <div className="cfp-draft-resume">
+              <b>Signed in as {email}</b>
+              <button className="text-button" type="button" disabled={busy || signingOut} onClick={() => void switchAccount()}>Use a different email</button>
+            </div>
+          )}
           <FormFieldRenderer snapshot={snapshot} answers={answers} onChange={onChange} mode="edit" sectionKeys={["abstract"]} errors={errors} />
           <div className="cfp-actions">
-            <Button type="submit">Continue</Button>
+            {/* Busy here means the resumed draft is still on its way; continuing
+                before it lands would validate against answers not back yet.
+                Signing out blocks the button too, but keeps its own copy: the
+                draft is being discarded, not restored. */}
+            <Button type="submit" disabled={busy || signingOut}>{busy ? "Restoring your draft…" : "Continue"}</Button>
           </div>
         </form>
       )}
 
       {form.collectParticipants && step === "speaker" && (
-        <form onSubmit={(event) => { event.preventDefault(); continueFromSpeaker(); }}>
+        <form noValidate onSubmit={(event) => { event.preventDefault(); continueFromSpeaker(); }}>
           <h2 data-cfp-step-heading tabIndex={-1}>{cfpStepHeading(snapshot, step)}</h2>
           <FormFieldRenderer snapshot={snapshot} answers={answers} onChange={onChange} mode="edit" sectionKeys={["participant"]} errors={errors} />
           {coSpeakers.map((participant, index) => (
@@ -819,7 +1038,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
                 mode="edit"
                 sectionKeys={["participant"]}
                 participantId={participant.clientId}
-                visibilityAnswers={answers}
+                visibilityAnswers={abstractAnswersOnly(snapshot, answers)}
                 errors={coSpeakerErrors[participant.clientId] ?? {}}
               />
             </div>
@@ -838,7 +1057,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
       )}
 
       {step === "review" && (
-        <form onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+        <form noValidate onSubmit={(event) => { event.preventDefault(); void submit(); }}>
           <h2 data-cfp-step-heading tabIndex={-1}>{cfpStepHeading(snapshot, step)}</h2>
           {/* Read-back in review mode: the speaker checks what will be stored,
               which is also where a stale hidden answer would be conspicuous. */}
@@ -856,7 +1075,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
                     mode="review"
                     sectionKeys={["participant"]}
                     participantId={participant.clientId}
-                    visibilityAnswers={answers}
+                    visibilityAnswers={abstractAnswersOnly(snapshot, answers)}
                   />
                 </div>
               ))}
@@ -890,11 +1109,48 @@ export function CfpSteps({ data }: { data: PublicForm }) {
   );
 }
 
-export function stepForErrors(snapshot: FormSnapshot, fieldErrors: Record<string, string>): "submission" | "speaker" {
+/**
+ * Every step still holding a server-side error, in wizard order.
+ *
+ * One submit can fail on both sections at once — the step validator only
+ * checks required/empty and length, so a bad email format on the speaker step
+ * and a retired dropdown option on the submission step both pass "Continue"
+ * and come back together. Collapsing that to a single step is what left the
+ * other section's errors in state but off screen until the respondent thought
+ * to press Back.
+ */
+export function stepsWithErrors(snapshot: FormSnapshot, fieldErrors: Record<string, string>): Array<"submission" | "speaker"> {
   const participantFields = participantFieldIds(snapshot);
   const split = splitParticipantFieldErrors(fieldErrors);
-  return Object.keys(split.byParticipant).length > 0
-    || Object.keys(split.unscoped).some((fieldId) => participantFields.has(fieldId as FieldId))
-    ? "speaker"
-    : "submission";
+  const unscopedKeys = Object.keys(split.unscoped);
+  const steps: Array<"submission" | "speaker"> = [];
+  // Anything not owned by a participant field belongs to the abstract step,
+  // including a form-level key with no field of its own — that is where the
+  // single-step version sent it too.
+  if (unscopedKeys.some((fieldId) => !participantFields.has(fieldId as FieldId))) steps.push("submission");
+  if (
+    Object.keys(split.byParticipant).length > 0
+    || unscopedKeys.some((fieldId) => participantFields.has(fieldId as FieldId))
+  ) {
+    steps.push("speaker");
+  }
+  return steps;
+}
+
+/**
+ * Where to send the respondent: the *earliest* step with an error, so fixing
+ * them runs forwards through the wizard rather than backwards.
+ */
+export function stepForErrors(snapshot: FormSnapshot, fieldErrors: Record<string, string>): "submission" | "speaker" {
+  return stepsWithErrors(snapshot, fieldErrors)[0] ?? "submission";
+}
+
+/**
+ * Names the steps the respondent is *not* being shown that still need work, so
+ * "Some answers need attention" does not read as a claim about this step alone.
+ */
+export function cfpFieldErrorHint(snapshot: FormSnapshot, fieldErrors: Record<string, string>): string | undefined {
+  const [, ...rest] = stepsWithErrors(snapshot, fieldErrors);
+  if (rest.length === 0) return undefined;
+  return `Also check ${rest.map((step) => `\u201C${cfpStepHeading(snapshot, step)}\u201D`).join(" and ")} before submitting again.`;
 }

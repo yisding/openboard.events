@@ -24,7 +24,7 @@ const migrationBilling = readFileSync(new URL("../../drizzle/0012_billing_scaffo
 // the entitlement layer this suite exercises needs the column. 0044 widens
 // 0023's milestone CHECK, which is why the milestone table comes along too.
 const migrationOnboardingMilestones = readFileSync(new URL("../../drizzle/0023_onboarding_milestones.sql", import.meta.url), "utf8");
-const migrationDemoEvents = readFileSync(new URL("../../drizzle/0044_demo_events_and_tour.sql", import.meta.url), "utf8");
+const migrationDemoEvents = readFileSync(new URL("../../drizzle/0047_demo_events_and_tour.sql", import.meta.url), "utf8");
 
 /**
  * M49 — billing scaffold. Event rows are inserted directly with raw SQL

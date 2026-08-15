@@ -29,7 +29,12 @@ function TrayCard({
   timezone?: string;
   onEdit?: (id: string) => void;
 }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+  // `attributes` is deliberately not spread onto the drag region: dnd-kit would
+  // make it a focusable role="button" that announces "press the space bar to
+  // pick up a draggable item", and this view registers a PointerSensor only.
+  // The Edit button below is the row's keyboard route, so the grip stays a
+  // pointer-only affordance instead of a silent tab stop.
+  const { listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: String(session.id),
     data: { type, session },
   });
@@ -42,7 +47,7 @@ function TrayCard({
       style={{ transform: transform ? CSS.Translate.toString(transform) : undefined, touchAction: "none" }}
       className={isDragging ? "dv-unscheduled-card dv-unscheduled-card--dragging" : "dv-unscheduled-card"}
     >
-      <div className="dv-tray-drag" {...attributes} {...listeners}>
+      <div className="dv-tray-drag" {...listeners}>
         <GripVertical size={13} aria-hidden />
         <div>
           <b>{session.title}</b>

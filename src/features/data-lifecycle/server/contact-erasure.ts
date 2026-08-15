@@ -30,6 +30,7 @@ import {
 } from "@/db/schema";
 import { resolveOrganizationContactForEventContactIn } from "@/features/event-contacts";
 import { contactErasureReceiptSchema, type ContactErasureReceipt, type ContactId, type EventId } from "@/shared/contracts";
+import { captureError } from "@/shared/lib/error-tracking";
 import { AppError } from "@/shared/lib/errors";
 import { log } from "@/shared/lib/log";
 import { purgeOrphanedFileAssets } from "@/shared/server/r2";
@@ -402,13 +403,16 @@ export async function eraseContactData(
   const { receipt, purgeCandidateFileIds } = await withTx((tx) => eraseContactDataIn(tx, eventId, contactId, options));
   if (purgeCandidateFileIds.length > 0) {
     await purgeOrphanedFileAssets(purgeCandidateFileIds).catch((error: unknown) => {
-      log({
-        level: "warn",
-        msg: "gdpr.contact_erasure.file_purge_failed",
+      // The receipt below still says the contact was erased, which is true of
+      // every row — but their uploaded bytes are still in R2 and the rows that
+      // pointed at them are gone. A warn line left that outside
+      // `operational_errors`, so an erasure request could report success with
+      // no one ever learning the objects survived.
+      captureError(error, {
         requestId: "gdpr",
         feature: "data-lifecycle",
+        code: "CONTACT_ERASURE_FILE_PURGE_FAILED",
         eventId,
-        code: error instanceof Error ? error.message : String(error),
       });
     });
   }

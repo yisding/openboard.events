@@ -49,8 +49,8 @@ describe("authenticated control names", () => {
 
     for (const path of ["./crm/components/crm-import-dialog.tsx", "./portal/components/speakers-admin/speaker-import-dialog.tsx"]) {
       const source = readFileSync(new URL(path, import.meta.url), "utf8");
-      expect(source, path).toContain('<Field label="CSV file" required>');
-      expect(source, path).toContain('accept=".csv,text/csv" required');
+      expect(source, path).toContain('<Field label="CSV file" required group>');
+      expect(source, path).toContain('<LocalFilePicker accept=".csv,text/csv" label="Choose a CSV file"');
     }
   });
 

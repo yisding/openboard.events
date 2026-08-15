@@ -28,13 +28,18 @@ const exportR2Fake = vi.hoisted(() => ({
   // `result_file_id` foreign key requires one to exist), just not through a
   // real R2 write.
   db: null as DbOrTx | null,
+  /** Optional hook fired on every source read, so a test can interleave a concurrent writer mid-step. */
+  onGetObject: null as null | (() => Promise<void>),
 }));
 
 vi.mock("@/shared/server/r2", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/shared/server/r2")>();
   return {
     ...actual,
-    getObjectBytes: async (key: string) => exportR2Fake.sourceObjects.get(key) ?? null,
+    getObjectBytes: async (key: string) => {
+      await exportR2Fake.onGetObject?.();
+      return exportR2Fake.sourceObjects.get(key) ?? null;
+    },
     deleteObjects: async () => ({ stranded: [] as string[] }),
     beginExportMultipart: async (key: string) => {
       const uploadId = `up-${key}-${exportR2Fake.uploads.size}`;
@@ -266,6 +271,18 @@ describe("M52: the central Files view's deliverable list", () => {
     expect(adaCounts.all).toBe(adaOnly.length);
     expect(adaCounts.all).toBeLessThan(counts.all);
 
+    // The Speaker column renders "Ada Lovelace" and the box is labelled "Search
+    // speaker, request, or session", so copying that name out of the table has
+    // to match. Matching first and last name separately meant the obvious
+    // gesture found nothing and every tab badge dropped to 0.
+    const [fullName, fullNameCounts] = await Promise.all([
+      listDeliverablesIn(db, eventId, { search: "Ada Lovelace" }),
+      getDeliverableStateCountsIn(db, eventId, { search: "Ada Lovelace" }),
+    ]);
+    expect(fullName.length).toBe(adaOnly.length);
+    expect(fullNameCounts.all).toBe(adaCounts.all);
+    expect(fullNameCounts.all).toBeGreaterThan(0);
+
     // Never crosses the event boundary either.
     expect((await getDeliverableStateCountsIn(db, otherEventId)).all).toBe(0);
   });
@@ -455,6 +472,67 @@ describe("M52: the central Files view's deliverable list", () => {
       }
       expect(eocdOffset).toBeGreaterThanOrEqual(0);
       expect(view.getUint16(eocdOffset + 10, true)).toBe(3);
+    });
+
+    it("does not rewind progress a second worker made after stealing this step's lease", async () => {
+      const { createFileExportJobIn, processFileExportJobIn } = await import("@/features/portal/deliverables/server/export");
+      const job = await createFileExportJobIn(
+        db, eventId, null,
+        [
+          { taskId: bigTask, contactId: ada, submissionId: null },
+          { taskId: bigTask, contactId: grace, submissionId: null },
+          { taskId: bigTask, contactId: irene, submissionId: null },
+        ],
+        "none",
+      );
+
+      // A step reads whole objects from R2, so it can outrun its own 25-second
+      // lease. Simulate that: while this step is reading bytes, another worker
+      // re-claims the job and records progress of its own.
+      let stolen = false;
+      exportR2Fake.onGetObject = async () => {
+        if (stolen) return;
+        stolen = true;
+        await pglite.query(
+          `UPDATE file_export_jobs
+           SET export_state = export_state || jsonb_build_object('claimedAt', now(), 'nextIndex', 3)
+           WHERE id = $1`,
+          [job.id],
+        );
+      };
+
+      try {
+        await processFileExportJobIn(db, eventId, job.id);
+      } finally {
+        exportR2Fake.onGetObject = null;
+      }
+
+      const after = await pglite.query<{ export_state: { nextIndex: number } }>(
+        "SELECT export_state FROM file_export_jobs WHERE id = $1", [job.id],
+      );
+      expect(stolen).toBe(true);
+      // The stale step's own `nextIndex` of 2 must not overwrite the newer
+      // worker's 3 — that would re-read files already accounted for and orphan
+      // the multipart parts the newer worker had uploaded.
+      expect(after.rows[0]?.export_state.nextIndex).toBe(3);
+    });
+
+    it("rescues a job whose very first step never ran", async () => {
+      const { createFileExportJobIn, getFileExportJobIn, nudgeStalledFileExportsIn } = await import("@/features/portal/deliverables/server/export");
+      // The POST route starts step one through `ctx.waitUntil(...).catch(() =>
+      // undefined)`. If that never runs — no Worker context, or a transient
+      // failure it swallows — the job sits `pending` with nobody polling it.
+      // That is precisely the "closed browser tab" case this sweep is for, and
+      // filtering on `processing` alone made it the one case it could not fix.
+      const job = await createFileExportJobIn(
+        db, eventId, null, [{ taskId: bigTask, contactId: irene, submissionId: null }], "none",
+      );
+      expect(job.status).toBe("pending");
+
+      const swept = await nudgeStalledFileExportsIn(db);
+
+      expect(swept.nudged).toBeGreaterThan(0);
+      expect((await getFileExportJobIn(db, eventId, job.id))?.status).not.toBe("pending");
     });
 
     it("a single-step job (fits under the part-size target in one call) still completes and needs no second step", async () => {

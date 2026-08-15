@@ -11,6 +11,17 @@ export function zonedInputToUtc(localISO: string, timeZone: string): Date {
   return fromZonedTime(localISO, timeZone);
 }
 
+/**
+ * The zone the *viewer's* browser is in — never a substitute for an event's
+ * own timezone, which is what `TzTime` renders. Use it only where there is no
+ * event in scope (organization-wide screens) and only after mount: on the
+ * server this resolves to the Worker's zone, so rendering with it during SSR
+ * is exactly the hydration mismatch `LocalTime` exists to avoid.
+ */
+export function viewerTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+}
+
 export function formatInZone(utc: Date | string | number, timeZone: string, style: TimeStyle): string {
   const value = asDate(utc);
   if (typeof style === "object") {
@@ -90,6 +101,39 @@ export function hourMinuteInZone(utc: Date | string | number, timeZone: string):
   const rendered = formatInTimeZone(asDate(utc), timeZone, "HH:mm");
   const [hour = 0, minute = 0] = rendered.split(":").map(Number);
   return { hour, minute };
+}
+
+/**
+ * Whether a `YYYY-MM-DDTHH:mm[:ss]` wall time actually occurs in `timeZone`.
+ *
+ * On a spring-forward date an hour of the local clock does not exist, and
+ * `zonedInputToUtc` (`fromZonedTime`) resolves such a time *backwards* to the
+ * pre-transition offset rather than rejecting it: in `America/New_York` on
+ * 2026-03-08, `T02:00` yields the instant that renders as `01:00`. The clock
+ * therefore runs backwards as the requested minute goes up, so a caller that
+ * derives two edges from adjacent minutes can produce an end before its start.
+ *
+ * Round-tripping the instant back through the zone is the only reliable test:
+ * a real wall time renders as itself, a skipped one renders as something else.
+ *
+ * The read-back goes through `Intl` rather than `formatInTimeZone`, which gets
+ * this specific comparison wrong: asked to render the instant `2026-03-08T02:00Z`
+ * in `UTC` it answers `03:00`, so a zone with no DST at all would be reported as
+ * skipping an hour. `Intl.DateTimeFormat` is the platform's own zone database
+ * and agrees with the instant in every case.
+ */
+export function wallTimeExistsInZone(localISO: string, timeZone: string): boolean {
+  const instant = zonedInputToUtc(localISO, timeZone);
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", hour12: false,
+    }).formatToParts(instant).map((part) => [part.type, part.value]),
+  );
+  // `hour12: false` renders midnight as `24` in some ICU versions.
+  const hour = parts.hour === "24" ? "00" : parts.hour;
+  return `${parts.year}-${parts.month}-${parts.day}T${hour}:${parts.minute}` === localISO.slice(0, 16);
 }
 
 export function zoneAbbreviation(utc: Date | string | number, timeZone: string): string {

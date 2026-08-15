@@ -38,8 +38,10 @@ describe("AST source invariants", () => {
       "src/app/page.tsx": "export const configured = process.env.NODE_ENV;",
       "src/features/comms/server/send.ts": 'import("resend");',
       "src/shared/lib/env.ts": 'export const value = process["env"].VALUE;',
+      "src/shared/lib/log.ts": 'export const log = (entry) => { console["error"](JSON.stringify(entry)); };',
       "src/shared/lib/query-client.ts": 'import { QueryClient } from "@tanstack/react-query"; export const client = new QueryClient();',
-      "src/shared/lib/time.ts": 'export { format } from "date-fns";',
+      "src/shared/lib/time.ts": 'export { format } from "date-fns"; export const count = (total: number) => total.toLocaleString();',
+      "src/shared/ui/console-greeting.tsx": 'export const Greeting = () => { console.info("hello"); return null; };',
       "src/shared/server/r2.ts": 'import { AwsClient } from "aws4fetch"; export const FILES = AwsClient;',
       "src/shared/ui/app/query-boundary.tsx": 'import { QueryClientProvider } from "@tanstack/react-query"; export const Boundary = QueryClientProvider;',
       "src/shared/ui/app/rich-text-view.tsx": "export const View = () => <div dangerouslySetInnerHTML={{ __html: '' }} />;",
@@ -60,14 +62,100 @@ describe("AST source invariants", () => {
         export const env = globalThis.process["env"];
         export const { env: inheritedEnv } = process;
         export const bucket = getCloudflareContext().env["FILES"];
+        export const expires = new Date(row.expiresAt).toLocaleString();
+        export const day = instant.toLocaleDateString();
       `,
     });
 
     const result = check(root);
     expect(result.status).toBe(1);
-    for (const rule of ["time-import", "resend-import", "r2-import", "edge-runtime", "process-env", "r2-binding"]) {
+    for (const rule of ["time-import", "resend-import", "r2-import", "edge-runtime", "process-env", "r2-binding", "viewer-local-time"]) {
       expect(result.stderr).toContain(`[${rule}]`);
     }
+  });
+
+  it("keeps console writes in the logging module and out of product code", () => {
+    const root = fixture({
+      "src/app/api/health/route.ts": 'export const GET = () => { console.error("health check failed"); };',
+      // A computed method is the shape `log.ts` itself uses, and a bare
+      // reference handed to `.catch` writes to the console without ever
+      // appearing as a `console.x(...)` call.
+      "src/features/example/boundary.tsx": `
+        export const report = (level, error) => console[level](error);
+        export const forward = (promise) => promise.catch(console.error);
+        export const viaGlobal = () => globalThis.console.warn("indirect");
+      `,
+      "src/features/example/boundary.test.ts": 'it("spies", () => { console.log("allowed in tests"); });',
+    });
+
+    const result = check(root);
+    expect(result.status).toBe(1);
+    expect(result.stderr.match(/\[console-owner\]/gu)).toHaveLength(4);
+    expect(result.stderr).not.toContain("boundary.test.ts");
+  });
+
+  it("requires an explicit kind on a toast raised from a catch block", () => {
+    const root = fixture({
+      "src/features/example/panel.tsx": `
+        export function Panel() {
+          const { toast } = useToast();
+          async function save() {
+            try {
+              await write();
+              toast("Saved");
+            } catch (caught) {
+              toast("That did not save");
+              toast("Also broken", { durationMs: 5 });
+              void Promise.resolve().then(() => toast("late failure"));
+            }
+          }
+          async function ok() {
+            try { await write(); } catch (caught) {
+              toast("That did not save", { kind: "error" });
+              toast("Computed is left to review", resultToastOptions(caught));
+            }
+          }
+          return null;
+        }
+      `,
+    });
+
+    const result = check(root);
+    expect(result.status).toBe(1);
+    // The success toast in the try block, the two correct ones, and the
+    // computed-options call are all left alone.
+    expect(result.stderr.match(/\[error-toast-kind\]/gu)).toHaveLength(3);
+  });
+
+  it("keeps instant formatting in the time module and out of product code", () => {
+    const root = fixture({
+      "src/features/example/audit.tsx": `
+        export const when = (row) => new Date(row.createdAt).toLocaleString();
+        export const day = (row) => new Date(row.at).toLocaleDateString();
+        export const clock = (row) => new Date(row.at).toLocaleTimeString();
+        export const label = (d) => new Intl.DateTimeFormat("en-US", { timeZone: "UTC" }).format(d);
+        export const zone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
+      `,
+      // The owning module is the one place all of this is allowed.
+      "src/shared/lib/time.ts": `
+        export const f = (d, tz) => new Intl.DateTimeFormat("en-US", { timeZone: tz }).format(d);
+        export const viewerTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
+        export const loose = (d) => d.toLocaleString();
+      `,
+      // The picker owns its own explicit-zone construction, but not toLocale*.
+      "src/shared/ui/app/datetime-picker.tsx": `
+        export const shown = (d, tz) => new Intl.DateTimeFormat("en-US", { timeZone: tz }).format(d);
+        export const sloppy = (d) => d.toLocaleDateString();
+      `,
+      "src/features/example/audit.test.ts": 'it("formats", () => { new Date().toLocaleString(); });',
+    });
+
+    const result = check(root);
+    expect(result.status).toBe(1);
+    expect(result.stderr.match(/\[viewer-time\]/gu)).toHaveLength(6);
+    // The message names the owning module, so match the reported path instead.
+    expect(result.stderr).not.toMatch(/^src\/shared\/lib\/time\.ts:/mu);
+    expect(result.stderr).not.toMatch(/^src\/features\/example\/audit\.test\.ts:/mu);
   });
 
   it("rejects syntax-aware JSX and inline style variants without matching strings", () => {
@@ -79,6 +167,7 @@ describe("AST source invariants", () => {
           <select />
           <button role={flag ? "switch" : "button"} />
           <input {...{ ...{ type: flag ? "datetime-local" : "text" } }} />
+          <input type="file" accept=".csv" />
           <div {...htmlProps} />
           <span style={{ fontSize: -1 }}>Tiny</span>
         </>;
@@ -87,7 +176,7 @@ describe("AST source invariants", () => {
 
     const result = check(root);
     expect(result.status).toBe(1);
-    for (const rule of ["raw-select", "raw-switch", "native-date", "raw-html", "inline-type-floor"]) {
+    for (const rule of ["raw-select", "raw-switch", "native-date", "raw-file-input", "raw-html", "inline-type-floor"]) {
       expect(result.stderr).toContain(`[${rule}]`);
     }
     expect(result.stderr.match(/\[raw-select\]/gu)).toHaveLength(1);

@@ -14,9 +14,9 @@ import {
 } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
-import { sanitizeTemplateBody } from "@/features/comms/template-body";
+import { sanitizeTemplateBody } from "@/shared/lib/template-body";
 import { validateTemplateBody } from "./render";
-import { EVENT_EDITABLE_TEMPLATE_KEYS } from "./templates";
+import { DEFAULT_TEMPLATES, EVENT_EDITABLE_TEMPLATE_KEYS } from "./templates";
 import type {
   CommLogDetailWithFlag,
   EmailTemplateRow,
@@ -60,17 +60,36 @@ function toEmailTemplateRow(row: typeof emailTemplates.$inferSelect): EmailTempl
   return { key: row.key, subject: row.subject, bodyHtml: row.bodyHtml, enabled: row.enabled, updatedAt: row.updatedAt.toISOString() };
 }
 
+async function templateRowsByKey(dbOrTx: DbOrTx, eventId: EventId): Promise<Map<TemplateKey, typeof emailTemplates.$inferSelect>> {
+  const rows = await dbOrTx.select().from(emailTemplates).where(eq(emailTemplates.eventId, eventId));
+  return new Map(rows.map((row) => [row.key, row]));
+}
+
 /**
  * Event-editable keys in canonical enum order, never database order. Product
  * authentication templates and the team invitation are intentionally absent:
  * they are platform mail, not event configuration.
+ *
+ * A key with no row used to throw, which took the whole Communications page
+ * down for an event seeded before that key existed — or seeded outside
+ * `createEventIn`. Missing rows are backfilled with their built-in default
+ * instead: the insert is `ON CONFLICT DO NOTHING`, so it never touches copy an
+ * organizer already edited, and a real row is what the optimistic-concurrency
+ * save path needs to compare against. Reminder rungs are deliberately not
+ * seeded here — an organizer who removed a rung must not find it back.
  */
 export async function listTemplatesIn(dbOrTx: DbOrTx, eventId: EventId): Promise<EmailTemplateRow[]> {
-  const rows = await dbOrTx.select().from(emailTemplates).where(eq(emailTemplates.eventId, eventId));
-  const byKey = new Map(rows.map((row) => [row.key, row]));
+  let byKey = await templateRowsByKey(dbOrTx, eventId);
+  const missing = EVENT_EDITABLE_TEMPLATE_KEYS.filter((key) => !byKey.has(key));
+  if (missing.length > 0) {
+    await dbOrTx.insert(emailTemplates)
+      .values(missing.map((key) => ({ eventId, key, subject: DEFAULT_TEMPLATES[key].subject, bodyHtml: DEFAULT_TEMPLATES[key].bodyHtml })))
+      .onConflictDoNothing({ target: [emailTemplates.eventId, emailTemplates.key] });
+    byKey = await templateRowsByKey(dbOrTx, eventId);
+  }
   return EVENT_EDITABLE_TEMPLATE_KEYS.map((key) => {
     const row = byKey.get(key);
-    if (!row) throw new AppError("INTERNAL", `Template "${key}" is missing for this event — seedDefaultTemplates did not run`);
+    if (!row) throw new AppError("INTERNAL", `Template "${key}" could not be created for this event`);
     return toEmailTemplateRow(row);
   });
 }

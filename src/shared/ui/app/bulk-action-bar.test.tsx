@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -22,5 +23,15 @@ describe("BulkActionBar", () => {
     expect(html).toContain("3 decisions queued");
     expect(html).toContain("Notify 3");
     expect(html).not.toContain(">Clear<");
+  });
+
+  it("pins under the admin topbar instead of being trapped in a non-scrolling panel", () => {
+    const css = readFileSync(new URL("../../../app/globals.css", import.meta.url), "utf8");
+    // `overflow:hidden` makes .data-panel the sticky bar's nearest scrollport, and
+    // that panel never scrolls — so the offset can never engage. `clip` is not a
+    // scroll container and still clips the panel chrome.
+    expect(css).toContain(".data-panel{overflow:clip}");
+    expect(css).not.toContain(".data-panel{overflow:hidden}");
+    expect(css).toContain(".bulk-bar{position:sticky;z-index:15;top:var(--admin-topbar-height)");
   });
 });

@@ -1,10 +1,10 @@
 "use client";
 
-import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
-import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors, type Announcements, type DragEndEvent, type UniqueIdentifier } from "@dnd-kit/core";
+import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, Plus, Route as RouteIcon, TriangleAlert } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { z } from "zod";
 import {
   fieldIdSchema,
@@ -54,7 +54,9 @@ const conditionSourceFieldSchema = z.object({
 });
 const formFieldsResponseSchema = z.object({
   context: formContextSchema,
-  sections: z.array(z.object({ fields: z.array(conditionSourceFieldSchema) })),
+  // `key` is carried so the participant section can be dropped below — the
+  // server refuses to route on those fields, so offering them is a dead end.
+  sections: z.array(z.object({ key: z.string(), fields: z.array(conditionSourceFieldSchema) })),
 });
 
 const rulesListSchema = z.array(routingRuleRowSchema);
@@ -97,7 +99,13 @@ export function RoutingRulesPanel({ eventId, formId, onDraftStateChange }: { eve
   const [editing, setEditing] = useState<{ ruleId: string | null; draft: RoutingRuleInput } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<RoutingRuleRow | null>(null);
   const [busy, setBusy] = useState(false);
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+  // Rule order decides which rule wins, so it is a setting — not decoration.
+  // The keyboard sensor is what makes it reachable without a pointer: Space
+  // picks a rule up, the arrows move it, Space drops it.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
   const baseline = editing?.ruleId
     ? rules.find((rule) => rule.id === editing.ruleId)
     : null;
@@ -113,6 +121,31 @@ export function RoutingRulesPanel({ eventId, formId, onDraftStateChange }: { eve
   }, [editorDirty, onDraftStateChange]);
   useEffect(() => () => onDraftStateChange?.(false), [onDraftStateChange]);
 
+  // dnd-kit's default announcements read the raw draggable id, so a keyboard
+  // reorder was narrated as "Draggable item 3f0a…-… was moved over droppable
+  // area 9c11…-…" — two UUIDs describing the one setting on this panel that is
+  // *only* an order. Name the rule by its position and its plain-English
+  // summary instead, the same treatment the agenda day view's drags get.
+  const announcements = useMemo<Announcements>(() => {
+    const positionOf = (id: UniqueIdentifier) => rules.findIndex((rule) => String(rule.id) === String(id)) + 1;
+    const describe = (id: UniqueIdentifier) => {
+      const position = positionOf(id);
+      const rule = rules[position - 1];
+      if (!rule) return "this rule";
+      return `rule ${position} of ${rules.length}, ${ruleSummary(rule, fields, { tracks, tags })}`;
+    };
+    return {
+      onDragStart: ({ active }) => `Picked up ${describe(active.id)}.`,
+      onDragOver: ({ active, over }) => over && over.id !== active.id
+        ? `${describe(active.id)} is over position ${positionOf(over.id)} of ${rules.length}.`
+        : undefined,
+      onDragEnd: ({ active, over }) => over && over.id !== active.id
+        ? `Moved ${describe(active.id)} to position ${positionOf(over.id)} of ${rules.length}. The first matching rule wins.`
+        : `${describe(active.id)} stayed where it was.`,
+      onDragCancel: ({ active }) => `Cancelled. ${describe(active.id)} stayed where it was.`,
+    };
+  }, [rules, fields, tracks, tags]);
+
   function requestEditor(next: { ruleId: string | null; draft: RoutingRuleInput } | null) {
     requestGuardedEditorClose({ busy, dirty: editorDirty, runGuarded, close: () => setEditing(next) });
   }
@@ -127,7 +160,13 @@ export function RoutingRulesPanel({ eventId, formId, onDraftStateChange }: { eve
         api(`events/${eventId}/vocab/tags`, tagsListSchema),
       ]);
       setContext(form.context);
-      setFields(form.sections.flatMap((section) => section.fields));
+      // The server's own `routableFields` excludes the participant section, and
+      // `assertConditionsValid` rejects a rule that names one of its fields.
+      // Offering them here meant picking, say, "Company" as a routing source
+      // produced "Condition 1 references a question that is not on this form"
+      // — about a question visibly present in the picker just used, with no way
+      // to ever save the rule.
+      setFields(form.sections.filter((section) => section.key !== "participant").flatMap((section) => section.fields));
       setRules(ruleRows);
       setTracks(trackRows);
       setTags(tagRows);
@@ -236,7 +275,7 @@ export function RoutingRulesPanel({ eventId, formId, onDraftStateChange }: { eve
           description="Every submission lands as Uncategorized. Add a rule to auto-assign a Track."
         />
       ) : (
-        <DndContext sensors={sensors} onDragEnd={(routingEvent) => void onDragEnd(routingEvent)}>
+        <DndContext sensors={sensors} accessibility={{ announcements }} onDragEnd={(routingEvent) => void onDragEnd(routingEvent)}>
           <SortableContext items={rules.map((rule) => rule.id)} strategy={verticalListSortingStrategy}>
             <div className="routing-rule-list">
               {rules.map((rule) => (
@@ -328,7 +367,7 @@ function RuleCard({
   return (
     <div ref={sortable.setNodeRef} style={style} className="condition-card routing-rule-card">
       <div className="routing-rule-card__row">
-        <button type="button" className="icon-button" aria-label={`Reorder rule`} {...sortable.attributes} {...sortable.listeners}>
+        <button type="button" className="icon-button" aria-label={`Reorder rule: ${summary}`} {...sortable.attributes} {...sortable.listeners}>
           <GripVertical size={15} />
         </button>
         <Switch label={`Rule: ${summary}`} checked={rule.enabled} onClick={onToggle} />

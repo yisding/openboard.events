@@ -33,11 +33,11 @@ import {
 import { Button, EmptyState, Field, Modal, PageHeader, Select } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
-import { AppError, isAppError } from "@/shared/lib/errors";
+import { AppError, isAppError, isDefinitiveWriteFailure } from "@/shared/lib/errors";
 import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
 import { CrmNav } from "./crm-nav";
+import { STAGE_LABEL } from "./pipeline-labels";
 
-const STAGE_LABEL: Record<CrmPipelineStage, string> = { open: "Open", won: "Won", lost: "Lost" };
 const CREATE_RECOVERY_MESSAGE = "We could not confirm whether this prospect was added. Its details are locked so Retry addition can safely recover the same attempt. You can also close and check the pipeline.";
 const CONTACT_REFRESH_RECOVERY_MESSAGE = "The prospect was added, but we could not load its current contact after a merge. Retry the contact refresh, or close and check the pipeline.";
 const PIPELINE_REFRESH_ERROR_MESSAGE = "We could not confirm the latest pipeline yet. Adding and moving prospects remain paused so an older snapshot cannot overwrite your work.";
@@ -56,12 +56,8 @@ type AddProspectRecovery = {
 };
 type PipelineAuthority = { entries: CrmPipelineEntryDTO[]; contacts: Record<string, ContactLite> };
 
-export function pipelineCreateOutcomeUnknown(error: unknown): boolean {
-  return !isAppError(error) || error.code === "INTERNAL";
-}
-
 export function pipelineTransitionNeedsAuthority(error: unknown): boolean {
-  return pipelineCreateOutcomeUnknown(error)
+  return !isDefinitiveWriteFailure(error)
     || (isAppError(error) && (error.code === "STALE_WRITE" || error.code === "CONFLICT"));
 }
 
@@ -140,10 +136,15 @@ async function loadPipelineAuthority(organizationId: OrganizationId): Promise<Pi
 }
 
 function Card({ entry, contact, eventName, mutationsBlocked, onMove }: { entry: CrmPipelineEntryDTO; contact: ContactLite | undefined; eventName: string | null; mutationsBlocked: boolean; onMove: (stage: CrmPipelineStage) => void }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: entry.id, data: { entry }, disabled: mutationsBlocked });
+  // dnd-kit's `attributes` are ARIA only — dragging needs `setNodeRef` and the
+  // listeners. Spreading them here made every card a `role="button" tabindex="0"`
+  // tab stop with no keyboard activation (the board registers PointerSensor
+  // only) and nested the stage <Select> below inside a button. That Select is
+  // the pointer-free path, so the card takes the drag listeners and nothing else.
+  const { listeners, setNodeRef, transform, isDragging } = useDraggable({ id: entry.id, data: { entry }, disabled: mutationsBlocked });
   const style: CSSProperties = { transform: transform ? CSS.Translate.toString(transform) : undefined };
   return (
-    <div ref={setNodeRef} style={style} className={isDragging ? "crm-board-card crm-board-card--dragging" : "crm-board-card"} {...listeners} {...attributes}>
+    <div ref={setNodeRef} style={style} className={isDragging ? "crm-board-card crm-board-card--dragging" : "crm-board-card"} {...listeners}>
       <b>{contact?.name ?? "Unknown contact"}</b>
       <span>{contact?.email}{contact?.company ? ` · ${contact.company}` : ""}</span>
       {eventName && <span>Target: {eventName}</span>}
@@ -219,11 +220,23 @@ function AddProspectDialog({ organizationId, events, open, onClose, onCreated }:
   }
 
   async function search() {
-    if (!query.trim()) { setResults([]); return; }
+    // The failure copy tells the organizer to press Enter to try again, so the
+    // reset has to happen before the empty-query guard — otherwise an emptied
+    // search box leaves a stale alert that Enter cannot clear.
+    setResults([]);
+    setError("");
+    if (!query.trim()) return;
     setSearching(true);
     try {
       const page = await api(`organizations/${organizationId}/crm/contacts?search=${encodeURIComponent(query)}&limit=8`, directoryPageDtoSchema);
       setResults(page.rows);
+    } catch (caught) {
+      // A failed lookup must never look like "nobody matches that": clear the
+      // previous query's rows and say the search itself did not run.
+      setResults([]);
+      const message = isAppError(caught) ? caught.message : "Could not search the directory — press Enter to try again";
+      setError(message);
+      toast(message, { kind: "error" });
     } finally {
       setSearching(false);
     }
@@ -265,7 +278,7 @@ function AddProspectDialog({ organizationId, events, open, onClose, onCreated }:
         toast(message, { kind: "error" });
         return;
       }
-      const outcomeUnknown = pipelineCreateOutcomeUnknown(caught);
+      const outcomeUnknown = !isDefinitiveWriteFailure(caught);
       if (outcomeUnknown) setRecovery({ attempt, confirmedEntry: null, closeOnly: false });
       else {
         setRecovery(null);
@@ -429,7 +442,7 @@ export function PipelineBoard({
           mutationsBlockedRef.current = true;
           setAuthorityRefresh("pending");
           toast(
-            isAppError(caught) && caught.code !== "INTERNAL"
+            isDefinitiveWriteFailure(caught)
               ? `${caught.message}${/[.!?]$/u.test(caught.message) ? "" : "."} The pipeline is refreshing.`
               : PIPELINE_TRANSITION_RECOVERY_MESSAGE,
             { kind: "error" },

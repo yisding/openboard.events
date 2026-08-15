@@ -8,6 +8,7 @@ import { eventIdSchema, trackDtoSchema } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { UnsavedWorkGuardProvider, useGuardedAction } from "@/shared/ui/app/unsaved-work-guard";
 import { VocabTab } from "./vocab-tab";
+import { settle } from "@tests/support/react";
 
 const apiMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
@@ -49,11 +50,6 @@ function Navigation() {
   return <button type="button" onClick={() => runGuarded(() => routerPushMock("/events"))}>Leave settings</button>;
 }
 
-async function settle() {
-  await act(async () => {
-    for (let step = 0; step < 8; step += 1) await Promise.resolve();
-  });
-}
 
 async function renderTab() {
   await act(async () => root.render(

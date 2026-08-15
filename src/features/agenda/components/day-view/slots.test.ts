@@ -4,10 +4,14 @@ import {
   clampResize,
   computeGridRange,
   gridRowCount,
+  LANE_MIN_WIDTH_PX,
   localWallTimeAt,
   minutesFromDayStartInZone,
+  wallClockDurationMinutes,
   minutesToGridRow,
   pixelDeltaToSlotDelta,
+  ROOM_MIN_WIDTH_PX,
+  roomTrackSize,
   SLOT_ROW_HEIGHT_PX,
 } from "./slots";
 
@@ -106,6 +110,31 @@ describe("minutesToGridRow / gridRowCount", () => {
   });
 });
 
+describe("roomTrackSize", () => {
+  it("keeps a quiet room in the single-column width family", () => {
+    expect(roomTrackSize(1)).toBe(`minmax(${ROOM_MIN_WIDTH_PX}px, 1fr)`);
+  });
+
+  it("gives every lane of a double-booked room its own readable floor", () => {
+    expect(roomTrackSize(2)).toBe(`minmax(${2 * LANE_MIN_WIDTH_PX}px, 2fr)`);
+    expect(roomTrackSize(3)).toBe(`minmax(${3 * LANE_MIN_WIDTH_PX}px, 3fr)`);
+  });
+
+  it("keeps the lane floor wide enough that a conflict card's title is not truncated", () => {
+    // The contract e2e/agenda-schedule.spec.ts pins: both cards of the seeded
+    // side-by-side room conflict show their titles whole (`scrollWidth <=
+    // clientWidth`). A lane card is half its column minus 8px, and spends
+    // ~34px of that on borders, padding and the conflict-icon gutter, so the
+    // seeded ~250px title needs a floor in this range, not the 160px family.
+    expect(2 * LANE_MIN_WIDTH_PX / 2 - 8 - 34).toBeGreaterThanOrEqual(250);
+  });
+
+  it("treats a degenerate lane count as a single lane", () => {
+    expect(roomTrackSize(0)).toBe(roomTrackSize(1));
+    expect(roomTrackSize(-2)).toBe(roomTrackSize(1));
+  });
+});
+
 describe("pixelDeltaToSlotDelta", () => {
   it("rounds a jiggle under half a row to zero slots", () => {
     expect(pixelDeltaToSlotDelta(SLOT_ROW_HEIGHT_PX / 2 - 1)).toBe(0);
@@ -175,6 +204,39 @@ describe("minutesFromDayStartInZone", () => {
     const next = clampResize("end", start, end, 1);
     expect(zonedInputToUtc(localWallTimeAt(day, next.startMinutes), ny).toISOString()).toBe("2025-11-02T04:30:00.000Z");
     expect(zonedInputToUtc(localWallTimeAt(day, next.endMinutes), ny).toISOString()).toBe("2025-11-02T07:45:00.000Z");
+  });
+});
+
+describe("wallClockDurationMinutes", () => {
+  const ny = "America/New_York";
+
+  it("measures an ordinary session as the clock shows it", () => {
+    expect(wallClockDurationMinutes(
+      "2026-08-11T16:00:00.000Z", "2026-08-11T17:30:00.000Z", "2026-08-11", "America/Los_Angeles",
+    )).toBe(90);
+  });
+
+  it("does not count the repeated hour on a fall-back day", () => {
+    // 00:30 EDT (04:30Z) to 02:30 EST (07:30Z): three elapsed hours, two on the
+    // clock. Dragging with the elapsed figure re-laid the session two hours long
+    // wherever it landed, and mailed every speaker the wrong DTEND.
+    expect(wallClockDurationMinutes(
+      "2025-11-02T04:30:00.000Z", "2025-11-02T07:30:00.000Z", "2025-11-02", ny,
+    )).toBe(120);
+  });
+
+  it("does not lose the skipped hour on a spring-forward day", () => {
+    // 01:30 EST (06:30Z) to 03:30 EDT (07:30Z): one elapsed hour, two on the
+    // clock, because 02:xx never happens that morning.
+    expect(wallClockDurationMinutes(
+      "2026-03-08T06:30:00.000Z", "2026-03-08T07:30:00.000Z", "2026-03-08", ny,
+    )).toBe(120);
+  });
+
+  it("never returns less than one slot", () => {
+    expect(wallClockDurationMinutes(
+      "2026-08-11T16:00:00.000Z", "2026-08-11T16:00:00.000Z", "2026-08-11", "America/Los_Angeles",
+    )).toBe(15);
   });
 });
 

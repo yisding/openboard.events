@@ -22,7 +22,7 @@ what Openboard does and how to use it, start with the [README](../README.md).
 - The billing provider is a scaffold behind `BILLING_MODE=disabled`, which hides its link and
   returns 404 from the page, internal endpoints, and webhook. `BILLING_MODE=scaffold` is accepted
   only for local seam tests.
-- Snapshot counts (re-run the commands in **Testing** for current numbers): 37 migrations in
+- Snapshot counts (re-run the commands in **Testing** for current numbers): 44 migrations in
   [`drizzle/`](../drizzle), 13 Playwright specs in [`e2e/`](../e2e), and a Worker bundle inside
   the 3 MiB Cloudflare Workers Free ceiling, enforced by `pnpm worker:size`.
 
@@ -30,10 +30,10 @@ what Openboard does and how to use it, start with the [README](../README.md).
 
 | Area | Capability |
 |---|---|
-| Call for speakers | Six-step form builder, 8 field types, visibility/routing rules, immutable per-save snapshots, public 5-step CFP wizard with OTP, server-persisted drafts, deadline/limit enforcement, edit-until-close |
+| Call for speakers | Six-step form builder, 8 field types, visibility/routing rules, immutable per-save snapshots, public 4-step CFP wizard with OTP (3 without participant collection), co-speaker/moderator/panelist participants, server-persisted drafts, deadline/limit enforcement, edit-until-close |
 | Review | Multi-round evaluation plans, typed criteria, explicit reviewer assignments, blind review, recusal, reviewer provisioning/reminders, a scoring queue against the pinned submission snapshot |
 | Speaker portal | Magic-link/OTP login, profile + headshot upload, tasks (manual/form/file), submissions with status, admin impersonation |
-| Communications | 8 editable templates, a transactional outbox, reminder ladder, ICS invite/cancel with Google/Outlook deeplinks, bounce/complaint webhook, suppression + `List-Unsubscribe` |
+| Communications | 11 event-editable templates (of 14 keys; the two admin-auth templates and the organization invitation are platform-owned), a transactional outbox, reminder ladder, ICS invite/cancel with Google/Outlook deeplinks, bounce/complaint webhook, suppression + `List-Unsubscribe` |
 | Agenda | Session CRUD, drag-and-drop day grid, pure conflict detection (room/speaker/track), list/day/week/track/room views, assisted conflict-safe placement |
 | Public surfaces | Sessions, agenda, schedule itinerary with ICS export, speakers list, speaker gallery — each with a matching configurable `/embed/*` variant |
 | Dashboards | Aggregated server endpoint over SQL reporting views, an attention-first queue, phase-aware ordering |

@@ -58,7 +58,7 @@ const MIGRATIONS = [
   // First Fair: `events.is_demo`, which the reviewer-invitation demo barrier
   // reads on both the writer and the dispatcher side. 0023 comes with it
   // because 0044 widens that table's milestone CHECK.
-  "0023_onboarding_milestones", "0044_demo_events_and_tour",
+  "0023_onboarding_milestones", "0047_demo_events_and_tour",
 ];
 
 const eventId = eventIdSchema.parse("e4400000-0000-4000-8000-000000000001");
@@ -649,6 +649,30 @@ describe("M44 user management", () => {
         const [afterDispatch] = await db.select({ tokenHash: organizationInvitations.tokenHash })
           .from(organizationInvitations).where(eq(organizationInvitations.id, invitation.id));
         expect(afterDispatch?.tokenHash).toBe(beforeDispatch?.tokenHash);
+      } finally {
+        await pglite.query("DELETE FROM organizations WHERE id=$1", [org.id]);
+      }
+    });
+
+    it("escapes an organization name that carries markup", async () => {
+      // `emailLayout` interpolates its `eventName` raw into the brand header,
+      // an `alt` attribute, and the footer, on the documented promise that the
+      // caller escaped it. Anyone can name their own organization, so a name
+      // is attacker-controlled input reaching a recipient's mail client.
+      const hostile = `<img src=x onerror="alert(1)">`;
+      const org = await createOrganizationIn(db, ownerId, { name: hostile, slug: "markup-co" });
+      try {
+        await inviteForTest(org.id, ownerId, { email: "markup@example.com", role: "reviewer" });
+        const [row] = await db.select().from(adminAuthEmailOutbox)
+          .where(eq(adminAuthEmailOutbox.recipientEmail, "markup@example.com"));
+        if (!row) throw new Error("expected a queued organization_invited row");
+
+        await expect(dispatchAdminAuthEmailOutboxIn(db, 10, { env })).resolves.toMatchObject({ sent: 1 });
+        const [sent] = await db.select().from(adminAuthEmailOutbox).where(eq(adminAuthEmailOutbox.id, row.id));
+        // Not "the body escaped it" — the body always did. Nowhere in the
+        // whole message, which is what the layout metadata used to break.
+        expect(sent?.bodyRenderedHtml).not.toContain("<img src=x");
+        expect(sent?.bodyRenderedHtml).toContain("&lt;img src=x");
       } finally {
         await pglite.query("DELETE FROM organizations WHERE id=$1", [org.id]);
       }

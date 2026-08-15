@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { formatInZone } from "@/shared/lib/time";
+import { formatInZone, zoneAbbreviation } from "@/shared/lib/time";
 import type { EventId } from "@/shared/contracts";
 import { copyPublicFormLink, nextFormAvailabilityRefreshMs } from "@/features/forms/index.client";
 import { EMPTY_FIXTURE_OVERVIEW, FIXTURE_OVERVIEW } from "../__fixtures__/overview";
@@ -338,6 +338,21 @@ describe("dashboard components", () => {
     expect(`${topHtml}${overdueHtml}`).not.toContain(`/speakers/${contactId}`);
   });
 
+  it("names the event timezone on every overdue deadline", () => {
+    const row = FIXTURE_OVERVIEW.speakerTracking.overdue[0];
+    if (!row) throw new Error("Dashboard fixture must contain an overdue task");
+    const { timezone } = FIXTURE_OVERVIEW.event;
+    const html = renderToStaticMarkup(React.createElement(OverdueList, {
+      eventId: FIXTURE_OVERVIEW.event.id,
+      timezone,
+      rows: FIXTURE_OVERVIEW.speakerTracking.overdue,
+    }));
+
+    // Nothing else on the dashboard names the zone, and "overdue" is a claim
+    // the reader checks against a clock.
+    expect(html).toContain(`${formatInZone(row.dueAt, timezone, { dateStyle: "medium", timeStyle: "short" })} ${zoneAbbreviation(row.dueAt, timezone)}`);
+  });
+
   it("opens each recent submission directly in the abstracts drawer", () => {
     const html = renderToStaticMarkup(React.createElement(RecentSubmissionsTable, {
       eventId: FIXTURE_OVERVIEW.event.id,
@@ -348,7 +363,30 @@ describe("dashboard components", () => {
     for (const row of FIXTURE_OVERVIEW.recentSubmissions) {
       expect(html).toContain(`/events/${FIXTURE_OVERVIEW.event.id}/abstracts?submission=${row.id}`);
     }
-    expect(html).toContain("Open submission");
+    // The whole row is the affordance, so its label is for assistive tech
+    // only — rendered inline it ran onto the end of every title
+    // ("Fast inferenceOpen submission") and pushed the title out of the cell.
+    expect(html).toContain('<span class="sr-only">Open submission</span>');
+  });
+
+  it("dates recent submissions the way the abstracts table it links to does", () => {
+    const row = FIXTURE_OVERVIEW.recentSubmissions[0];
+    if (!row?.submittedAt) throw new Error("Dashboard fixture must contain a submitted proposal");
+    const { timezone } = FIXTURE_OVERVIEW.event;
+    const html = renderToStaticMarkup(React.createElement(RecentSubmissionsTable, {
+      eventId: FIXTURE_OVERVIEW.event.id,
+      timezone,
+      rows: FIXTURE_OVERVIEW.recentSubmissions,
+    }));
+
+    // The date on the primary line with the time and zone underneath — the
+    // `style="date" secondary="time"` cell the Abstracts table renders for
+    // this same field. No weekday, spelled-out month or seconds: nothing else
+    // in the product shows them, and they made this the widest column here.
+    const zone = zoneAbbreviation(row.submittedAt, timezone);
+    const date = formatInZone(row.submittedAt, timezone, "date").replace(` ${zone}`, "");
+    expect(html).toContain(`${date}<small>${formatInZone(row.submittedAt, timezone, "time")}</small>`);
+    expect(html).not.toMatch(/August|:\d\d:\d\d\s/);
   });
 
   it("honors a valid requested dashboard tab and falls back otherwise", () => {

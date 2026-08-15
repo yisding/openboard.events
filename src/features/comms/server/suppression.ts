@@ -13,9 +13,11 @@ export { suppressionRowSchema } from "../schemas";
  * this is provider-driven suppression, distinct from `contacts.unsubscribed_at`
  * (the contact's own opt-out, which only withholds non-essential mail; see
  * `isTransactionalTemplate`). `buildContext` (./context.ts) LEFT JOINs
- * `contact_suppressions` and reads it fleet-wide, before the transactional
- * exemption is even checked, so a suppressed address never receives another
- * email of any kind.
+ * `contact_suppressions` before the transactional exemption is even checked,
+ * so a suppressed contact never receives another email of any kind. "Fleet-
+ * wide" is delivered by the write below, which suppresses every `contacts`
+ * row sharing the address rather than only the one the bounced message
+ * happened to name — see the comment on that statement.
  *
  * `contact_suppressions` is a dedicated table rather than columns on
  * `contacts` — see the schema/migration comments for why: `contacts` writes
@@ -48,8 +50,35 @@ export async function recordSuppressionIn(
     .set({ status: args.reason === "bounce" ? "bounced" : "complained" })
     .where(and(eq(communicationLogs.id, log.id), eq(communicationLogs.status, "sent")));
 
+  // A hard bounce or a spam complaint is a fact about the *mailbox*, not about
+  // one event's row for it. `contacts` is per-event, so the same human is a
+  // different `contacts.id` in every event they speak at — suppressing only
+  // the row the message happened to be addressed to left every sibling row
+  // mailable, and the docstring's "never receives another email of any kind"
+  // was true only inside one event. Since the fleet shares a single sending
+  // domain, that is also the shape that costs reputation: the provider already
+  // told us the address is undeliverable, or its owner already reported us.
+  //
+  // Fanning out at write time rather than reading address-wide keeps every
+  // consumer intact: each event's suppression list shows its own row, and
+  // `removeSuppressionIn` stays the event-scoped correction it is today —
+  // an address-wide read would have left an organizer un-suppressing their
+  // own row and still watching mail be skipped, with nothing in their UI to
+  // explain it. The residual gap is a contact created in some other event
+  // *after* the bounce; nothing exists yet to suppress at that point.
+  //
+  // Plain equality, no `lower()`: `contacts.email` carries a
+  // `CHECK (email = lower(btrim(email)))` since 0000_init, so the stored form
+  // is already canonical and normalizing here would only cost the comparison
+  // its index eligibility. The scan is per bounce webhook, not per send.
+  const siblings = await dbOrTx.select({ id: contacts.id, eventId: contacts.eventId })
+    .from(contacts)
+    .where(sql`${contacts.email} = (SELECT email FROM contacts WHERE id = ${log.contactId})`);
+  const rows = siblings.length > 0
+    ? siblings.map((sibling) => ({ contactId: sibling.id, eventId: sibling.eventId, reason: args.reason }))
+    : [{ contactId: log.contactId, eventId: log.eventId, reason: args.reason }];
   await dbOrTx.insert(contactSuppressions)
-    .values({ contactId: log.contactId, eventId: log.eventId, reason: args.reason })
+    .values(rows)
     .onConflictDoUpdate({ target: contactSuppressions.contactId, set: { reason: args.reason, suppressedAt: sql`now()` } });
   return { eventId: log.eventId as EventId, contactId: log.contactId as ContactId };
 }

@@ -1,4 +1,5 @@
 import { and, eq, sql } from "drizzle-orm";
+import { OUTSTANDING_REVIEW_WORK_SQL } from "@/db/review-work";
 import type { DbOrTx } from "@/db/client";
 import { db } from "@/db/client";
 import { rowsOf } from "@/db/query-result";
@@ -203,7 +204,7 @@ async function buildReviewVars(row: OutboxRow, dbOrTx: DbOrTx, env: RuntimeEnv) 
        LEFT JOIN reviews r ON r.plan_id = ra.plan_id AND r.submission_id = ra.submission_id
          AND r.reviewer_user_id = ra.reviewer_user_id AND r.submitted_at IS NOT NULL
        WHERE ra.plan_id = p.id AND ra.reviewer_user_id = ${reviewerUserId}
-         AND ra.status = 'assigned' AND r.id IS NULL)::int AS outstanding
+         AND ${OUTSTANDING_REVIEW_WORK_SQL} AND r.id IS NULL)::int AS outstanding
     FROM evaluation_plans p
     WHERE p.event_id = ${row.eventId}
       AND (${planId}::uuid IS NULL OR p.id = ${planId}::uuid)

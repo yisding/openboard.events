@@ -33,6 +33,76 @@ type HandlerContext<Input> = {
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
+export type ErrorEnvelopeContext = {
+  requestId: string;
+  /** Groups the log line and the captured error, e.g. `"api"`, `"uploads"`, `"api-v1"`. */
+  feature: string;
+  eventId?: EventId | null;
+  /** Log message, for routes that name their failure something other than a request. */
+  msg?: string;
+  durationMs?: number;
+  /**
+   * Replaces the generic wire copy for an unrecognized throw. The portal
+   * sign-in routes speak to a speaker mid-flow and say "Enter a valid code"
+   * rather than "Request validation failed"; the capture and the status
+   * mapping are unaffected either way.
+   */
+  fallbackMessages?: { validation?: string; internal?: string };
+};
+
+/**
+ * The failure half of `defineHandler`, extracted so the handful of routes that
+ * legitimately cannot use `defineHandler` — a raw `text/csv` body, a bare-array
+ * `data` with a sibling `meta`, a signature-verified webhook — still capture,
+ * log, and answer identically.
+ *
+ * Capturing is the part that kept being dropped by hand-rolled copies: without
+ * it a 500 never reaches `operational_error_buckets`, so `/api/health`'s
+ * `errors.recentCount` stays zero and the pager documented in
+ * `docs/runbooks/alerting.md` never fires for that route.
+ */
+export function errorEnvelope(
+  error: unknown,
+  context: ErrorEnvelopeContext,
+): { envelope: z.infer<typeof apiErrorSchema>; status: number } {
+  const appError = isAppError(error)
+    ? error
+    : error instanceof z.ZodError
+      ? new AppError("VALIDATION", context.fallbackMessages?.validation ?? "Request validation failed")
+      : new AppError("INTERNAL", context.fallbackMessages?.internal ?? "Unexpected server error");
+  const envelope = apiErrorSchema.parse({
+    error: error instanceof z.ZodError
+      ? { code: appError.code, message: appError.message, fieldErrors: zodFieldErrors(error) }
+      : {
+          code: appError.code,
+          message: appError.message,
+          data: appError.details,
+          ...(appError.fieldErrors ? { fieldErrors: appError.fieldErrors } : {}),
+        },
+  });
+  // Capture the raw error — message and stack — before it is ever mapped down
+  // to the generic envelope the caller sees. Without this, every unmapped
+  // INTERNAL is a blind 500 (PLAN P3-OPS release-gate item 5).
+  if (appError.code === "INTERNAL") {
+    captureError(error, {
+      requestId: context.requestId,
+      feature: context.feature,
+      code: appError.code,
+      ...(context.eventId ? { eventId: context.eventId } : {}),
+    });
+  }
+  log({
+    level: appError.code === "INTERNAL" ? "error" : "warn",
+    msg: context.msg ?? "request.failed",
+    code: appError.code,
+    requestId: context.requestId,
+    feature: context.feature,
+    ...(context.eventId ? { eventId: context.eventId } : {}),
+    ...(context.durationMs === undefined ? {} : { durationMs: context.durationMs }),
+  });
+  return { envelope, status: toHttp(appError.code) };
+}
+
 function queryInput(searchParams: URLSearchParams): Record<string, string | string[]> {
   const input: Record<string, string | string[]> = {};
   for (const key of new Set(searchParams.keys())) {
@@ -114,30 +184,13 @@ export function defineHandler<Input, Output>(options: {
       log({ level: "info", msg: "request.complete", requestId, feature: "api", ...(eventId ? { eventId } : {}), durationMs: Date.now() - startedAt });
       return NextResponse.json({ data });
     } catch (error) {
-      const appError = isAppError(error)
-        ? error
-        : error instanceof z.ZodError
-          ? new AppError("VALIDATION", "Request validation failed")
-          : new AppError("INTERNAL", "Unexpected server error");
-      const envelope = apiErrorSchema.parse({
-        error: error instanceof z.ZodError
-          ? { code: appError.code, message: appError.message, fieldErrors: zodFieldErrors(error) }
-          : {
-              code: appError.code,
-              message: appError.message,
-              data: appError.details,
-              ...(appError.fieldErrors ? { fieldErrors: appError.fieldErrors } : {}),
-            },
+      const { envelope, status } = errorEnvelope(error, {
+        requestId,
+        feature: "api",
+        eventId,
+        durationMs: Date.now() - startedAt,
       });
-      // Capture the raw error — message and stack — before it is ever mapped
-      // down to the generic envelope the caller sees. Without this, every
-      // unmapped INTERNAL is a blind 500: the log line below only ever
-      // carries "Unexpected server error" (PLAN P3-OPS release-gate item 5).
-      if (appError.code === "INTERNAL") {
-        captureError(error, { requestId, feature: "api", code: appError.code, ...(eventId ? { eventId } : {}) });
-      }
-      log({ level: appError.code === "INTERNAL" ? "error" : "warn", msg: "request.failed", code: appError.code, requestId, feature: "api", ...(eventId ? { eventId } : {}), durationMs: Date.now() - startedAt });
-      return NextResponse.json(envelope, { status: toHttp(appError.code) });
+      return NextResponse.json(envelope, { status });
     }
   };
 }

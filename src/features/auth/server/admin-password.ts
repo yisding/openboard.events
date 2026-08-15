@@ -33,10 +33,36 @@ const LEGACY_SCHEME = "pbkdf2-sha256";
 const CURRENT_SCHEME = "pbkdf2-sha256-v2";
 const CURRENT_SALT_BYTES = 32;
 
+/**
+ * The salt is the one part that gets *decoded* rather than compared, so it is
+ * the one part whose encoding has to be validated here: `fromBase64Url` calls
+ * `atob`, which throws on a character outside the alphabet, and that throw
+ * would escape a function documented to answer `false`.
+ *
+ * `atob` itself is the acceptance test rather than a regex. The legacy rows
+ * were copied verbatim out of `users.password_hash` by
+ * `drizzle/0009_product_auth.sql`, so their alphabet is whatever that retired
+ * writer used — a pattern tight enough to reject corruption would also reject
+ * any of those carrying a `+` or `/`, which decode fine today. Asking the
+ * decoder keeps the schema's answer and the runtime's answer identical by
+ * construction.
+ *
+ * The digest needs no such check: it is only ever `safeEqual`'d as a string,
+ * and an undecodable one simply never matches.
+ */
+const decodableSalt = z.string().min(1).refine((salt) => {
+  try {
+    fromBase64Url(salt);
+    return true;
+  } catch {
+    return false;
+  }
+});
+
 const encodedSchema = z.tuple([
   z.enum([LEGACY_SCHEME, CURRENT_SCHEME]),
   z.coerce.number().int().min(1).max(1_000_000),
-  z.string().min(1),
+  decodableSalt,
   z.string().min(1),
 ]);
 
@@ -65,7 +91,13 @@ export async function hashAdminPassword(password: string, salt = randomBytes(CUR
  *
  * Unparseable input is a `false`, never a throw: a malformed row must read as
  * "wrong password" so it cannot be told apart from a real failure by timing or
- * by error shape.
+ * by error shape. `encodedSchema` is what makes that true — every way a stored
+ * string can be unreadable is a `safeParse` failure, including a salt `atob`
+ * cannot decode.
+ *
+ * A throw out of the crypto itself is a different event and still propagates:
+ * WebCrypto failing is not a credential outcome, and recording it as one would
+ * turn an outage into a site-wide "wrong password".
  */
 export async function verifyAdminPassword(args: { hash: string; password: string }): Promise<boolean> {
   const startedAt = performance.now();

@@ -19,7 +19,7 @@ const migrationMilestones = readFileSync(new URL("../../../../drizzle/0023_onboa
 // this fixture the three new union members would raise a 23514 that
 // `tryRecord…` swallows — which is exactly the silent-funnel failure the last
 // test in this suite exists to make impossible.
-const migrationDemoEvents = readFileSync(new URL("../../../../drizzle/0044_demo_events_and_tour.sql", import.meta.url), "utf8");
+const migrationDemoEvents = readFileSync(new URL("../../../../drizzle/0047_demo_events_and_tour.sql", import.meta.url), "utf8");
 
 const userId = userIdSchema.parse("a2300000-0000-4000-8000-000000000001");
 const organizationId = organizationIdSchema.parse("a2300000-0000-4000-8000-000000000011");

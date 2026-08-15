@@ -1,5 +1,5 @@
 import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
-import { db, type DbOrTx, type TxDb } from "@/db/client";
+import { db, type DbOrTx } from "@/db/client";
 import { contacts, speakerLogisticsFields, speakerLogisticsValues } from "@/db/schema";
 import {
   logisticsFieldIdSchema,
@@ -22,16 +22,6 @@ import { AppError } from "@/shared/lib/errors";
 import { getOrCreateContact, updateContactFields, type ContactPatch } from "@/features/event-contacts";
 import { parseCsv, readSpeakerCsvRows } from "./speaker-csv";
 
-/**
- * `getOrCreateContact` is typed against `TxDb` because its other callers are
- * the audited transactional writers. Every write in this module is a
- * single-statement (or single-CTE) guarded path and must not become a ninth
- * `withTx` (resolution #4) — same discipline M50's reviewer provisioning and
- * M36's reminder scan already use for this exact cast.
- */
-function asOutboxWriter(dbOrTx: DbOrTx): TxDb {
-  return dbOrTx as TxDb;
-}
 
 function contactPatchFrom(input: CreateSpeakerInput | UpdateSpeakerProfileInput): ContactPatch {
   const patch: ContactPatch = {};
@@ -52,7 +42,7 @@ function contactPatchFrom(input: CreateSpeakerInput | UpdateSpeakerProfileInput)
  * — a second create against an email already on file updates that contact's
  * fields rather than erroring, matching CSV import's own upsert semantics. */
 export async function createSpeakerIn(dbOrTx: DbOrTx, eventId: EventId, input: CreateSpeakerInput): Promise<ContactId> {
-  const contactId = await getOrCreateContact(asOutboxWriter(dbOrTx), eventId, input.email);
+  const contactId = await getOrCreateContact(dbOrTx, eventId, input.email);
   const patch = contactPatchFrom(input);
   if (Object.keys(patch).length > 0) await updateContactFields(dbOrTx, eventId, contactId, patch);
   return contactId;
@@ -264,7 +254,7 @@ export async function importSpeakersCsvIn(dbOrTx: DbOrTx, eventId: EventId, inpu
     const outcome = outcomes[index];
     const row = classified[index];
     if (!outcome || outcome.status !== "ok" || !outcome.email || !row) { if (outcome) committedOutcomes.push(outcome); continue; }
-    const contactId = await getOrCreateContact(asOutboxWriter(dbOrTx), eventId, outcome.email);
+    const contactId = await getOrCreateContact(dbOrTx, eventId, outcome.email);
     const [fresh] = await dbOrTx.select({
       firstName: contacts.firstName, lastName: contacts.lastName, jobTitle: contacts.jobTitle, company: contacts.company,
       linkedinUrl: contacts.linkedinUrl, twitterUrl: contacts.twitterUrl, websiteUrl: contacts.websiteUrl,

@@ -97,14 +97,14 @@ function render(row: OutboxRow, payload: AdminLinkPayload): { subject: string; h
       const eventName = payload.eventName;
       const subject = `You're invited to review ${eventName}`.replace(/[\r\n]+/gu, " ");
       const body = `<p>Hi,</p><p>${escapeHtml(inviterName)} invited you to review proposals for <strong>${escapeHtml(eventName)}</strong> in ${escapeHtml(organizationName)}.</p><p><a href="${escapeHtml(payload.url)}">Accept the reviewer invitation</a>. Sign in or create your own account with this email address. The link expires ${escapeHtml(payload.expiresIn)}.</p><p>If you were not expecting this, you can ignore this email.</p>`;
-      const html = emailLayout(body, "organization_invited", { eventName });
+      const html = emailLayout(body, "organization_invited", { eventName: escapeHtml(eventName) });
       const text = `Hi,\n\n${inviterName} invited you to review proposals for ${eventName} in ${organizationName}.\n\nAccept the reviewer invitation: ${payload.url}\nSign in or create your own account with this email address.\nThe link expires ${payload.expiresIn}.\n\nIf you were not expecting this, you can ignore this email.\n\nOpenboard`;
       return { subject, html, text };
     }
     const roleWithArticle = role === "organizer" ? "an organizer" : "a reviewer";
     const subject = `You're invited to join ${organizationName}`.replace(/[\r\n]+/gu, " ");
     const body = `<p>Hi,</p><p>${escapeHtml(inviterName)} invited you to join <strong>${escapeHtml(organizationName)}</strong> on Openboard as ${roleWithArticle}.</p><p><a href="${escapeHtml(payload.url)}">Accept the invitation</a>. The link expires ${escapeHtml(payload.expiresIn)}.</p><p>If you were not expecting this, you can ignore this email.</p>`;
-    const html = emailLayout(body, "organization_invited", { eventName: organizationName });
+    const html = emailLayout(body, "organization_invited", { eventName: escapeHtml(organizationName) });
     const text = `Hi,\n\n${inviterName} invited you to join ${organizationName} on Openboard as ${roleWithArticle}.\n\nAccept the invitation: ${payload.url}\nThe link expires ${payload.expiresIn}.\n\nIf you were not expecting this, you can ignore this email.\n\nOpenboard`;
     return { subject, html, text };
   }
@@ -124,7 +124,20 @@ function redactCredentials(value: string): string {
     // A preserved auth destination can itself contain an invitation token.
     // URLSearchParams encodes its `?token=` delimiter inside `next`; redact
     // that second bearer value from persisted rendered history as well.
-    .replace(/((?:%3f|%26)token%3d)[^"'&\s<%]+/giu, "$1[redacted]");
+    //
+    // The delimiter is matched at any encoding depth (`%(?:25)*3f`). Password
+    // reset encodes `next` exactly once, so `%3Ftoken%3D` was all this pattern
+    // ever saw — and that is the only shape the existing test fixture builds.
+    // Verification mail encodes twice: `existingSignupVerificationCallback`
+    // (better-auth.ts:109) already percent-encodes `next`, and the whole
+    // `callbackURL` is encoded again by `URLSearchParams` at better-auth.ts:197
+    // (Better Auth's own signup path does the same), producing
+    // `next%3D%252Fjoin%253Ftoken%253D<raw>`. A single-depth pattern missed it,
+    // so every invited-but-unverified user's confirmation mail persisted a live
+    // `/join` bearer token in `body_rendered_html` — the one value the sealed
+    // payload is nulled on send (`:319`) specifically to avoid retaining — until
+    // retention blanked the body 90 days later.
+    .replace(/((?:%(?:25)*3f|%(?:25)*26)token%(?:25)*3d)[^"'&\s<%]+/giu, "$1[redacted]");
 }
 
 export async function sendAdminAuthEmailIn(
@@ -401,7 +414,9 @@ export async function getAdminAuthFallbackLinkIn(
   }
   const href = /<a\s+href="([^"]+)"/iu.exec(row.bodyRenderedHtml ?? "")?.[1];
   if (!href) return null;
-  const decoded = href.replaceAll("&amp;", "&").replaceAll("&quot;", '"').replaceAll("&#39;", "'");
+  // `&amp;` last: decoding it first would let an escaped `&amp;quot;` collapse
+  // into a bare `"` and cut the recovered link short.
+  const decoded = href.replaceAll("&quot;", '"').replaceAll("&#39;", "'").replaceAll("&amp;", "&");
   try {
     const url = new URL(decoded);
     return url.searchParams.has("token") ? url.toString() : null;

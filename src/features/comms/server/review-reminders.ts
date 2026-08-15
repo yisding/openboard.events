@@ -1,5 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
-import { db, type DbOrTx, type TxDb } from "@/db/client";
+import { OUTSTANDING_REVIEW_WORK_SQL } from "@/db/review-work";
+import { db, type DbOrTx } from "@/db/client";
 import { contacts } from "@/db/schema";
 import { linkUserContactIn, updateContactFields } from "@/features/event-contacts";
 import { idem, type ContactId, type EventId, type PlanId, type UserId } from "@/shared/contracts";
@@ -26,17 +27,6 @@ export type ReviewReminderTarget = {
   outstanding: number;
 };
 
-/**
- * `enqueueEmail` is typed against `TxDb` because its other callers are the
- * audited transactional writers. A reminder burst must NOT open a ninth `withTx`
- * path (resolution #4), and the single `INSERT … ON CONFLICT DO NOTHING` it
- * issues behaves identically on the `neon-http` handle, so the handle is passed
- * through unchanged — the same reasoning, and the same helper name, as M36's
- * reminder scan.
- */
-function asOutboxWriter(dbOrTx: DbOrTx): TxDb {
-  return dbOrTx as TxDb;
-}
 
 type OutstandingRow = {
   reviewer_user_id: string;
@@ -93,7 +83,7 @@ export async function listOutstandingReviewersIn(
     LEFT JOIN reviews r ON r.plan_id = ra.plan_id AND r.submission_id = ra.submission_id
       AND r.reviewer_user_id = ra.reviewer_user_id AND r.submitted_at IS NOT NULL
     WHERE ra.event_id = ${eventId} AND ra.plan_id = ${planId}
-      AND ra.status = 'assigned' AND r.id IS NULL
+      AND ${OUTSTANDING_REVIEW_WORK_SQL} AND r.id IS NULL
     GROUP BY u.id, u.name, u.email, linked_contact.id
     ORDER BY lower(u.name), u.email
   `);
@@ -154,7 +144,7 @@ export async function sendReviewRemindersIn(
       skipped += 1;
       continue;
     }
-    await enqueueEmail(asOutboxWriter(dbOrTx), {
+    await enqueueEmail(dbOrTx, {
       eventId,
       templateKey: "review_reminder",
       contactId,

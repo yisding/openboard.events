@@ -12,7 +12,7 @@ import {
   type EventId,
 } from "@/shared/contracts";
 import { api } from "@/shared/lib/api-client";
-import { type AppError, isAppError } from "@/shared/lib/errors";
+import { isAppError, isDefinitiveWriteFailure } from "@/shared/lib/errors";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, EmptyState, Field, Modal, Select, StatusBadge } from "@/shared/ui/ui-kit";
@@ -29,10 +29,6 @@ const roleOrder = { owner: 0, organizer: 1, reviewer: 2 } as const;
 function orderMembers(members: EventAccessMemberDTO[]): EventAccessMemberDTO[] {
   return [...members].sort((left, right) =>
     roleOrder[left.role] - roleOrder[right.role] || left.email.localeCompare(right.email));
-}
-
-function isDefinitiveEventAccessError(error: unknown): error is AppError {
-  return isAppError(error) && error.code !== "INTERNAL";
 }
 
 function recoverySubject(recovery: EventAccessRecovery): string {
@@ -146,7 +142,7 @@ export function EventAccessTab({ eventId }: { eventId: EventId }) {
       toast(`${removed.email} no longer has access to this event`);
       void requestOverview().then(applyOverview).catch(() => undefined);
     } catch (caught) {
-      if (isDefinitiveEventAccessError(caught)) {
+      if (isDefinitiveWriteFailure(caught)) {
         setPendingRemove(null);
         try {
           applyOverview(await requestOverview());
@@ -215,7 +211,7 @@ export function EventAccessTab({ eventId }: { eventId: EventId }) {
         ? `${candidate.name || candidate.email} can now open this event as ${granted.role}`
         : `${candidate.name || candidate.email} already has stronger ${granted.role} access`);
     } catch (caught) {
-      if (isDefinitiveEventAccessError(caught)) {
+      if (isDefinitiveWriteFailure(caught)) {
         const staleOverview = caught.code === "FORBIDDEN" || caught.code === "NOT_FOUND";
         if (!staleOverview) {
           setGrantError(caught.message);
@@ -261,7 +257,7 @@ export function EventAccessTab({ eventId }: { eventId: EventId }) {
       }
       completeRecovery(await requestOverview(), operation);
     } catch (caught) {
-      const definitive = isDefinitiveEventAccessError(caught);
+      const definitive = isDefinitiveWriteFailure(caught);
       if (definitive) setRecovery({ ...operation, replayRejected: true });
       const message = definitive
         ? appendGuidance(caught.message, "Check current event access to finish recovery without repeating a rejected action.")
@@ -287,7 +283,7 @@ export function EventAccessTab({ eventId }: { eventId: EventId }) {
         toast(`Event access checked: ${currentAccessDescription(overview, operation)} The earlier change may still be finishing; retry the exact action before leaving.`, { kind: "error" });
       }
     } catch (caught) {
-      if (isDefinitiveEventAccessError(caught)) {
+      if (isDefinitiveWriteFailure(caught)) {
         const message = appendGuidance(
           caught.message,
           "The access change can’t be confirmed from this account. Leave this page or restore access and retry loading.",

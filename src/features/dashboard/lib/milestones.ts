@@ -1,4 +1,5 @@
 import type { DashboardOverview } from "../index";
+import { formAcceptsOrWillAccept } from "@/features/forms/index.availability";
 
 /**
  * M60 — "Milestone acknowledgments... small dashboard moments that make the
@@ -18,7 +19,10 @@ export type MilestoneId = "first_submission" | "cfp_closed" | "decisions_sent" |
 
 export type Milestone = { id: MilestoneId; title: string; detail: string; href: string };
 
-type MilestoneInput = Pick<DashboardOverview, "event" | "forms" | "statusCounts" | "kpis" | "latestCfpSubmission">;
+// Same reason as `PhaseInput`: the stored status never reports a call that
+// ended by its own deadline.
+type MilestoneForm = Omit<DashboardOverview["forms"][number], "status">;
+type MilestoneInput = Pick<DashboardOverview, "event" | "statusCounts" | "kpis" | "latestCfpSubmission"> & { forms: readonly MilestoneForm[] };
 
 export function computeMilestones(overview: MilestoneInput): Milestone[] {
   const milestones: Milestone[] = [];
@@ -44,7 +48,7 @@ export function computeMilestones(overview: MilestoneInput): Milestone[] {
   // at least one submission exists — an event with no forms yet, or one
   // whose only form is still open, has nothing to acknowledge.
   const totalSubmitted = overview.forms.reduce((sum, form) => sum + form.submitted, 0);
-  if (overview.forms.length > 0 && overview.forms.every((form) => form.status !== "open") && totalSubmitted > 0) {
+  if (overview.forms.length > 0 && overview.forms.every((form) => !formAcceptsOrWillAccept(form.availability)) && totalSubmitted > 0) {
     milestones.push({
       id: "cfp_closed",
       title: "Call for speakers closed",
@@ -71,7 +75,19 @@ export function computeMilestones(overview: MilestoneInput): Milestone[] {
   // "zero conflicts" (the overview carries no conflict count — inventing one
   // here would be a fact this function does not actually have), but the
   // adjacent milestone this data honestly supports.
-  if (overview.kpis.acceptedSpeakers > 0 && overview.kpis.unscheduledAccepted === 0) {
+  //
+  // The two counts answer different questions: `unscheduledAccepted` asks
+  // whether an accepted abstract has a *timed* session, while
+  // `scheduledSessions` counts `published_sessions_v` — published *and* timed.
+  // Promote a batch of accepted abstracts into draft sessions with times and
+  // the first is 0 while the second is still 0, which printed "Everyone
+  // accepted is on the schedule — 0 sessions placed." Requiring the detail's
+  // own number to be non-zero keeps the claim and its evidence together.
+  if (
+    overview.kpis.acceptedSpeakers > 0
+    && overview.kpis.unscheduledAccepted === 0
+    && overview.kpis.scheduledSessions > 0
+  ) {
     milestones.push({
       id: "scheduling_complete",
       title: "Everyone accepted is on the schedule",

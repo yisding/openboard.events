@@ -1,6 +1,7 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { sha256 } from "@/shared/lib/crypto";
 import { db, type DbOrTx } from "@/db/client";
+import { isUniqueViolation } from "@/db/errors";
 import { apiKeys } from "@/db/schema";
 import { apiKeyIdSchema, type ApiKeyId, type EventId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
@@ -26,16 +27,6 @@ type CreatedRow = { id: string; event_id: string; name: string; key_hash: string
 
 const REPLAY_CONFLICT = "This creation attempt was already used for different API key details";
 const REVOKED_CONFLICT = "This creation completed, but the API key was later revoked. Start a new creation.";
-
-function isUniqueViolation(error: unknown): boolean {
-  for (let current: unknown = error, depth = 0; current && depth < 5; depth += 1) {
-    const entry = current as { code?: unknown; message?: unknown; cause?: unknown };
-    if (entry.code === "23505") return true;
-    if (typeof entry.message === "string" && /duplicate key value|unique constraint/iu.test(entry.message)) return true;
-    current = entry.cause;
-  }
-  return false;
-}
 
 async function creationFingerprint(eventId: EventId, name: string, keyHash: string): Promise<string> {
   return sha256(JSON.stringify({ eventId, name, keyHash }));

@@ -22,7 +22,7 @@ function parseStatus(raw: string | null): NonDraftStatus | undefined {
 }
 
 const cursorSchema = z.string().regex(/^\d+$/, "cursor must be a submission code").optional();
-const limitSchema = z.string().regex(/^\d+$/, "limit must be a positive integer").optional();
+const limitSchema = z.string().regex(/^[1-9]\d*$/, "limit must be a positive integer").optional();
 
 /**
  * Deliberately not built on `defineHandler`: this route answers a bare-array
@@ -58,6 +58,6 @@ export async function GET(request: NextRequest, route: { params: Promise<{ slug:
     const { rows, nextCursor } = await listPublicSubmissions(eventId, { ...(status ? { status } : {}), limit, cursorCode });
     return privateData(rows, { nextCursor });
   } catch (error) {
-    return apiV1ErrorResponse(error);
+    return apiV1ErrorResponse(error, request);
   }
 }

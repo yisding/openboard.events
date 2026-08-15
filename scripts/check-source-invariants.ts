@@ -9,8 +9,44 @@ const FINAL_SUBMIT_FILES = new Set([
   "src/features/submissions/server/mutations.ts",
 ]);
 const IDENTITY_RESOLUTION_FILE = "src/features/event-contacts/server/identity-links.ts";
+/**
+ * `time.ts` is already fenced on the import side (`time-import` below); this is
+ * the call side. A bare `toLocale*()` or `new Intl.DateTimeFormat()` renders in
+ * whichever zone the runtime happens to be in — UTC on the Worker, the viewer's
+ * in the browser — so an SSR'd client component produces two different strings
+ * for one instant and React tears the tree down with #418.
+ */
+const TIME_FORMAT_OWNER = "src/shared/lib/time.ts";
+/**
+ * The date/time input primitive formats its own displayed value with an
+ * explicit `timeZone` and deliberately without a zone abbreviation, because it
+ * renders the zone separately in its own badge — `formatInZone` would append a
+ * second one. It never reads the viewer's zone, so the rule's actual concern
+ * does not arise. `toLocale*` stays banned here as everywhere else.
+ */
+const INTL_FORMAT_OWNERS = new Set([TIME_FORMAT_OWNER, "src/shared/ui/app/datetime-picker.tsx"]);
+const LOCALE_FORMAT_METHODS = new Set(["toLocaleString", "toLocaleDateString", "toLocaleTimeString"]);
+
+/**
+ * `log.ts` is the sole console writer so every diagnostic line is one JSON
+ * object with the same keys and the level picks the console method. The
+ * greeting is a deliberate devtools easter egg, not a diagnostic.
+ */
+const CONSOLE_OWNERS = new Set([
+  "src/shared/lib/log.ts",
+  "src/shared/ui/console-greeting.tsx",
+]);
 const SQL_EMAIL_COLUMN_EQUALITY = /\b[a-z_][a-z0-9_]*\.email\b\s*\)*\s*=\s*(?:(?:lower|btrim)\s*\(\s*)*\b[a-z_][a-z0-9_]*\.email\b/iu;
 const IDENTITY_TABLE_NAMES = new Set(["contacts", "organizationContacts", "users"]);
+/**
+ * Date methods that format in whatever zone the *viewer's* machine is in, with
+ * whatever format their locale prefers — "8/1/2026, 4:30:15 PM" where the rest
+ * of the product says "Aug 1, 2026" and names the zone. Every rendered time
+ * goes through `TzTime`/`formatInZone` with an explicit timezone instead; see
+ * `src/shared/ui/app/tz-time.tsx`. `toLocaleString` on a number is a thousands
+ * separator, not a time, so only its `new Date(...)` receiver is caught.
+ */
+const VIEWER_LOCAL_TIME_METHODS = new Set(["toLocaleDateString", "toLocaleTimeString"]);
 
 type Violation = {
   line: number;
@@ -126,6 +162,15 @@ function accessName(node: ts.Node): string | null {
   return null;
 }
 
+function rendersViewerLocalTime(call: ts.CallExpression): boolean {
+  const called = accessName(call.expression);
+  if (called === null) return false;
+  if (VIEWER_LOCAL_TIME_METHODS.has(called)) return true;
+  if (called !== "toLocaleString") return false;
+  const receiver = unwrapExpression((call.expression as ts.PropertyAccessExpression | ts.ElementAccessExpression).expression);
+  return ts.isNewExpression(receiver) && ts.isIdentifier(receiver.expression) && receiver.expression.text === "Date";
+}
+
 function taggedTemplateText(node: ts.TaggedTemplateExpression): string {
   if (ts.isNoSubstitutionTemplateLiteral(node.template)) return node.template.text;
   return node.template.head.text + node.template.templateSpans
@@ -171,6 +216,27 @@ function numericValue(node: ts.Expression): number | null {
     return numericValue(node.expression);
   }
   return null;
+}
+
+/** `console`, however it is parenthesized, asserted, or reached off globalThis. */
+function isConsoleReference(node: ts.Expression): boolean {
+  const target = unwrapExpression(node);
+  if (ts.isIdentifier(target)) return target.text === "console";
+  if (ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target)) {
+    const owner = unwrapExpression(target.expression);
+    return accessName(target) === "console"
+      && ts.isIdentifier(owner)
+      && (owner.text === "globalThis" || owner.text === "global");
+  }
+  return false;
+}
+
+/** True when `node` sits anywhere inside a `catch (…) { … }`, callbacks included. */
+function insideCatchClause(node: ts.Node): boolean {
+  for (let current = node.parent; current; current = current.parent) {
+    if (ts.isCatchClause(current)) return true;
+  }
+  return false;
 }
 
 function unwrapExpression(node: ts.Expression): ts.Expression {
@@ -400,7 +466,54 @@ function inspectFile(absolutePath: string): Violation[] {
       routerNames.add(node.name.text);
     }
 
+    if (
+      !isTestFile
+      && !INTL_FORMAT_OWNERS.has(path)
+      && ts.isNewExpression(node)
+      && accessName(node.expression) === "DateTimeFormat"
+      && ts.isIdentifier(unwrapExpression((node.expression as ts.PropertyAccessExpression).expression))
+      && (unwrapExpression((node.expression as ts.PropertyAccessExpression).expression) as ts.Identifier).text === "Intl"
+    ) {
+      report(node, "viewer-time", "format instants through src/shared/lib/time.ts");
+    }
+
     if (ts.isCallExpression(node)) {
+      // `toast` defaults to `kind: "success"`, which is a green check, a
+      // `polite` live region, and a 3.2s auto-dismiss. On a failure path that
+      // announces the failure as a success and then erases it before it can be
+      // read. A computed options object cannot be checked statically and is
+      // left to review.
+      if (
+        !isTestFile
+        && ts.isIdentifier(node.expression)
+        && node.expression.text === "toast"
+        && insideCatchClause(node)
+      ) {
+        const options = node.arguments[1];
+        const missing = options === undefined
+          || (ts.isObjectLiteralExpression(options) && objectPropertyValues("kind", options).length === 0);
+        if (missing) report(node, "error-toast-kind", "a toast raised from a catch block must pass an explicit kind");
+      }
+
+      if (
+        !isTestFile
+        && path !== TIME_FORMAT_OWNER
+        && LOCALE_FORMAT_METHODS.has(accessName(node.expression) ?? "")
+      ) {
+        report(node, "viewer-time", "render times through TzTime or LocalTime, never a bare toLocale* call");
+      }
+
+      if (
+        !isTestFile
+        && !INTL_FORMAT_OWNERS.has(path)
+        && ts.isPropertyAccessExpression(node.expression)
+        && node.expression.name.text === "DateTimeFormat"
+        && ts.isIdentifier(node.expression.expression)
+        && node.expression.expression.text === "Intl"
+      ) {
+        report(node, "viewer-time", "resolve the viewer's zone through viewerTimeZone() in src/shared/lib/time.ts");
+      }
+
       if (
         !isTestFile
         && path !== IDENTITY_RESOLUTION_FILE
@@ -432,6 +545,15 @@ function inspectFile(absolutePath: string): Violation[] {
         }
       }
 
+      if (
+        !isTestFile
+        && path !== "src/shared/lib/time.ts"
+        && (ts.isPropertyAccessExpression(node.expression) || ts.isElementAccessExpression(node.expression))
+        && rendersViewerLocalTime(node)
+      ) {
+        report(node, "viewer-local-time", "render times through TzTime/formatInZone with an explicit timezone");
+      }
+
       if (ts.isPropertyAccessExpression(node.expression) || ts.isElementAccessExpression(node.expression)) {
         const called = accessName(node.expression);
         if (called === "invalidateQueries") queryInvalidation ??= node;
@@ -443,6 +565,19 @@ function inspectFile(absolutePath: string): Violation[] {
           routeRefresh ??= node;
         }
       }
+    }
+
+    // Anchored on the member access rather than the call so that a computed
+    // method (`console[level](…)` — the shape `log.ts` itself uses) and a bare
+    // reference passed as a callback (`promise.catch(console.error)`) are both
+    // caught, not just a direct `console.log(…)`.
+    if (
+      !isTestFile
+      && !CONSOLE_OWNERS.has(path)
+      && (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node))
+      && isConsoleReference(node.expression)
+    ) {
+      report(node, "console-owner", "emit structured diagnostics through src/shared/lib/log.ts");
     }
 
     if (
@@ -562,6 +697,9 @@ function inspectFile(absolutePath: string): Violation[] {
       const inputTypes = jsxAttributeValues("type", node);
       if (inputTypes.includes("date") || inputTypes.includes("datetime-local")) {
         report(node, "native-date", "use the shared date or date-time picker");
+      }
+      if (inputTypes.includes("file") && path !== "src/shared/ui/app/file-upload.tsx") {
+        report(node, "raw-file-input", "use FileUpload or LocalFilePicker instead of a raw file input");
       }
       if (
         node.attributes.properties.some((attribute) => (

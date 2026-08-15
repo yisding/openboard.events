@@ -22,6 +22,7 @@ import {
   sessionIdSchema,
   userIdSchema,
 } from "./ids";
+import { LIMITS } from "./limits";
 
 /**
  * M55 — organization-level speaker CRM contracts. Additive only: nothing
@@ -69,8 +70,8 @@ export const createOrganizationContactInputSchema = z.object({
   email: z.string().trim().toLowerCase().pipe(z.email()),
   firstName: z.string().trim().max(120).optional(),
   lastName: z.string().trim().max(120).optional(),
-  company: z.string().trim().max(160).optional(),
-  jobTitle: z.string().trim().max(160).optional(),
+  company: z.string().trim().max(LIMITS.JOB_TITLE).optional(),
+  jobTitle: z.string().trim().max(LIMITS.JOB_TITLE).optional(),
   linkedinUrl: z.union([z.url(), z.literal("")]).optional(),
   twitterUrl: z.union([z.url(), z.literal("")]).optional(),
   websiteUrl: z.union([z.url(), z.literal("")]).optional(),
@@ -80,8 +81,8 @@ export type CreateOrganizationContactInput = z.infer<typeof createOrganizationCo
 export const updateOrganizationContactInputSchema = z.object({
   firstName: z.string().trim().max(120).optional(),
   lastName: z.string().trim().max(120).optional(),
-  company: z.string().trim().max(160).nullable().optional(),
-  jobTitle: z.string().trim().max(160).nullable().optional(),
+  company: z.string().trim().max(LIMITS.JOB_TITLE).nullable().optional(),
+  jobTitle: z.string().trim().max(LIMITS.JOB_TITLE).nullable().optional(),
   linkedinUrl: z.union([z.url(), z.literal(""), z.null()]).optional(),
   twitterUrl: z.union([z.url(), z.literal(""), z.null()]).optional(),
   websiteUrl: z.union([z.url(), z.literal(""), z.null()]).optional(),

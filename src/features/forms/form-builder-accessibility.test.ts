@@ -3,7 +3,7 @@ import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { BuilderForm } from "./builder-types";
-import { ParticipantRoles, withRequiredSpeakerRole } from "./form-builder";
+import { ParticipantRoles, questionLabelList, visibilityDependents, withRequiredSpeakerRole } from "./form-builder";
 
 Object.assign(globalThis, { React });
 
@@ -137,5 +137,28 @@ describe("form builder accessibility", () => {
     expect(source).toContain("duplicateFormAsDraft(event.id, form.id)");
     expect(source).toContain("runGuarded(() => { void duplicateAsDraft(); })");
     expect(source).toContain("Return to Submission Forms and refresh before trying again.");
+  });
+
+  // The server refuses this delete with a compiler diagnostic naming field ids.
+  // The confirmation has to say which question breaks, in its own words.
+  it("names the questions whose visibility depends on the one being deleted", () => {
+    const source = { sections: [{ fields: [
+      { id: "f-1", label: "Session length", visibility: null },
+      { id: "f-2", label: "Room preference", visibility: { match: "all", conditions: [{ sourceFieldId: "f-1", op: "eq", value: "90" }] } },
+      { id: "f-3", label: "A/V needs", visibility: { match: "all", conditions: [{ sourceFieldId: "f-1", op: "answered" }] } },
+    ] }] } as unknown as BuilderForm;
+
+    expect(visibilityDependents(source, "f-1").map((field) => field.label)).toEqual(["Room preference", "A/V needs"]);
+    expect(visibilityDependents(source, "f-2")).toEqual([]);
+    expect(questionLabelList(visibilityDependents(source, "f-1"))).toBe("“Room preference” and “A/V needs”");
+  });
+
+  it("shows locked questions the system field they are bound to instead of hiding the mapping", () => {
+    const source = readFileSync(new URL("./form-builder.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain("{(!field.locked || field.mapsTo) && <Field");
+    expect(source).toContain("Locked to this system field, so this question can’t be remapped or removed.");
+    expect(source).toContain("<option key={target} value={target}>{mapsToLabel(target)}</option>");
+    expect(source).not.toContain("<option key={target} value={target}>{target}</option>");
   });
 });

@@ -18,6 +18,7 @@ import {
 } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { TeamPanel } from "./team-panel";
+import { settle } from "@tests/support/react";
 
 const apiMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
@@ -84,11 +85,6 @@ function eventAccessOverview(role: "owner" | "organizer" | "reviewer" | null, or
 let container: HTMLDivElement;
 let root: Root;
 
-async function settle(): Promise<void> {
-  await act(async () => {
-    for (let step = 0; step < 6; step += 1) await Promise.resolve();
-  });
-}
 
 async function renderTeam(
   initialMembers: OrganizationMemberDTO[] = [owner, reviewer],

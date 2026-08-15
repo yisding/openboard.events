@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { DbOrTx } from "@/db/client";
 import * as schema from "@/db/schema";
 import { eventIdSchema } from "@/shared/contracts";
+import { isAppError } from "@/shared/lib/errors";
 import { listOutstandingTasksIn, listPublicSubmissionsIn, toPublicCommLogRow, toPublicStats } from "./queries";
 
 const migration0 = readFileSync(new URL("../../../../../drizzle/0000_init.sql", import.meta.url), "utf8");
@@ -150,6 +151,26 @@ describe("api/v1 keyed-route queries", () => {
       expect(third.rows).toHaveLength(1);
       expect(third.rows[0]?.code).toBe("SESS-500000001");
       expect(third.nextCursor).toBeNull();
+    });
+
+    it("fails a cursor that no longer resolves rather than answering a silent last page", async () => {
+      // The anchor is deleted between two pages — a withdrawn submission, or a
+      // cursor minted against a different event. The comparison used to go
+      // NULL and answer zero rows with `nextCursor: null`, which a paging
+      // client cannot tell apart from the end of the collection: every
+      // remaining submission is silently dropped.
+      const withdrawnId = "b0000000-0000-4000-8000-0000000009f1";
+      await pglite.query(
+        `INSERT INTO submissions(id,event_id,code,status,source,title,submitted_at)
+         VALUES($1,$2,700000001,'pending','cfp','Withdrawn mid-paging', now())`,
+        [withdrawnId, EVENT],
+      );
+      const stale = await listPublicSubmissionsIn(db, EVENT, { limit: 200, cursorCode: null });
+      expect(stale.rows.some((row) => row.code === "SESS-700000001")).toBe(true);
+      await pglite.query("DELETE FROM submissions WHERE id=$1", [withdrawnId]);
+
+      await expect(listPublicSubmissionsIn(db, EVENT, { limit: 1, cursorCode: 700000001 }))
+        .rejects.toSatisfy((error) => isAppError(error) && error.code === "VALIDATION");
     });
   });
 

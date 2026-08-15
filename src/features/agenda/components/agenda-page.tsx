@@ -164,7 +164,7 @@ function AgendaPageInner({ eventSlug, view, ...props }: Omit<AgendaPageProps, "q
       />
 
       {view === "list"
-        ? <ListView {...viewProps} />
+        ? <ListView {...viewProps} onCreate={() => setCreating(true)} searchActive={needle.length > 0} />
         : (
           <div className="agenda-workspace">
             {view === "day"

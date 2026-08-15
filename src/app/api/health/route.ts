@@ -1,5 +1,6 @@
 import { neon } from "@neondatabase/serverless";
 import { getEnv } from "@/shared/lib/env";
+import { errorMessage, log } from "@/shared/lib/log";
 import { commsHealth } from "./comms-health";
 import { operationalErrorsHealth } from "./operational-errors-health";
 import { scheduledJobsHealth } from "./scheduled-jobs-health";
@@ -37,7 +38,7 @@ export async function GET() {
       ms: Math.round(performance.now() - started),
     });
   } catch (error) {
-    console.error("health check failed", error instanceof Error ? error.message : "unknown error");
+    log({ level: "error", msg: "health.check_failed", requestId: "health", feature: "observability", error: errorMessage(error) });
     return Response.json({
       ok: false,
       service: "sb-web",

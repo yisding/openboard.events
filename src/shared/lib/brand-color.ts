@@ -25,3 +25,29 @@
  * is not.
  */
 export const DEFAULT_BRAND_COLOR = "#00a878";
+
+/**
+ * What counts as a colour an organiser may type. It lives beside the default
+ * because the admin field, the wire schema and the embed renderer must all
+ * agree: when they did not, a typo saved cleanly, showed a success path, and
+ * was then silently discarded at render time in favour of the default.
+ *
+ * Both alpha forms are accepted because a hex string is the only way to enter
+ * them — a native colour well only ever emits `#rrggbb`.
+ */
+export const ACCENT_HEX_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+
+/**
+ * Narrow an organiser-typed value to a colour, or `null` when it is not one.
+ *
+ * The public shell writes whatever it is handed straight into the `--accent`
+ * / `--accent-dark` custom properties, and a custom property accepts any token
+ * sequence — so a non-colour parses happily and then voids every downstream
+ * `var(--accent)` at computed-value time, dropping the brand accent across the
+ * whole public site. `events.theme` is the live example: it is a plain-text
+ * conference-theme field ("Frontiers of applied AI"), not a colour picker.
+ */
+export function asAccentColor(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? "";
+  return ACCENT_HEX_RE.test(trimmed) ? trimmed : null;
+}

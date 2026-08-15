@@ -3,6 +3,7 @@ import {
   LIMITS,
   answerValueSchema,
   cleanAnswersSchema,
+  fieldMaxChars,
   plainTextLength,
   type AnswerValue,
   type Answers,
@@ -44,7 +45,7 @@ function isEmpty(field: FormField, value: AnswerValue | undefined): boolean {
 
 /** Length is counted on text, not on markup, so `<b>` cannot eat a speaker's budget. */
 function tooLong(field: FormField, value: AnswerValue): string | null {
-  const max = field.maxChars ?? (field.type === "richtext" ? LIMITS.RICHTEXT : LIMITS.SHORT_TEXT);
+  const max = fieldMaxChars(field);
   if (value.t !== "s") return null;
   const used = field.type === "richtext" ? plainTextLength(value.v) : value.v.length;
   return used > max ? `Keep this under ${max} characters` : null;
@@ -187,6 +188,8 @@ export function deriveMappedFields(snapshot: FormSnapshot, clean: CleanAnswers):
     // option id straight into track_id writes a broken foreign key.
     const chosen = answer.value.t === "opt" ? field.options.find((option) => option.id === answer.value.v) : undefined;
     switch (target) {
+      // The slice is a backstop for the varchar(255) column, not the rule: a
+      // longer answer is refused by `tooLong` above before it ever reaches here.
       case "submission.title": submission.title = text.slice(0, LIMITS.TITLE); break;
       case "submission.description_html": submission.descriptionHtml = text; break;
       case "submission.track_id": submission.trackId = chosen?.trackId ?? null; break;
