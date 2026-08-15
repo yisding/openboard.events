@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { activeAdminSection, adminMobileNavigationState } from "./admin-shell";
 
@@ -10,6 +11,16 @@ describe("admin shell route matching", () => {
 
   it("does not activate an event nav item outside the event", () => {
     expect(activeAdminSection("/events", base)).toBeUndefined();
+  });
+});
+
+describe("first-run hints per role", () => {
+  it("welcomes reviewers with their own hints instead of the organizer set", () => {
+    const source = readFileSync(new URL("./admin-shell.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain('ids={role === "reviewer" ? REVIEWER_HINT_IDS : SHELL_HINT_IDS}');
+    expect(source).toContain('id="shell:review-queue"');
+    expect(source).toContain('id={role === "reviewer" ? "shell:reviewer-palette" : "shell:command-palette"}');
   });
 });
 

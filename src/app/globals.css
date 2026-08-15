@@ -2511,8 +2511,8 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
 .hint-pop-skip:hover { color: var(--ink); text-decoration: underline; }
 
 /* ---------------------------------------------------------------------------
-   Easter eggs — the emoji-rain overlay (palette pandas, Konami code) and the
-   404 compass. The overlay is fixed, pointer-events:none and self-removing,
+   Easter eggs — the emoji-rain overlay (the palette's secret menu, Konami
+   code) and the 404 compass. The overlay is fixed, pointer-events:none and self-removing,
    so nothing here can affect layout or interaction on the page beneath it. */
 .egg-rain{position:fixed;inset:0;z-index:300;pointer-events:none;overflow:hidden}
 .egg-rain span{position:absolute;top:-48px;animation:egg-fall 3s linear forwards}

@@ -8,6 +8,7 @@ import type { MemberRole } from "@/shared/contracts";
 import { isSameNavigationDestination, useGuardedAction } from "@/shared/ui/app/unsaved-work-guard";
 import type { SearchResult, SearchResultType } from "@/features/shell/server/search";
 import { emojiRain } from "@/shared/ui/emoji-rain";
+import { useToast } from "@/shared/ui/toast";
 import {
   commandPaletteSearchFeedback,
   idleCommandPaletteSearch,
@@ -57,15 +58,25 @@ const RESULT_LABEL: Record<SearchResultType, string> = {
 
 type PaletteItem = { key: string; icon: LucideIcon; label: string; hint: string; href: string };
 
-// Easter egg: everyone types something silly into a new command palette
-// sooner or later, and "panda" should be rewarded. The item only appears for
-// a matching query, so the real verbs and results never share the list with
-// it uninvited.
-const PANDA_EGG: PaletteItem = { key: "egg:pandas", icon: Sparkles, label: "Release the pandas", hint: "???", href: "" };
+// Easter eggs: everyone types something silly into a new command palette
+// sooner or later, and the classics should be rewarded. Each egg's item only
+// appears for a matching query, so the real verbs and results never share the
+// list with it uninvited — and choosing one celebrates in place instead of
+// navigating anywhere.
+type PaletteEgg = { item: PaletteItem; terms: readonly string[]; emojis: string[]; toast: string };
 
-function isPandaQuery(query: string): boolean {
+const PALETTE_EGGS: readonly PaletteEgg[] = [
+  { item: { key: "egg:pandas", icon: Sparkles, label: "Release the pandas", hint: "???", href: "" }, terms: ["panda", "🐼"], emojis: ["🐼", "🎋", "✨"], toast: "The pandas are loose. Nothing else ships for the next four seconds. 🐼" },
+  { item: { key: "egg:tiger", icon: Sparkles, label: "Unleash the tiger", hint: "???", href: "" }, terms: ["tiger", "🐯", "🐅"], emojis: ["🐯", "🐅", "✨"], toast: "A tiger now prowls the venue. Grrreat talks only from here on out. 🐯" },
+  { item: { key: "egg:afterparty", icon: Sparkles, label: "Start the afterparty", hint: "???", href: "" }, terms: ["party", "confetti", "disco", "🎉", "🪩"], emojis: ["🪩", "🎉", "🎊", "✨"], toast: "Afterparty unlocked. The hallway track is now the main stage. 🪩" },
+  { item: { key: "egg:espresso", icon: Sparkles, label: "Brew a committee espresso", hint: "???", href: "" }, terms: ["coffee", "espresso", "☕"], emojis: ["☕", "🥐", "✨"], toast: "Fresh pot for the program committee. Decisions per minute: doubled. ☕" },
+];
+
+/** The eggs a query summons — exported pure so the secret menu stays testable. */
+export function paletteEggsForQuery(query: string): PaletteItem[] {
   const term = query.trim().toLowerCase();
-  return term.includes("panda") || term.includes("🐼");
+  if (!term) return [];
+  return PALETTE_EGGS.filter((egg) => egg.terms.some((trigger) => term.includes(trigger))).map((egg) => egg.item);
 }
 
 function toItems(verbs: Verb[], results: SearchResult[]): PaletteItem[] {
@@ -77,6 +88,7 @@ function toItems(verbs: Verb[], results: SearchResult[]): PaletteItem[] {
 
 export function PaletteDialog({ eventId, base, role, onClose }: { eventId: string; base: string; role: MemberRole; onClose: () => void }) {
   const router = useRouter();
+  const { toast } = useToast();
   const { runGuarded, allowNextNavigation } = useGuardedAction();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -146,7 +158,7 @@ export function PaletteDialog({ eventId, base, role, onClose }: { eventId: strin
 
   const items = useMemo(() => {
     const list = toItems(filteredVerbs, currentSearchState.results);
-    if (isPandaQuery(query)) list.push(PANDA_EGG);
+    list.push(...paletteEggsForQuery(query));
     return list;
   }, [filteredVerbs, currentSearchState.results, query]);
   const activeOptionId = items[activeIndex] ? `${listboxId}-option-${activeIndex}` : undefined;
@@ -154,8 +166,10 @@ export function PaletteDialog({ eventId, base, role, onClose }: { eventId: strin
   const feedback = commandPaletteSearchFeedback(currentSearchState, items.length);
 
   function go(item: PaletteItem) {
-    if (item.key === PANDA_EGG.key) {
-      emojiRain(["🐼", "🎋", "✨"]);
+    const egg = PALETTE_EGGS.find((candidate) => candidate.item.key === item.key);
+    if (egg) {
+      emojiRain(egg.emojis);
+      toast(egg.toast);
       onClose();
       return;
     }
