@@ -26,6 +26,7 @@ import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
 import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
+import { LocalTime } from "@/shared/ui/app/local-time";
 import { CrmNav } from "./crm-nav";
 import { MergeWizardDialog } from "./merge-wizard-dialog";
 
@@ -389,7 +390,7 @@ export function ContactDetailView({
             {history.events.map((event) => (
               <div className="crm-event-card" key={event.eventId}>
                 <header>
-                  <div><b>{event.eventName}</b><small>Linked {new Date(event.linkedAt).toLocaleDateString()}</small></div>
+                  <div><b>{event.eventName}</b><small>Linked <LocalTime instant={event.linkedAt} style="date" /></small></div>
                   <StatusBadge value={event.confirmationStatus} />
                 </header>
                 {event.sessions.length > 0 && (
@@ -415,7 +416,7 @@ export function ContactDetailView({
             {history.notes.length === 0 && <p className="long-copy">No notes yet.</p>}
             {history.notes.map((note) => (
               <div className="crm-note" key={note.id}>
-                <header><span>{note.authorName ?? "Someone"}</span><span>{new Date(note.createdAt).toLocaleString()}</span></header>
+                <header><span>{note.authorName ?? "Someone"}</span><span><LocalTime instant={note.createdAt} /></span></header>
                 <RichTextView html={note.bodyHtml} />
               </div>
             ))}
@@ -433,7 +434,7 @@ export function ContactDetailView({
               return (
                 <div key={entry.id}>
                   <span />
-                  <p><b>{ACTIVITY_LABEL[entry.kind] ?? entry.kind}</b><small>{new Date(entry.createdAt).toLocaleString()}{detail ? ` · ${detail}` : ""}</small></p>
+                  <p><b>{ACTIVITY_LABEL[entry.kind] ?? entry.kind}</b><small><LocalTime instant={entry.createdAt} />{detail ? ` · ${detail}` : ""}</small></p>
                 </div>
               );
             })}

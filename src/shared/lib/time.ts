@@ -11,6 +11,17 @@ export function zonedInputToUtc(localISO: string, timeZone: string): Date {
   return fromZonedTime(localISO, timeZone);
 }
 
+/**
+ * The zone the *viewer's* browser is in — never a substitute for an event's
+ * own timezone, which is what `TzTime` renders. Use it only where there is no
+ * event in scope (organization-wide screens) and only after mount: on the
+ * server this resolves to the Worker's zone, so rendering with it during SSR
+ * is exactly the hydration mismatch `LocalTime` exists to avoid.
+ */
+export function viewerTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+}
+
 export function formatInZone(utc: Date | string | number, timeZone: string, style: TimeStyle): string {
   const value = asDate(utc);
   if (typeof style === "object") {

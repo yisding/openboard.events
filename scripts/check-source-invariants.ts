@@ -10,6 +10,24 @@ const FINAL_SUBMIT_FILES = new Set([
 ]);
 const IDENTITY_RESOLUTION_FILE = "src/features/event-contacts/server/identity-links.ts";
 /**
+ * `time.ts` is already fenced on the import side (`time-import` below); this is
+ * the call side. A bare `toLocale*()` or `new Intl.DateTimeFormat()` renders in
+ * whichever zone the runtime happens to be in — UTC on the Worker, the viewer's
+ * in the browser — so an SSR'd client component produces two different strings
+ * for one instant and React tears the tree down with #418.
+ */
+const TIME_FORMAT_OWNER = "src/shared/lib/time.ts";
+/**
+ * The date/time input primitive formats its own displayed value with an
+ * explicit `timeZone` and deliberately without a zone abbreviation, because it
+ * renders the zone separately in its own badge — `formatInZone` would append a
+ * second one. It never reads the viewer's zone, so the rule's actual concern
+ * does not arise. `toLocale*` stays banned here as everywhere else.
+ */
+const INTL_FORMAT_OWNERS = new Set([TIME_FORMAT_OWNER, "src/shared/ui/app/datetime-picker.tsx"]);
+const LOCALE_FORMAT_METHODS = new Set(["toLocaleString", "toLocaleDateString", "toLocaleTimeString"]);
+
+/**
  * `log.ts` is the sole console writer so every diagnostic line is one JSON
  * object with the same keys and the level picks the console method. The
  * greeting is a deliberate devtools easter egg, not a diagnostic.
@@ -422,7 +440,37 @@ function inspectFile(absolutePath: string): Violation[] {
       routerNames.add(node.name.text);
     }
 
+    if (
+      !isTestFile
+      && !INTL_FORMAT_OWNERS.has(path)
+      && ts.isNewExpression(node)
+      && accessName(node.expression) === "DateTimeFormat"
+      && ts.isIdentifier(unwrapExpression((node.expression as ts.PropertyAccessExpression).expression))
+      && (unwrapExpression((node.expression as ts.PropertyAccessExpression).expression) as ts.Identifier).text === "Intl"
+    ) {
+      report(node, "viewer-time", "format instants through src/shared/lib/time.ts");
+    }
+
     if (ts.isCallExpression(node)) {
+      if (
+        !isTestFile
+        && path !== TIME_FORMAT_OWNER
+        && LOCALE_FORMAT_METHODS.has(accessName(node.expression) ?? "")
+      ) {
+        report(node, "viewer-time", "render times through TzTime or LocalTime, never a bare toLocale* call");
+      }
+
+      if (
+        !isTestFile
+        && !INTL_FORMAT_OWNERS.has(path)
+        && ts.isPropertyAccessExpression(node.expression)
+        && node.expression.name.text === "DateTimeFormat"
+        && ts.isIdentifier(node.expression.expression)
+        && node.expression.expression.text === "Intl"
+      ) {
+        report(node, "viewer-time", "resolve the viewer's zone through viewerTimeZone() in src/shared/lib/time.ts");
+      }
+
       if (
         !isTestFile
         && path !== IDENTITY_RESOLUTION_FILE

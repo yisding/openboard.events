@@ -17,7 +17,7 @@ import {
 import { AppError } from "@/shared/lib/errors";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { log } from "@/shared/lib/log";
-import { addDuration } from "@/shared/lib/time";
+import { addDuration, formatInZone } from "@/shared/lib/time";
 import { randomBytes, sha256, toBase64Url } from "@/shared/lib/crypto";
 import { sealPlatformAdminLinkPayload } from "@/shared/server/admin-link-payload";
 import type { InviteEventReviewerInput, InviteOrganizationMemberInput } from "../schemas";
@@ -165,7 +165,9 @@ export async function inviteOrganizationMemberIn(
   actionUrl.searchParams.set("token", issued.raw);
   const secretPayloadCiphertext = await sealPlatformAdminLinkPayload({
     url: actionUrl.toString(),
-    expiresIn: new Intl.DateTimeFormat("en", { dateStyle: "long", timeZone: "UTC" }).format(issued.expiresAt),
+    // UTC, matching the expiry the team panel shows — the email and the UI
+    // must not disagree by a day for anyone west of UTC.
+    expiresIn: formatInZone(issued.expiresAt, "UTC", { dateStyle: "long" }),
     organizationName: issued.organizationName,
     inviterName: issued.inviterEmail,
     invitationRole: issued.role,

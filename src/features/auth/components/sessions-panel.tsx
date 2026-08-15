@@ -12,6 +12,7 @@ import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
 import { isAppError, isDefinitiveWriteFailure } from "@/shared/lib/errors";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
+import { LocalTime } from "@/shared/ui/app/local-time";
 
 // Server-provided props, not user input parsed off the wire — so this is a
 // plain type, not a zod schema (unlike `revokedSchema`/`revokedAllSchema`
@@ -191,8 +192,8 @@ export function SessionsPanel({ initialSessions }: { initialSessions: AdminSessi
   const columns = useMemo<Array<ColumnDef<AdminSessionSummary, unknown>>>(() => [
     { id: "device", header: "Device", cell: ({ row }) => row.original.userAgent ?? "Unknown device" },
     { id: "ip", header: "IP address", cell: ({ row }) => row.original.ipAddress ?? "—" },
-    { id: "createdAt", header: "Signed in", cell: ({ row }) => new Date(row.original.createdAt).toLocaleString() },
-    { id: "expiresAt", header: "Expires", cell: ({ row }) => new Date(row.original.expiresAt).toLocaleString() },
+    { id: "createdAt", header: "Signed in", cell: ({ row }) => <LocalTime instant={row.original.createdAt} /> },
+    { id: "expiresAt", header: "Expires", cell: ({ row }) => <LocalTime instant={row.original.expiresAt} /> },
     { id: "actions", header: "", cell: ({ row }) => <Button variant="danger" size="sm" disabled={locked} onClick={() => setPendingRevoke(row.original)}>Revoke</Button> },
   ], [locked]);
 
