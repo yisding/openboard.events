@@ -23,6 +23,8 @@ export const { POST } = definePrivateJobRoute("cleanup", async (): Promise<JobSt
     ...retention,
     ...operationalErrors,
     nudgedStalledExports: nudged.nudged,
+    // Non-zero means the backlog outran one tick's bounded batch.
+    deferredStalledExports: nudged.deferred,
     deletedExpiredExports: exports.deleted,
   };
 });
