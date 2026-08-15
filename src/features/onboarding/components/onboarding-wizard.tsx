@@ -9,7 +9,7 @@ import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
-import { isAppError } from "@/shared/lib/errors";
+import { isAppError, isDefinitiveWriteFailure } from "@/shared/lib/errors";
 import { eventDtoSchema, trackDtoSchema, type EventDTO, type OrganizationId, type TrackDTO } from "@/shared/contracts";
 import type { OnboardingStep } from "../progress-types";
 import { EVENT_TYPES, type EventType } from "@/features/events/index.schemas";
@@ -80,10 +80,6 @@ type OnboardingEventFields = {
 };
 
 export type CfpDeadlineChoice = "four_weeks" | "two_weeks" | "one_week" | "custom" | "none";
-
-export function onboardingEventCreateOutcomeUnknown(error: unknown): boolean {
-  return !isAppError(error) || error.code === "INTERNAL";
-}
 
 export function retainOnboardingEventCreateFields(
   retained: OnboardingEventFields | null,
@@ -182,13 +178,13 @@ export async function createAndReconcileOnboardingTrack(input: {
   try {
     return { status: "added", track: await input.create() };
   } catch (error) {
-    if (isAppError(error) && error.code !== "INTERNAL") return { status: "refused", error };
+    if (isDefinitiveWriteFailure(error)) return { status: "refused", error };
     try {
       // The create endpoint treats this stable id as a correlation token, so
       // a replay either creates the row or returns the exact committed row.
       return { status: "added", track: await input.create() };
     } catch (retryError) {
-      if (isAppError(retryError) && retryError.code !== "INTERNAL") {
+      if (isDefinitiveWriteFailure(retryError)) {
         return { status: "refused", error: retryError };
       }
       try {
@@ -220,7 +216,7 @@ export async function deleteAndReconcileOnboardingTrack(input: {
     // request and refused it before the mutation. In that case a list read is
     // causally safe and can restore the authoritative row (or observe a
     // concurrent deletion by someone else).
-    if (!isAppError(error) || error.code === "INTERNAL") {
+    if (!isDefinitiveWriteFailure(error)) {
       try {
         // DELETE is idempotent. Waiting for a successful replay establishes
         // completion even when the first request is still running after its
@@ -494,7 +490,7 @@ export function OnboardingWizard({
       toast(event ? `${saved.name} updated` : `${saved.name} created`);
       setStep(2);
     } catch (caught) {
-      const outcomeUnknown = !event && onboardingEventCreateOutcomeUnknown(caught);
+      const outcomeUnknown = !event && !isDefinitiveWriteFailure(caught);
       setEventCreateRecoveryRequired(outcomeUnknown);
       if (!outcomeUnknown) eventCreateFieldsRef.current = null;
       const fields = isAppError(caught) ? caught.fieldErrors : undefined;

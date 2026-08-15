@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import type { CommStatus, ContactId, EventId, SendReminderNowInput } from "@/shared/contracts";
 import type { OpenAssignmentRow } from "@/features/comms";
-import { isAppError } from "@/shared/lib/errors";
+import { isAppError, isDefinitiveWriteFailure } from "@/shared/lib/errors";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { Dash } from "@/shared/ui/app/dash";
 import { Button, Modal } from "@/shared/ui/ui-kit";
@@ -24,10 +24,6 @@ type FrozenReminderAttempt = {
 
 function assignmentKey(assignment: Pick<OpenAssignmentRow, "taskId" | "submissionId">): string {
   return `${assignment.taskId}:${assignment.submissionId ?? "-"}`;
-}
-
-function outcomeIsUnknown(caught: unknown): boolean {
-  return !isAppError(caught) || caught.code === "INTERNAL";
 }
 
 function recoveredAttemptMessage(status: CommStatus): string {
@@ -116,7 +112,7 @@ export function SendReminderDialog({
       }
       setPending((current) => current?.input.attemptId === attempt.input.attemptId ? null : current);
     } catch (caught) {
-      if (outcomeIsUnknown(caught)) {
+      if (!isDefinitiveWriteFailure(caught)) {
         setPending((current) => current?.input.attemptId === attempt.input.attemptId
           ? { ...current, outcomeUnknown: true }
           : current);

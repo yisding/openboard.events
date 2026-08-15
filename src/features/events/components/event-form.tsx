@@ -6,7 +6,7 @@ import { Button, Field, Select } from "@/shared/ui/ui-kit";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
-import { isAppError } from "@/shared/lib/errors";
+import { isAppError, isDefinitiveWriteFailure } from "@/shared/lib/errors";
 import { eventDtoSchema } from "@/shared/contracts";
 import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
 import { timeZoneOptionLabel } from "@/shared/lib/time";
@@ -31,10 +31,6 @@ const FIELD_IDS: Record<string, string> = {
   startsAt: "event-starts-at",
   endsAt: "event-ends-at",
 };
-
-export function eventCreateOutcomeUnknown(error: unknown): boolean {
-  return !isAppError(error) || error.code === "INTERNAL";
-}
 
 function browserTimeZones(): string[] {
   try {
@@ -141,7 +137,7 @@ export function EventForm() {
       toast(`${created.name} created`);
       router.push(`/events/${created.id}/settings?tab=details`);
     } catch (caught) {
-      setRecoveryRequired(eventCreateOutcomeUnknown(caught));
+      setRecoveryRequired(!isDefinitiveWriteFailure(caught));
       const fields = isAppError(caught) ? caught.fieldErrors : undefined;
       const summary = caught instanceof Error ? caught.message : "That event did not save";
       fail(summary, fields ?? {});

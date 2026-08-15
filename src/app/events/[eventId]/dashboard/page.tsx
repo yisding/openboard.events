@@ -9,7 +9,7 @@ import { resolveDashboardTab } from "@/features/dashboard/lib/dashboard-tab";
 import { computeEventPhase, defaultTabForPhase } from "@/features/dashboard/lib/phase";
 import { eventIdSchema } from "@/shared/contracts";
 import { captureError } from "@/shared/lib/error-tracking";
-import { isAppError } from "@/shared/lib/errors";
+import { isDefinitiveWriteFailure } from "@/shared/lib/errors";
 
 export const metadata: Metadata = { title: "Dashboard" };
 export const dynamic = "force-dynamic";
@@ -31,7 +31,7 @@ export default async function Page({ params, searchParams }: { params: Promise<{
     // endpoint instead of being visible only as a fallback card — but keep
     // `defineHandler`'s law that only unexpected failures are captured, so an
     // expected AppError does not trip the `errors.recentCount` alert.
-    if (!isAppError(error) || error.code === "INTERNAL") {
+    if (!isDefinitiveWriteFailure(error)) {
       const requestId = (await headers()).get("cf-ray") ?? crypto.randomUUID();
       captureError(error, { requestId, feature: "dashboard", code: "OVERVIEW_LOAD_FAILED", eventId });
     }

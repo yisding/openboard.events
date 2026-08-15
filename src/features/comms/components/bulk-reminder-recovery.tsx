@@ -9,7 +9,7 @@ import {
   type EventId,
 } from "@/shared/contracts";
 import { api } from "@/shared/lib/api-client";
-import { isAppError } from "@/shared/lib/errors";
+import { isAppError, isDefinitiveWriteFailure } from "@/shared/lib/errors";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button } from "@/shared/ui/ui-kit";
@@ -47,10 +47,6 @@ export type BulkReminderRecoveryController = {
   finishCleanup: () => void | Promise<void>;
   clearUnreadable: () => void;
 };
-
-function isUnknownOutcome(caught: unknown): boolean {
-  return !isAppError(caught) || caught.code === "INTERNAL";
-}
 
 function sameUnresolvedAttempt(left: BulkReminderRecovery, right: BulkReminderRecovery): boolean {
   return !left.resolution
@@ -249,7 +245,7 @@ export function useBulkReminderRecovery({
       if (!persistConfirmed(attempt, resolved)) return false;
       return complete(resolved);
     } catch (caught) {
-      if (isUnknownOutcome(caught)) {
+      if (!isDefinitiveWriteFailure(caught)) {
         updateRecovery(attempt);
         toast("Could not confirm which reminders were queued. Retry the exact batch to recover its current status.", { kind: "error" });
         return false;
