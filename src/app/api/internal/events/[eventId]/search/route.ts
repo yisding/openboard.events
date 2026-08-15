@@ -6,9 +6,16 @@ import { AppError } from "@/shared/lib/errors";
 import { defineHandler } from "@/shared/server/handler";
 
 /**
- * M58 — the command palette's entity-jump backend. Any member may search
- * (a reviewer looking up a submission by code is a legitimate palette use),
- * same access rule as the Abstracts table itself.
+ * M58 — the command palette's entity-jump backend.
+ *
+ * Organizer-only, and deliberately so: every result links into a view that is
+ * itself organizer-only (the Abstracts table, the speaker roster, the agenda),
+ * so widening the guard here would answer a reviewer with a list of places they
+ * cannot go. `adminAuth()`'s unnamed default is that organizer role — the
+ * fail-closed one `guards.ts` describes — not an oversight.
+ *
+ * The palette knows this and offers a reviewer the verb list alone, so nothing
+ * should be reaching this route with a reviewer's session.
  */
 const searchHandler = defineHandler({
   auth: adminAuth(),

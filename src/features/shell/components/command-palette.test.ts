@@ -108,4 +108,38 @@ describe("paletteEggsForQuery", () => {
       expect(item.key.startsWith("egg:")).toBe(true);
     }
   });
+
+  it("offers a reviewer commands only, never the entity search that would fail for them", () => {
+    const html = renderToStaticMarkup(React.createElement(ToastProvider, null, React.createElement(PaletteDialog, {
+      eventId: "00000000-0000-4000-8000-000000000001",
+      base: "/events/00000000-0000-4000-8000-000000000001",
+      role: "reviewer",
+      onClose: () => undefined,
+    })));
+
+    // The placeholder is the promise the palette makes. A reviewer's search
+    // route answers FORBIDDEN and every result links somewhere they cannot go,
+    // so promising speakers and submissions sets them up for an error with a
+    // Retry button that can never succeed.
+    expect(html).toContain('placeholder="Run a command"');
+    expect(html).not.toContain("Jump to a speaker");
+  });
+
+  it("still offers an organizer the entity search", () => {
+    const html = renderToStaticMarkup(React.createElement(ToastProvider, null, React.createElement(PaletteDialog, {
+      eventId: "00000000-0000-4000-8000-000000000001",
+      base: "/events/00000000-0000-4000-8000-000000000001",
+      role: "organizer",
+      onClose: () => undefined,
+    })));
+    expect(html).toContain("Jump to a speaker");
+  });
+
+  it("does not fire the organizer-only search request for a reviewer", () => {
+    const source = readFileSync(new URL("./command-palette.tsx", import.meta.url), "utf8");
+    // The guard belongs in the effect itself, not only in the copy: a reviewer
+    // typing two characters must make no request at all.
+    expect(source).toContain("if (!entitySearch || term.length < 2)");
+    expect(source).toContain('const entitySearch = role !== "reviewer"');
+  });
 });

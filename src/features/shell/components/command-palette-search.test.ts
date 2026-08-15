@@ -173,4 +173,15 @@ describe("command palette search feedback", () => {
       retry: true,
     });
   });
+
+  it("does not promise entity results to a palette that has none", () => {
+    // The verbs-only (reviewer) palette. "Keep typing to search speakers,
+    // submissions, and sessions" would be an invitation to wait for results
+    // that are never coming.
+    expect(commandPaletteSearchFeedback(idleCommandPaletteSearch("zzz"), 0, { entitySearch: false })).toEqual({
+      message: "No commands match \u201Czzz\u201D.",
+      visible: true,
+      retry: false,
+    });
+  });
 });
