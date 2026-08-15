@@ -5,6 +5,7 @@ import { db, type DbOrTx } from "@/db/client";
 import { fileAssets } from "@/db/schema";
 import { fileIdSchema, type ContactId, type EventId, type FileId, type FileKind, type JobStats, type MemberRole, type UserId } from "@/shared/contracts";
 import { getEnv } from "@/shared/lib/env";
+import { captureError } from "@/shared/lib/error-tracking";
 import { AppError } from "@/shared/lib/errors";
 import { log } from "@/shared/lib/log";
 
@@ -744,9 +745,7 @@ export async function cleanupOrphanUploads(olderThanHours = 24): Promise<{ delet
     // The row that held the key is already gone, so a failed delete can never be
     // retried from the database — log the keys or the object is silently stranded.
     const { stranded } = await deleteObjects(keys);
-    if (stranded.length > 0) {
-      log({ level: "warn", msg: "r2.cleanup.object_delete_failed", requestId: "cron", feature: "uploads", code: stranded.join(",") });
-    }
+    reportStrandedObjects(stranded, { feature: "uploads", requestId: "cron" });
   }
   return { deleted: keys.length };
 }
@@ -884,9 +883,7 @@ export async function sweepOrphanStagingObjectsIn(
   if (orphanKeys.length === 0) return { deleted: 0, scanned, skipped: false };
 
   const stranded = await failedDeleteKeys(orphanKeys, deleteKey);
-  if (stranded.length > 0) {
-    log({ level: "warn", msg: "r2.orphan_sweep.object_delete_failed", requestId: "cron", feature: "uploads", code: stranded.join(",") });
-  }
+  reportStrandedObjects(stranded, { feature: "uploads", requestId: "cron" });
   return { deleted: orphanKeys.length - stranded.length, scanned, skipped: false };
 }
 
@@ -937,6 +934,27 @@ export async function deleteObjects(keys: readonly string[]): Promise<{ stranded
   return { stranded: await failedDeleteKeys(keys, (key) => bucket.delete(key)) };
 }
 
+/**
+ * A stranded key's owning `file_assets` row is already gone, so nothing can
+ * ever retry the delete: the object is unreachable and billed forever, and no
+ * sweep can find it (the orphan sweep only lists the `staging/` prefix).
+ *
+ * That is an operator's problem, not a debug note. `log({ level: "warn" })`
+ * left it out of `operational_error_buckets` and therefore out of the
+ * `errors.recentCount` alert in docs/runbooks/alerting.md, so every one of
+ * these went unnoticed.
+ */
+export function reportStrandedObjects(
+  keys: readonly string[],
+  context: { feature: string; requestId: string; eventId?: EventId },
+): void {
+  if (keys.length === 0) return;
+  captureError(
+    new Error(`R2 objects were not deleted and can no longer be reached: ${keys.join(", ")}`),
+    { ...context, code: "R2_OBJECT_STRANDED" },
+  );
+}
+
 /** Run independent deletes and retain every key whose deletion rejected or explicitly failed. */
 async function failedDeleteKeys(
   keys: readonly string[],
@@ -981,9 +999,7 @@ export async function purgeOrphanedFileAssets(candidateIds: readonly string[]): 
   const keys = (deleted.rows ?? []).map((row) => row.r2_key);
   if (keys.length === 0) return { deleted: 0 };
   const { stranded } = await deleteObjects(keys);
-  if (stranded.length > 0) {
-    log({ level: "warn", msg: "r2.contact_erasure.object_delete_failed", requestId: "gdpr", feature: "uploads", code: stranded.join(",") });
-  }
+  reportStrandedObjects(stranded, { feature: "uploads", requestId: "gdpr" });
   return { deleted: keys.length };
 }
 
