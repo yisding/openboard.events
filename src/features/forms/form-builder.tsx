@@ -108,6 +108,40 @@ export function questionLabelList(fields: BuilderField[]): string {
   return `${labels.slice(0, -1).join(", ")}, and ${labels.at(-1)}`;
 }
 
+/**
+ * Re-pair a re-typed option list with the ids it already had, the same way the
+ * server's `reconcileFreeformOptions` does: exact label first, then whatever is
+ * left over in order.
+ *
+ * The Options textarea used to rebuild this list by *array index*, while its
+ * own hint promises "existing option ids are preserved" and the server matches
+ * by label. Deleting a line therefore slid every id up one: an unsaved list
+ * `[Workshop(id1), Talk(id2)]` with the Workshop line removed became
+ * `id1 -> "Talk"`, and a visibility rule built against that local list (the
+ * inspector hands it straight to the condition editor, which stores
+ * `option.id`) persisted `id1` — still Workshop on the server. The rule then
+ * means the opposite of what was picked, and nothing errors.
+ *
+ * Blank entries are kept here so pressing Enter does not delete the line being
+ * typed; `saveField` is what drops them before they reach the API.
+ */
+export function repairedOptionList(
+  existing: readonly { id: string; label: string }[],
+  labels: readonly string[],
+): Array<{ id: string; label: string }> {
+  const unused = [...existing];
+  return labels.map((label, index) => {
+    // A blank line never claims an existing id. Otherwise an Enter pressed
+    // mid-list would consume the next option's id and hand it to nothing,
+    // pushing every id below it onto the wrong label — the same mis-pairing
+    // this function exists to prevent.
+    if (!label.trim()) return { id: `draft-${index}`, label };
+    const exact = unused.findIndex((option) => option.label === label);
+    const picked = exact >= 0 ? unused.splice(exact, 1)[0] : unused.shift();
+    return picked ? { ...picked, label } : { id: `draft-${index}`, label };
+  });
+}
+
 export function withRequiredSpeakerRole(roles: BuilderForm["participantRoles"]): BuilderForm["participantRoles"] {
   return roles.map((role) => role.role === "speaker" && !role.enabled ? { ...role, enabled: true } : role);
 }
@@ -541,7 +575,12 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
       key: field.key,
       fieldType: field.fieldType,
       required: field.required,
-      optionLabels: field.options.map((option) => option.label),
+      // Blank lines are legitimate while typing (pressing Enter before the
+      // next option) but the route rejects them — `z.string().trim().min(1)` —
+      // as a generic "Request validation failed", which silently discarded the
+      // label, help-text and maxChars edits in the same patch. The portal
+      // sibling and the server's own reconcile both already strip them.
+      optionLabels: field.options.map((option) => option.label.trim()).filter(Boolean),
       visibility: field.visibility,
       mapsTo: field.mapsTo,
     };
@@ -876,7 +915,7 @@ function FieldInspector({ field, form, onChange, onSave, onDelete, busy }: { fie
     {["text", "textarea", "richtext"].includes(field.fieldType) && <Field label="Maximum characters"><input type="number" min={1} value={field.maxChars ?? ""} onChange={(current) => onChange({ maxChars: current.target.value ? Number(current.target.value) : null })} /></Field>}
     <div className="inline-setting"><div><b>Required</b><small>Speakers must answer this question.</small></div><Switch label={`Require ${field.label}`} checked={field.required} disabled={field.locked || lockedStructure} onClick={() => onChange({ required: !field.required })} /></div>
     <Field label="Blind review" hint={field.locked ? "Locked identity fields are always hidden from anonymized reviewers." : "Anonymized rounds show only the answers marked as submission content. Anything left as identity is withheld."}><Select disabled={field.locked} value={field.reviewVisibility} onChange={(current) => onChange({ reviewVisibility: current.target.value as ReviewVisibility })}><option value="identity">Identity — hide from anonymized reviewers</option><option value="content">Submission content — show to anonymized reviewers</option></Select></Field>
-    {["dropdown", "multiselect"].includes(field.fieldType) && <Field label="Options" hint={lockedStructure ? "Options are locked after the first submission." : field.mapsTo === "submission.track_id" ? "One existing event track per line; bindings are validated on save." : field.mapsTo === "submission.format_id" ? "One existing session format per line; bindings are validated on save." : "One option per line; existing option ids are preserved."}><textarea disabled={lockedStructure} value={field.options.map((option) => option.label).join("\n")} onChange={(current) => onChange({ options: current.target.value.split("\n").map((label, index) => ({ ...(field.options[index] ?? { id: `draft-${index}` }), label })) })} /></Field>}
+    {["dropdown", "multiselect"].includes(field.fieldType) && <Field label="Options" hint={lockedStructure ? "Options are locked after the first submission." : field.mapsTo === "submission.track_id" ? "One existing event track per line; bindings are validated on save." : field.mapsTo === "submission.format_id" ? "One existing session format per line; bindings are validated on save." : "One option per line; existing option ids are preserved."}><textarea disabled={lockedStructure} value={field.options.map((option) => option.label).join("\n")} onChange={(current) => onChange({ options: repairedOptionList(field.options, current.target.value.split("\n")) })} /></Field>}
     {/* Locked identity questions keep this control visible but read-only: the
         mapping is the reason they cannot be deleted or remapped, so hiding it
         left the refusal unexplained. */}

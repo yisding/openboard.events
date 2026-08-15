@@ -690,10 +690,28 @@ async function reconcileOptions(
     ? await dbOrTx.select({ id: tracks.id, name: tracks.name }).from(tracks).where(eq(tracks.eventId, eventId))
     : await dbOrTx.select({ id: sessionFormats.id, name: sessionFormats.name }).from(sessionFormats).where(eq(sessionFormats.eventId, eventId));
   const byLabel = new Map(vocabulary.map((row) => [row.name.trim().toLocaleLowerCase(), row]));
+  const byId = new Map(vocabulary.map((row) => [row.id, row]));
   const seenBindings = new Set<string>();
 
+  const boundIdFor = (label: string): string | null => {
+    const existing = field.options.find((option) => option.label.trim().toLocaleLowerCase() === label.toLocaleLowerCase());
+    return (mapsTo === "submission.track_id" ? existing?.trackId : existing?.formatId) ?? null;
+  };
+
   return labels.map((label) => label.trim()).filter(Boolean).map((label) => {
-    const row = byLabel.get(label.toLocaleLowerCase());
+    // Label first, then the binding the stored option already carries. Nothing
+    // propagates a track or format rename into `form_fields.options[].label`,
+    // and `updateFieldIn` re-runs this reconcile on *every* patch to a mapped
+    // field — feeding it the stale stored labels even when the patch never
+    // touched options. Resolving by label alone therefore meant renaming a
+    // track permanently bricked the question bound to it: editing that
+    // question's help text failed with `"AI" is not an event track`, and it
+    // could never be saved again until every label was retyped by hand. The
+    // id lookup below already existed for the identity half of this; it just
+    // sat behind the throw. Adopting `row.name` heals the stored label as a
+    // side effect, so the rename propagates on the next save.
+    const row = byLabel.get(label.toLocaleLowerCase())
+      ?? ((bound) => (bound ? byId.get(bound) : undefined))(boundIdFor(label));
     if (!row) {
       const kind = mapsTo === "submission.track_id" ? "track" : "session format";
       throw new AppError("VALIDATION", `“${label}” is not an event ${kind}. Choose an existing ${kind} before saving.`);
@@ -859,6 +877,13 @@ export async function duplicateFormIn(dbOrTx: DbOrTx, eventId: EventId, formId: 
     kind: source.kind,
     collectParticipants: source.collectParticipants,
     targetType: source.targetType,
+    // A per-speaker cap is a setting, not part of the submissions/analytics
+    // trail this copy deliberately leaves behind — and the docstring above
+    // enumerates what it omits, which never included this. Dropping it made the
+    // copy silently fall back to the event-wide `submissionCapPerUser`
+    // (`public-form.ts`), so a form limited to one proposal per speaker
+    // duplicated into one that accepts the event default.
+    submissionLimit: source.submissionLimit,
     showWelcome: source.showWelcome,
     welcomeHtml: source.welcomeHtml,
     successHtml: source.successHtml,
