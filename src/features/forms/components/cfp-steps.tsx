@@ -95,6 +95,26 @@ function answerIsEmpty(field: FormField, value: AnswerValue | undefined): boolea
   return false;
 }
 
+/**
+ * The answers a co-speaker's conditional questions may be evaluated against.
+ *
+ * The server evaluates a participant section against the abstract answers plus
+ * that participant's own (`submit.ts` builds `abstractContext` from the
+ * abstract snapshot alone). Handing a co-speaker the wizard's whole `answers`
+ * object also hands them the *primary's* participant answers, so client and
+ * server disagree: a question gated on another participant field renders for
+ * one and not the other. In the `answered`/`eq` direction the co-speaker fills
+ * in a field the server then discards as hidden; in the `empty`/`neq`
+ * direction the server requires one their form never showed them, and the
+ * submission cannot be completed at all.
+ */
+export function abstractAnswersOnly(snapshot: FormSnapshot, answers: Answers): Answers {
+  const abstractIds = new Set(
+    snapshot.sections.filter((section) => section.key !== "participant").flatMap((section) => section.fields.map((field) => field.id)),
+  );
+  return Object.fromEntries(Object.entries(answers).filter(([fieldId]) => abstractIds.has(fieldId as FieldId))) as Answers;
+}
+
 export function stepFieldErrors(
   snapshot: FormSnapshot,
   sectionKeys: string[],
@@ -598,7 +618,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
     const primaryErrors = stepFieldErrors(snapshot, ["participant"], answers);
     const participantErrors = Object.fromEntries(coSpeakers.map((participant) => [
       participant.clientId,
-      stepFieldErrors(snapshot, ["participant"], participant.answers, answers),
+      stepFieldErrors(snapshot, ["participant"], participant.answers, abstractAnswersOnly(snapshot, answers)),
     ]));
     setErrors(primaryErrors);
     setCoSpeakerErrors(participantErrors);
@@ -819,7 +839,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
                 mode="edit"
                 sectionKeys={["participant"]}
                 participantId={participant.clientId}
-                visibilityAnswers={answers}
+                visibilityAnswers={abstractAnswersOnly(snapshot, answers)}
                 errors={coSpeakerErrors[participant.clientId] ?? {}}
               />
             </div>
@@ -856,7 +876,7 @@ export function CfpSteps({ data }: { data: PublicForm }) {
                     mode="review"
                     sectionKeys={["participant"]}
                     participantId={participant.clientId}
-                    visibilityAnswers={answers}
+                    visibilityAnswers={abstractAnswersOnly(snapshot, answers)}
                   />
                 </div>
               ))}
