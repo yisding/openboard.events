@@ -1,5 +1,6 @@
 import { sql, type SQL } from "drizzle-orm";
 import { db, withTx, type DbOrTx } from "@/db/client";
+import { isConstraintViolation } from "@/db/errors";
 import {
   criterionIdSchema,
   type CriterionSpec,
@@ -37,15 +38,6 @@ const ASSIGNMENTS_LOCKED = "This round is no longer accepting review work. Reope
  * `cause`, so the constraint name is a level or two down. Missing it turns
  * "you already have a Round 1" into a 500.
  */
-function isUniqueNameViolation(error: unknown): boolean {
-  for (let current: unknown = error, depth = 0; current && depth < 5; depth += 1) {
-    const entry = current as { message?: unknown; constraint?: unknown; cause?: unknown };
-    if (entry.constraint === UNIQUE_NAME) return true;
-    if (typeof entry.message === "string" && entry.message.includes(UNIQUE_NAME)) return true;
-    current = entry.cause;
-  }
-  return false;
-}
 
 /** Track scope is `null` for "every track"; an empty multi-select means the same thing. */
 function normalizeTracks(trackIds: readonly TrackId[] | null): TrackId[] | null {
@@ -407,7 +399,7 @@ async function savePlanInTransaction(
     `);
     rows = result.rows ?? [];
   } catch (error) {
-    if (isUniqueNameViolation(error)) {
+    if (isConstraintViolation(error, UNIQUE_NAME)) {
       throw new AppError("VALIDATION", `This event already has a round called “${input.name}”`, { fieldErrors: { name: "Already used by another round" } });
     }
     throw error;
