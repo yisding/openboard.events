@@ -108,6 +108,36 @@ export type MoveSessionInput = z.infer<typeof moveSessionInputSchema>;
 const STALE_MESSAGE = "Session changed since you loaded it — refresh and try again";
 
 /**
+ * A session may not *become* published without a time.
+ *
+ * `published_sessions_v` filters on `starts_at IS NOT NULL`, so such a row is
+ * on no public surface; `schedule_revision` never leaves 0, so `notifySchedule`
+ * mails nobody. The List view badges it "Published" and the dialog's own option
+ * reads "Published — visible and speakers notified", which is then true of
+ * neither. `setSessionsPublished` already refuses exactly this in SQL, calling
+ * the predicate "the final defense against ever writing a
+ * published-but-publicly-invisible row" — the dialog simply reaches a different
+ * write path.
+ *
+ * Leaving an already-published session is a different act and stays allowed:
+ * dragging one back to the tray is a supported operation, and `notifySchedule`
+ * tells every speaker their calendar item is cancelled.
+ */
+function assertPublishable(
+  priorStatus: SessionStatus | null,
+  next: { status: SessionStatus; startsAt: string | null },
+): void {
+  if (next.status !== "published" || next.startsAt !== null) return;
+  if (priorStatus === "published") return;
+  throw new AppError(
+    "VALIDATION",
+    "Schedule this session before publishing it, or save it as a draft",
+    undefined,
+    { startsAt: "Schedule this session before publishing it, or save it as a draft" },
+  );
+}
+
+/**
  * `enqueueEmail` is typed against `TxDb` because most of its callers are audited
  * transactions. `saveSession`'s publish path is deliberately not one — the same
  * accommodation the reminder scan makes, and for the same reason: the outbox
@@ -497,6 +527,7 @@ export async function saveSessionIn(
     // replay is proof of an already committed operation and must be recovered
     // above even if the event was narrowed after that commit.
     await assertWithinEventBounds(dbOrTx, eventId, input.startsAt, input.endsAt);
+    assertPublishable(null, input);
     const base = slugify(input.title) || "session";
     // Retry on the constraint rather than pre-checking: a pre-check races, the
     // unique index does not. This is why `saveSession` runs on the autocommitting
@@ -564,6 +595,7 @@ export async function saveSessionIn(
   `);
   const prior = (before.rows ?? [])[0];
   if (!prior) throw new AppError("NOT_FOUND", "Session not found");
+  assertPublishable(prior.status, input);
   const priorSpeakers = new Set((prior.speaker_ids ?? []) as ContactId[]);
   const speakerSetChanged = speakers.length !== priorSpeakers.size
     || speakers.some((contactId) => !priorSpeakers.has(contactId));

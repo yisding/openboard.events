@@ -400,13 +400,46 @@ describe("agenda sessions", () => {
       speakerContactIds: [ada, grace], status: "draft",
     });
 
-    const untimed = await createSession({ title: "Published but unplaced", speakerContactIds: [ada], status: "published" });
+    // A published session with no time can only be reached by unscheduling one
+    // that had a time — publishing an unscheduled session is refused below.
+    // Adding a speaker to it must still mail nobody: the session is on no
+    // public schedule, so there is no calendar item to assign.
+    const timed = await createSession({
+      title: "Published but unplaced", speakerContactIds: [ada], status: "published",
+      startsAt: at("2026-09-15T19:00:00Z"), endsAt: at("2026-09-15T19:30:00Z"),
+    });
+    const unscheduled = await moveSession(eventId, {
+      id: timed.id, version: timed.rowVersion, startsAt: null, endsAt: null, roomId: null,
+    });
+    await pglite.exec("TRUNCATE communication_logs CASCADE");
+
     await saveSession(eventId, {
-      id: untimed.id, expectedVersion: untimed.rowVersion, title: "Published but unplaced",
+      id: timed.id, expectedVersion: unscheduled.session.rowVersion, title: "Published but unplaced",
       descriptionHtml: "", formatId: null, trackId: null, roomId: null,
       startsAt: null, endsAt: null, speakerContactIds: [ada, grace], status: "published",
     });
 
+    expect(await count("communication_logs")).toBe(0);
+  });
+
+  it("refuses to publish a session that has no time", async () => {
+    // `setSessionsPublished` already refuses this in SQL. The dialog reaches a
+    // different path, and its own option reads "Published — visible and
+    // speakers notified" — true of neither for an unscheduled session.
+    const created = await saveSession(eventId, {
+      creationId: sessionIdSchema.parse(crypto.randomUUID()),
+      title: "Publish without a slot", descriptionHtml: "", formatId: null, trackId: null, roomId: null,
+      startsAt: null, endsAt: null, speakerContactIds: [ada], status: "published",
+    }).catch((error: unknown) => error);
+    expect(isAppError(created) && created.code).toBe("VALIDATION");
+
+    const draft = await createSession({ title: "Still unplaced", speakerContactIds: [ada] });
+    const promoted = await saveSession(eventId, {
+      id: draft.id, expectedVersion: draft.rowVersion, title: "Still unplaced",
+      descriptionHtml: "", formatId: null, trackId: null, roomId: null,
+      startsAt: null, endsAt: null, speakerContactIds: [ada], status: "published",
+    }).catch((error: unknown) => error);
+    expect(isAppError(promoted) && promoted.code).toBe("VALIDATION");
     expect(await count("communication_logs")).toBe(0);
   });
 
