@@ -618,7 +618,14 @@ export async function createFieldIn(dbOrTx: DbOrTx, eventId: EventId, formId: Fo
     visibility: null,
     mapsTo: null,
     reviewVisibility: "identity",
-    sortOrder: section.fields.length,
+    // Max + 1, not count: `getFormForBuilderIn` filters `deleted_at IS NULL`,
+    // but a soft-deleted row keeps its `sort_order`. After deleting the field
+    // at position 1 of three, `length` is 2 — the position the live last field
+    // already holds. `compileFormSnapshot` breaks that tie on field id, so the
+    // new question lands before or after its neighbour at random, and a
+    // visibility rule's "must be an earlier field" check resolves on the same
+    // coin flip.
+    sortOrder: section.fields.reduce((highest, existing) => Math.max(highest, existing.sortOrder), -1) + 1,
   };
   const nextMapsTo = input.mapsTo ?? null;
   assertUniqueMapsTo(fields, field.id, nextMapsTo);
