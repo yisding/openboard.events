@@ -291,6 +291,68 @@ describe("decide and notify", () => {
     expect(rows.rows[0]?.confirmation_status).toBe("confirmed");
   });
 
+  it("confirms every participant, so a co-speaker is not published off the session", async () => {
+    // `published_speakers_v` requires `confirmation_status = 'confirmed'`, and
+    // the public schedule joins through it. A co-speaker left unconfirmed is
+    // joined away, so the session publishes listing only its primary speaker.
+    const coSpeaker = "d1000000-0000-4000-8000-000000000021";
+    await pglite.query(
+      "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'co@example.com','Co','Speaker') ON CONFLICT DO NOTHING",
+      [coSpeaker, eventId],
+    );
+    await insert(toAccept, "accept_queue");
+    await pglite.query(
+      "INSERT INTO submission_participants(event_id,submission_id,contact_id,is_primary,sort_order) VALUES($1,$2,$3,true,0)",
+      [eventId, toAccept, speaker],
+    );
+    await pglite.query(
+      "INSERT INTO submission_participants(event_id,submission_id,contact_id,is_primary,sort_order) VALUES($1,$2,$3,false,1)",
+      [eventId, toAccept, coSpeaker],
+    );
+
+    await notifyQueues(eventId);
+
+    const rows = await pglite.query<{ id: string; confirmation_status: string }>(
+      "SELECT id, confirmation_status FROM contacts WHERE id = ANY($1::uuid[])", [[speaker, coSpeaker]],
+    );
+    const byId = Object.fromEntries(rows.rows.map((row) => [row.id, row.confirmation_status]));
+    expect(byId[speaker]).toBe("confirmed");
+    expect(byId[coSpeaker]).toBe("confirmed");
+  });
+
+  it("confirms participants of a submission accepted without a decision email", async () => {
+    // A direct move to `accepted` skips `notifyQueues`, so nothing confirmed
+    // anyone and the session published with an empty speaker array.
+    await insert(toAccept, "pending");
+    await pglite.query(
+      "INSERT INTO submission_participants(event_id,submission_id,contact_id,is_primary,sort_order) VALUES($1,$2,$3,true,0)",
+      [eventId, toAccept, speaker],
+    );
+
+    await transitionStatus(eventId, [toAccept], "accepted", "pending");
+
+    const rows = await pglite.query<{ confirmation_status: string }>(
+      "SELECT confirmation_status FROM contacts WHERE id=$1", [speaker],
+    );
+    expect(rows.rows[0]?.confirmation_status).toBe("confirmed");
+  });
+
+  it("does not re-confirm a speaker an organizer marked declined", async () => {
+    await pglite.query("UPDATE contacts SET confirmation_status='declined' WHERE id=$1", [speaker]);
+    await insert(toAccept, "pending");
+    await pglite.query(
+      "INSERT INTO submission_participants(event_id,submission_id,contact_id,is_primary,sort_order) VALUES($1,$2,$3,true,0)",
+      [eventId, toAccept, speaker],
+    );
+
+    await transitionStatus(eventId, [toAccept], "accepted", "pending");
+
+    const rows = await pglite.query<{ confirmation_status: string }>(
+      "SELECT confirmation_status FROM contacts WHERE id=$1", [speaker],
+    );
+    expect(rows.rows[0]?.confirmation_status).toBe("declined");
+  });
+
   it("confirms the primary participant, not whoever filled the form in", async () => {
     // A submitter may name somebody else as primary. Confirming the submitter
     // then says the wrong speaker is coming.

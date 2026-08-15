@@ -27,7 +27,7 @@ import {
   getPinnedSnapshotIn,
   secondaryParticipantRoleSchema,
 } from "@/features/forms/index.submission";
-import { getOrCreateContact, updateContactFields } from "@/features/event-contacts";
+import { confirmSubmissionParticipantsIn, getOrCreateContact, updateContactFields } from "@/features/event-contacts";
 import { randomInt } from "@/shared/lib/crypto";
 import { AppError } from "@/shared/lib/errors";
 import { log } from "@/shared/lib/log";
@@ -739,6 +739,10 @@ export async function transitionStatus(
   `);
 
   const changed = (updated.rows ?? []).map((row: { id: string }) => row.id as SubmissionId);
+  // A direct move to `accepted` skips `notifyQueues` entirely — no decision
+  // email, and previously no confirmation either, so the session published
+  // with an empty speaker array. Acceptance is what confirms a speaker.
+  if (to === "accepted") await confirmSubmissionParticipantsIn(db, eventId, changed);
   const changedSet = new Set<string>(changed);
   return { changed, stale: ids.filter((id) => !changedSet.has(id)) };
 }
@@ -984,14 +988,20 @@ export async function notifyQueues(
         });
         emailsQueued += 1;
 
-        // Auto-confirm on acceptance: there is no speaker-facing confirm button,
-        // so an accepted speaker is confirmed until an organizer says otherwise.
-        // It follows the *primary participant*, not the submitter — confirming
-        // the person who filled the form in on somebody else's behalf says the
-        // wrong speaker is coming.
-        const confirmed = (row.primary_contact ?? row.recipient) as ContactId | null;
-        if (templateKey === "submission_accepted" && confirmed) {
-          await updateContactFields(tx, eventId, confirmed, { confirmationStatus: "confirmed" });
+        // Auto-confirm on acceptance: there is no speaker-facing confirm
+        // button, so an accepted speaker is confirmed until an organizer says
+        // otherwise. Every participant, not only the primary — a co-speaker
+        // left unconfirmed is joined out of `published_speakers_v` and the
+        // session publishes without them. The submitter is still not confirmed
+        // by being the submitter: confirming the person who filled the form in
+        // on somebody else's behalf says the wrong speaker is coming, so the
+        // recipient fallback applies only when the row has no participants.
+        if (templateKey === "submission_accepted") {
+          await confirmSubmissionParticipantsIn(tx, eventId, [row.id]);
+          const fallback = (row.primary_contact ?? row.recipient) as ContactId | null;
+          if (!row.primary_contact && fallback) {
+            await updateContactFields(tx, eventId, fallback, { confirmationStatus: "confirmed" });
+          }
         }
       }
     }
