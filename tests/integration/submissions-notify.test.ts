@@ -42,7 +42,15 @@ vi.mock("@/db/client", async (importOriginal) => {
   return {
     ...actual,
     db: new Proxy({}, { get: (_target, property) => Reflect.get(tx as object, property, tx) }),
-    withTx: async (work: (handle: TxDb) => Promise<unknown>) => work(tx),
+    // A real `BEGIN`, not the ambient handle. `notifyQueues` and
+    // `transitionStatus` are two of the audited `withTx` compositions, and
+    // their contract is atomicity: running the callback outside a transaction
+    // means a mid-batch failure leaves partial status writes and queued email
+    // behind while every assertion here still passes, and the concurrency test
+    // below has no row lock to serialize on.
+    withTx: async (work: (handle: TxDb) => Promise<unknown>) => (
+      tx as unknown as { transaction: (callback: (handle: TxDb) => Promise<unknown>) => Promise<unknown> }
+    ).transaction(work),
   };
 });
 
@@ -212,6 +220,39 @@ describe("decide and notify", () => {
     expect(statuses.rows.map((row) => row.status)).toEqual(["accept_queue", "decline_queue"]);
     expect(await commsFor("submission_accepted")).toHaveLength(0);
     expect(await commsFor("submission_declined")).toHaveLength(0);
+  });
+
+  it("rolls the whole batch back when one decision email cannot be queued", async () => {
+    await insert(toAccept, "accept_queue");
+    await insert(toDecline, "decline_queue");
+    await pglite.exec(`
+      CREATE FUNCTION fail_decline_email() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.template_key = 'submission_declined' THEN
+          RAISE EXCEPTION 'forced decision email failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+      CREATE TRIGGER fail_decline_email BEFORE INSERT ON communication_logs
+      FOR EACH ROW EXECUTE FUNCTION fail_decline_email();
+    `);
+
+    const historyBefore = (await listSubmissionStatusHistoryIn(tx, eventId, toAccept)).length;
+
+    try {
+      await expect(notifyQueues(eventId)).rejects.toThrow();
+
+      // The half that succeeded must not survive its sibling's failure. If it
+      // did, the queue would show the acceptance already sent while its email
+      // never was, and pressing Notify again would skip it.
+      const statuses = await pglite.query<{ status: string }>("SELECT status FROM submissions ORDER BY code");
+      expect(statuses.rows.map((row) => row.status)).toEqual(["accept_queue", "decline_queue"]);
+      expect(await commsFor("submission_accepted")).toHaveLength(0);
+      expect(await listSubmissionStatusHistoryIn(tx, eventId, toAccept)).toHaveLength(historyBefore);
+    } finally {
+      await pglite.exec("DROP TRIGGER fail_decline_email ON communication_logs; DROP FUNCTION fail_decline_email();");
+    }
   });
 
   it("does nothing at all the second time Notify is pressed", async () => {
