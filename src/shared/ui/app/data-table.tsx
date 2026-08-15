@@ -346,8 +346,22 @@ export function DataTable<Row>({
 
   const rows = table.getRowModel().rows;
   const allRows = table.getPrePaginationRowModel().rows;
-  const previousDataRef = useRef(data);
-  const dataChanged = previousDataRef.current !== data;
+  // Identity of the *rows*, not of the array holding them. Any parent that
+  // updates a row in place — `.map()` returning a new array to bump one row's
+  // comment count, or an RSC refetch handing back the same rows in a fresh
+  // array — produced a new reference, and a new reference used to clear the
+  // whole selection. An organizer who had selected forty rows for a bulk action
+  // and then opened one of them to reply lost the selection with no message.
+  //
+  // Comparing ids keeps the resets that matter: a filter or a page of different
+  // rows changes the key, and the pruning effect below still drops any selected
+  // id that has genuinely left the data.
+  const rowIdentityKey = useMemo(
+    () => data.map((row, index) => (getRowId ?? defaultRowId)(row, index)).join("\u0000"),
+    [data, getRowId],
+  );
+  const previousDataRef = useRef(rowIdentityKey);
+  const dataChanged = previousDataRef.current !== rowIdentityKey;
   const canSelectAllRows = !serverPagination
     && !dataChanged
     && dataTableCanSelectAllRows(allRows.length, allRowsSelection);
@@ -358,11 +372,11 @@ export function DataTable<Row>({
     setActiveSelectionScope("page");
   }, [activeSelectionScope, canSelectAllRows]);
   useEffect(() => {
-    if (previousDataRef.current === data) return;
-    previousDataRef.current = data;
+    if (previousDataRef.current === rowIdentityKey) return;
+    previousDataRef.current = rowIdentityKey;
     setActiveSelectionScope("page");
     setRowSelection({});
-  }, [data]);
+  }, [rowIdentityKey]);
   // Page-local remains the default. An explicitly bounded all-row caller uses
   // the complete pre-pagination model instead, so its selected ids survive a
   // local page change but are still pruned as soon as data/filter eligibility
