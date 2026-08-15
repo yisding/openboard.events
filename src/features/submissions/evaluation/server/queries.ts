@@ -221,6 +221,36 @@ export function criterionSpecs(plan: PlanDTO): CriterionSpec[] {
   }));
 }
 
+/**
+ * A named round, but only if this reviewer is on it.
+ *
+ * `getPlanIn` filters on the plan id and the event alone. That is right for the
+ * organizer paths that call it, and wrong for the review queue: the page narrows
+ * `planId` against `listReviewerPlans` before calling, but
+ * `/api/internal/evaluation/[eventId]/queue` is `adminAuth({ role: "reviewer" })`
+ * and passes `input.planId` straight through. A reviewer assigned only to round 1
+ * — or to nothing at all — could name round 2 and receive its whole `PlanDTO`:
+ * scale, track scope, window, `anonymizeAuthors`, `showPeerScores`, every
+ * criterion with its weights and option scores, plus the round-wide progress
+ * count. `rows` was correctly empty, but `listReviewerPlansIn` exists precisely
+ * to bound what a reviewer learns about rounds they are not on.
+ *
+ * Answers `null` rather than raising, so an unassigned round is indistinguishable
+ * from having no assigned round at all — the caller already renders that shape.
+ */
+async function getReviewerPlanIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  reviewerUserId: UserId,
+  planId: PlanId,
+): Promise<PlanDTO | null> {
+  const [plan] = await selectPlans(dbOrTx, eventId, sql`p.id = ${planId} AND EXISTS (
+    SELECT 1 FROM reviewer_assignments a
+    WHERE a.plan_id = p.id AND a.event_id = p.event_id AND a.user_id = ${reviewerUserId}
+  )`);
+  return plan ?? null;
+}
+
 async function getReviewerDefaultPlanIn(
   dbOrTx: DbOrTx,
   eventId: EventId,
@@ -262,7 +292,7 @@ export async function listReviewQueueIn(
   now: Date = new Date(),
 ): Promise<ReviewQueueDTO> {
   const found = planId
-    ? await getPlanIn(dbOrTx, eventId, planId)
+    ? await getReviewerPlanIn(dbOrTx, eventId, reviewerUserId, planId)
     : await getReviewerDefaultPlanIn(dbOrTx, eventId, reviewerUserId);
   if (!found) return { plan: null, rows: [], progress: { scored: 0, total: 0 }, window: null };
   // The reviewer's copy from here down: the committee roster is the
