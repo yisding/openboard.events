@@ -182,7 +182,7 @@ function InviteButton({ eventId, contactId }: { eventId: string; contactId: stri
           if (!response.ok) throw new Error(json.error?.message ?? "Could not send that invitation");
           toast(json.data?.message ?? "Invitation sent");
         } catch (error) {
-          toast(error instanceof Error ? error.message : "Could not send that invitation");
+          toast(error instanceof Error ? error.message : "Could not send that invitation", { kind: "error" });
         } finally {
           setBusy(false);
         }
@@ -205,7 +205,7 @@ function WorkflowStatusPanel({ eventId, contactId, workflowStatus, onSaved }: {
       onSaved(await patchRoster(eventId, contactId, { workflowStatus: status }));
       toast("Pipeline status updated");
     } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not update pipeline status");
+      toast(error instanceof Error ? error.message : "Could not update pipeline status", { kind: "error" });
     } finally {
       setSaving(false);
     }
@@ -256,7 +256,7 @@ function AddLogisticsFieldRow({ eventId, onCreated }: { eventId: string; onCreat
       onCreated();
       toast("Field added");
     } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not create that field");
+      toast(error instanceof Error ? error.message : "Could not create that field", { kind: "error" });
     } finally {
       setSaving(false);
     }
@@ -354,7 +354,7 @@ function LogisticsPanel({ eventId, contactId, extras, onSaved }: { eventId: stri
       applyAuthority(fieldId, nextExtras);
       clearRecovery(fieldId);
       clearFieldError(fieldId);
-      toast("This field was removed while the save was being checked.");
+      toast("This field was removed while the save was being checked.", { kind: "error" });
       return;
     }
 
@@ -399,7 +399,7 @@ function LogisticsPanel({ eventId, contactId, extras, onSaved }: { eventId: stri
         setValues((current) => ({ ...current, [fieldId]: previous }));
         clearRecovery(fieldId);
         setFieldErrors((current) => ({ ...current, [fieldId]: message }));
-        toast(`${message}. The previous value was restored.`);
+        toast(`${message}. The previous value was restored.`, { kind: "error" });
       }
     } finally {
       activeFields.current.delete(fieldId);
@@ -530,7 +530,7 @@ function UnavailabilityPanel({ eventId, contactId, timezone, extras, onSaved }: 
     if (!validation.intervals) {
       setFieldErrors(validation.errors);
       window.requestAnimationFrame(() => sectionRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus());
-      toast("Complete each availability window before saving");
+      toast("Complete each availability window before saving", { kind: "error" });
       return;
     }
     setSaving(true);
@@ -549,7 +549,7 @@ function UnavailabilityPanel({ eventId, contactId, timezone, extras, onSaved }: 
       setFieldErrors([]);
       toast("Availability updated");
     } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not save availability");
+      toast(error instanceof Error ? error.message : "Could not save availability", { kind: "error" });
     } finally {
       setSaving(false);
     }

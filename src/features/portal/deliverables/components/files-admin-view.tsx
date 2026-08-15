@@ -303,7 +303,7 @@ export function FilesAdminView({
   async function startExport(groupBy: "none" | "session" | "speaker", selection = selected) {
     const targets = selection.filter((row) => row.latestVersion !== null);
     if (targets.length === 0) {
-      toast("Select at least one deliverable that has a file uploaded");
+      toast("Select at least one deliverable that has a file uploaded", { kind: "error" });
       return;
     }
     setExporting(true);
@@ -588,7 +588,7 @@ function DeliverableDrawer({
       setDraft((current) => current.key === key
         ? { ...current, attemptedId: null, attemptedBody: null }
         : current);
-      toast("The original comment was sent — your edited reply is still unsent");
+      toast("The original comment was sent — your edited reply is still unsent", { kind: "error" });
     }
   }, [currentDetail, draft, eventId, key, toast]);
 

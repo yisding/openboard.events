@@ -404,7 +404,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
     }
     const retryingRecovery = recovery !== null;
     if (!recovery && (!segment || !currentPreview || !canSend)) {
-      toast(segment?.capped ? "Refine the audience to 2,000 recipients or fewer" : "Preview this exact audience and message before sending");
+      toast(segment?.capped ? "Refine the audience to 2,000 recipients or fewer" : "Preview this exact audience and message before sending", { kind: "error" });
       return false;
     }
     const previewRecipient = segment?.preview.find((recipient) => recipient.contactId === previewContactId);

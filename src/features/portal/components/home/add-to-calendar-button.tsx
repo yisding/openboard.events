@@ -21,7 +21,7 @@ export function AddToCalendarButton({ eventId }: { eventId: string }) {
       const response = await fetch(`/api/internal/portal/calendar?eventId=${encodeURIComponent(eventId)}`, { method: "POST" });
       const payload = await response.json().catch(() => null) as { data?: { url: string } } | null;
       if (!response.ok || !payload?.data) {
-        toast("Could not open your calendar feed — try again");
+        toast("Could not open your calendar feed — try again", { kind: "error" });
         return;
       }
       globalThis.location.href = payload.data.url;

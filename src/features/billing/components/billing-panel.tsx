@@ -54,7 +54,7 @@ export function BillingPanel({
       });
       toast(`Redirecting to checkout for ${target.name}…`);
     } catch (caught) {
-      toast(isAppError(caught) ? caught.message : "That plan change did not start");
+      toast(isAppError(caught) ? caught.message : "That plan change did not start", { kind: "error" });
     } finally {
       setPendingPlanId(null);
     }

@@ -33,7 +33,7 @@ export function BrandingPanel({ event, onSaved }: { event: EventDTO; onSaved: (e
     } catch (caught) {
       toast(isAppError(caught) && caught.code === "STALE_WRITE"
         ? "This event changed since you loaded it — refresh to see the latest"
-        : "That image did not save");
+        : "That image did not save", { kind: "error" });
       return false;
     } finally {
       setBusyField(null);
