@@ -17,6 +17,54 @@ const OPERATOR_LABEL: Record<ConditionOp, string> = {
 };
 
 const VALUE_REQUIRED_OPS = new Set<ConditionOp>(["eq", "neq", "in", "not_in"]);
+/**
+ * The operators that take a *set*. `eq`/`neq` are deliberately not here:
+ * `expectedScalar` in `shared/lib/conditions.ts` reads `value[0]` and nothing
+ * else, and `equals` then demands an exact singleton match. Offering a
+ * multi-chip picker under "is" therefore built a rule reading "Topics is
+ * Frontend, Backend" that only ever matched Frontend — and matched neither for
+ * a respondent who picked both. `in`/`not in` are the set forms, and the
+ * contract file says so.
+ */
+const MULTI_VALUE_OPS = new Set<ConditionOp>(["in", "not_in"]);
+
+/** Whether this field/operator pair holds a set of option ids or a single value. */
+function wantsArray(op: ConditionOp, field: ConditionSourceField | undefined): boolean {
+  return field?.fieldType === "multiselect" && MULTI_VALUE_OPS.has(op);
+}
+
+/**
+ * Carry the organizer's choice across an operator change, reshaping it when the
+ * new operator holds a different shape.
+ *
+ * Only a multiselect ever changes shape — a dropdown and a text field stay
+ * scalar under every operator, so their value must survive untouched rather
+ * than snapping back to the first option.
+ */
+function valueForOp(
+  op: ConditionOp,
+  field: ConditionSourceField | undefined,
+  current: Condition["value"],
+): Condition["value"] {
+  if (!VALUE_REQUIRED_OPS.has(op)) return undefined;
+  if (current === undefined) return defaultValueFor(op, field);
+  const isArray = Array.isArray(current);
+  if (wantsArray(op, field)) return isArray ? current : current === "" ? defaultValueFor(op, field) : [current];
+  const scalar = isArray ? current[0] : current;
+  return scalar === undefined ? defaultValueFor(op, field) : scalar;
+}
+
+/**
+ * The one value `eq`/`neq` compare against, which is `expectedScalar`'s rule in
+ * `shared/lib/conditions.ts`. A rule saved before the builder stopped offering
+ * a set under those operators still holds an array; showing its first element
+ * is what the evaluator does and what the summary now says, so the control
+ * agrees with both instead of rendering an empty placeholder.
+ */
+function scalarValue(value: Condition["value"]): string {
+  const effective = Array.isArray(value) ? value[0] : value;
+  return typeof effective === "string" ? effective : "";
+}
 // A file question has nothing to compare against — only whether it was
 // uploaded at all is meaningful.
 const FILE_ONLY_OPS: readonly ConditionOp[] = ["answered", "empty"];
@@ -28,8 +76,8 @@ function operatorsFor(fieldType: FieldType | undefined): readonly ConditionOp[] 
 function defaultValueFor(op: ConditionOp, field: ConditionSourceField | undefined): Condition["value"] {
   if (!VALUE_REQUIRED_OPS.has(op)) return undefined;
   if (!field) return "";
-  if (field.fieldType === "multiselect") return field.options[0] ? [field.options[0].id] : [];
-  if (field.fieldType === "dropdown") return field.options[0]?.id ?? "";
+  if (field.fieldType === "multiselect" && MULTI_VALUE_OPS.has(op)) return field.options[0] ? [field.options[0].id] : [];
+  if (field.fieldType === "multiselect" || field.fieldType === "dropdown") return field.options[0]?.id ?? "";
   return "";
 }
 
@@ -60,6 +108,14 @@ export function ConditionRow({
   const sourceField = sourceFields.find((field) => field.id === condition.sourceFieldId);
   const allowedOps = operatorsFor(sourceField?.fieldType);
   const requiresValue = VALUE_REQUIRED_OPS.has(condition.op);
+  // How many of the question's options this operator compares against — which
+  // is a question about the *operator*, not only about the field. It used to be
+  // read off the field alone, which is how a multi-chip "is" got built.
+  const optionPicker = sourceField?.fieldType === "multiselect" && MULTI_VALUE_OPS.has(condition.op)
+    ? "many"
+    : sourceField?.fieldType === "multiselect" || sourceField?.fieldType === "dropdown"
+      ? "one"
+      : "none";
 
   function changeSource(nextFieldId: string) {
     const nextField = sourceFields.find((field) => field.id === nextFieldId);
@@ -69,7 +125,10 @@ export function ConditionRow({
   }
 
   function changeOp(nextOp: ConditionOp) {
-    onChange({ ...condition, op: nextOp, value: VALUE_REQUIRED_OPS.has(nextOp) ? (condition.value ?? defaultValueFor(nextOp, sourceField)) : undefined });
+    // Carrying the value across unchanged is what let a two-chip array survive
+    // a switch from "is any of" to "is", where only the first element is ever
+    // read. Reshaping keeps the organizer's choice without keeping the shape.
+    onChange({ ...condition, op: nextOp, value: valueForOp(nextOp, sourceField, condition.value) });
   }
 
   function changeScalarValue(next: string) {
@@ -101,13 +160,16 @@ export function ConditionRow({
         >
           {allowedOps.map((op) => <option key={op} value={op}>{OPERATOR_LABEL[op]}</option>)}
         </Select>
-        {requiresValue && sourceField?.fieldType === "dropdown" && (
-          <Select aria-label="Value" disabled={disabled} value={typeof condition.value === "string" ? condition.value : ""} onChange={(event) => changeScalarValue(event.target.value)}>
+        {/* One option, because "is"/"is not" compares against one. A
+            multiselect question under those operators asks the same
+            single-answer question a dropdown does. */}
+        {requiresValue && sourceField && optionPicker === "one" && (
+          <Select aria-label="Value" disabled={disabled} value={scalarValue(condition.value)} onChange={(event) => changeScalarValue(event.target.value)}>
             <option value="" disabled>Choose an option</option>
             {sourceField.options.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
           </Select>
         )}
-        {requiresValue && sourceField?.fieldType === "multiselect" && (
+        {requiresValue && sourceField && optionPicker === "many" && (
           <div className="condition-row__chips chip-picker" role="group" aria-label="Value">
             {sourceField.options.map((option) => {
               const selected = Array.isArray(condition.value) && condition.value.includes(option.id);
@@ -125,11 +187,11 @@ export function ConditionRow({
             })}
           </div>
         )}
-        {requiresValue && sourceField && !["dropdown", "multiselect"].includes(sourceField.fieldType) && (
+        {requiresValue && sourceField && optionPicker === "none" && (
           <input
             aria-label="Value"
             disabled={disabled}
-            value={typeof condition.value === "string" ? condition.value : ""}
+            value={scalarValue(condition.value)}
             onChange={(event) => changeScalarValue(event.target.value)}
             placeholder="Value to match"
           />
