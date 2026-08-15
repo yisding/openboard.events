@@ -1,6 +1,7 @@
 import { and, inArray, isNotNull, isNull, lt, or } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import {
+  adminAuthEmailOutbox,
   adminLoginAttempts,
   adminSessions,
   adminVerifications,
@@ -65,6 +66,7 @@ export type DataRetentionStats = JobStats & {
   expiredPortalSessions: number;
   expiredAdminSessions: number;
   redactedCommunicationLogs: number;
+  redactedAdminAuthEmails: number;
   removedStaleCalendarCancellationJobs: number;
   staleRateLimitBuckets: number;
   staleAdminLoginAttempts: number;
@@ -105,6 +107,24 @@ export async function runDataRetentionSweepIn(dbOrTx: DbOrTx, now: Date = new Da
       ),
     ))
     .returning();
+  // The platform outbox holds the same content as `communication_logs` — a
+  // rendered subject and body, and on a failed row the sealed payload carrying
+  // the reset or verification link — and nothing aged any of it out. Same
+  // boundary, same rule: the delivery record survives as the audit trail, the
+  // content does not. The recipient address stays, because the bounce and
+  // complaint lookup in `admin-mail.ts` is keyed on it.
+  const redactedAdminAuthEmails = await dbOrTx.update(adminAuthEmailOutbox)
+    .set({ subjectRendered: null, bodyRenderedHtml: null, secretPayloadCiphertext: null })
+    .where(and(
+      lt(adminAuthEmailOutbox.createdAt, bodyCutoff),
+      or(
+        isNotNull(adminAuthEmailOutbox.subjectRendered),
+        isNotNull(adminAuthEmailOutbox.bodyRenderedHtml),
+        isNotNull(adminAuthEmailOutbox.secretPayloadCiphertext),
+      ),
+    ))
+    .returning();
+
   // A cancellation snapshot is active delivery state while its parent log is
   // queued, including during provider backoff. Terminal rows should already be
   // cleaned by the dispatcher; this sweep removes any old residue so attendee
@@ -125,6 +145,7 @@ export async function runDataRetentionSweepIn(dbOrTx: DbOrTx, now: Date = new Da
     expiredPortalSessions: expiredPortalSessions.length,
     expiredAdminSessions: expiredAdminSessions.length,
     redactedCommunicationLogs: redacted.length,
+    redactedAdminAuthEmails: redactedAdminAuthEmails.length,
     removedStaleCalendarCancellationJobs: staleCancellationJobs.length,
     staleRateLimitBuckets: staleRateLimitBuckets.length,
     staleAdminLoginAttempts: staleAdminLoginAttempts.length,
