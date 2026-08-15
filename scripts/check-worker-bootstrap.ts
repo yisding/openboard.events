@@ -1,4 +1,5 @@
 import { basename } from "node:path";
+import { cloudflareApiUrl, requireCloudflareCredentials } from "./lib/cloudflare";
 
 type DeployEnvironment = "preview" | "production";
 type Fetcher = typeof fetch;
@@ -15,8 +16,10 @@ export async function assertWebWorkerAbsent(
   fetcher: Fetcher = fetch,
 ): Promise<void> {
   const worker = webWorkerName(environment);
+  // Raw status, not `cloudflareRequest`: a 404 is the success case here, and
+  // unwrapping the envelope would throw on precisely the response this needs.
   const response = await fetcher(
-    `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(worker)}/script-settings`,
+    cloudflareApiUrl(`accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(worker)}/script-settings`).toString(),
     { headers: { Authorization: `Bearer ${apiToken}` } },
   );
   if (response.status === 404) return;
@@ -29,11 +32,7 @@ async function main(): Promise<void> {
   if (environment !== "preview" && environment !== "production") {
     throw new Error("usage: check-worker-bootstrap.ts preview|production");
   }
-  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
-  const apiToken = process.env.CLOUDFLARE_API_TOKEN;
-  if (!accountId || !apiToken) {
-    throw new Error("CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are required to prove first bootstrap");
-  }
+  const { accountId, apiToken } = requireCloudflareCredentials("to prove first bootstrap");
   await assertWebWorkerAbsent(environment, accountId, apiToken);
   console.log(`confirmed ${webWorkerName(environment)} does not exist; first-bootstrap bypass allowed`);
 }
