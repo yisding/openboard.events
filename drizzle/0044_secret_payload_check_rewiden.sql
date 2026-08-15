@@ -18,10 +18,27 @@
 -- Restore 0009's predicate. `secret-payload-contract.test.ts` now asserts the
 -- applied constraint and `enqueue-email.ts` name the same set, so the next enum
 -- recreation cannot quietly narrow it again.
+--
+-- `NOT VALID`, and deliberately never validated. A plain ADD CONSTRAINT scans
+-- every existing row while holding ACCESS EXCLUSIVE, and `communication_logs`
+-- keeps its audit history indefinitely — on a busy database that scan blocks
+-- outbox inserts, the dispatcher, and every UI read for its duration.
+--
+-- Nothing is lost by skipping validation, because the predicate being replaced
+-- logically implies this one: every row that satisfied "portal_login only" also
+-- satisfies "portal_login, admin_password_reset, or admin_email_verification".
+-- There is no row this scan could find. And `NOT VALID` restricts only the
+-- back-check: Postgres enforces the constraint on every INSERT and UPDATE from
+-- the moment it exists, which is the entire point here.
+--
+-- Splitting the ADD and a later VALIDATE across two migrations would not help:
+-- drizzle applies a pending batch in one transaction, so the ACCESS EXCLUSIVE
+-- taken here is held until the batch commits and the validation scan would run
+-- under it anyway.
 ALTER TABLE communication_logs DROP CONSTRAINT communication_logs_secret_payload_check;
 
 ALTER TABLE communication_logs ADD CONSTRAINT communication_logs_secret_payload_check
   CHECK (
     template_key::text IN ('portal_login', 'admin_password_reset', 'admin_email_verification')
     OR secret_payload_ciphertext IS NULL
-  );
+  ) NOT VALID;
