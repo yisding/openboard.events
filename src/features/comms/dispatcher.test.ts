@@ -21,6 +21,7 @@ import type { EmailMessage } from "@/shared/server/email-provider";
 import { recordSuppressionIn } from "./server/suppression";
 import { seedDefaultTemplates } from "./server/templates";
 import { signUnsubscribeToken, unsubscribeFromRemindersIn, verifyUnsubscribeToken } from "./server/unsubscribe";
+import { deleteSessionIn } from "@/features/agenda/server/mutations";
 
 const migration0 = readFileSync(new URL("../../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
@@ -45,6 +46,7 @@ const migrationUserManagement = readFileSync(new URL("../../../drizzle/0011_user
 // M59 added `contacts.acceptance_seen_at`; `unsubscribeFromRemindersIn`'s
 // unqualified `.returning()` needs every declared column to exist.
 const migrationSpeakerMoments = readFileSync(new URL("../../../drizzle/0016_speaker_moments.sql", import.meta.url), "utf8");
+const migrationCalendarCancellationSnapshots = readFileSync(new URL("../../../drizzle/0043_calendar_cancellation_snapshots.sql", import.meta.url), "utf8");
 const eventId = eventIdSchema.parse("c0000000-0000-4000-8000-000000000001");
 const emptyEventId = eventIdSchema.parse("c0000000-0000-4000-8000-000000000002");
 const contactId = contactIdSchema.parse("c0000000-0000-4000-8000-000000000003");
@@ -106,6 +108,7 @@ describe("communications outbox dispatcher", () => {
     await pglite.exec(migrationTenancy);
     await pglite.exec(migrationUserManagement);
     await pglite.exec(migrationSpeakerMoments);
+    await pglite.exec(migrationCalendarCancellationSnapshots);
     await pglite.query("INSERT INTO events(id,name,slug,location,timezone,starts_at,ends_at) VALUES($1,'AI Engineer','ai-engineer','Fort Mason','America/Los_Angeles','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z'),($2,'Empty','empty','Online','UTC','2026-10-01T09:00:00Z','2026-10-01T17:00:00Z')", [eventId, emptyEventId]);
     await pglite.query("INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'speaker@example.com','Nadia','Lee')", [contactId, eventId]);
     await pglite.query("INSERT INTO forms(id,event_id,context,internal_name,status) VALUES($1,$2,'cfp','Main CFP','open')", [formId, eventId]);
@@ -125,7 +128,13 @@ describe("communications outbox dispatcher", () => {
     await pglite.query("DELETE FROM contact_suppressions WHERE contact_id=$1", [contactId]);
     await pglite.query("UPDATE events SET physical_address=NULL WHERE id=$1", [eventId]);
     await pglite.query("UPDATE submissions SET status='accepted' WHERE id=$1", [decisionId]);
-    await pglite.query("UPDATE sessions SET starts_at='2026-09-15T18:00:00Z',ends_at='2026-09-15T18:30:00Z',status='published',schedule_revision=0 WHERE id=$1", [sessionId]);
+    await pglite.query(
+      `INSERT INTO sessions(id,event_id,submission_id,title,slug,starts_at,ends_at,status,schedule_revision,row_version)
+       VALUES($1,$2,$3,'Decision session','decision-session','2026-09-15T18:00:00Z','2026-09-15T18:30:00Z','published',0,1)
+       ON CONFLICT(id) DO UPDATE SET starts_at=excluded.starts_at,ends_at=excluded.ends_at,status='published',
+         schedule_revision=0,row_version=1,title=excluded.title,slug=excluded.slug`,
+      [sessionId, eventId, decisionId],
+    );
     await pglite.query("INSERT INTO session_speakers(event_id,session_id,contact_id) VALUES($1,$2,$3) ON CONFLICT DO NOTHING", [eventId, sessionId, contactId]);
   });
 
@@ -354,6 +363,55 @@ describe("communications outbox dispatcher", () => {
     expect(state.rows[0]).toMatchObject({ sequence: 2, last_method: "cancel", organizer_email: "mail@example.com" });
     const logUids = await pglite.query<{ ics_uid: string }>("SELECT DISTINCT ics_uid FROM communication_logs");
     expect(logUids.rows).toEqual([{ ics_uid: state.rows[0]?.ics_uid }]);
+  });
+
+  it("delivers a self-contained CANCEL after the session and invite state are hard-deleted", async () => {
+    await seedDefaultTemplates(tx, eventId);
+    const messages: EmailMessage[] = [];
+    const sender = vi.fn(async (message: EmailMessage) => {
+      messages.push(message);
+      return `hard-delete-${messages.length}`;
+    });
+
+    await enqueueEmail(tx, {
+      eventId,
+      contactId,
+      templateKey: "schedule_assigned",
+      idempotencyKey: `${eventId}:hard-delete:request`,
+      refs: { sessionId },
+    });
+    await expect(dispatchOutboxIn(tx, 50, { env: sendEnv, sender })).resolves.toMatchObject({ sent: 1 });
+
+    await deleteSessionIn(tx, eventId, sessionId, 1);
+    const queued = await pglite.query<{ session_id: string | null; has_snapshot: boolean }>(
+      `SELECT logs.session_id, jobs.snapshot IS NOT NULL AS has_snapshot
+       FROM communication_logs logs
+       JOIN calendar_cancellation_jobs jobs ON jobs.communication_log_id=logs.id
+       WHERE logs.status='queued'`,
+    );
+    expect(queued.rows).toEqual([{ session_id: null, has_snapshot: true }]);
+    expect((await pglite.query("SELECT id FROM calendar_invites")).rows).toHaveLength(0);
+
+    await expect(dispatchOutboxIn(tx, 50, { env: sendEnv, sender })).resolves.toMatchObject({ sent: 1 });
+    expect(messages).toHaveLength(2);
+    expect(messages[1]?.subject).toBe("Schedule removed: Decision session");
+    const requestAttachment = messages[0]?.attachments?.[0];
+    const cancelAttachment = messages[1]?.attachments?.[0];
+    const decode = (content = "") => new TextDecoder()
+      .decode(Uint8Array.from(atob(content), (character) => character.charCodeAt(0)))
+      .replaceAll("\r\n ", "");
+    const requestCalendar = decode(requestAttachment?.content);
+    const cancelCalendar = decode(cancelAttachment?.content);
+    expect(requestCalendar).toContain("METHOD:REQUEST\r\n");
+    expect(cancelCalendar).toContain("METHOD:CANCEL\r\n");
+    expect(cancelCalendar).toContain("SEQUENCE:1\r\n");
+    expect(cancelCalendar.match(/UID:[^\r]+/u)?.[0]).toBe(requestCalendar.match(/UID:[^\r]+/u)?.[0]);
+    expect(cancelCalendar.match(/DTSTART:[^\r]+/u)?.[0]).toBe(requestCalendar.match(/DTSTART:[^\r]+/u)?.[0]);
+
+    const terminal = await pglite.query<{ count: number }>(
+      "SELECT count(*)::int AS count FROM calendar_cancellation_jobs",
+    );
+    expect(terminal.rows[0]?.count).toBe(0);
   });
 
   it("retries a failed CANCEL with the same sequence", async () => {

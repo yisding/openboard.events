@@ -302,6 +302,13 @@
       "when": 1786730400000,
       "tag": "0042_r2_staging_migration_state",
       "breakpoints": false
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1786771731000,
+      "tag": "0043_calendar_cancellation_snapshots",
+      "breakpoints": false
     }
   ]
 }
