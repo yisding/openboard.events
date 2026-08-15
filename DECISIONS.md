@@ -88,4 +88,6 @@ application-level backstop, and the parser accepts only the current root-prefixe
   collects aggregate reports from the organizational record. Enforcement is published at
   `_dmarc.mail.openboard.events`, matching the only production From domain, so unrelated apex
   mail is not changed accidentally. Production-environment approval and the dwell/evidence gates
-  in `docs/runbooks/dmarc.md` are required before each quarantine or reject stage.
+  in `docs/runbooks/dmarc.md` are required before each quarantine or reject stage. Protected run
+  31862396508 enabled and verified aggregate reporting at `2026-08-15T03:40:22Z`; policy remains
+  `p=none` while the seven-day, two-receiver evidence window is collected.

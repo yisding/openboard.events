@@ -137,7 +137,7 @@ bucket mix-up fails closed.
   currently repository-scoped in GitHub; move it to both protected environments before
   production and then remove the repository-scoped copy.
 - [x] Save the account ID as `CLOUDFLARE_ACCOUNT_ID`.
-- [ ] Create a separate API token scoped only to the `openboard.events` zone with
+- [x] Create a separate API token scoped only to the `openboard.events` zone with
   **Email Security DMARC Reports Read** and **Email Security DMARC Reports Write**. Do not add
   Zone Read: the workflow uses an explicit zone ID. Save it only as the production-environment
   secret `CLOUDFLARE_DMARC_API_TOKEN`; never reuse the deployment token for DMARC operations.
@@ -298,8 +298,10 @@ stores only the credentials and direct database URL needed by the deployment wor
 
 - [x] Verify a dedicated sending subdomain in Resend (`mail.openboard.events`, status rev. 7).
 - [x] Publish and verify SPF and DKIM (aligned; proven with delivered Gmail mail).
-- [ ] Enable aggregate reporting and advance the DMARC policy using
-  [`docs/runbooks/dmarc.md`](runbooks/dmarc.md); record `dmarc=pass` evidence at every stage.
+- [x] Enable aggregate reporting using [`docs/runbooks/dmarc.md`](runbooks/dmarc.md)
+  (protected run 31862396508; `reportingConfigured: true`, status rev. 7).
+- [ ] Advance the DMARC policy using the runbook's evidence and dwell gates; record
+  `dmarc=pass` evidence at every stage.
 - [x] Choose a real `EMAIL_FROM` mailbox or alias on that domain
   (`AI.Engineer Sandbox <hello@mail.openboard.events>`).
 - [ ] Create the production `RESEND_API_KEY` (the preview uses a domain-scoped key).

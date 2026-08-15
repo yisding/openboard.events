@@ -29,6 +29,20 @@ Cloudflare's approved-source inventory, and whether the first aggregate report h
 Cloudflare dashboard → **Email → DMARC Management** owns the per-source pass/fail detail; inspect
 **View reports** and **View all** before approving any enforcement step.
 
+## Live rollout record
+
+Aggregate reporting was enabled at `2026-08-15T03:40:22Z` by protected workflow
+[run 31862396508](https://github.com/yisding/openboard.events/actions/runs/31862396508) on
+main commit `a0fd73be`. The operation returned `changed: true`, `reportingConfigured: true`,
+`policy: none`, and an empty approved-source inventory. Cloudflare and Google public DNS both
+resolved the resulting single apex record with Cloudflare's generated `rua` immediately after
+the operation.
+
+The seven-day reporting dwell starts at that timestamp. `2026-08-22T03:40:22Z` is therefore
+the earliest possible quarantine-10 entry, not an automatic promotion date: at least two
+independent receivers must first contribute reports, every legitimate source must be identified,
+and Gmail and Outlook test messages must show `dmarc=pass`.
+
 ## Stage gates
 
 The application currently expects only Resend. Its aligned path is:
