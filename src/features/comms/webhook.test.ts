@@ -2,6 +2,14 @@ import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { parseResendWebhookEvent, verifyResendWebhookSignature } from "./server/webhook";
 
+/**
+ * The canonical Svix / Standard Webhooks documentation vector — secret, message
+ * id, and payload only ever travel together because they are copied from the
+ * spec, and the same triple ships in `svix-webhooks`, `standard-webhooks`, and
+ * Resend's own `resend-node` test suite. Not a live credential, so scanners that
+ * flag it (GitHub reads `whsec_` as a Stripe signing secret; Svix merely shares
+ * the prefix) are false positives. Real secrets live only as Worker secrets.
+ */
 const SECRET = "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw";
 const ID = "msg_p5jXN8AQM9LWM0D4loKWxJek";
 const BODY = '{"test": 2432232314}';

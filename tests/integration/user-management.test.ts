@@ -650,6 +650,30 @@ describe("M44 user management", () => {
       }
     });
 
+    it("escapes an organization name that carries markup", async () => {
+      // `emailLayout` interpolates its `eventName` raw into the brand header,
+      // an `alt` attribute, and the footer, on the documented promise that the
+      // caller escaped it. Anyone can name their own organization, so a name
+      // is attacker-controlled input reaching a recipient's mail client.
+      const hostile = `<img src=x onerror="alert(1)">`;
+      const org = await createOrganizationIn(db, ownerId, { name: hostile, slug: "markup-co" });
+      try {
+        await inviteForTest(org.id, ownerId, { email: "markup@example.com", role: "reviewer" });
+        const [row] = await db.select().from(adminAuthEmailOutbox)
+          .where(eq(adminAuthEmailOutbox.recipientEmail, "markup@example.com"));
+        if (!row) throw new Error("expected a queued organization_invited row");
+
+        await expect(dispatchAdminAuthEmailOutboxIn(db, 10, { env })).resolves.toMatchObject({ sent: 1 });
+        const [sent] = await db.select().from(adminAuthEmailOutbox).where(eq(adminAuthEmailOutbox.id, row.id));
+        // Not "the body escaped it" — the body always did. Nowhere in the
+        // whole message, which is what the layout metadata used to break.
+        expect(sent?.bodyRenderedHtml).not.toContain("<img src=x");
+        expect(sent?.bodyRenderedHtml).toContain("&lt;img src=x");
+      } finally {
+        await pglite.query("DELETE FROM organizations WHERE id=$1", [org.id]);
+      }
+    });
+
     it("skips delivery once the invitation has already been revoked", async () => {
       const org = await createOrganizationIn(db, ownerId, { name: "Skip Co", slug: "skip-co" });
       try {

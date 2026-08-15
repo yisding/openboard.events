@@ -43,6 +43,31 @@ describe("admin password hooks", () => {
     }
   });
 
+  it("reads a correctly shaped hash with an undecodable salt as a failed password", async () => {
+    // The shape is right and the scheme is known, so this reaches the salt
+    // decode rather than failing the split — the case a corrupted row or a
+    // bad manual edit produces. `atob` throws on it, and that throw must not
+    // reach the sign-in route as an exception.
+    for (const salt of ["not!!valid", "a", "with space"]) {
+      const hash = `pbkdf2-sha256-v2$100000$${salt}$AAAA`;
+      await expect(verifyAdminPassword({ hash, password })).resolves.toBe(false);
+      expect(needsRehash(hash)).toBe(false);
+    }
+  });
+
+  it("still accepts a salt in the standard base64 alphabet", async () => {
+    // Legacy rows came verbatim from `users.password_hash`, so `+` and `/` are
+    // possible and have always decoded. Validating the salt must not turn one
+    // of those accounts into a permanent sign-in failure.
+    const salt = "ab+/cdef12345678";
+    const hash = `pbkdf2-sha256$100000$${salt}$definitely-not-the-digest`;
+    // The password is wrong for this digest either way; what matters is that
+    // the answer is a clean `false` from the comparison rather than a reject
+    // from the schema, which `needsRehash` (same schema, no crypto) shows.
+    await expect(verifyAdminPassword({ hash, password })).resolves.toBe(false);
+    expect(needsRehash(hash)).toBe(true);
+  });
+
   it("refuses a legacy hash that claims a weakened iteration count", async () => {
     const [, , salt, digest] = legacy.split("$");
     const downgraded = `pbkdf2-sha256$1000$${salt}$${digest}`;

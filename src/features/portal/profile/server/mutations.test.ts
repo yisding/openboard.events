@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { DbOrTx } from "@/db/client";
 import * as schema from "@/db/schema";
-import { contactIdSchema, eventIdSchema, LIMITS } from "@/shared/contracts";
+import { contactIdSchema, eventIdSchema, fileIdSchema, LIMITS } from "@/shared/contracts";
 import { getSpeakerProfileIn } from "./queries";
 import { profilePatchSchema, updateProfileIn } from "./mutations";
 
@@ -132,6 +132,120 @@ describe("speaker profile", () => {
     const before = await getSpeakerProfileIn(db, eventId, raceContact);
     const after = await updateProfileIn(db, eventId, raceContact, {});
     expect(after).toEqual(before);
+  });
+
+  describe("headshot ownership", () => {
+    // Ids are the whole attack surface here: a `/f/{fileId}` URL is printed in
+    // the HTML of every public speaker-gallery and schedule page, so "knows a
+    // file id" is not evidence of anything.
+    const ownFile = fileIdSchema.parse("c2000000-0000-4000-8000-0000000000f1");
+    const strangerFile = fileIdSchema.parse("c2000000-0000-4000-8000-0000000000f2");
+    const logoFile = fileIdSchema.parse("c2000000-0000-4000-8000-0000000000f3");
+    const organizerUploadedFile = fileIdSchema.parse("c2000000-0000-4000-8000-0000000000f4");
+    const otherEventFile = fileIdSchema.parse("c2000000-0000-4000-8000-0000000000f5");
+    const stagedFile = fileIdSchema.parse("c2000000-0000-4000-8000-0000000000f6");
+    const stranger = contactIdSchema.parse("c2000000-0000-4000-8000-000000000012");
+    const headshotOwner = contactIdSchema.parse("c2000000-0000-4000-8000-000000000013");
+
+    // `buildObjectKey`'s scheme, spelled out rather than imported: if the key
+    // format changes, this fixture should fail loudly rather than follow along
+    // and keep asserting nothing.
+    const publishedKey = (fileId: string, kind: string) => `evt_${eventId}/${kind}/${fileId}/photo.jpg`;
+
+    beforeAll(async () => {
+      await pglite.query(
+        "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'stranger@example.com','Stranger','Speaker'),($3,$2,'owner@example.com','Owner','Speaker')",
+        [stranger, eventId, headshotOwner],
+      );
+      for (const [id, kind, contactId] of [
+        [ownFile, "headshot", headshotOwner],
+        [strangerFile, "headshot", stranger],
+        [logoFile, "logo", null],
+        [organizerUploadedFile, "headshot", null],
+      ] as const) {
+        await pglite.query(
+          "INSERT INTO file_assets(id,event_id,kind,r2_key,filename,mime,size_bytes,uploaded_by_contact_id) VALUES($1,$2,$3,$4,'photo.jpg','image/jpeg',1024,$5)",
+          [id, eventId, kind, publishedKey(id, kind), contactId],
+        );
+      }
+      // Presigned and never uploaded to: `createUpload` writes the row pointing
+      // at a staging key, and only `finalizeUpload` moves it to the published one.
+      await pglite.query(
+        "INSERT INTO file_assets(id,event_id,kind,r2_key,filename,mime,size_bytes,uploaded_by_contact_id) VALUES($1,$2,'headshot',$3,'photo.jpg','image/jpeg',1024,$4)",
+        [stagedFile, eventId, `staging/evt_${eventId}/headshot/${stagedFile}/photo.jpg`, headshotOwner],
+      );
+    });
+
+    it("accepts a headshot the speaker uploaded themselves", async () => {
+      const profile = await updateProfileIn(db, eventId, headshotOwner, { headshotFileId: ownFile });
+      expect(profile.headshotFileId).toBe(ownFile);
+    });
+
+    it("refuses another speaker's headshot and lands none of the patch", async () => {
+      await expect(updateProfileIn(db, eventId, headshotOwner, {
+        headshotFileId: strangerFile,
+        firstName: "Renamed",
+      })).rejects.toMatchObject({ code: "VALIDATION" });
+
+      // The rejection has to come before the write, or the speaker keeps the
+      // rest of a patch the server refused.
+      const profile = await getSpeakerProfileIn(db, eventId, headshotOwner);
+      expect(profile.headshotFileId).toBe(ownFile);
+      expect(profile.firstName).toBe("Owner");
+    });
+
+    it("refuses a file that is not a headshot at all", async () => {
+      // The event's own logo is a public kind, so serving it was never the
+      // barrier — being the wrong kind of file is.
+      await expect(updateProfileIn(db, eventId, headshotOwner, { headshotFileId: logoFile }))
+        .rejects.toMatchObject({ code: "VALIDATION" });
+    });
+
+    it("refuses a file id from another event", async () => {
+      const otherEvent = eventIdSchema.parse("c2000000-0000-4000-8000-000000000098");
+      await pglite.query(
+        "INSERT INTO events(id,name,slug,starts_at,ends_at) VALUES($1,'Other','other-event','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')",
+        [otherEvent],
+      );
+      // `file_assets_contact_fk` scopes the uploader to the file's own event,
+      // so the cross-event file necessarily has a different uploader — the
+      // event filter is defence in depth behind the ownership one, and this
+      // is the shape a real cross-event attempt takes.
+      const otherEventContact = contactIdSchema.parse("c2000000-0000-4000-8000-000000000014");
+      await pglite.query(
+        "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'other@example.com','Other','Speaker')",
+        [otherEventContact, otherEvent],
+      );
+      await pglite.query(
+        "INSERT INTO file_assets(id,event_id,kind,r2_key,filename,mime,size_bytes,uploaded_by_contact_id) VALUES($1,$2,'headshot',$3,'photo.jpg','image/jpeg',1024,$4)",
+        [otherEventFile, otherEvent, `evt_${otherEvent}/headshot/${otherEventFile}/photo.jpg`, otherEventContact],
+      );
+      await expect(updateProfileIn(db, eventId, headshotOwner, { headshotFileId: otherEventFile }))
+        .rejects.toMatchObject({ code: "VALIDATION" });
+    });
+
+    it("still accepts the headshot an organizer uploaded on the speaker's behalf", async () => {
+      // That file carries `uploaded_by_user_id`, not this contact's id, so an
+      // ownership check written only against the uploader would lock the
+      // speaker out of re-sending their own current photo.
+      await pglite.query("UPDATE contacts SET headshot_file_id=$1 WHERE id=$2", [organizerUploadedFile, headshotOwner]);
+      const profile = await updateProfileIn(db, eventId, headshotOwner, { headshotFileId: organizerUploadedFile });
+      expect(profile.headshotFileId).toBe(organizerUploadedFile);
+    });
+
+    it("refuses an upload the speaker presigned but never finished", async () => {
+      // Owned by this contact and the right kind, so ownership alone lets it
+      // through. `/f/{fileId}` would answer 404 for it, and the orphan sweep
+      // exempts any file a contact's headshot references — so accepting it
+      // pins the row and its staging object permanently.
+      await expect(updateProfileIn(db, eventId, headshotOwner, { headshotFileId: stagedFile }))
+        .rejects.toMatchObject({ code: "VALIDATION" });
+    });
+
+    it("still lets a speaker clear their photo", async () => {
+      const profile = await updateProfileIn(db, eventId, headshotOwner, { headshotFileId: null });
+      expect(profile.headshotFileId).toBeNull();
+    });
   });
 
   it("scopes reads and writes to (eventId, contactId) together", async () => {

@@ -37,14 +37,19 @@ that owns the feature:
 | `contacts.ts` | M17 (WS-C) | 12 speakers and their headshot `file_assets` |
 | `forms.ts` | M12 (WS-B1) | form A (open) and form B (closed), snapshots via `compileFormSnapshot` |
 | `submissions.ts` | M17 (WS-C) | ~25 submissions across all 7 statuses, plus the null and XSS probes |
-| `evaluation.ts` | M19 (WS-C) | Round 1 (1–5, two weighted criteria), both members assigned — the reviewer to two tracks — and partial scores |
+| `evaluation.ts` | M19 (WS-C) | **Round 1** (1–5, two weighted numeric criteria), all three members assigned — the reviewer scoped to AI Agents and Platforms, the other two to everything — and partial scores; **Round 2 · Blind shortlist** (M50's fixture: typed criteria, half-open window, blind), carrying all four assignment states at once |
 | `agenda.ts` | M28 (WS-E) | ~15 sessions, the named conflict pairs, one back-to-back pair |
-| `portal.ts` | M21 (WS-D) | three tasks (one overdue), a file request, portal forms, resource pages |
+| `portal.ts` | M21 (WS-D) | three tasks (one overdue), a file request, portal forms |
+| `resources.ts` | M26 | the three resource pages — both sanitizer probes and the unpublished 404 case — reconciling away the near-duplicates `portal.ts` seeded before this module owned the table |
 | `comms.ts` | M34 (WS-F) | `seedDefaultTemplates`, reminder rules, a pre-populated log |
 
-A module stays a typed no-op until its owner fills it in. The orchestrator
-composes whatever exists, so a missing module prints `skipped — not implemented`
-and the run still exits 0.
+`upload-headshots.ts` is not a module: the orchestrator calls it inside the
+transaction but before any database write, so a committed `file_assets` row can
+never point at an object this run failed to upload.
+
+Every module is implemented. Each guards its own re-run: an existing round,
+scored review, or organizer-edited page is left exactly as it is, so a
+non-wipe run tops the world up rather than reverting somebody's walkthrough.
 
 ## The two rules a seed module must not break
 
