@@ -163,6 +163,10 @@ unidentified passing source or legitimate failure, followed by no-regression
 Gmail and Outlook authentication and placement probes. The 48-hour time floor
 ends at `2026-08-17T04:36Z`; elapsed time alone is not evidence, so reject also
 waits for both receiver reports and the fresh placement observations.
+Read-only protected run 31872567659 confirms reporting is enabled, Cloudflare is
+no longer awaiting its first report, full quarantine still resolves consistently,
+and the approved-source inventory remains empty. That status does not establish
+two independent aggregate-report periods, so it does not advance the reject gate.
 
 Live agenda testing then exposed one production-shaped gap outside the original
 roadmap inventory: speaker removal, unpublish, unschedule, and hard delete could
