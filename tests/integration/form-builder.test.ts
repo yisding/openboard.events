@@ -437,4 +437,26 @@ describe("database-backed form builder", () => {
 
     expect(saved.confirmationBodyHtml).toContain('href="{{portal.magic_link}}"');
   });
+
+  it("gives a field added after a delete a position of its own", async () => {
+    const source = await createFormIn(database, eventId, { internalName: "Sort order CFP", kind: "abstract", collectParticipants: false });
+    const section = required(source.sections[0], "abstract section");
+    let form = source;
+    for (const label of ["First", "Second", "Third"]) {
+      form = await createFieldIn(database, eventId, source.id, { sectionId: section.id, label, fieldType: "text" }, form.updatedAt);
+    }
+    const fields = () => form.sections.flatMap((candidate) => candidate.fields).filter((field) => field.sectionId === section.id);
+    const second = required(fields().find((field) => field.label === "Second"), "second field");
+
+    // Soft delete leaves the row and its sort_order behind, so deriving the new
+    // position from the *count* of live fields reuses one that is still taken.
+    form = await deleteFieldIn(database, eventId, source.id, second.id, form.updatedAt);
+    form = await createFieldIn(database, eventId, source.id, { sectionId: section.id, label: "Fourth", fieldType: "text" }, form.updatedAt);
+
+    const orders = fields().map((field) => field.sortOrder);
+    expect(new Set(orders).size).toBe(orders.length);
+    const fourth = required(fields().find((field) => field.label === "Fourth"), "fourth field");
+    const third = required(fields().find((field) => field.label === "Third"), "third field");
+    expect(fourth.sortOrder).toBeGreaterThan(third.sortOrder);
+  });
 });
