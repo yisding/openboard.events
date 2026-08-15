@@ -137,15 +137,6 @@ function assertPublishable(
   );
 }
 
-/**
- * `enqueueEmail` is typed against `TxDb` because most of its callers are audited
- * transactions. `saveSession`'s publish path is deliberately not one — the same
- * accommodation the reminder scan makes, and for the same reason: the outbox
- * insert is a single statement either way.
- */
-function asOutboxWriter(dbOrTx: DbOrTx): TxDb {
-  return dbOrTx as TxDb;
-}
 
 /** A bound `uuid[]`, built element by element so no id is ever pasted into SQL. */
 function uuidArraySql(ids: readonly string[]): SQL {
@@ -282,7 +273,7 @@ export async function notifySchedule(
   // calendar item the recipient already has.
   const templateKey: TemplateKey = isScheduled && !wasScheduled ? "schedule_assigned" : "schedule_changed";
   for (const contactId of recipients) {
-    await enqueueEmail(asOutboxWriter(dbOrTx), {
+    await enqueueEmail(dbOrTx, {
       eventId,
       templateKey,
       contactId,
@@ -315,7 +306,7 @@ async function notifyAddedSpeakers(
 ): Promise<number> {
   if (next.status !== "published" || next.startsAt === null) return 0;
   for (const contactId of added) {
-    await enqueueEmail(asOutboxWriter(dbOrTx), {
+    await enqueueEmail(dbOrTx, {
       eventId,
       templateKey: "schedule_assigned",
       contactId,
@@ -338,7 +329,7 @@ async function notifyRemovedSpeakers(
   if (prior.status !== "published" || prior.startsAt === null) return 0;
   if (next.scheduleRevision <= prior.scheduleRevision) return 0;
   for (const contactId of removed) {
-    await enqueueEmail(asOutboxWriter(dbOrTx), {
+    await enqueueEmail(dbOrTx, {
       eventId,
       templateKey: "schedule_changed",
       contactId,

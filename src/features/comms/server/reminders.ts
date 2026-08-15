@@ -54,16 +54,6 @@ type RungRow = AssignmentRow & {
   is_fire: boolean;
 };
 
-/**
- * `enqueueEmail` is typed against `TxDb` because its other callers are the
- * audited transactional writers. The scan must NOT open a ninth `withTx` path
- * (resolution #4), and the single `INSERT … ON CONFLICT DO NOTHING` it issues
- * behaves identically on the `neon-http` handle, so the handle is passed
- * through unchanged.
- */
-function asOutboxWriter(dbOrTx: DbOrTx): TxDb {
-  return dbOrTx as TxDb;
-}
 
 /**
  * A cron tick is not a request handler: it acts on a whole budget of rows at
@@ -304,7 +294,7 @@ export async function sendReminderNowIn(
     LIMIT 1
   `));
   if (!assignment || assignment.completed) return { enqueued: false };
-  await enqueueEmail(asOutboxWriter(dbOrTx), {
+  await enqueueEmail(dbOrTx, {
     eventId,
     templateKey: "task_reminder",
     contactId,

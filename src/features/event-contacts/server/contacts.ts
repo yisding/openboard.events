@@ -1,5 +1,5 @@
 import { and, eq, sql } from "drizzle-orm";
-import type { DbOrTx, TxDb } from "@/db/client";
+import type { DbOrTx } from "@/db/client";
 import { contacts } from "@/db/schema";
 import type { ContactId, EventId, SpeakerWorkflowStatus } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
@@ -26,14 +26,14 @@ export type ContactPatch = Partial<{
 }>;
 
 /** Normalize and upsert the one event-local identity for an email address. */
-export async function getOrCreateContact(tx: TxDb, eventId: EventId, email: string): Promise<ContactId> {
+export async function getOrCreateContact(dbOrTx: DbOrTx, eventId: EventId, email: string): Promise<ContactId> {
   const normalized = email.trim().toLowerCase();
-  const [inserted] = await tx.insert(contacts)
+  const [inserted] = await dbOrTx.insert(contacts)
     .values({ eventId, email: normalized })
     .onConflictDoNothing({ target: [contacts.eventId, contacts.email] })
     .returning();
   if (inserted) return inserted.id as ContactId;
-  const [existing] = await tx.select({ id: contacts.id })
+  const [existing] = await dbOrTx.select({ id: contacts.id })
     .from(contacts)
     .where(and(eq(contacts.eventId, eventId), eq(contacts.email, normalized)))
     .limit(1);

@@ -68,14 +68,6 @@ import { getOrganizationContactIn } from "./queries";
  * `contacts`.
  */
 
-// `getOrCreateContact` types its parameter as `TxDb` because its other
-// callers are audited transactional writers; every M51/M55 single-statement
-// caller casts through this same idiom (see `speaker-bulk.ts`'s
-// `asOutboxWriter` and `admin-speakers-mutations.ts`) rather than opening a
-// real transaction for what is, on `neon-http`, one guarded statement.
-function asContactWriter(dbOrTx: DbOrTx): TxDb {
-  return dbOrTx as TxDb;
-}
 
 async function recordActivityIn(
   dbOrTx: DbOrTx,
@@ -328,7 +320,7 @@ export async function pushOrganizationContactToEventIn(dbOrTx: DbOrTx, organizat
 
   const existingContact = await dbOrTx.select({ id: contacts.id }).from(contacts)
     .where(and(eq(contacts.eventId, eventId), eq(contacts.email, orgContact.email))).limit(1);
-  const contactId = await getOrCreateContact(asContactWriter(dbOrTx), eventId, orgContact.email);
+  const contactId = await getOrCreateContact(dbOrTx, eventId, orgContact.email);
   const created = existingContact.length === 0;
 
   if (created) {
