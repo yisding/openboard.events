@@ -1,5 +1,6 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
+import { isUniqueViolation } from "@/db/errors";
 import {
   contacts,
   organizationContactActivity,
@@ -66,15 +67,6 @@ import { getOrganizationContactIn } from "./queries";
  * way M51's `createSpeakerIn` does — never a direct `INSERT`/`UPDATE` on
  * `contacts`.
  */
-
-function isUniqueViolation(error: unknown): boolean {
-  if (typeof error !== "object" || error === null) return false;
-  const code = (error as { code?: unknown }).code;
-  if (code === "23505") return true;
-  const cause = error instanceof Error ? error.cause : undefined;
-  const causeCode = typeof cause === "object" && cause !== null ? (cause as { code?: unknown }).code : undefined;
-  return causeCode === "23505";
-}
 
 // `getOrCreateContact` types its parameter as `TxDb` because its other
 // callers are audited transactional writers; every M51/M55 single-statement
