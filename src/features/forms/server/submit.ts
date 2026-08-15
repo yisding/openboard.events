@@ -246,6 +246,24 @@ export async function submitCfpForm(
     routableFieldIds,
   );
   const mapped = deriveMappedFields(rendered, abstract.clean);
+  // A `contact.*` mapping is not restricted to the participant section:
+  // `createFieldIn` accepts one on any field, and the builder's Maps-to select
+  // offers every target regardless of section. `mapped.contact` was computed
+  // here and then dropped — only `mapped.submission` was ever read — so an
+  // organizer who put "Company" on the Submission step mapped to
+  // `contact.company` watched every speaker answer it while `contacts.company`
+  // stayed NULL forever. The portal task runtime applies the whole snapshot's
+  // contact map, so the two runtimes disagreed about the same authoring choice.
+  //
+  // Merged into the primary participant rather than written directly, so it
+  // inherits both existing safety rules unchanged: `contact.email` is stripped
+  // (an answer cannot re-point someone's login), and only the authenticated
+  // primary speaker writes through to a contact row. Participant answers win on
+  // a collision — they are the ones asked per person.
+  const primaryPrepared = preparedParticipants.find((participant) => participant.isPrimary);
+  if (primaryPrepared && Object.keys(mapped.contact).length > 0) {
+    primaryPrepared.profilePatch = { ...mapped.contact, ...primaryPrepared.profilePatch };
+  }
 
   return withTx(async (tx) => {
     // Lock this speaker/form invariant before draft or contact rows. Every CFP
