@@ -398,18 +398,39 @@ export async function processFileExportJobIn(dbOrTx: DbOrTx, eventId: EventId, j
     // columns as JS numbers here, but `Number(...)` makes that an invariant,
     // not an assumption).
     const byId = new Map((rows.rows ?? []).map((row) => [row.file_upload_id, { ...row, sizeBytes: Number(row.size_bytes) }]));
-    const { batch, consumed } = planExportBatch(remainingIds, byId, EXPORT_PART_TARGET_BYTES);
-    const isLast = state.nextIndex + consumed >= fileUploadIds.length;
-
-    const { names, seen: nextNameDedupe } = uniqueZipNamesFrom(
-      state.nameDedupe, batch.map((row) => ({ group: row.group_label, filename: row.filename })),
-    );
+    // `planExportBatch` sizes a batch from the DB's `size_bytes`, but a row whose
+    // R2 object has vanished contributes nothing to the part actually uploaded.
+    // A batch of one 5.9 MB missing file plus one 0.2 MB present file therefore
+    // produced a ~0.2 MB *non-final* part, which R2 rejects at `complete()` with
+    // EntityTooSmall — after every other batch had already been read and
+    // uploaded. Keep consuming until the bytes really read clear the target, or
+    // until there is nothing left to consume (which makes this the last part,
+    // where no floor applies). The extra rows this pulls in are exactly the ones
+    // whose objects are missing, so the bytes read per step stay near the target
+    // and the step's budget is unchanged in the normal case.
     const entries: { name: string; data: Uint8Array }[] = [];
-    for (const [index, row] of batch.entries()) {
-      const bytes = await getObjectBytes(row.r2_key);
-      // A row whose object went missing is skipped rather than failing the
-      // whole export for every other file in the batch.
-      if (bytes) entries.push({ name: names[index] ?? row.filename, data: bytes });
+    let consumed = 0;
+    let nextNameDedupe = state.nameDedupe;
+    let readBytes = 0;
+    let isLast = false;
+    for (;;) {
+      const planned = planExportBatch(remainingIds.slice(consumed), byId, EXPORT_PART_TARGET_BYTES);
+      consumed += planned.consumed;
+      isLast = state.nextIndex + consumed >= fileUploadIds.length;
+      const { names, seen } = uniqueZipNamesFrom(
+        nextNameDedupe, planned.batch.map((row) => ({ group: row.group_label, filename: row.filename })),
+      );
+      nextNameDedupe = seen;
+      for (const [index, row] of planned.batch.entries()) {
+        const bytes = await getObjectBytes(row.r2_key);
+        // A row whose object went missing is skipped rather than failing the
+        // whole export for every other file in the batch.
+        if (bytes) {
+          entries.push({ name: names[index] ?? row.filename, data: bytes });
+          readBytes += bytes.length;
+        }
+      }
+      if (isLast || readBytes >= EXPORT_PART_TARGET_BYTES) break;
     }
 
     const zipState = toZipStreamState(state);
@@ -436,11 +457,13 @@ export async function processFileExportJobIn(dbOrTx: DbOrTx, eventId: EventId, j
       return;
     }
 
-    // Not the last batch: this part is guaranteed >= EXPORT_PART_TARGET_BYTES
-    // of *input* by the loop above (so comfortably clears R2's 5 MiB floor
-    // once ZIP headers are added), unless every row in it vanished — in
-    // which case there is nothing to upload and this step just advances
-    // `nextIndex` past the gap for the next step to continue from.
+    // Not the last batch: the loop above only leaves this branch once the bytes
+    // it actually *read* reached EXPORT_PART_TARGET_BYTES (so the part
+    // comfortably clears R2's 5 MiB floor once ZIP headers are added), or once
+    // there was nothing left to consume — and that second case sets `isLast`,
+    // which returns above. The remaining reachable case is a batch in which
+    // every row's object vanished: nothing to upload, and this step just
+    // advances `nextIndex` past the gap for the next step to continue from.
     // Copied, not reused, before mutating — `state.uploadedParts` may be the
     // shared `EMPTY_STATE.uploadedParts` array literal for a job's first
     // step, and pushing onto that directly would leak into every other

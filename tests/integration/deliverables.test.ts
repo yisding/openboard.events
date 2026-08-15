@@ -393,12 +393,14 @@ describe("M52: the central Files view's deliverable list", () => {
         "INSERT INTO portal_tasks(id,event_id,name,target_type,completion_mode,file_request_id) VALUES($1,$2,'Upload a big file','contact','file_request',$3)",
         [bigTask, eventId, bigRequest],
       );
-      // `size_bytes` alone drives `planExportBatch`'s byte-target decision;
-      // the real object bytes registered in `exportR2Fake` below are tiny —
-      // this test is about the multi-step *orchestration* crossing
-      // `EXPORT_PART_TARGET_BYTES` more than once, not about moving real
-      // megabytes (that is what docs/evidence/m52-zip-cpu-measurement.md
-      // measures against real workerd).
+      // These files carry *real* bytes matching their declared `size_bytes`.
+      // They used to be tiny while `size_bytes` claimed 4 MB, which made every
+      // non-final part about 40 bytes — far under R2's 5 MiB floor, invisible
+      // only because the fake R2 here does not enforce it. A part is now sized
+      // by the bytes actually read, so the fixture has to be honest for this
+      // test to exercise the multi-step split it is named for. Three 4 MB
+      // buffers is the smallest set where any two clear the ~6 MiB target and
+      // any one alone does not.
       // Equal sizes deliberately: `createFileExportJobIn`'s `SELECT DISTINCT`
       // freezes `file_upload_ids` in whatever order Postgres happens to
       // return, not insertion order, so the split this test asserts on must
@@ -419,8 +421,12 @@ describe("M52: the central Files view's deliverable list", () => {
           [eventId, bigRequest, contactId, assetId],
         );
       }
-      for (const [assetId] of declaredSizes) {
-        exportR2Fake.sourceObjects.set(`big/${assetId}.bin`, new TextEncoder().encode(`bytes for ${assetId}`));
+      for (const [assetId, sizeBytes] of declaredSizes) {
+        const bytes = new Uint8Array(sizeBytes);
+        // Not all-zero: a constant buffer would make every entry's CRC identical
+        // and hide a mis-paired name/bytes association.
+        for (let i = 0; i < bytes.length; i += 1) bytes[i] = (i + assetId.charCodeAt(assetId.length - 1)) % 251;
+        exportR2Fake.sourceObjects.set(`big/${assetId}.bin`, bytes);
       }
     }, 60_000);
 
@@ -437,7 +443,7 @@ describe("M52: the central Files view's deliverable list", () => {
       );
       expect(job.status).toBe("pending");
 
-      // Step 1: the first two files alone (4.5 MB + 4.5 MB) already clear the
+      // Step 1: the first two files alone (4 MB + 4 MB) already clear the
       // part-size target, so this step stops there — the third file is
       // deliberately left for a second step.
       await processFileExportJobIn(db, eventId, job.id);
@@ -449,6 +455,14 @@ describe("M52: the central Files view's deliverable list", () => {
       expect(progress.rows[0]?.export_state.nextIndex).toBe(2);
       const uploadId = progress.rows[0]?.export_state.uploadId;
       expect(uploadId).toBeTruthy();
+
+      // R2 rejects a multipart complete() if any non-final part is under 5 MiB,
+      // and it does so only at the very end — after every other batch has
+      // already been read and uploaded. Assert the invariant here, where the
+      // failure is attributable.
+      const partsSoFar = exportR2Fake.uploads.get(String(uploadId)) ?? [];
+      expect(partsSoFar.length).toBe(1);
+      expect(partsSoFar[0]?.length ?? 0).toBeGreaterThanOrEqual(5 * 1024 * 1024);
 
       // Step 2: the one remaining file finishes the job — same job, same
       // multipart upload id, resumed rather than restarted.
@@ -472,6 +486,66 @@ describe("M52: the central Files view's deliverable list", () => {
       }
       expect(eocdOffset).toBeGreaterThanOrEqual(0);
       expect(view.getUint16(eocdOffset + 10, true)).toBe(3);
+    });
+
+    it("never uploads a non-final part under R2's 5 MiB floor when objects are smaller than the rows claim", async () => {
+      // `planExportBatch` sizes a batch from the DB's `size_bytes`, but a row
+      // whose object is missing or short contributes nothing to the part
+      // actually uploaded. Three rows each *claiming* 3.5 MB but carrying
+      // 100 KB: any two clear the ~6 MiB target, so — whatever order
+      // `createFileExportJobIn`'s SELECT DISTINCT freezes — the first batch is
+      // two rows and used to upload a ~200 KB non-final part. R2 rejects that
+      // at complete(), long after every other batch has been read and
+      // uploaded, with an opaque EntityTooSmall.
+      const shortRequest = fileRequestIdSchema.parse("e5000000-0000-4000-8000-000000000090");
+      const shortTask = taskIdSchema.parse("e5000000-0000-4000-8000-000000000091");
+      await pglite.query(
+        "INSERT INTO file_requests(id,event_id,title,target_type,accepted_extensions,max_size_mb) VALUES($1,$2,'Short bytes','contact',ARRAY['pdf'],100)",
+        [shortRequest, eventId],
+      );
+      await pglite.query(
+        "INSERT INTO portal_tasks(id,event_id,name,target_type,completion_mode,file_request_id) VALUES($1,$2,'Short bytes','contact','file_request',$3)",
+        [shortTask, eventId, shortRequest],
+      );
+      const shortAssets = [
+        "e5000000-0000-4000-8000-000000000092",
+        "e5000000-0000-4000-8000-000000000093",
+        "e5000000-0000-4000-8000-000000000094",
+      ];
+      const shortContacts = [ada, grace, irene];
+      for (const [index, assetId] of shortAssets.entries()) {
+        await pglite.query(
+          "INSERT INTO file_assets(id,event_id,kind,r2_key,filename,mime,size_bytes) VALUES($1,$2,'upload',$3,$4,'application/pdf',3500000)",
+          [assetId, eventId, `short/${assetId}.bin`, `${assetId}.pdf`],
+        );
+        await pglite.query(
+          "INSERT INTO file_uploads(event_id,file_request_id,contact_id,file_asset_id,version,is_latest) VALUES($1,$2,$3,$4,1,true)",
+          [eventId, shortRequest, shortContacts[index], assetId],
+        );
+        exportR2Fake.sourceObjects.set(`short/${assetId}.bin`, new Uint8Array(100_000).fill((index + 7) % 251));
+      }
+
+      const { createFileExportJobIn, getFileExportJobIn, processFileExportJobIn } = await import("@/features/portal/deliverables/server/export");
+      const job = await createFileExportJobIn(
+        db, eventId, null,
+        shortContacts.map((contactId) => ({ taskId: shortTask, contactId, submissionId: null })),
+        "none",
+      );
+      for (let step = 0; step < 5; step += 1) {
+        const current = await getFileExportJobIn(db, eventId, job.id);
+        if (current?.status === "completed" || current?.status === "failed") break;
+        await processFileExportJobIn(db, eventId, job.id);
+      }
+      const finished = await getFileExportJobIn(db, eventId, job.id);
+      expect(finished?.status).toBe("completed");
+      expect(finished?.entryCount).toBe(3);
+
+      const uploadId = [...exportR2Fake.uploads.keys()].at(-1);
+      const parts = exportR2Fake.uploads.get(String(uploadId)) ?? [];
+      // Every part but the last has to clear R2's floor.
+      for (const part of parts.slice(0, -1)) {
+        expect(part.length).toBeGreaterThanOrEqual(5 * 1024 * 1024);
+      }
     });
 
     it("does not rewind progress a second worker made after stealing this step's lease", async () => {
