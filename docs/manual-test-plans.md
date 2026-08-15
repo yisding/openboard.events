@@ -69,11 +69,19 @@ Keep `.dev.vars` at its example defaults — `APP_ENV=local`, `EMAIL_MODE=log`, 
 Resend. Admin authentication always uses Better Auth; there is no provider switch or test-only
 session endpoint.
 
-Two more secrets are blank in the example file and are needed only by the plans that reach the
-surfaces they sign: `UNSUBSCRIBE_SECRET` (MTP-12's unsubscribe link) and `SPEAKER_SHARE_SECRET`
-(the `/speaking/<token>` share page in MTP-07 §5, MTP-10 and MTP-11). Any 32+ character string
-will do locally. Left blank, those two paths fail with an internal error rather than a bad
-token — that is configuration, not a defect.
+**Fill `UNSUBSCRIBE_SECRET` and `SPEAKER_SHARE_SECRET` too.** Both are blank in the example file
+and each needs 32+ characters; any random string does locally.
+
+`UNSUBSCRIBE_SECRET` is not only the unsubscribe link. Every **non-essential** message — anything
+outside the transactional set of accept, decline, schedule assigned/changed, portal sign-in and
+the two admin-auth keys — carries a signed unsubscribe URL, and building that context fails with
+an internal error when the secret is missing. Left blank, the submission receipt in MTP-03/04, the
+reviewer invitations and reminders in MTP-05, the task mail in MTP-10, and most of MTP-12 all fail
+in the dispatcher. `SPEAKER_SHARE_SECRET` signs the `/speaking/<token>` share page (MTP-07 §5,
+MTP-10, MTP-11) the same way.
+
+Neither failure is a defect — it is configuration — but both look exactly like a broken outbox, so
+set them before you start rather than diagnosing them mid-plan.
 
 **File uploads** presign against real R2. Either fill `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`,
 `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME=sb-files-dev`, or run those steps on Env C. CORS is only
