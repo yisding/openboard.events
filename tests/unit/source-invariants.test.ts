@@ -92,6 +92,39 @@ describe("AST source invariants", () => {
     expect(result.stderr).not.toContain("boundary.test.ts");
   });
 
+  it("requires an explicit kind on a toast raised from a catch block", () => {
+    const root = fixture({
+      "src/features/example/panel.tsx": `
+        export function Panel() {
+          const { toast } = useToast();
+          async function save() {
+            try {
+              await write();
+              toast("Saved");
+            } catch (caught) {
+              toast("That did not save");
+              toast("Also broken", { durationMs: 5 });
+              void Promise.resolve().then(() => toast("late failure"));
+            }
+          }
+          async function ok() {
+            try { await write(); } catch (caught) {
+              toast("That did not save", { kind: "error" });
+              toast("Computed is left to review", resultToastOptions(caught));
+            }
+          }
+          return null;
+        }
+      `,
+    });
+
+    const result = check(root);
+    expect(result.status).toBe(1);
+    // The success toast in the try block, the two correct ones, and the
+    // computed-options call are all left alone.
+    expect(result.stderr.match(/\[error-toast-kind\]/gu)).toHaveLength(3);
+  });
+
   it("keeps instant formatting in the time module and out of product code", () => {
     const root = fixture({
       "src/features/example/audit.tsx": `
