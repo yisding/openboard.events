@@ -308,3 +308,52 @@ describe("API key creation recovery", () => {
     expect(toastMock).toHaveBeenCalledWith(API_KEY_LABEL_TOO_LONG_MESSAGE, { kind: "error" });
   });
 });
+
+describe("API key revoke outcome", () => {
+  async function openRevokeAndConfirm() {
+    await renderPanel();
+    await act(async () => buttonNamed("Revoke")?.click());
+    await settle();
+    // The dialog's own confirm button is the second "Revoke" on screen.
+    const confirm = buttonsNamed("Revoke").at(-1);
+    await act(async () => confirm?.click());
+    await settle();
+  }
+
+  it("restores the key and shows the server's reason when the revoke was definitively refused", async () => {
+    apiMock.mockRejectedValueOnce(new AppError("FORBIDDEN", "You cannot revoke that key"));
+    await openRevokeAndConfirm();
+
+    expect(container.textContent).toContain("Existing integration");
+    expect(toastMock).toHaveBeenCalledWith("You cannot revoke that key", { kind: "error" });
+  });
+
+  it("re-reads the list rather than claiming a key is restored when the outcome is unknown", async () => {
+    // A lost response after the DELETE has already committed. Announcing "the
+    // key has been restored" put a revoked — possibly leaked — key back on
+    // screen as live, while every integration using it was getting 401.
+    apiMock
+      .mockRejectedValueOnce(new TypeError("response lost"))
+      .mockResolvedValueOnce([]);
+    await openRevokeAndConfirm();
+
+    expect(container.textContent).not.toContain("Existing integration");
+    expect(toastMock).toHaveBeenCalledWith(
+      "That revoke could not be confirmed. The list above is now current.",
+      { kind: "error" },
+    );
+  });
+
+  it("says the outcome is unknown when even the re-read fails", async () => {
+    apiMock
+      .mockRejectedValueOnce(new TypeError("response lost"))
+      .mockRejectedValueOnce(new TypeError("still offline"));
+    await openRevokeAndConfirm();
+
+    expect(container.textContent).toContain("Existing integration");
+    expect(toastMock).toHaveBeenCalledWith(
+      "That revoke is unconfirmed. Restore your connection and check this list before assuming the key is still live.",
+      { kind: "error" },
+    );
+  });
+});
