@@ -977,9 +977,13 @@ sees; D7 and D8 failures here are public.
 | 22 | Deliverability panel | Reflects 19–21 |
 | 23 | *(C, `EMAIL_MODE=send`)* Send to an allowlisted inbox | Delivered from the verified domain; `dmarc=pass`, SPF/DKIM aligned |
 
-**Known gaps.** The Outlook delivery probe has never been run — a step 23 failure against Outlook is
-new territory, not a regression. Production forbids `EMAIL_FALLBACK_UI=1`; a credential appearing in
-a production-mode render is a P0.
+**Known gaps.** A production Outlook `portal_login` probe on `2026-08-15` passed SPF, DKIM, DMARC,
+and composite authentication but landed in Junk; that is the OTP placement baseline. Outlook
+calendar REQUEST/reschedule/CANCEL delivery is still untested, so a calendar-specific failure is
+new territory. A later Outlook authentication failure or placement worse than that recorded
+baseline is a regression. The matching Gmail probe passed authentication, and its folder placement
+was Inbox. Production forbids `EMAIL_FALLBACK_UI=1`; a credential appearing in a production-mode
+render is a P0.
 
 ---
 

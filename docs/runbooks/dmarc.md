@@ -43,6 +43,25 @@ the earliest possible quarantine-10 entry, not an automatic promotion date: at l
 independent receivers must first contribute reports, every legitimate source must be identified,
 and Gmail and Outlook test messages must show `dmarc=pass`.
 
+At `2026-08-15T03:50Z`, the production speaker-portal path queued one test message for an
+authorized Gmail recipient and one for an authorized Outlook.com recipient. Both requests
+returned `200`, the durable outbox drained, and the health check showed no new failed message.
+The recipient-provided authentication results established the expected path without retaining
+addresses, message identifiers, signatures, or bearer links:
+
+- Gmail reported aligned Resend DKIM for `mail.openboard.events`, SPF for
+  `send.mail.openboard.events`, and `dmarc=pass` under the current `p=none` policy. It placed the
+  message in Inbox.
+- Outlook reported the same aligned DKIM, SPF, and `dmarc=pass`, plus `compauth=pass`. It placed
+  the message in Junk despite those passes.
+
+Gmail Inbox and Outlook Junk are the reporting-stage placement baseline. The Outlook decision is
+not a DMARC policy action: the message passed DMARC and no receiver enforcement was requested by
+`p=none`. Repeat both tests before quarantine-10, comparing authentication and folder placement.
+A worse placement result or any authentication regression blocks promotion; an unchanged Outlook
+Junk result remains a separate sender-reputation/content issue and must not be presented as proof
+that DMARC caused it.
+
 ## Stage gates
 
 The application currently expects only Resend. Its aligned path is:
@@ -67,12 +86,18 @@ passing sources are unapproved senders and block promotion.
 The percentage stages reduce risk, but receivers are allowed to ignore `pct`; keep the evidence
 gate even when observed filtering appears lower than the published percentage.
 
+Record Inbox/Junk placement with every Gmail and Outlook probe so delivery changes can be
+compared with the reporting-stage baseline. Authentication results determine DMARC alignment;
+folder placement is the separate regression signal. A receiver without a recorded baseline blocks
+promotion until one is captured.
+
 ## Monitoring and rollback
 
 Stop or roll back one stage immediately when any of these occurs:
 
 - one legitimate source or message fails DMARC;
 - a passing source is not Resend/Amazon SES and has not been explicitly approved;
+- Gmail or Outlook placement worsens relative to the reporting-stage baseline;
 - production delivery failures or bounces rise above the alerting runbook's existing threshold;
 - SPF or DKIM DNS no longer resolves, Cloudflare reports a DMARC configuration status, or the
   application From domain changes.
@@ -89,4 +114,4 @@ After every change, verify:
 2. `send.mail.openboard.events` resolves the Resend/Amazon SES SPF and return-path MX records.
 3. `resend._domainkey.mail.openboard.events` resolves DKIM.
 4. A production message delivered to Gmail and Outlook has `dmarc=pass` in its authentication
-   results.
+   results, and its Inbox/Junk placement is recorded against the reporting-stage baseline.
