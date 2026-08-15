@@ -30,6 +30,8 @@ const migrationBilling = readFileSync(new URL("../../drizzle/0012_billing_scaffo
 // M55's CRM. Erasure reaches into it (see `eraseContactDataIn` step 5), so its
 // tables have to exist here or the erasure case proves nothing about them.
 const migrationCrm = readFileSync(new URL("../../drizzle/0013_speaker_crm.sql", import.meta.url), "utf8");
+// 0022 creates `admin_auth_email_outbox`; 0025 widens its template check.
+const migrationAdminAuthOutbox = readFileSync(new URL("../../drizzle/0022_admin_auth_email_outbox.sql", import.meta.url), "utf8");
 const migrationOnboardingMilestones = readFileSync(new URL("../../drizzle/0023_onboarding_milestones.sql", import.meta.url), "utf8");
 // Reviewer invitations extend organization_invitations, so their migration
 // belongs in this fixture before organization exports query its current schema.
@@ -76,7 +78,7 @@ beforeAll(async () => {
   for (const migration of [
     migration0, migration1, migrationAdminAuth, migrationRateLimits, migrationContentDeliverables, migrationEmailCompliance,
     migrationRoster, migrationProductAuth, migrationTenancy, migrationUserManagement,
-    migrationBilling, migrationCrm, migrationOnboardingMilestones,
+    migrationBilling, migrationCrm, migrationAdminAuthOutbox, migrationOnboardingMilestones,
     migrationReviewerInvitations, migrationCalendarCancellationSnapshots,
   ]) {
     await pglite.exec(migration);
@@ -532,6 +534,15 @@ describe("runDataRetentionSweepIn", () => {
       "INSERT INTO rate_limit_buckets(key_hash,count,window_started_at,updated_at) VALUES('rl-idle',3,$1,$1),('rl-active',3,$2,$2)",
       [idleCounter, activeCounter],
     );
+    // The platform outbox carries the same rendered content as
+    // `communication_logs`, plus the sealed reset/verification payload on a
+    // failed row, and nothing aged any of it out.
+    await pglite.query(
+      `INSERT INTO admin_auth_email_outbox(user_id,recipient_email,template_key,idempotency_key,status,subject_rendered,body_rendered_html,secret_payload_ciphertext,created_at) VALUES
+         ($1,'old@example.com','admin_password_reset','ret-admin-old','sent','Reset your password','<p>old</p>','\\xdeadbeef'::bytea,$2),
+         ($1,'fresh@example.com','admin_password_reset','ret-admin-fresh','sent','Reset your password','<p>fresh</p>',NULL,$3)`,
+      [adminUserId, oldCreatedAt, recentCreatedAt],
+    );
     await pglite.query(
       `INSERT INTO admin_login_attempts(key_hash,attempts,window_started_at,blocked_until,updated_at) VALUES
          ('la-idle',3,$1,NULL,$1),
@@ -549,6 +560,15 @@ describe("runDataRetentionSweepIn", () => {
     expect(stats.expiredAdminSessions).toBe(1);
     expect(stats.expiredAdminVerifications).toBe(1);
     expect(stats.redactedCommunicationLogs).toBe(1);
+    expect(stats.redactedAdminAuthEmails).toBe(1);
+    const adminOutbox = (await pglite.query<{ idempotency_key: string; subject_rendered: string | null; secret_payload_ciphertext: Uint8Array | null }>(
+      "SELECT idempotency_key, subject_rendered, secret_payload_ciphertext FROM admin_auth_email_outbox ORDER BY idempotency_key",
+    )).rows;
+    // The delivery record survives as the audit trail; the content does not.
+    expect(adminOutbox.map((row) => row.idempotency_key)).toEqual(["ret-admin-fresh", "ret-admin-old"]);
+    expect(adminOutbox[1]?.subject_rendered).toBeNull();
+    expect(adminOutbox[1]?.secret_payload_ciphertext).toBeNull();
+    expect(adminOutbox[0]?.subject_rendered).toBe("Reset your password");
     expect(stats.removedStaleCalendarCancellationJobs).toBe(1);
     expect(stats.staleRateLimitBuckets).toBe(1);
     expect(stats.staleAdminLoginAttempts).toBe(2);
@@ -603,6 +623,7 @@ describe("runDataRetentionSweepIn", () => {
       expiredPortalSessions: 0,
       expiredAdminSessions: 0,
       redactedCommunicationLogs: 0,
+      redactedAdminAuthEmails: 0,
       removedStaleCalendarCancellationJobs: 0,
       staleRateLimitBuckets: 0,
       staleAdminLoginAttempts: 0,
