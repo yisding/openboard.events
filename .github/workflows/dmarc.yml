@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: Read status or idempotently enable aggregate reports
+        description: Read reporting/enforcement status or idempotently enable aggregate reports
         required: true
         type: choice
         default: status
