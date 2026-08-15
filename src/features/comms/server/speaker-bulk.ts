@@ -13,10 +13,10 @@ import {
 } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { getEnv } from "@/shared/lib/env";
-import { sanitize } from "@/shared/lib/sanitize";
 import { formatInZone, zoneAbbreviation } from "@/shared/lib/time";
 import { enqueueEmail } from "@/shared/server/enqueue-email";
 import { renderTemplateContent, validateTemplateBody } from "./render";
+import { sanitizeTemplateBody } from "@/shared/lib/template-body";
 
 
 type RecipientRow = {
@@ -88,7 +88,12 @@ export async function composeBulkSpeakerEmailIn(dbOrTx: DbOrTx, eventId: EventId
   // every downstream use (unknown-token validation, preview render, and the
   // row actually stored/re-rendered at send time) reads this one sanitized
   // value rather than the raw request body.
-  const bodyHtml = sanitize(input.bodyHtml);
+  // `sanitizeTemplateBody`, not `sanitize`: the shared allowlist drops any
+  // href whose value is not http(s)/mailto, which is every merge token. The
+  // composer's own variable picker offers `{{portal.magic_link}}`, so a bulk
+  // message written with a portal link was stored — and sent — as link-less
+  // text.
+  const bodyHtml = sanitizeTemplateBody(input.bodyHtml);
   const validation = validateTemplateBody("speaker_bulk_message", input.subject, bodyHtml);
   if (!validation.ok) {
     throw new AppError(

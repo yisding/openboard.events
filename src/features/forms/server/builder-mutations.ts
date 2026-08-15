@@ -37,6 +37,7 @@ import {
   fieldPatchIsStructural,
 } from "./guards";
 import { getFormForBuilderIn, hasNonDraftSubmissionsIn } from "./builder-queries";
+import { sanitizeTemplateBody } from "@/shared/lib/template-body";
 
 type CreateFormInput = {
   id?: FormId | undefined;
@@ -346,7 +347,10 @@ export async function updateFormIn(dbOrTx: DbOrTx, eventId: EventId, formId: For
     ...(patch.externalTitle !== undefined ? { externalTitle: patch.externalTitle.trim() } : {}),
     ...(patch.welcomeHtml !== undefined ? { welcomeHtml: sanitize(patch.welcomeHtml) } : {}),
     ...(patch.successHtml !== undefined ? { successHtml: sanitize(patch.successHtml) } : {}),
-    ...(patch.confirmationBodyHtml !== undefined ? { confirmationBodyHtml: sanitize(patch.confirmationBodyHtml) } : {}),
+    // The confirmation email is a template, not page copy: `sanitize` would
+    // strip the `{{portal.magic_link}}` href the shipped default is built
+    // around, leaving the speaker a dead "Open your speaker portal".
+    ...(patch.confirmationBodyHtml !== undefined ? { confirmationBodyHtml: sanitizeTemplateBody(patch.confirmationBodyHtml) } : {}),
   };
   const hypothetical = { ...form, ...cleaned } as BuilderForm;
   const snapshot = nextSnapshot(hypothetical);

@@ -423,4 +423,18 @@ describe("database-backed form builder", () => {
     );
     expect(snapshotDuration.visibility?.conditions[0]?.sourceFieldId).toBe(copiedDuration.visibility?.conditions[0]?.sourceFieldId);
   });
+
+  it("keeps the portal link in a saved confirmation email body", async () => {
+    // The stored body is what is re-rendered at send time. `sanitize()` drops
+    // any href that is not http(s)/mailto — which is every merge token — so a
+    // confirmation edited in the builder reached speakers with a dead "Open
+    // your speaker portal", exactly the link the shipped default is built on.
+    const formId = required((await listFormsIn(database, eventId))[0], "created form").id;
+    const form = await getFormForBuilderIn(database, eventId, formId);
+    const saved = await updateFormIn(database, eventId, formId, {
+      confirmationBodyHtml: '<p>Thanks! <a href="{{portal.magic_link}}">Open your speaker portal</a></p>',
+    }, form.updatedAt);
+
+    expect(saved.confirmationBodyHtml).toContain('href="{{portal.magic_link}}"');
+  });
 });

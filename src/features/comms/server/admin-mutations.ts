@@ -14,7 +14,7 @@ import {
 } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
-import { sanitizeTemplateBody } from "@/features/comms/template-body";
+import { sanitizeTemplateBody } from "@/shared/lib/template-body";
 import { validateTemplateBody } from "./render";
 import { EVENT_EDITABLE_TEMPLATE_KEYS } from "./templates";
 import type {

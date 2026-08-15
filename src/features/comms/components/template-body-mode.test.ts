@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sanitizeTemplateBody } from "@/features/comms/template-body";
+import { sanitizeTemplateBody } from "@/shared/lib/template-body";
 import { templateBodyForMode } from "./template-body-mode";
 
 describe("templateBodyForMode", () => {
