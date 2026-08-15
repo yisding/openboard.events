@@ -108,6 +108,10 @@ export function KitchenSink() {
 
       <section style={{ marginBottom: 32 }}>
         <h2 className="section-title">Command palette</h2>
+        <p>
+          Fixed verbs and live results share one keyboard-navigable list. Psst — the palette also has
+          a secret menu: it is fond of certain animals, a good espresso, and a proper afterparty.
+        </p>
         <CommandPalette
           eventId="00000000-0000-4000-8000-000000000001"
           base="/events/00000000-0000-4000-8000-000000000001"
