@@ -192,7 +192,6 @@ function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speake
     if (session.startsAt === null || session.endsAt === null || !selectedDay) return;
     const deltaSlots = pixelDeltaToSlotDelta(deltaPx);
     if (deltaSlots === 0) return; // a jiggle under half a row changes nothing (edge case #5)
-    resizeAppliedRef.current = true;
 
     // Both edges are read as wall-clock minutes from the selected day's midnight,
     // never as elapsed UTC time: a session ending at 00:00 the next morning has to
@@ -202,6 +201,11 @@ function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speake
     const startMinutes = minutesFromDayStartInZone(session.startsAt, selectedDay, event.timezone);
     const endMinutes = minutesFromDayStartInZone(session.endsAt, selectedDay, event.timezone);
     const next = clampResize(edge === "resize-start" ? "start" : "end", startMinutes, endMinutes, deltaSlots);
+    // The clamp can bottom out at the minimum duration and hand back the same
+    // edges; announcing that as "Updated" would misreport a write that never
+    // happened — and writing it would bump row_version for nothing.
+    if (next.startMinutes === startMinutes && next.endMinutes === endMinutes) return;
+    resizeAppliedRef.current = true;
 
     move.mutate({
       id: session.id,

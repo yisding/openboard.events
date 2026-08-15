@@ -32,6 +32,9 @@ export const communicationLogs = pgTable("communication_logs", {
   unique().on(table.id, table.eventId),
   index("communication_logs_contact_created_idx")
     .on(table.eventId, table.contactId, table.createdAt.desc().nullsFirst()),
+  // Serves the notify preflight's per-row "was this submission already told"
+  // EXISTS probe; without it every queued row scans the event's whole log.
+  index("communication_logs_submission_idx").on(table.eventId, table.submissionId),
 ]);
 // P3-EMAIL: Resend bounce/complaint webhook target. Deliberately its own
 // table, one row per suppressed contact, rather than columns on `contacts` —

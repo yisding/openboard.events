@@ -27,7 +27,13 @@ const AVATAR_COLORS = [
   "var(--avatar-hue-6)", "var(--avatar-hue-7)", "var(--avatar-hue-8)", "var(--avatar-hue-9)", "var(--avatar-hue-10)",
 ] as const;
 
-function avatarColorFor(id: string): string {
+/**
+ * Exported for the admin speaker roster, which draws the same contacts'
+ * avatars: one palette, one hash, so a speaker wears the same hue on the
+ * portal and in the organizer's view — and the `avatar-hue-contrast` test
+ * covers every disc the product draws.
+ */
+export function avatarColorFor(id: string): string {
   let hash = 0;
   for (const character of id) hash = (hash * 31 + (character.codePointAt(0) ?? 0)) % 100_000;
   return AVATAR_COLORS[hash % AVATAR_COLORS.length] ?? AVATAR_COLORS[0];

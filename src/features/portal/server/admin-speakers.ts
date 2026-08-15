@@ -5,6 +5,7 @@ import { contacts } from "@/db/schema";
 // single `dbOrTx` through every query (contact, submissions, tasks, comms) so
 // a PGlite test can exercise it end to end without a live Neon connection.
 import { listLogIn } from "@/features/comms/index.log";
+import { avatarColorFor } from "./shell";
 // The client-safe barrel: it re-exports `toPortalStatus` straight off
 // `server/guards.ts` with no path back through `server/mutations.ts` (which
 // imports `updateContactFields` from this feature's own barrel). Importing the
@@ -49,7 +50,7 @@ export function contactSpeakerRecord(row: ContactSpeakerRow): SpeakerRecord {
     website: row.websiteUrl ?? "",
     linkedin: row.linkedinUrl ?? "",
     avatar: `${firstInitial}${lastInitial}`.toUpperCase() || "?",
-    avatarColor: "#007454",
+    avatarColor: avatarColorFor(row.id),
     hasHeadshot: row.headshotFileId !== null,
     confirmation: row.confirmation,
     profileCompletion: Math.round((completed / 6) * 100),

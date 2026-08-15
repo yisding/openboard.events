@@ -31,9 +31,14 @@ const transition = defineHandler({
       userIdSchema.parse(session?.actorId),
     );
     // Only an `accepted` submission keeps its promoted session on the public
-    // views, so reversing a decision takes that session and its speaker off
-    // the public site — refresh it now rather than after the ISR window.
-    if (result.changed.length > 0) await revalidatePublicEvent(scopedEventId, ["schedule", "speakers"], requestId);
+    // views, so the public site changes in exactly two cases: a move pulled a
+    // published session off the views (`unpublished`), or a move into
+    // `accepted` restored one. Triage moves between the internal queues must
+    // not drop the ISR entries — a bulk-triage session would otherwise bust
+    // the public schedule and speaker caches on every batch.
+    if (result.unpublished > 0 || (input.to === "accepted" && result.changed.length > 0)) {
+      await revalidatePublicEvent(scopedEventId, ["schedule", "speakers"], requestId);
+    }
     return result;
   },
 });

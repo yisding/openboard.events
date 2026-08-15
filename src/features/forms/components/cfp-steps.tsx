@@ -723,8 +723,15 @@ export function CfpSteps({ data, signedInEmail }: { data: PublicForm; signedInEm
 
   async function switchAccount() {
     setSigningOut(true);
-    await cfpRequest("/api/internal/auth/portal/logout", { eventSlug: event.slug });
+    // A failed sign-out must not pretend to succeed: the previous speaker's
+    // portal cookie would still be live, and the account step would hand the
+    // next reload straight back into their draft.
+    const signedOut = await cfpRequest("/api/internal/auth/portal/logout", { eventSlug: event.slug });
     setSigningOut(false);
+    if (!signedOut.ok) {
+      showNotice(signedOut.message, "error");
+      return;
+    }
     // The limit belongs to the account being left behind, so clearing it is what
     // makes the account step reachable again from the limit page.
     setLimitMessage(null);
