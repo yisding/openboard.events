@@ -28,9 +28,42 @@ const VALUE_REQUIRED_OPS = new Set<ConditionOp>(["eq", "neq", "in", "not_in"]);
  */
 const MULTI_VALUE_OPS = new Set<ConditionOp>(["in", "not_in"]);
 
-/** Scalar and set values are not interchangeable, so switching between them starts over. */
-function sameArity(left: ConditionOp, right: ConditionOp): boolean {
-  return MULTI_VALUE_OPS.has(left) === MULTI_VALUE_OPS.has(right);
+/** Whether this field/operator pair holds a set of option ids or a single value. */
+function wantsArray(op: ConditionOp, field: ConditionSourceField | undefined): boolean {
+  return field?.fieldType === "multiselect" && MULTI_VALUE_OPS.has(op);
+}
+
+/**
+ * Carry the organizer's choice across an operator change, reshaping it when the
+ * new operator holds a different shape.
+ *
+ * Only a multiselect ever changes shape — a dropdown and a text field stay
+ * scalar under every operator, so their value must survive untouched rather
+ * than snapping back to the first option.
+ */
+function valueForOp(
+  op: ConditionOp,
+  field: ConditionSourceField | undefined,
+  current: Condition["value"],
+): Condition["value"] {
+  if (!VALUE_REQUIRED_OPS.has(op)) return undefined;
+  if (current === undefined) return defaultValueFor(op, field);
+  const isArray = Array.isArray(current);
+  if (wantsArray(op, field)) return isArray ? current : current === "" ? defaultValueFor(op, field) : [current];
+  const scalar = isArray ? current[0] : current;
+  return scalar === undefined ? defaultValueFor(op, field) : scalar;
+}
+
+/**
+ * The one value `eq`/`neq` compare against, which is `expectedScalar`'s rule in
+ * `shared/lib/conditions.ts`. A rule saved before the builder stopped offering
+ * a set under those operators still holds an array; showing its first element
+ * is what the evaluator does and what the summary now says, so the control
+ * agrees with both instead of rendering an empty placeholder.
+ */
+function scalarValue(value: Condition["value"]): string {
+  const effective = Array.isArray(value) ? value[0] : value;
+  return typeof effective === "string" ? effective : "";
 }
 // A file question has nothing to compare against — only whether it was
 // uploaded at all is meaningful.
@@ -92,14 +125,10 @@ export function ConditionRow({
   }
 
   function changeOp(nextOp: ConditionOp) {
-    // Carrying the value across an arity change is what let a two-chip array
-    // survive a switch from "is any of" to "is", where only the first element
-    // is ever read.
-    const keepValue = VALUE_REQUIRED_OPS.has(nextOp) && sameArity(condition.op, nextOp);
-    const value = VALUE_REQUIRED_OPS.has(nextOp)
-      ? (keepValue ? condition.value ?? defaultValueFor(nextOp, sourceField) : defaultValueFor(nextOp, sourceField))
-      : undefined;
-    onChange({ ...condition, op: nextOp, value });
+    // Carrying the value across unchanged is what let a two-chip array survive
+    // a switch from "is any of" to "is", where only the first element is ever
+    // read. Reshaping keeps the organizer's choice without keeping the shape.
+    onChange({ ...condition, op: nextOp, value: valueForOp(nextOp, sourceField, condition.value) });
   }
 
   function changeScalarValue(next: string) {
@@ -135,7 +164,7 @@ export function ConditionRow({
             multiselect question under those operators asks the same
             single-answer question a dropdown does. */}
         {requiresValue && sourceField && optionPicker === "one" && (
-          <Select aria-label="Value" disabled={disabled} value={typeof condition.value === "string" ? condition.value : ""} onChange={(event) => changeScalarValue(event.target.value)}>
+          <Select aria-label="Value" disabled={disabled} value={scalarValue(condition.value)} onChange={(event) => changeScalarValue(event.target.value)}>
             <option value="" disabled>Choose an option</option>
             {sourceField.options.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
           </Select>
@@ -162,7 +191,7 @@ export function ConditionRow({
           <input
             aria-label="Value"
             disabled={disabled}
-            value={typeof condition.value === "string" ? condition.value : ""}
+            value={scalarValue(condition.value)}
             onChange={(event) => changeScalarValue(event.target.value)}
             placeholder="Value to match"
           />

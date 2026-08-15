@@ -23,6 +23,18 @@ const multiselect: ConditionSourceField = {
   ],
 };
 
+const format = fieldIdSchema.parse("40000000-0000-4000-8000-000000000002");
+
+const dropdown: ConditionSourceField = {
+  id: format,
+  label: "Format",
+  fieldType: "dropdown",
+  options: [
+    { id: "talk", label: "Talk" },
+    { id: "workshop", label: "Workshop" },
+  ],
+};
+
 const mounted: Array<() => Promise<void>> = [];
 afterEach(async () => {
   while (mounted.length > 0) await mounted.pop()?.();
@@ -35,7 +47,7 @@ function ConditionFixture({ initial }: { initial: Condition }) {
     <>
       <ConditionRow
         condition={condition}
-        sourceFields={[multiselect]}
+        sourceFields={[multiselect, dropdown]}
         onChange={setCondition}
         onRemove={() => undefined}
       />
@@ -91,6 +103,39 @@ describe("ConditionRow value arity", () => {
     // the same thing — not a two-element array with only its head consulted.
     expect(valueOf(container)).toBe(JSON.stringify("frontend"));
     expect(chips(container)).toHaveLength(0);
+  });
+
+  it("keeps a dropdown's selection when the operator changes", async () => {
+    // A dropdown is scalar under every operator, so nothing needs reshaping —
+    // and snapping it back to the first option would save a rule against a
+    // value the organizer never chose.
+    const container = await render({ sourceFieldId: format, op: "eq", value: "workshop" });
+    const operator = container.querySelector<HTMLSelectElement>('select[aria-label="Operator"]');
+    if (!operator) throw new Error("operator select did not render");
+    await act(async () => {
+      operator.value = "in";
+      operator.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(valueOf(container)).toBe(JSON.stringify("workshop"));
+  });
+
+  it("carries a multiselect's choice into the set form instead of resetting it", async () => {
+    const container = await render({ sourceFieldId: topics, op: "eq", value: "backend" });
+    const operator = container.querySelector<HTMLSelectElement>('select[aria-label="Operator"]');
+    if (!operator) throw new Error("operator select did not render");
+    await act(async () => {
+      operator.value = "in";
+      operator.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(valueOf(container)).toBe(JSON.stringify(["backend"]));
+  });
+
+  it("shows the value a legacy multi-value 'is' actually compares against", async () => {
+    // Stored before the builder stopped offering a set here. The control used
+    // to fall back to the disabled placeholder, so the editor contradicted both
+    // the evaluator and the summary line above it.
+    const container = await render({ sourceFieldId: topics, op: "eq", value: ["backend", "frontend"] });
+    expect(valueSelect(container)?.value).toBe("backend");
   });
 });
 
