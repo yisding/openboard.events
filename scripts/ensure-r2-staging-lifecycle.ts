@@ -1,4 +1,5 @@
 import { basename } from "node:path";
+import { cloudflareRequest, requireCloudflareCredentials } from "./lib/cloudflare";
 
 export const STAGING_LIFECYCLE_RULE_ID = "expire-staging";
 export const STAGING_LIFECYCLE_PREFIX = "staging/";
@@ -50,56 +51,34 @@ export function reconcileStagingLifecycleRules(existing: readonly LifecycleRule[
   };
 }
 
-type CloudflareEnvelope<T> = {
-  success: boolean;
-  result: T;
-  errors?: Array<{ code?: number; message?: string }>;
-};
-
-async function cloudflareRequest<T>(
-  accountId: string,
-  apiToken: string,
-  bucket: string,
-  method: "GET" | "PUT",
-  body?: unknown,
-): Promise<T> {
-  const url = new URL(
-    `/client/v4/accounts/${encodeURIComponent(accountId)}/r2/buckets/${encodeURIComponent(bucket)}/lifecycle`,
-    "https://api.cloudflare.com",
-  );
-  const response = await fetch(url, {
-    method,
-    headers: {
-      authorization: `Bearer ${apiToken}`,
-      ...(body === undefined ? {} : { "content-type": "application/json" }),
-    },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  const payload = await response.json().catch(() => null) as CloudflareEnvelope<T> | null;
-  if (!response.ok || !payload?.success) {
-    const errors = payload?.errors?.map((error) => `${error.code ?? "unknown"}: ${error.message ?? "unknown"}`).join(", ");
-    throw new Error(`Cloudflare lifecycle ${method} failed (${response.status})${errors ? `: ${errors}` : ""}`);
-  }
-  return payload.result;
-}
-
 async function main(): Promise<void> {
   const target = process.argv[2];
   if (target !== "preview" && target !== "production") {
     throw new Error("usage: ensure-r2-staging-lifecycle.ts preview|production");
   }
-  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
-  const apiToken = process.env.CLOUDFLARE_API_TOKEN;
-  if (!accountId || !apiToken) throw new Error("CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are required");
+  const { accountId, apiToken } = requireCloudflareCredentials();
   const bucket = target === "preview" ? "sb-files-preview" : "sb-files";
+  const lifecyclePath = `accounts/${encodeURIComponent(accountId)}/r2/buckets/${encodeURIComponent(bucket)}/lifecycle`;
 
-  const current = await cloudflareRequest<{ rules?: LifecycleRule[] }>(accountId, apiToken, bucket, "GET");
+  const current = await cloudflareRequest<{ rules?: LifecycleRule[] }>(apiToken, lifecyclePath, {
+    method: "GET",
+    failureLabel: "Cloudflare lifecycle GET failed",
+  });
   const reconciled = reconcileStagingLifecycleRules(current.rules ?? []);
   if (reconciled.changed) {
-    await cloudflareRequest(accountId, apiToken, bucket, "PUT", { rules: reconciled.rules });
+    // The PUT answers `success: true` with no `result`, which is a success here.
+    await cloudflareRequest(apiToken, lifecyclePath, {
+      method: "PUT",
+      body: JSON.stringify({ rules: reconciled.rules }),
+      expectResult: false,
+      failureLabel: "Cloudflare lifecycle PUT failed",
+    });
   }
 
-  const verified = await cloudflareRequest<{ rules?: LifecycleRule[] }>(accountId, apiToken, bucket, "GET");
+  const verified = await cloudflareRequest<{ rules?: LifecycleRule[] }>(apiToken, lifecyclePath, {
+    method: "GET",
+    failureLabel: "Cloudflare lifecycle GET failed",
+  });
   const matches = (verified.rules ?? []).filter((rule) => rule.id === STAGING_LIFECYCLE_RULE_ID);
   if (matches.length !== 1 || !matches[0] || !isStagingLifecycleRule(matches[0])) {
     throw new Error(`R2 lifecycle rule ${STAGING_LIFECYCLE_RULE_ID} did not verify on ${bucket}`);
