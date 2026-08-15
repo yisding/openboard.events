@@ -5,7 +5,7 @@
 export type { DeliverableFilters, DeliverableState, DeliverableStateCounts } from "./server/queries";
 export { getDeliverableStateCounts, getDeliverableStateCountsIn, listDeliverables, listDeliverablesIn } from "./server/queries";
 export type { DeliverablePageFilters } from "./server/filters";
-export { deliverableFiltersSchema, parseDeliverableFiltersForPage } from "./server/filters";
+export { deliverableFiltersSchema, dueRangeFilters, parseDeliverableFiltersForPage } from "./server/filters";
 export type { BulkRemindInput, OrganizerCommentInput } from "./server/mutations";
 export { addOrganizerComment, bulkRemind, bulkRemindInputSchema, organizerCommentInputSchema } from "./server/mutations";
 
