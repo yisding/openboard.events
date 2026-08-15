@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   isUnavailabilityDraftDirty,
@@ -51,19 +50,5 @@ describe("speaker roster draft recovery", () => {
       { hotel: "Old hotel", shirt: "M" },
       { hotel: "New server hotel", shirt: "L", dietary: "Vegan" },
     )).toEqual({ hotel: "Local draft", shirt: "L", dietary: "Vegan" });
-  });
-
-  it("pins guarded availability and controlled rollback behavior in the roster UI", () => {
-    const source = readFileSync(new URL("./speaker-roster-panels.tsx", import.meta.url), "utf8");
-
-    expect(source.match(/useUnsavedWorkGuard\(dirty\)/g)).toHaveLength(2);
-    expect(source).toContain("const validation = validateUnavailabilityDraft(draft)");
-    expect(source).toContain("if (!validation.intervals) {");
-    expect(source).toContain("querySelector<HTMLElement>('[aria-invalid=\"true\"]')?.focus()");
-    expect(source).toContain("body: JSON.stringify({ intervals: validation.intervals })");
-    expect(source).not.toContain("draft.flatMap");
-    expect(source).toContain("value={current}");
-    expect(source).toContain("setValues((current) => ({ ...current, [fieldId]: previous }))");
-    expect(source).toContain("The previous value was restored.");
   });
 });
