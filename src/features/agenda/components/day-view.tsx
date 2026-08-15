@@ -12,7 +12,8 @@ import { LayoutGrid, MapPin } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import type { EventId, RoomId, ScheduledSessionDTO } from "@/shared/contracts";
-import { zonedInputToUtc } from "@/shared/lib/time";
+import { wallTimeExistsInZone, zonedInputToUtc } from "@/shared/lib/time";
+import { useToast } from "@/shared/ui/toast";
 import { EmptyState } from "@/shared/ui/ui-kit";
 import { toScheduledSession, detectConflicts } from "../conflicts";
 import { DayGridStateProvider, useDayGridActions } from "../hooks/use-day-grid-state";
@@ -91,6 +92,26 @@ function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speake
   }, [dayScheduled, setConflicts]);
 
   const move = useMoveSession(eventId);
+  const { toast } = useToast();
+
+  /**
+   * A spring-forward date has an hour of local clock that never happens, and the
+   * grid still draws its rows. `zonedInputToUtc` resolves a skipped wall time
+   * *backwards* to the pre-transition offset, so writing one silently places the
+   * session an hour before the cell the organizer aimed at — or, when only one
+   * edge lands in the gap, produces `endsAt < startsAt` and the move round-trips
+   * to the server just to be rejected with a generic failure.
+   *
+   * Refuse instead, with the reason. `DateTimePicker` already disables Apply on
+   * exactly this condition (`localDateTimeExists`); the grid is the one path
+   * that wrote through. Nothing is lost by refusing: that hour does not exist,
+   * so nothing can be scheduled inside it either way.
+   */
+  const rejectSkippedWallTime = (...localTimes: string[]): boolean => {
+    if (localTimes.every((local) => wallTimeExistsInZone(local, event.timezone))) return false;
+    toast("That time does not exist because the clock changes on this date");
+    return true;
+  };
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
@@ -115,8 +136,11 @@ function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speake
     // `cell.startMinutes + durationMinutes` can land past midnight — a 60-minute
     // session dropped in a 23:45 slot. `localWallTimeAt` rolls that onto the next
     // day rather than wrapping back to 00:45 of this one.
-    const newStartsAt = zonedInputToUtc(localWallTimeAt(selectedDay, cell.startMinutes), event.timezone).toISOString();
-    const newEndsAt = zonedInputToUtc(localWallTimeAt(selectedDay, cell.startMinutes + durationMinutes), event.timezone).toISOString();
+    const startLocal = localWallTimeAt(selectedDay, cell.startMinutes);
+    const endLocal = localWallTimeAt(selectedDay, cell.startMinutes + durationMinutes);
+    if (rejectSkippedWallTime(startLocal, endLocal)) return;
+    const newStartsAt = zonedInputToUtc(startLocal, event.timezone).toISOString();
+    const newEndsAt = zonedInputToUtc(endLocal, event.timezone).toISOString();
 
     move.mutate({
       id: data.session.id,
@@ -141,11 +165,15 @@ function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speake
     const endMinutes = minutesFromDayStartInZone(session.endsAt, selectedDay, event.timezone);
     const next = clampResize(edge === "resize-start" ? "start" : "end", startMinutes, endMinutes, deltaSlots);
 
+    const startLocal = localWallTimeAt(selectedDay, next.startMinutes);
+    const endLocal = localWallTimeAt(selectedDay, next.endMinutes);
+    if (rejectSkippedWallTime(startLocal, endLocal)) return;
+
     move.mutate({
       id: session.id,
       version: session.rowVersion,
-      startsAt: zonedInputToUtc(localWallTimeAt(selectedDay, next.startMinutes), event.timezone).toISOString(),
-      endsAt: zonedInputToUtc(localWallTimeAt(selectedDay, next.endMinutes), event.timezone).toISOString(),
+      startsAt: zonedInputToUtc(startLocal, event.timezone).toISOString(),
+      endsAt: zonedInputToUtc(endLocal, event.timezone).toISOString(),
       roomId: session.roomId,
     });
   };

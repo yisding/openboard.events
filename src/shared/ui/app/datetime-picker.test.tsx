@@ -101,6 +101,18 @@ describe("DateTimePicker", () => {
     expect(localDateTimeExists({ dayKey: "2026-03-08", hour: 1, minute: 30 }, "America/Los_Angeles")).toBe(true);
   });
 
+  it("does not refuse an hour that only the US skips on that date", () => {
+    // 2026-03-08 is a US transition, and only a US one. An event in UTC, Tokyo,
+    // or London has an ordinary 02:00 that day — London's own change is three
+    // weeks later. The check read the clock back through `formatInTimeZone`,
+    // which renders that instant an hour late even in a zone with no DST at
+    // all, so Apply was disabled with "That local time does not exist" for
+    // every organizer outside the US.
+    for (const tz of ["UTC", "Asia/Tokyo", "Europe/London"]) {
+      expect(localDateTimeExists({ dayKey: "2026-03-08", hour: 2, minute: 0 }, tz)).toBe(true);
+    }
+  });
+
   it("labels a draft with the abbreviation for its selected date", () => {
     expect(draftZoneAbbreviation({ dayKey: "2026-01-15", hour: 9, minute: 0 }, "America/Los_Angeles")).toBe("PST");
     expect(draftZoneAbbreviation({ dayKey: "2026-07-15", hour: 9, minute: 0 }, "America/Los_Angeles")).toBe("PDT");
