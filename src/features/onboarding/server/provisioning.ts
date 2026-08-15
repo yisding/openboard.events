@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { db, type DbOrTx } from "@/db/client";
+import { db, withAdvisoryLock, type DbOrTx } from "@/db/client";
 import { events } from "@/db/schema";
 import { assertOrganizationCanCreateEventIn, incrementOrganizationUsageIn } from "@/features/billing";
 import { createEventIn, type CreateEventInput } from "@/features/events";
@@ -49,11 +49,33 @@ export async function provisionOrganizationEventIn(
   return event;
 }
 
+/**
+ * The plan's event cap is a check-then-act, and nothing about the check holds
+ * anything: `assertOrganizationCanCreateEventIn` counts, `createEventIn`
+ * inserts, and on the autocommit HTTP handle each is its own transaction. Two
+ * requests from one organization sitting at four of five events both counted
+ * four, both passed, and both inserted — a double-click was enough, and a
+ * scripted burst overshot without bound.
+ *
+ * Serialize the whole attempt per organization so the second one's count runs
+ * after the first one's insert has committed. The lock is a session lock on its
+ * own connection rather than `pg_advisory_xact_lock` inside `withTx`, because
+ * `createEventIn` recovers from a duplicate slug by catching the unique
+ * violation and reading the colliding row — an aborted transaction cannot do
+ * that, and "That slug is taken" would become a 500. See `withAdvisoryLock`.
+ *
+ * Keyed on the organization, so two organizations never wait on each other.
+ */
+const eventCapLockKey = (organizationId: OrganizationId): string => `billing:event-cap:${organizationId}`;
+
 export const provisionOrganizationEvent = (
   actorUserId: UserId,
   organizationId: OrganizationId,
   input: CreateEventInput,
-): Promise<EventDTO> => provisionOrganizationEventIn(db, actorUserId, organizationId, input);
+): Promise<EventDTO> => withAdvisoryLock(
+  eventCapLockKey(organizationId),
+  () => provisionOrganizationEventIn(db, actorUserId, organizationId, input),
+);
 
 /**
  * Compatibility entry for the legacy organization-blind events endpoint.
@@ -66,15 +88,36 @@ export async function provisionEventForActorIn(
   actorUserId: UserId,
   input: CreateEventInput,
 ): Promise<EventDTO> {
-  const organizationId = await resolvePrimaryOrganizationIn(dbOrTx, actorUserId);
+  const organizationId = await resolveProvisioningOrganizationIn(dbOrTx, actorUserId);
   if (!organizationId) return createEventIn(dbOrTx, actorUserId, input);
+  return provisionOrganizationEventIn(dbOrTx, actorUserId, organizationId, input);
+}
+
+/**
+ * The organization this actor provisions into, once its access has been
+ * checked — `null` for a hand-bootstrapped administrator with no organization,
+ * who keeps the original single-tenant bootstrap path.
+ *
+ * Split out so the runtime entry below can resolve the organization *before*
+ * taking the lock keyed on it, without duplicating the role check.
+ */
+async function resolveProvisioningOrganizationIn(
+  dbOrTx: DbOrTx,
+  actorUserId: UserId,
+): Promise<OrganizationId | null> {
+  const organizationId = await resolvePrimaryOrganizationIn(dbOrTx, actorUserId);
+  if (!organizationId) return null;
 
   const role = await getOrganizationMemberRoleIn(dbOrTx, organizationId, actorUserId);
   if (role !== "owner" && role !== "organizer") {
     throw new AppError("FORBIDDEN", "Only organization organizers can create events");
   }
-  return provisionOrganizationEventIn(dbOrTx, actorUserId, organizationId, input);
+  return organizationId;
 }
 
-export const provisionEventForActor = (actorUserId: UserId, input: CreateEventInput): Promise<EventDTO> =>
-  provisionEventForActorIn(db, actorUserId, input);
+export const provisionEventForActor = async (actorUserId: UserId, input: CreateEventInput): Promise<EventDTO> => {
+  // The ungated bootstrap path has no cap to race against, so it needs no lock.
+  const organizationId = await resolveProvisioningOrganizationIn(db, actorUserId);
+  if (!organizationId) return createEventIn(db, actorUserId, input);
+  return provisionOrganizationEvent(actorUserId, organizationId, input);
+};
