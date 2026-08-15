@@ -1,6 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import { OUTSTANDING_REVIEW_WORK_SQL } from "@/db/review-work";
-import { db, type DbOrTx, type TxDb } from "@/db/client";
+import { db, type DbOrTx } from "@/db/client";
 import { contacts } from "@/db/schema";
 import { linkUserContactIn, updateContactFields } from "@/features/event-contacts";
 import { idem, type ContactId, type EventId, type PlanId, type UserId } from "@/shared/contracts";
@@ -27,17 +27,6 @@ export type ReviewReminderTarget = {
   outstanding: number;
 };
 
-/**
- * `enqueueEmail` is typed against `TxDb` because its other callers are the
- * audited transactional writers. A reminder burst must NOT open a ninth `withTx`
- * path (resolution #4), and the single `INSERT … ON CONFLICT DO NOTHING` it
- * issues behaves identically on the `neon-http` handle, so the handle is passed
- * through unchanged — the same reasoning, and the same helper name, as M36's
- * reminder scan.
- */
-function asOutboxWriter(dbOrTx: DbOrTx): TxDb {
-  return dbOrTx as TxDb;
-}
 
 type OutstandingRow = {
   reviewer_user_id: string;
@@ -155,7 +144,7 @@ export async function sendReviewRemindersIn(
       skipped += 1;
       continue;
     }
-    await enqueueEmail(asOutboxWriter(dbOrTx), {
+    await enqueueEmail(dbOrTx, {
       eventId,
       templateKey: "review_reminder",
       contactId,

@@ -1,5 +1,5 @@
 import type { ContactId, EventId, SessionId, SubmissionId, TaskId, TemplateKey } from "@/shared/contracts";
-import type { TxDb } from "@/db/client";
+import type { DbOrTx } from "@/db/client";
 import { communicationLogs } from "@/db/schema";
 import { AppError } from "@/shared/lib/errors";
 
@@ -18,7 +18,7 @@ const SECRET_PAYLOAD_TEMPLATE_KEYS: ReadonlySet<TemplateKey> = new Set<TemplateK
   "admin_email_verification",
 ]);
 
-export async function enqueueEmail(tx: TxDb, args: {
+export async function enqueueEmail(dbOrTx: DbOrTx, args: {
   eventId: EventId;
   templateKey: TemplateKey;
   contactId: ContactId;
@@ -32,7 +32,7 @@ export async function enqueueEmail(tx: TxDb, args: {
       ? `${args.templateKey} requires encrypted delivery payload`
       : `encrypted delivery payload is restricted to ${[...SECRET_PAYLOAD_TEMPLATE_KEYS].join(", ")}`);
   }
-  await tx.insert(communicationLogs).values({
+  await dbOrTx.insert(communicationLogs).values({
     eventId: args.eventId,
     templateKey: args.templateKey,
     contactId: args.contactId,
