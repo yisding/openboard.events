@@ -392,8 +392,15 @@ async function existingCrmPipelineCreateAttemptIn(
   input: CreateCrmPipelineEntryInput,
 ): Promise<CrmPipelineCreateAttempt | null> {
   if (!input.id) return null;
+  // Scoped to the caller's organization like every other read in this module.
+  // A replay is by definition one of *this* tenant's rows, so an id belonging
+  // to another organization is "not found" here and settled by the insert
+  // below, which is the only place that can speak to a global primary key.
   const [existing] = await dbOrTx.select().from(organizationContactPipeline)
-    .where(eq(organizationContactPipeline.id, input.id))
+    .where(and(
+      eq(organizationContactPipeline.id, input.id),
+      eq(organizationContactPipeline.organizationId, organizationId),
+    ))
     .limit(1);
   if (!existing) return null;
   if (!sameCrmPipelineCreatePayload(existing, organizationId, input)) {
@@ -427,11 +434,14 @@ async function createCrmPipelineEntryAttemptIn(
     notes: input.notes ?? null,
   }).onConflictDoNothing({ target: organizationContactPipeline.id }).returning();
   if (!row) {
-    // A concurrent original request can win after the read above. PostgreSQL's
-    // uniqueness check waits for it; this second read then observes that row.
+    // `onConflictDoNothing` targets the primary key, so an empty return means
+    // the id is taken and nothing else. Either a concurrent original request
+    // won after the read above — PostgreSQL's uniqueness check waits for it,
+    // and this second read then observes that row — or the id belongs to
+    // another organization, which no amount of retrying will free.
     const concurrentReplay = await existingCrmPipelineCreateAttemptIn(dbOrTx, organizationId, input);
     if (concurrentReplay) return concurrentReplay;
-    throw new AppError("INTERNAL", "Pipeline insert did not return a row");
+    throw new AppError("CONFLICT", "That pipeline creation request is already in use");
   }
   await dbOrTx.insert(organizationContactPipelineHistory).values({ organizationId, pipelineId: row.id, fromStage: null, toStage: "open" });
   return { entry: toCrmPipelineEntryDto(row), created: true };
