@@ -74,10 +74,13 @@ export async function postJson(path: string, body: unknown): Promise<{ ok: boole
 }
 
 /**
- * Content-Length is signed into the presigned request, but the browser derives
- * it from the File body and forbids JavaScript from setting it. Filter it here
- * as rollout protection for an older presign response that still advertises
- * the header; calling setRequestHeader would otherwise log a console error.
+ * The browser derives Content-Length from the File body and forbids JavaScript
+ * from setting it, so filter it out of whatever the presign response
+ * advertises — calling setRequestHeader would otherwise log a console error.
+ *
+ * It is not signed into the presigned URL either, despite what this comment
+ * used to say: see the note on `createUpload` in `shared/server/r2.ts` for what
+ * does enforce the declared size.
  */
 export function browserSettableUploadHeaders(headers: Record<string, string>): Array<[string, string]> {
   return Object.entries(headers).filter(([name]) => name.toLowerCase() !== "content-length");
