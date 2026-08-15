@@ -376,7 +376,7 @@ where they are added. Run this section on a form with at least one secondary rol
 | 11a | On the Speaker step, add a co-speaker and fill in their details; submit | One submission with two participants. The organizer's drawer names both and marks which is primary |
 | 11b | Put a participant question behind a condition whose source is *another participant question*, then fill the primary's answer and leave the co-speaker's blank | The co-speaker's section hides and reveals on exactly the same rule the server evaluates. The two failures to watch for are a required error naming a question that is not on screen, and an answer the speaker typed being discarded as hidden — both mean client and server disagreed about which questions exist for that person |
 | 11c | Put the same question behind a condition sourced from an **abstract** question | Both sides agree again: a participant's visibility is decided by the abstract answers plus that participant's own, never by another participant's |
-| 11d | As the co-speaker, sign in to the portal and open the proposal | Readable. **Edit** belongs to the submitter alone — two people editing one proposal from two browsers, with no locking between them, silently loses one of them |
+| 11d | As the co-speaker, sign in to the portal and open the proposal | Readable, with no **Edit** route: reaching the edit URL by hand is refused as not-found, not merely hidden. Editing belongs to the submitter alone, and deliberately so — there is no lock between two browsers, so allowing both would lose one of their edits with nothing to show for it |
 | 11e | Accept the submission and notify (MTP-06 §3), then check both contacts | Both are `confirmed`, and both appear on the published session. A co-speaker left unconfirmed is joined out of `published_speakers_v` and the session publishes without them |
 
 ### §2 Validation and content
@@ -620,7 +620,7 @@ joined out of the public schedule even when their session is published.
 |---|---|---|
 | 28 | Compare each status tab's count to the counts endpoint and the dashboard | All agree. A doubled count means a per-plan ratings join leaked into a count |
 | 29 | Compare accepted count to `/api/v1/events/<slug>/stats` | Agrees |
-| 30 | Confirm no declined or withdrawn submission appears on any public surface | Absent from all six public pages and both APIs |
+| 30 | Confirm no declined or withdrawn submission appears on any public surface | Absent from all five public pages and both APIs |
 
 ### §6 Design checks
 
@@ -700,7 +700,7 @@ session public.
 
 | # | Action | Expected result |
 |---|---|---|
-| 30 | Publish one session; open `/e/ai-engineer-sandbox-event/schedule` | It appears publicly |
+| 30 | Publish one session; open `/e/ai-engineer-sandbox-event/agenda` | It appears publicly |
 | 30a | In the session dialog, choose **Leave unscheduled (keep in the tray)** together with the **Published** status, and save. Repeat on a new session and on an existing draft | Refused both times, on the field, with the way out named — schedule it, or save it as a draft. A published session with no time is on no public surface and notifies nobody, while the List view badges it *Published*: indistinguishable from a draft in the one place it shows up |
 | 30b | Unschedule a session that is **already** published — drag it back to the tray | Allowed. This is a different act from publishing something that never had a time, and it is how a talk gets pulled: every speaker's calendar item is cancelled |
 | 31 | Leave another unpublished; search for it publicly and in `/api/v1/events/<slug>/schedule` | Absent from both |
@@ -737,8 +737,9 @@ the **Ready to announce** modal, and every view (list/day/week/track/room). Spec
 
 ### Exit criteria
 
-§1 (idempotent promotion), §3 in full (every conflict dimension plus adjacency), §5 steps 30a, 31
-and 36 (nothing publishes without a time; nothing unpublished leaks; timezone binning). Zero new
+§1 (idempotent promotion), §3 in full (every conflict dimension plus adjacency), §5 steps 30a, 30b, 31
+and 36 (nothing publishes without a time; unscheduling one is reversible and cancels; nothing
+unpublished leaks; timezone binning). Zero new
 S1/S2.
 
 ---
@@ -793,7 +794,7 @@ Fill one row per (surface, control type). 30 surfaces × the controls each carri
 | Command palette | search, results, shortcuts | | | | | |
 | Portal (home/tasks/profile/submissions) | uploads, forms | | | | | |
 | Speaker share page (`/speaking/<token>`) | links, share actions | | | | | |
-| Public pages (×6) + embeds | filters, search, star | | | | | |
+| Public pages (×5) + embeds | filters, search, star | | | | | |
 | Sign-up and account (`/signup`, `/join`, `/account/sessions`) | forms, revoke | | | | | |
 | Org: team, audit, billing, CRM (×4) | tables, dialogs, pipeline | | | | | |
 
@@ -1006,14 +1007,15 @@ may land in R2 without the task flipping. Confirm before re-filing.
 
 | # | Action | Expected result |
 |---|---|---|
-| 1 | Visit `/e/<slug>/{sessions,agenda,schedule,itinerary,speakers,gallery}` | Each renders published content |
+| 1 | Visit `/e/<slug>/{sessions,agenda,itinerary,speakers,gallery}` | Each of the five public surfaces renders published content |
+| 1a | Visit the legacy `/e/<slug>/schedule` and `/embed/<slug>/schedule` | Redirected — the page surface to `/agenda`, the embed to `/itinerary`, which is the one that reads the same config row, so an iframe already placed on somebody's website keeps its kill switch and style. Old links must not 404 |
 | 2 | On sessions: search + Track/Format/Location filters | Each narrows the same grid; they compose |
 | 3 | On agenda: navigate days, open and close a detail | The active day survives |
 | 4 | On speakers: search a surname | One row with bio and sessions; surname sort |
 | 5 | On gallery: find a speaker with no headshot | Initials fallback, not a broken image |
 | 6 | On itinerary: star two, reload, unstar one, export ICS | Two after reload; the export has only the remainder |
 | 7 | Import that ICS into a calendar client | Correct times for the event zone, with title, room, description |
-| 8 | Compare one session and one speaker across all six surfaces and the admin | Everything agrees |
+| 8 | Compare one session and one speaker across all five surfaces and the admin | Everything agrees |
 | 9 | Search for the draft session and a declined speaker on every public page, every embed, and both APIs | Absent everywhere |
 | 9a | Clear a speaker's first and last name, then find them on the speakers page, the gallery, the session detail, the API, and their `/speaking/<token>` page | **Unnamed speaker** on every one of them. An email address standing in for a missing name is the admin roster's rule; on a public surface it publishes the address, and the share page's OpenGraph card gets scraped and cached by whoever sees it first |
 | 10 | Open a portal invite's `/cal/<token>` | A valid subscribable feed |
@@ -1032,10 +1034,10 @@ may land in R2 without the task flipping. Confirm before re-filing.
 | 20 | `/submissions?limit=1` then follow `meta.nextCursor` | Pages cleanly; no drafts; no repeats |
 | 21 | Revoke the key; repeat 19 | `401` immediately |
 | 22 | Event A's key against event B | `401`/`404` — keys are per-event |
-| 23 | All six surfaces for **Empty Conf** | Deliberate empty states |
-| 24 | All six at 390 px | Usable; no horizontal scroll |
+| 23 | All five surfaces for **Empty Conf** | Deliberate empty states |
+| 24 | All five at 390 px | Usable; no horizontal scroll |
 
-**Design checks.** §0.7 on all six public surfaces and their embeds. These are the pages an attendee
+**Design checks.** §0.7 on all five public surfaces and their embeds. These are the pages an attendee
 sees; D7 and D8 failures here are public.
 
 ---
