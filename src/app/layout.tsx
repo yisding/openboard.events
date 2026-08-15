@@ -3,6 +3,7 @@ import { Archivo } from "next/font/google";
 import "./globals.css";
 import { ToastProvider } from "@/shared/ui/toast";
 import { KonamiListener } from "@/shared/ui/konami";
+import { ConsoleGreeting } from "@/shared/ui/console-greeting";
 import { HistoryPositionTracker } from "@/shared/ui/app/unsaved-work-guard";
 
 // Archivo ships a 100-900 weight axis, which the type scale in globals.css
@@ -26,7 +27,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en" className={archivo.variable}>
       <body>
-        <ToastProvider><HistoryPositionTracker /><KonamiListener />{children}</ToastProvider>
+        <ToastProvider><HistoryPositionTracker /><KonamiListener /><ConsoleGreeting />{children}</ToastProvider>
       </body>
     </html>
   );

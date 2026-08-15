@@ -1,0 +1,28 @@
+/* ============================================================
+        ┌──────────────────┐
+        │    OPENBOARD     │
+        └────────┬─────────┘
+                 │
+                ─┴─
+   The calm command center for exceptional event programs.
+   ============================================================ */
+
+/* TEAM */
+	Built for the people who make events happen:
+	the organizers, the reviewers, the speakers —
+	and whoever is quietly refilling the coffee.
+
+/* THANKS */
+	Every volunteer who ever taped a printed schedule to a hallway wall.
+	Every speaker who rehearsed one more time in a hotel mirror.
+	Every reviewer who read one more abstract after midnight.
+
+/* SITE */
+	Language: English (and a little emoji)
+	Doctype: HTML5
+	Components: React, Next.js, and a self-cleaning emoji rain
+
+/* P.S. */
+	You read humans.txt, so you should know: our 404 page
+	carries a compass. Spin it until you find true north.
+	Then — and this is the part most travelers miss — keep going.

@@ -11,7 +11,7 @@ import { detectConflicts, toScheduledSession } from "../conflicts";
 import { useAcceptedForAgenda, useAnnounceBundle } from "../hooks/use-agenda-supporting-data";
 import { useSessions } from "../hooks/use-sessions";
 import type { AgendaViewProps } from "../index.client";
-import { conflictsForAgendaView, conflictsTouchingSessions, createSessionDefaultDay, eventDayKeys, type AgendaView } from "../store";
+import { conflictsForAgendaView, conflictsTouchingSessions, createSessionDefaultDay, eventDayKeys, unscheduled, type AgendaView } from "../store";
 import { AgendaToolbar } from "./agenda-toolbar";
 import { AnnounceBundleTrigger } from "./announce-bundle-panel";
 import ConflictsView from "./conflicts-view";
@@ -129,6 +129,8 @@ function AgendaPageInner({ eventSlug, view, ...props }: Omit<AgendaPageProps, "q
     conflicts: liveConflicts,
     accepted,
     day: view === "day" ? activeGridDay : props.day ?? null,
+    // From the unfiltered list on purpose — see `AgendaViewProps.unscheduledTotal`.
+    unscheduledTotal: unscheduled(sessions).length,
     onEdit: setEditingId,
   };
 

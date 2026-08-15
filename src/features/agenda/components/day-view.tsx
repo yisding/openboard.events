@@ -56,7 +56,7 @@ export default function DayView(props: AgendaViewProps) {
   );
 }
 
-function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speakers, day, onEdit }: AgendaViewProps) {
+function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speakers, day, unscheduledTotal, onEdit }: AgendaViewProps) {
   const queryClient = useQueryClient();
   const [autoPlaceOpen, setAutoPlaceOpen] = useState(false);
   const days = useMemo(
@@ -180,6 +180,7 @@ function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speake
                   lookup={lookup}
                   canPlace={rooms.length > 0}
                   onAutoPlace={() => setAutoPlaceOpen(true)}
+                  {...(unscheduledTotal !== undefined ? { totalCount: unscheduledTotal } : {})}
                   {...(onEdit ? { onEdit } : {})}
                 />
                 <NeedsRoomPanel sessions={needsRoom} lookup={lookup} timezone={event.timezone} canPlace={rooms.length > 0} {...(onEdit ? { onEdit } : {})} />
