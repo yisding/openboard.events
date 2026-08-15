@@ -170,6 +170,16 @@ describe("public-cache mutation ownership", () => {
     organizations.getEventOrganization.mockResolvedValue(null);
   });
 
+  /**
+   * Each `captureRoute` call does a `vi.resetModules()` and re-imports a route
+   * module, so this file resolves the graph sixteen times. Alone that is ~10s
+   * against the 20s default; under a full parallel run it has twice exceeded
+   * it and failed as a timeout with nothing actually wrong. The work is real
+   * — this is coverage of every public-cache writer — so give it room rather
+   * than thinning it out.
+   */
+  const MODULE_RELOAD_TIMEOUT_MS = 60_000;
+
   it("invalidates both public data domains after each successful agenda mutation", async () => {
     const collection = await captureRoute(() => import("../../src/app/api/internal/agenda/sessions/route"));
     await invoke(collection, "POST");
@@ -191,7 +201,7 @@ describe("public-cache mutation ownership", () => {
     await invoke(placements, "POST", { input: { accepted: [] } });
 
     expectEventInvalidations(7);
-  });
+  }, MODULE_RELOAD_TIMEOUT_MS);
 
   it("invalidates public data for visible vocab writes but skips internal tags", async () => {
     const route = await captureRoute(() => import("../../src/app/api/internal/events/[eventId]/vocab/[kind]/[id]/route"));
@@ -205,7 +215,7 @@ describe("public-cache mutation ownership", () => {
     await invoke(route, "PATCH", { params: internalParams });
     await invoke(route, "DELETE", { params: internalParams });
     expect(invalidation.event).not.toHaveBeenCalled();
-  });
+  }, MODULE_RELOAD_TIMEOUT_MS);
 
   it("invalidates successful form, portal, and speaker mutations with their conditional paths", async () => {
     const submit = await captureRoute(() => import("../../src/app/api/internal/forms/[formId]/submit/route"));
@@ -250,7 +260,7 @@ describe("public-cache mutation ownership", () => {
     });
     await invoke(csv, "POST", { input: { mode: "preview" } });
     expect(invalidation.event).not.toHaveBeenCalled();
-  });
+  }, MODULE_RELOAD_TIMEOUT_MS);
 
   it("uses the committed event and embed results to select exact metadata tags", async () => {
     const event = await captureRoute(() => import("../../src/app/api/internal/events/[eventId]/route"));
@@ -261,5 +271,5 @@ describe("public-cache mutation ownership", () => {
     const embed = await captureRoute(() => import("../../src/app/api/internal/embeds/[eventId]/[embedId]/route"));
     await invoke(embed, "PATCH", { params: { embedId: EMBED_ID } });
     expect(invalidation.embed).toHaveBeenCalledExactlyOnceWith(EVENT_ID, "speaker_gallery", REQUEST_ID);
-  });
+  }, MODULE_RELOAD_TIMEOUT_MS);
 });
