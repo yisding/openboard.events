@@ -260,6 +260,33 @@ describe("review operations", () => {
     await pglite.exec("TRUNCATE reviews, review_assignments, reviewer_assignments, evaluation_criteria, evaluation_plans, communication_logs CASCADE");
   });
 
+  it("withholds the peer mean from a reviewer whose round does not share it", async () => {
+    // The queue gates this with `CASE WHEN p.show_peer_scores`. The detail
+    // route had no counterpart, and `anonymizeSubmissionDetail` redacts
+    // identity, not scores — so the committee mean was readable straight off
+    // the JSON in a round configured to hide it.
+    const planId = await seedPlan({ name: "Private scores", round: 7, showPeerScores: false, anonymizeAuthors: false });
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: ada, trackIds: null }]);
+    await submitReviewIn(db, eventId, planId, one, ada, verdict({ overallScore: 4 }));
+
+    const detail = await getReviewerSubmissionDetailIn(db, eventId, planId, one, ada);
+    expect(detail.rating).toBeNull();
+    expect(detail.nScores).toBe(0);
+  });
+
+  it("shares this round's peer mean, not another round's", async () => {
+    const shared = await seedPlan({ name: "Shared scores", round: 8, showPeerScores: true, anonymizeAuthors: false });
+    await assignReviewersIn(runEvaluationTransaction, eventId, shared, [{ userId: ada, trackIds: null }]);
+    await submitReviewIn(db, eventId, shared, one, ada, verdict({ overallScore: 4 }));
+
+    // `getSubmissionDetailIn` scopes its aggregate to the event's *active*
+    // plan, which is right for the organizer's table and wrong here: two rounds
+    // are independent verdicts and their means are not interchangeable.
+    const detail = await getReviewerSubmissionDetailIn(db, eventId, shared, one, ada);
+    expect(detail.nScores).toBe(1);
+    expect(detail.rating).toBe(4);
+  });
+
   it("keeps two rounds' windows, pools, score visibility, anonymization and typed criteria across a reload", async () => {
     const roundOne = await seedPlan({
       name: "Round 1",
