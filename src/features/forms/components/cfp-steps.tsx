@@ -237,10 +237,13 @@ export function cfpCodeRequestRecovery(result: RequestResult): {
     : { acceptCode: false, message: result.message, kind: "error" };
 }
 
-export function cfpSubmitFailure(result: RequestResult): CfpSubmitFailure {
-  return result.code === "FORM_VERSION_STALE"
-    ? { kind: "stale", message: STALE_FORM_MESSAGE }
-    : { kind: "ordinary", message: result.fieldErrors ? "Some answers need attention" : result.message };
+export function cfpSubmitFailure(result: RequestResult, fieldErrorHint?: string): CfpSubmitFailure {
+  if (result.code === "FORM_VERSION_STALE") return { kind: "stale", message: STALE_FORM_MESSAGE };
+  if (!result.fieldErrors) return { kind: "ordinary", message: result.message };
+  return {
+    kind: "ordinary",
+    message: fieldErrorHint ? `Some answers need attention. ${fieldErrorHint}` : "Some answers need attention",
+  };
 }
 
 export function requiresCfpFormReload(
@@ -704,7 +707,10 @@ export function CfpSteps({ data }: { data: PublicForm }) {
     });
     setBusy(false);
     if (!sent.ok) {
-      const failure = cfpSubmitFailure(sent);
+      const failure = cfpSubmitFailure(
+        sent,
+        sent.fieldErrors ? cfpFieldErrorHint(snapshot, sent.fieldErrors) : undefined,
+      );
       const deferredEdits = deferredAutosave.current?.hasPending() ?? false;
       settleCfpSubmitFailure(snapshotLock.current, failure);
       const settlement = requiresCfpFormReload(failure) ? "stale-failure" : "ordinary-failure";
@@ -910,11 +916,48 @@ export function CfpSteps({ data }: { data: PublicForm }) {
   );
 }
 
-export function stepForErrors(snapshot: FormSnapshot, fieldErrors: Record<string, string>): "submission" | "speaker" {
+/**
+ * Every step still holding a server-side error, in wizard order.
+ *
+ * One submit can fail on both sections at once — the step validator only
+ * checks required/empty and length, so a bad email format on the speaker step
+ * and a retired dropdown option on the submission step both pass "Continue"
+ * and come back together. Collapsing that to a single step is what left the
+ * other section's errors in state but off screen until the respondent thought
+ * to press Back.
+ */
+export function stepsWithErrors(snapshot: FormSnapshot, fieldErrors: Record<string, string>): Array<"submission" | "speaker"> {
   const participantFields = participantFieldIds(snapshot);
   const split = splitParticipantFieldErrors(fieldErrors);
-  return Object.keys(split.byParticipant).length > 0
-    || Object.keys(split.unscoped).some((fieldId) => participantFields.has(fieldId as FieldId))
-    ? "speaker"
-    : "submission";
+  const unscopedKeys = Object.keys(split.unscoped);
+  const steps: Array<"submission" | "speaker"> = [];
+  // Anything not owned by a participant field belongs to the abstract step,
+  // including a form-level key with no field of its own — that is where the
+  // single-step version sent it too.
+  if (unscopedKeys.some((fieldId) => !participantFields.has(fieldId as FieldId))) steps.push("submission");
+  if (
+    Object.keys(split.byParticipant).length > 0
+    || unscopedKeys.some((fieldId) => participantFields.has(fieldId as FieldId))
+  ) {
+    steps.push("speaker");
+  }
+  return steps;
+}
+
+/**
+ * Where to send the respondent: the *earliest* step with an error, so fixing
+ * them runs forwards through the wizard rather than backwards.
+ */
+export function stepForErrors(snapshot: FormSnapshot, fieldErrors: Record<string, string>): "submission" | "speaker" {
+  return stepsWithErrors(snapshot, fieldErrors)[0] ?? "submission";
+}
+
+/**
+ * Names the steps the respondent is *not* being shown that still need work, so
+ * "Some answers need attention" does not read as a claim about this step alone.
+ */
+export function cfpFieldErrorHint(snapshot: FormSnapshot, fieldErrors: Record<string, string>): string | undefined {
+  const [, ...rest] = stepsWithErrors(snapshot, fieldErrors);
+  if (rest.length === 0) return undefined;
+  return `Also check ${rest.map((step) => `\u201C${cfpStepHeading(snapshot, step)}\u201D`).join(" and ")} before submitting again.`;
 }

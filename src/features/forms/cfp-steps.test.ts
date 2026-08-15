@@ -34,7 +34,9 @@ import {
   schedulePortalRedirect,
   saveWithRetry,
   serializeAutosaves,
+  cfpFieldErrorHint,
   stepForErrors,
+  stepsWithErrors,
   type AutosaveState,
 } from "./components/cfp-steps";
 
@@ -80,6 +82,40 @@ describe("CFP validation routing", () => {
 
   it("returns abstract errors to the submission step", () => {
     expect(stepForErrors(GOLDEN_SNAPSHOT, { [fieldId("title")]: "Title is required" })).toBe("submission");
+  });
+
+  it("reports every step a failed submit left with an error", () => {
+    // One submit can fail on both sections: the step validator checks required
+    // and length only, so a malformed email and a retired dropdown option both
+    // pass Continue and come back together.
+    const both = {
+      [fieldId("title")]: "Choose one of the offered options",
+      [`participant:panelist-1:${fieldId("first_name")}`]: "First name is required",
+    };
+    expect(stepsWithErrors(GOLDEN_SNAPSHOT, both)).toEqual(["submission", "speaker"]);
+    // The earliest one, so fixing runs forwards through the wizard. This used
+    // to resolve to "speaker" and strand the abstract error off screen.
+    expect(stepForErrors(GOLDEN_SNAPSHOT, both)).toBe("submission");
+  });
+
+  it("names the other step in the failure message when both need work", () => {
+    const both = {
+      [fieldId("title")]: "Title is required",
+      [fieldId("first_name")]: "First name is required",
+    };
+    const hint = cfpFieldErrorHint(GOLDEN_SNAPSHOT, both);
+    expect(hint).toContain(cfpStepHeading(GOLDEN_SNAPSHOT, "speaker"));
+
+    const failure = cfpSubmitFailure({ ok: false, data: {}, message: "Could not submit", fieldErrors: both }, hint);
+    expect(failure.message).toContain("Some answers need attention");
+    expect(failure.message).toContain(cfpStepHeading(GOLDEN_SNAPSHOT, "speaker"));
+  });
+
+  it("says nothing extra when only one step needs work", () => {
+    const only = { [fieldId("title")]: "Title is required" };
+    expect(cfpFieldErrorHint(GOLDEN_SNAPSHOT, only)).toBeUndefined();
+    expect(cfpSubmitFailure({ ok: false, data: {}, message: "Could not submit", fieldErrors: only }).message)
+      .toBe("Some answers need attention");
   });
 
   it("keeps co-speaker answers scoped to participant fields", () => {
