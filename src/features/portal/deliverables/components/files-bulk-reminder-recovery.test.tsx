@@ -17,6 +17,7 @@ import {
 import type { DataTableSelectionContext } from "@/shared/ui/app/data-table";
 import { bulkReminderRecoveryStorageKey } from "@/features/comms/bulk-reminder-recovery";
 import { FilesAdminView } from "./files-admin-view";
+import { settle } from "@tests/support/react";
 
 const toastMock = vi.hoisted(() => vi.fn());
 const navigation = vi.hoisted(() => ({
@@ -110,11 +111,6 @@ function buttonNamed(name: string): HTMLButtonElement | undefined {
     .find((button) => button.textContent?.replace(/\s+/gu, " ").trim() === name);
 }
 
-async function settle() {
-  await act(async () => {
-    for (let step = 0; step < 10; step += 1) await Promise.resolve();
-  });
-}
 
 beforeEach(() => {
   toastMock.mockReset();

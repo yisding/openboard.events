@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ContactListRow } from "@/features/portal";
 import type { DataTableSelectionContext } from "@/shared/ui/app/data-table";
 import { SpeakersAdminView } from "./speakers-admin-view";
+import { settle } from "@tests/support/react";
 
 const navigation = vi.hoisted(() => ({
   params: new URLSearchParams(),
@@ -127,11 +128,6 @@ function buttonNamed(name: string): HTMLButtonElement | undefined {
     .find((button) => button.textContent?.replace(/\s+/gu, " ").trim() === name);
 }
 
-async function settle() {
-  await act(async () => {
-    for (let step = 0; step < 10; step += 1) await Promise.resolve();
-  });
-}
 
 beforeEach(() => {
   navigation.params = new URLSearchParams();

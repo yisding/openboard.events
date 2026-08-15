@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PlanDTO } from "../types";
 import { PlanEditor } from "./plan-editor";
+import { settle } from "@tests/support/react";
 
 const routerMock = vi.hoisted(() => ({ refresh: vi.fn() }));
 const toastMock = vi.hoisted(() => vi.fn());
@@ -75,11 +76,6 @@ let root: Root;
 let fetchMock: ReturnType<typeof vi.fn<typeof fetch>>;
 let onClose: ReturnType<typeof vi.fn>;
 
-async function settle() {
-  await act(async () => {
-    for (let step = 0; step < 5; step += 1) await Promise.resolve();
-  });
-}
 
 async function renderEditor(currentPlan: PlanDTO) {
   await act(async () => {

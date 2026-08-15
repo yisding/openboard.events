@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UnsavedWorkGuardProvider, useGuardedAction } from "@/shared/ui/app/unsaved-work-guard";
 import type { ResourcePageRow } from "../server/queries";
 import { ResourcePagesAdminView } from "./resource-pages-admin-view";
+import { settle } from "@tests/support/react";
 
 const fetchMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
@@ -45,11 +46,6 @@ function Navigation() {
   return <button type="button" onClick={() => runGuarded(() => routerPushMock("/events"))}>Leave resources</button>;
 }
 
-async function settle() {
-  await act(async () => {
-    for (let step = 0; step < 10; step += 1) await Promise.resolve();
-  });
-}
 
 async function renderView() {
   await act(async () => root.render(

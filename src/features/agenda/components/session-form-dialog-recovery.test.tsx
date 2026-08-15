@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { eventIdSchema } from "@/shared/contracts";
 import { agendaKeys } from "../hooks/keys";
 import { SessionFormDialog } from "./session-form-dialog";
+import { settle } from "@tests/support/react";
 
 const toastMock = vi.hoisted(() => vi.fn());
 const runGuardedMock = vi.hoisted(() => vi.fn((action: () => void) => action()));
@@ -56,11 +57,6 @@ let root: Root;
 let queryClient: QueryClient;
 let fetchMock: ReturnType<typeof vi.fn<typeof fetch>>;
 
-async function settle() {
-  await act(async () => {
-    for (let step = 0; step < 6; step += 1) await Promise.resolve();
-  });
-}
 
 function buttonNamed(name: string): HTMLButtonElement | undefined {
   return [...container.querySelectorAll<HTMLButtonElement>("button")]

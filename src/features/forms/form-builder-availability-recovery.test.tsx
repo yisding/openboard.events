@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fieldIdSchema, formIdSchema, sectionIdSchema } from "@/shared/contracts";
 import type { BuilderEvent, BuilderForm } from "./builder-types";
 import { FormBuilder, mergeFormAvailabilityAuthority } from "./form-builder";
+import { settle } from "@tests/support/react";
 
 const navigationMock = vi.hoisted(() => ({ search: "step=welcome", push: vi.fn(), refresh: vi.fn() }));
 const toastMock = vi.hoisted(() => vi.fn());
@@ -115,11 +116,6 @@ function editPublicTitle(value: string): HTMLInputElement {
   return input;
 }
 
-async function settle() {
-  await act(async () => {
-    for (let step = 0; step < 8; step += 1) await Promise.resolve();
-  });
-}
 
 async function mount(initialForm = form()) {
   await act(async () => root.render(<FormBuilder event={event} initialForm={initialForm} />));

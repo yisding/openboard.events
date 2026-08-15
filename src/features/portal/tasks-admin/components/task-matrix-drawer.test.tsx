@@ -9,6 +9,7 @@ import { ToastProvider } from "@/shared/ui/toast";
 import type { BulkReminderRecoveryController } from "@/features/comms/index.client";
 import type { AdminTaskAssignmentDTO, AdminTaskDTO } from "../server/queries";
 import { TaskMatrixDrawer } from "./task-matrix-drawer";
+import { settle } from "@tests/support/react";
 
 function withToast(element: React.ReactElement) {
   return React.createElement(ToastProvider, null, element);
@@ -61,11 +62,6 @@ const ASSIGNMENT: AdminTaskAssignmentDTO = {
 let container: HTMLDivElement;
 let root: Root;
 
-async function settle() {
-  await act(async () => {
-    for (let step = 0; step < 10; step += 1) await Promise.resolve();
-  });
-}
 
 beforeEach(() => {
   container = document.createElement("div");

@@ -5,6 +5,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SpeakerQuickAdd, type QuickAddedSpeaker } from "./speaker-quick-add";
+import { settle } from "@tests/support/react";
 
 Object.assign(globalThis, { React, IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -60,9 +61,7 @@ describe("SpeakerQuickAdd pending contract", () => {
       name: "Ada Lovelace",
       email: "ada@example.com",
     } } }));
-    await act(async () => {
-      for (let step = 0; step < 6; step += 1) await Promise.resolve();
-    });
+    await settle();
 
     expect(onAdded).toHaveBeenCalledWith({
       contactId: "a5300000-0000-4000-8000-000000000001",
@@ -100,9 +99,7 @@ describe("SpeakerQuickAdd pending contract", () => {
       name: "Grace Hopper",
       email: "grace@example.com",
     } } }));
-    await act(async () => {
-      for (let step = 0; step < 6; step += 1) await Promise.resolve();
-    });
+    await settle();
 
     expect(onAdded).not.toHaveBeenCalled();
     expect(onPendingChange.mock.calls).toEqual([[true], [false]]);

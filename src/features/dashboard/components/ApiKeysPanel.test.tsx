@@ -10,6 +10,7 @@ import { AppError } from "@/shared/lib/errors";
 import { UnsavedWorkGuardProvider } from "@/shared/ui/app/unsaved-work-guard";
 import { API_KEY_LABEL_TOO_LONG_MESSAGE, type ApiKeyCreationOperation } from "../api-key-creation";
 import { ApiKeysPanel } from "./ApiKeysPanel";
+import { settle } from "@tests/support/react";
 
 const apiMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
@@ -48,11 +49,6 @@ const existing = {
 let container: HTMLDivElement;
 let root: Root;
 
-async function settle() {
-  await act(async () => {
-    for (let step = 0; step < 8; step += 1) await Promise.resolve();
-  });
-}
 
 function buttonsNamed(name: string): HTMLButtonElement[] {
   return [...container.querySelectorAll<HTMLButtonElement>("button")]
