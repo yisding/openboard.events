@@ -1,10 +1,15 @@
 # Openboard manual test plans
 
-Thirteen manual test plans. They are weighted deliberately: **the core flow — solicit speakers,
-accept or reject their talks, schedule the conference — gets five of the thirteen (MTP-03…MTP-07)
-and roughly half the document**, because that is the loop the product lives or dies on. Two more
+Seventeen manual test plans. They are weighted deliberately: **the core flow — solicit speakers,
+accept or reject their talks, schedule the conference — gets five of them (MTP-03…MTP-07) and the
+largest share of the document**, because that is the loop the product lives or dies on. Two more
 (MTP-08, MTP-09) exist to hold a **design bar**: a screen that works but looks or feels wrong fails
 these plans, and "it functions" is not a defence.
+
+The four parts answer different questions. **Part I** — can a conference be run end to end?
+**Part II** — is it finished? **Part III** — do the surfaces around the core flow hold up?
+**Part IV** — do the operational surfaces the core flow *leans on* hold up, and do the boundaries
+between tenants hold when somebody pushes at them?
 
 Each plan is executable by one person in one sitting against a running instance. A step states an
 action and an observable result; a mismatch is a defect, not a judgement call. The design plans are
@@ -844,7 +849,7 @@ verified fixed. A release with an open S1 on any core-flow surface does not ship
 
 ## MTP-09 — Task-based usability with step budgets
 
-**Environments:** A · **Duration:** ~90 min for six tasks · **Operator:** someone who has **not**
+**Environments:** A · **Duration:** ~120 min for eight tasks · **Operator:** someone who has **not**
 used Openboard. If that is impossible, the next best thing is someone who has not used the surface
 under test in a month. The person who built the feature may not run the task and may not speak.
 
@@ -871,6 +876,8 @@ finds. Functional plans ask "can it be done"; this one asks "is it done the way 
 | 4 | "The 2pm workshop has to move to 4pm. Do it, and make sure everyone who needs to know, knows." | ≤ 4 min, ≤ 2 surfaces | S2 |
 | 5 | "Which accepted speakers still haven't sent their slides?" | ≤ 3 min, ≤ 2 surfaces | S2 |
 | 6 | "The schedule is final. Put it on the website." | ≤ 3 min, ≤ 2 surfaces | S2 |
+| 6a | "Three speakers still owe us slides. Chase them, and get me a zip of what has come in." | ≤ 5 min, ≤ 2 surfaces | S2 |
+| 6b | "This keynote speaker has pulled out. Take them off the public site without deleting anything." | ≤ 4 min, ≤ 3 surfaces | **S1** if the operator cannot do it without deleting a session or a person |
 
 ### §2 First-run walkthrough
 
@@ -900,8 +907,12 @@ Every task is inside budget. Task 1 is the headline DD-3 regression check.
 
 # Part III — Supporting surfaces
 
-Regression plans for everything outside the core flow. §0.7's design bar still applies; the release
-threshold outside the core flow is zero S1.
+Regression plans for the surfaces a conference is *served through* — bring-up, sign-in, the speaker
+portal, the public pages, the mail, and the commercial layer around an event. §0.7's design bar
+still applies; the release threshold outside the core flow is zero S1.
+
+Part IV takes the surfaces an organizer *works in* between those milestones, and the boundaries
+underneath all of them.
 
 ---
 
@@ -920,7 +931,9 @@ threshold outside the core flow is zero S1.
 | 7 | `pnpm seed` again without `--wipe` | Idempotent — identical row counts, no duplicate-key error |
 | 8 | Omit `APP_ENV`; run `pnpm seed` | Refused, naming the missing classification |
 | 9 | `pnpm admin:bootstrap` | Organizer and reviewer accounts created |
-| 10 | `curl -s localhost:3000/api/health \| jq .` | Real DB round-trip: status, Postgres version, latency, build sha |
+| 10 | `curl -s localhost:3000/api/health \| jq .` | A real database round-trip — status, Postgres version, latency — plus the build sha and deployment id every cache check in these plans compares against, and three subsystem readings: comms, operational errors, and scheduled-job liveness |
+| 10a | Read the scheduled-job section after driving a tick (§0.3) | It carries the last success time for `outbox`, `reminders` and `cleanup`. That is a durable heartbeat written before the job reports success, so a job that has silently stopped shows here as an ageing timestamp rather than as nothing at all |
+| 10b | Confirm what the endpoint does **not** carry | Aggregates only — no tenant name, no recipient, no job payload. It is unauthenticated, so anything identifying in it is a leak, not a diagnostic |
 | 11 | Sign in as organizer | Lands on an event surface with the four nav groups |
 | 12 | Open the seeded Dashboard | Non-empty: counts, attention queue, the five incomplete speakers |
 | 13 | Open **Empty Conf** and click every nav item | A deliberate empty state everywhere. No crash, no `NaN`, no endless spinner. **Record D5 on each** |
@@ -1146,6 +1159,8 @@ mode, hide the navigation entry, and return 404 from the billing surface.
 | 13 | Filter by actor and action | Narrows; entries are not editable |
 | 14 | Request a data **export** | A machine-readable file with the org's real rows |
 | 15 | Request **erasure** for a test contact | Data removed or tombstoned; no orphans, no 500s on pages that referenced them |
+| 15a | Before erasing, merge two duplicates into that contact — and a third into one of those, so the chain is two deep | The erasure takes the tombstoned losers with it. A merge is the organizer asserting these are one person; the losing row keeps their name, company and alternate email, so an erasure that only touches the surviving row leaves the subject's data on file under a pointer |
+| 15b | Erase a contact who has submissions, sessions, tasks, uploads and delivery-log rows | Every surface that referenced them still renders — the schedule, the abstracts table, the delivery log — with the person's identity gone rather than the row. A 500 on a page that used to show them is the failure this step exists for |
 | 16 | Re-run the export | The erased contact's data is gone |
 | 17 | **Billing** | The plan/quota scaffold renders; checkout starts its documented flow |
 | 18 | Billing webhook with a garbage payload | Rejected |
@@ -1179,6 +1194,323 @@ test that it does not lie about what it does.
 
 ---
 
+# Part IV — The operational surfaces
+
+Part I follows one talk from a proposal to a published slot. Part IV is everything the organizer
+does *around* that talk once it exists: chasing the slides, keeping the roster straight, setting the
+event up in the first place, and the boundaries that keep one tenant's data out of another's screen.
+
+These four are the plans for the surfaces the core flow leans on and never exercises hard. §0.7's
+design bar still applies; the release threshold here is zero S1, as in Part III.
+
+---
+
+## MTP-14 — Tasks, deliverables, and the Files desk
+
+**Environments:** A, **C for uploads and CORS** · **Duration:** ~75 min · **Precondition:** MTP-06,
+so accepted submissions and confirmed speakers exist. Assignment is derived from acceptance — on an
+event with nothing accepted, every table in this plan is legitimately empty.
+
+**Objective.** Prove that a task reaches exactly the people it should, that a file arrives with its
+history intact, that the export hands back what was selected at the moment it was selected, and that
+a private file is private.
+
+### §1 Authoring a task
+
+| # | Action | Expected result |
+|---|---|---|
+| 1 | Create a **manual** task targeted at **contacts** | It appears for every accepted speaker — not every contact. Count the assignments against the accepted-speaker list and expect them to agree |
+| 2 | Create a task targeted at **submissions** | One assignment per accepted submission, to that submission's **primary** participant only. A co-speaker does not receive a second copy of the same task |
+| 3 | Withdraw or decline one of those submissions | Its assignment leaves the list. Assignment follows acceptance rather than a snapshot taken when the task was written |
+| 4 | Set a due date, then check it from a workstation in another timezone | It is a **date**, not an instant, and it falls due at the end of that day in the **event's** zone. A task due "Friday" that turns overdue on Thursday evening for the organizer is a D9 failure |
+| 5 | Create a **form** task without choosing a form, and a **file** task without a file request | Refused, naming the missing half. The mode and its target must agree |
+| 6 | Deactivate a task | It leaves every assignee's list without deleting anything; reactivating restores it, and any completion recorded in between survives |
+| 7 | Complete the task as one speaker, then try to change its target type, completion mode, form, or file request | Refused — the structure is frozen by the responses that exist, the same way a form with submissions freezes. **Repeat the attempt as a `PATCH` against the API**, because the button being disabled is not the guard |
+| 8 | Change the task's name, description and due date after that completion | Allowed. Copy and deadlines stay editable; only the shape locks |
+| 9 | Edit one task in two tabs and save both | The second save is refused on the concurrency check, not applied over the first |
+| 10 | Reopen a completed assignment from the admin | The completion clears, the speaker sees the task open again, and the counts on the dashboard and portal home move with it |
+
+### §2 The Files desk
+
+The Files view is one row per **slot** — the `(file request, contact, submission)` triple a request
+opens. Everything below reads and writes that one slot from two directions.
+
+| # | Action | Expected result |
+|---|---|---|
+| 11 | Open **Files** with a file-request task assigned | One row per slot, showing the latest version, the version count, and the comment count |
+| 12 | Work each filter: open, overdue, completed, has-upload, still-empty, a due-date range, and the search box | Each narrows the same table, and they compose. **Overdue** and **completed** must never both be true for one row |
+| 13 | As the speaker, upload a second file into a slot that already has one | Version 2, numbered, marked latest. Version 1 is still listed and still downloadable — a re-upload is a new version, never an overwrite |
+| 14 | Leave a comment as the organizer; answer it as the speaker from the task detail | Both land in the same thread, in order, attributed. The speaker's half and the organizer's half are two doors into one slot |
+| 15 | Select several rows and send **Remind** | One reminder per selected target, reported as a count. A suppressed or unsubscribed recipient is skipped with its reason, not counted as sent |
+| 16 | Select more rows than the bound allows — 200 for the table and the export, **20** for one reminder send | Refused with the limit named, before anything is enqueued — not a partial batch. The two numbers differ on purpose: an export is one insert, while each reminder target keeps its own commit boundary |
+| 17 | Sort and paginate, then take a bulk action | The action applies to your actual selection, not to the visible page (the same rule as MTP-06 step 11) |
+
+### §3 The ZIP export
+
+| # | Action | Expected result |
+|---|---|---|
+| 18 | Select a set of slots and start an export | The response comes back immediately with a job, not a spinner holding the request open. The job advances step by step as you poll |
+| 19 | **While the job is running, upload a newer file into one of the selected slots** | The ZIP contains the file that was latest when the job was *created*. An export that widens to a file uploaded after the request was made is the failure — the selection is frozen server-side, and a client-supplied "latest" claim is never trusted |
+| 20 | Include two speakers who uploaded files with the same filename | Both are in the ZIP under distinguishable names. One silently overwriting the other loses a deliverable |
+| 21 | Run the export once per **group by** option — none, session, speaker | The folder structure matches the choice; every selected file appears exactly once in each |
+| 22 | Start an export and close the tab immediately | The job still finishes: the cleanup tick rescues one nobody is polling (MTP-12 step 27). This is the case that used to sit until it expired |
+| 23 | Download a finished export, then wait past its expiry and use the same link | The contents match the selection. After expiry the link is gone with an explanation, not a raw error |
+| 24 | Export a selection where one slot has no upload at all | Deliberate: either it is excluded and said so, or the ZIP names the gap. A silently short ZIP is S2 |
+
+### §4 Who can read a file
+
+| # | Action | Expected result |
+|---|---|---|
+| 25 | Request `/f/<fileId>` for a headshot or the event logo | `200`, the content type from the file record, and the immutable cache header (MTP-10 step 10) |
+| 26 | Request `/f/<fileId>` for a **private** kind — a slide, an attachment, a file-request upload | The same `404` an unknown id gets. A private file must not be distinguishable from one that does not exist |
+| 27 | Ask for `/api/uploads/<fileId>/download-url` as the organizer of that event | A short-lived presigned GET. This is the only door to a private file |
+| 28 | Ask for the same file's download URL while signed in to a **different** event, and as a portal speaker who does not own it | Refused both times. The check is `(event, file, requester)` together — one event's session must never unlock another's file |
+| 29 | Presign an upload that breaks its policy — wrong type, or over the size limit | Refused **before** the PUT, naming the limit. A file-request slot takes its extensions and size cap from the request itself, clamped by the global maximum |
+| 30 | *(C)* Run a real presign → PUT → finalize from the browser | Works under CORS on a deployed origin. This is the step Env A cannot prove |
+
+### §5 Design checks
+
+Walk §0.7 on the tasks admin list, the task editor, the task-form editor, the Files table, the slot
+drawer (versions and comments), the reminder confirmation, and the export progress state.
+Specifically: **D2** on the export while it is running — a job that advances in steps needs a
+progress state that is honest about not being finished; **D4** on Remind, which is a mass mail;
+**D5** on Files before any request exists; **D9** on the due-date column.
+
+### Exit criteria
+
+Steps 1–3 (assignment reaches exactly the right people), 7 (the mode lock holds against the API),
+13 (versions are additive), 19 (the export cannot widen), and 26–28 (private stays private). Zero
+S1/S2 on the Files desk.
+
+---
+
+## MTP-15 — The speaker roster as an operations surface
+
+**Environments:** A · **Duration:** ~60 min · **Precondition:** MTP-06.
+
+**Objective.** Prove the roster is a place work gets done rather than a list: one person is one
+contact however they arrive, the organizer's own pipeline is separate from the publication gate,
+and the things an organizer records about a speaker survive and are usable.
+
+### §1 One person, one contact
+
+| # | Action | Expected result |
+|---|---|---|
+| 1 | Add a speaker by hand | A contact is created and appears on the roster |
+| 2 | Add "another" speaker with the same address in different case and with surrounding spaces | The **same** contact is updated, not duplicated. Every entry point normalizes identity the same way |
+| 3 | Import a CSV | A preview reports creates, updates and rejects **before** anything commits |
+| 4 | Include a row whose email already exists, one malformed row, and one row missing a required column | The existing contact is updated; the malformed row is rejected with its line number; the good rows still commit. One bad line does not lose the file |
+| 5 | Import the same file twice | The second run updates and creates nothing new |
+| 6 | Import a row for someone who is already a speaker through the CFP | They merge into the same person — the roster does not grow a second copy of a submitter |
+
+### §2 Two statuses that mean different things
+
+`workflow_status` is the organizer's pipeline (new, contacted, invited, confirmed, declined,
+withdrawn). `confirmation_status` is the publication gate — `published_speakers_v` requires
+`confirmed`. They are deliberately distinct and the plan is here to keep them that way.
+
+| # | Action | Expected result |
+|---|---|---|
+| 7 | Move a speaker through the workflow statuses | The roster's filters and counts follow, and **nothing about their public visibility changes** |
+| 8 | Accept and notify one of their submissions (MTP-06 §3a) | Confirmation flips to confirmed; the workflow status stays exactly where the organizer left it |
+| 9 | Set confirmation to **declined** by hand on a speaker whose session is published | They leave the public speakers list and gallery, while the session stays published. The organizer should be able to see that consequence before saving it (D4) |
+| 10 | Re-accept that person's submission | They stay declined — a re-acceptance does not overrule the organizer (MTP-06 step 24c) |
+
+### §3 Logistics fields
+
+| # | Action | Expected result |
+|---|---|---|
+| 11 | Create a **text** logistics field and a **select** field with options | Both appear on every speaker's detail |
+| 12 | Try to create a select field with no options | Refused before save |
+| 13 | Set values on two speakers, then filter the roster by them | The filter resolves to exactly those speakers |
+| 14 | Delete a field that has values | The confirmation names what is lost before it happens (D4), and afterwards no orphan value is left rendering on any screen |
+
+### §4 Unavailability
+
+| # | Action | Expected result |
+|---|---|---|
+| 15 | Add a blackout window for a speaker | The editor names the **event's** timezone at entry and renders it back in event-local time, with your clock elsewhere (D9) |
+| 16 | Run **Auto-place** for a session with that speaker inside their blackout | The proposal names the unavailability as the reason rather than failing generically (MTP-07 step 26) |
+| 17 | Add a second window that overlaps the first, and one that ends before it starts | Overlaps are handled deliberately; a backwards interval is refused |
+| 18 | Delete the window and re-run Auto-place | The slot becomes available again |
+
+### §5 Reaching the roster
+
+| # | Action | Expected result |
+|---|---|---|
+| 19 | Invite a speaker from their detail page | They get a portal link. This is non-essential mail: a suppressed or unsubscribed contact is skipped with its reason (MTP-12 step 8) |
+| 20 | Filter the roster and send a **bulk email** to the selection | The count is shown before sending and matches the rows that actually receive one |
+| 21 | Export one contact's record | Machine-readable, and genuinely everything held about them: profile, their submitted answers, portal tasks, logistics values, blackout windows, uploaded-file metadata, file-slot comments, the messages sent to them **including the rendered body** where retention has not yet redacted it, calendar invites, their personalized copy of any bulk email, suppression status, and portal sign-in metadata |
+| 21a | Search that export for a token or OTP hash | Absent. How the system authenticates someone is not their personal data, and exporting it would hand over a live credential |
+| 22 | Push a contact to the org-level CRM and back (MTP-13 step 29) | One person on both sides; no duplicate appears in either directory |
+| 23 | Open the speaker's portal as them (MTP-10 step 19) and check what they see of §3 | Organizer bookkeeping is organizer-only. A workflow status or an internal logistics note on a speaker's own screen is a privacy finding, not a cosmetic one |
+
+### §6 Design checks
+
+Walk §0.7 on the roster table and its filter tabs, the speaker detail page and each of its panels,
+the logistics-field editor, the unavailability editor, the import preview, and the bulk-email
+composer. Specifically: **D1/D9** on the unavailability editor (DD-2 regression); **D5** on a roster
+with nobody on it; **D10** on the import preview — a rejected row should be fixable without starting
+the whole import again.
+
+### Exit criteria
+
+Steps 2, 4 and 6 (one person is one contact, whichever door they came through), 7–10 (the two
+statuses never move each other), and 23 (nothing internal leaks into the portal).
+
+---
+
+## MTP-16 — Event setup, vocabularies, and settings
+
+**Environments:** A · **Duration:** ~60 min · **Precondition:** MTP-01. Use a **throwaway event**
+for §1 and §2 — several steps here are refusals that need a schedule to push against, and one of
+them deletes vocabulary.
+
+**Objective.** Prove an event can be set up and then *changed* — dates, timezone, slug, tracks,
+rooms — without silently invalidating what has already been built on top of it.
+
+### §1 Creating an event
+
+| # | Action | Expected result |
+|---|---|---|
+| 1 | Create an event with name, slug, type, dates and timezone | Created, and it opens on a surface that tells you what to do next (D5/D10) |
+| 2 | Re-use an existing slug, then try a reserved one (`api`, `portal`, `e`, `embed`, `cal`, `f`, `login`, `admin`, `submit`, `assets`, `app`) | Refused both times — the slug is the public address, and the reserved list is the set of paths it would otherwise shadow |
+| 3 | Enter a timezone that is not a real IANA zone | Refused. The zone list is the platform's own, not free text |
+| 4 | Set the end before the start | Refused, on the field |
+
+### §2 Changing an event that already has a schedule
+
+| # | Action | Expected result |
+|---|---|---|
+| 5 | Change the dates without touching the timezone | Refused: starts, ends and timezone move **together**, because moving two of the three silently reinterprets every session already placed |
+| 6 | Shrink the dates so a scheduled session would fall outside them | Refused, and the message points at the session. Then move that session inside the new window and repeat |
+| 7 | Widen the dates | Accepted; the agenda grid grows and existing placements do not move |
+| 8 | Save settings in two tabs | The second is refused as stale rather than overwriting the first |
+| 9 | Change the timezone (with dates, per step 5) on an event with placed sessions | Record precisely what happens to each session's displayed time and to the public day tabs, on a workstation outside both zones. Whatever the product does here, it must be one thing and it must be legible before the save |
+| 10 | Change the slug | The public pages answer on the new slug, the embeds and calendar feeds follow, and the old address does not keep serving stale content indefinitely. Note what an already-pasted embed snippet does |
+| 11 | Upload a logo and a background, set the accent colour | The public site, the embeds and the branded email layouts all pick them up. A branding change that only lands in one of the three is a finding |
+
+### §3 Vocabularies — tracks, rooms, formats, tags
+
+| # | Action | Expected result |
+|---|---|---|
+| 12 | Create, rename and reorder each of the four kinds | The order is what the public pages and the pickers use, everywhere |
+| 13 | Delete a **track** that a form's routing or visibility rule references, or that an evaluation round is scoped to | Refused, naming *where* it is still used — forms and rounds by name, not a count |
+| 14 | Delete a **format** that is still in use | Refused the same way |
+| 15 | Clear those references, then delete the track and the format | They go, and nothing that referenced them is left pointing at a dead id |
+| 16 | Delete a **room** that has sessions in it, including one that is published and timed | Allowed, and it is not silent: those sessions lose their room, the published-and-timed ones advance a schedule revision and a **Schedule changed** message goes out to their speakers, and the room disappears from any embed's filter |
+| 17 | Drain the outbox after step 16 | Exactly one change message per affected speaker, carrying the room's absence — not a duplicate invite (MTP-12 step 18) |
+| 18 | Delete a **tag** that is applied to submissions | Record what happens; a tag that vanishes from the vocabulary but survives on rows is a data finding |
+| 19 | Rename a track that is on a published session | The public pages show the new name without needing a redeploy |
+
+### §4 Access and API keys
+
+| # | Action | Expected result |
+|---|---|---|
+| 20 | Open **Settings → API keys** and create one | The secret is shown **once**, at creation, with a warning that it will not be shown again |
+| 21 | Reload the list | The key is listed by its metadata and the secret is nowhere in the response — check the payload, not just the screen |
+| 22 | Replay the exact same creation request (the client retrying a lost response) | You get the *same* key back, not a second one. A retry that mints two live credentials is S1 |
+| 23 | Revoke a key and use it (MTP-11 step 21) | `401` immediately |
+| 24 | Add a member as reviewer from the event's access surface, then change their role and remove them | Their access changes on their next request, and the audit log records each move (MTP-13 step 12) |
+
+### §5 Design checks
+
+Walk §0.7 on the event-creation form, every settings tab, each vocabulary editor, and the API-keys
+surface. Specifically: **D4** on every deletion in §3 — each must name what is lost and what
+survives; **D9** on the date and timezone fields; **D2** on the one-time secret display (it is
+useless if it can be dismissed by accident with no way back).
+
+### Exit criteria
+
+Steps 5, 6 and 8 (an event's shape cannot be changed out from under its schedule), 13–16 (a
+vocabulary deletion either refuses or cleans up after itself, and never leaves a dangling
+reference), and 20–22 (a secret is shown once and a retry does not mint a second).
+
+---
+
+## MTP-17 — Tenancy, authorization, and id probing
+
+**Environments:** A for the probing, **C for the throttles and the private paths** ·
+**Duration:** ~75 min · **Cadence:** every release, and after any change to a route guard,
+`middleware.ts`, or a query that takes an id from the client.
+
+**Objective.** The rest of the document tests what the product does for the person using it. This
+one tests what it does for someone using it against you. Every other plan checks its own surface's
+scoping in passing; this one does it deliberately, in one pass, with a written inventory.
+
+### §0 Setup
+
+Two organizations, each with one event, and four identities: an owner in org A, an organizer in
+org A's event, a reviewer in org A's event, and a speaker with a portal session on org A's event.
+Nobody in this list has any membership in org B.
+
+Then build the **id inventory** — this is the artifact the plan produces, and it is what makes the
+sweep repeatable rather than a rummage:
+
+| Kind | From event A | From event B |
+|---|---|---|
+| event, organization | | |
+| submission, form, form version | | |
+| session, room, track, format | | |
+| contact, task, file request, file asset | | |
+| evaluation plan, review assignment | | |
+| API key, embed, resource page, portal token | | |
+
+### §1 The admin surfaces
+
+| # | Action | Expected result |
+|---|---|---|
+| 1 | As org A's organizer, hand-type every `/events/<eventId>/…` route with **event B's** id | Denied on every one. Not a partial render, not an empty table that looks like a real screen for an event you cannot see |
+| 2 | Call each internal API route with event A's session and event B's ids in the body — including one id of each kind from the inventory | Denied. Route guards re-authorize on every request; the middleware redirect is a convenience and proves nothing |
+| 3 | Mix the ids: event A's id with a submission id from event B, a session id with another event's room id | Denied. Every event-scoped row carries a composite key back to its event, so a mismatched pair is a database-level rejection rather than an application check — confirm that is what you observe |
+| 4 | Compare the error for "does not exist" with the error for "exists but is not yours" | You cannot tell them apart. If you can, the API is an id oracle, and that is a finding even when nothing else leaks |
+| 5 | As the reviewer, hand-type every organizer route on their **own** event | Denied — the reviewer has one surface (MTP-02 step 6, MTP-05 §3) |
+| 6 | As the org A owner, open every `/organizations/<orgId>/…` route for org B | Denied, including the CRM contact detail, the audit log, and billing |
+
+### §2 The portal and its tokens
+
+| # | Action | Expected result |
+|---|---|---|
+| 7 | With a portal session on event A, hand-type event B's portal, task and submission URLs | Denied. Portal sessions are per-event by construction (MTP-10 step 22) |
+| 8 | Replay a used magic link, and a code after its attempt limit | Refused (MTP-10 steps 3, 7) |
+| 9 | Take another contact's task id into your own portal session | Denied — the assignment is the boundary, not the URL |
+| 10 | Follow a `/cal/<token>` feed with the token altered by one character | Rejected (MTP-11 step 12) |
+| 11 | Open a `/speaking/<token>` share link with an altered token, and one for a contact in another event | Not found. A share link is signed, not guessable, and it carries no more than the page it renders |
+| 12 | Ask for an impersonation link from a different origin — the shape a cross-site page would forge, since the route mints a live portal token off nothing but the ambient admin cookie | Refused on the origin check. Then confirm the legitimate path: the session is badged, scoped to that one event's portal, attributed to the admin in the audit trail, and ends when you exit it (MTP-10 steps 19–20) |
+| 12a | Ask for an impersonation link for a contact in the **other** event, and as a reviewer rather than an organizer | Refused both times |
+
+### §3 Files, embeds, and the public edge
+
+| # | Action | Expected result |
+|---|---|---|
+| 13 | Walk the file cases in MTP-14 §4 with the other event's session | Refused; a private kind is a `404` either way |
+| 14 | Request an embed for an event with the kill switch on, and one for a draft resource page | Nothing served |
+| 15 | Post a bounce webhook with a bad signature; then replay a *valid* one whose timestamp is more than five minutes old | Rejected both times. The signature covers id, timestamp and body together, and the five-minute tolerance is what stops a captured-and-replayed payload (MTP-12 steps 19–21) |
+| 16 | Use event A's API key against event B's slug, and a revoked key | `401`/`404` (MTP-11 steps 21–22) |
+| 17 | *(C)* `POST /worker-jobs/<job>` with and without the private header | `404` both ways — the private namespace is refused before OpenNext routing (MTP-12 step 15) |
+
+### §4 The throttles
+
+| # | Action | Expected result |
+|---|---|---|
+| 18 | *(C)* Six wrong admin passwords | Five `401`s then `429` from the durable throttle (MTP-02 step 15) |
+| 19 | Four portal code requests for one contact inside ten minutes | The fourth is throttled (MTP-10 step 5) |
+| 20 | *(C)* Drive one public API bucket past its window — 300 requests per five minutes per client address | `429` in the documented envelope, and the limit is per bucket and per address rather than global |
+| 21 | Confirm each throttle returns the documented error envelope | A rate limit that returns a raw platform error, or a `500`, is a finding: it is the response an integrator sees most often |
+
+### §5 What to record
+
+One row per probe: the route, the identity, the id you supplied, the status, and the error code.
+A pass is boring on purpose. Anything that returns a `200`, a `500`, a stack trace, or an error
+that distinguishes "no such row" from "not yours" is written up with the request id.
+
+### Exit criteria
+
+§1 in full with the inventory attached, plus steps 7, 11, 13 and 17. Every finding here is at
+least S1 — there is no cosmetic tier for a boundary.
+
+---
+
 ## Appendix A — Coverage and weighting
 
 | Plan | Part | Surfaces | Weight |
@@ -1196,13 +1528,17 @@ test that it does not lie about what it does.
 | MTP-11 | III | public pages, embeds, calendar, API | medium |
 | MTP-12 | III | templates, reminders, webhooks, delivery | medium |
 | MTP-13 | III | orgs, team, GDPR, billing, CRM | medium |
+| MTP-14 | IV | tasks, deliverables, versions, ZIP export, file access | medium |
+| MTP-15 | IV | roster identity, workflow vs confirmation, logistics, unavailability | medium |
+| MTP-16 | IV | event creation, dates/timezone, vocabularies, API keys | medium |
+| **MTP-17** | **IV** | **cross-tenant probing, tokens, throttles — every boundary at once** | **heavy** |
 
 ## Appendix B — Automated counterparts
 
 Thirteen Playwright specs in [`../e2e/`](../e2e) overlap these plans: `admin-setup` (MTP-01/02),
 `cfp-submit` (MTP-03/04), `abstracts-decide` (MTP-06), `review-operations` (MTP-05), `portal-tasks`
 (MTP-10), `agenda-schedule` (MTP-07), `public-embeds` + `public-widgets-parity` (MTP-11),
-`speaker-content-ops` (MTP-10/12/13), `self-service-onboarding` (MTP-13/13a), and three that
+`speaker-content-ops` (MTP-10/12/13/14/15), `self-service-onboarding` (MTP-13/13a), and three that
 automate part of the design bar — `rendered-ui-polish`, `responsive-action-groups` and
 `typography-hierarchy` (MTP-08). They run against a deployed target plus the `sb-test` Neon branch —
 set `E2E_BASE_URL`, `NEON_TEST_URL`, `E2E_ADMIN_PASSWORD` and `E2E_REVIEWER_PASSWORD`, then
@@ -1213,9 +1549,17 @@ keyboard and screen-reader passes, cross-tenant probing by hand, timed usability
 operator, and the judgement a rubric can guide but not replace — "is this empty state deliberate?",
 "does this dropdown belong to this product?"
 
+Part IV is the least automated of the four. `speaker-content-ops` covers a happy path through the
+roster, the version and comment threads, filtered reminders and a grouped ZIP export — so MTP-14 and
+MTP-15 should be run for what it does not touch: real R2 under CORS, an export whose selection is
+raced by a fresh upload, expiry, and the design bar on those surfaces. **MTP-16 and MTP-17 have no
+automated counterpart at all.** Nothing in `e2e/` deletes a room out from under a published session
+or probes one tenant's ids with another tenant's session, and both are exactly the kind of failure
+that is silent until it is public.
+
 ## Appendix C — The capstone: one conference, end to end, in one sitting
 
-Run this before any release you would show a customer. One operator, ~90 minutes, **starting from
+Run this before any release you would show a customer. One operator, ~115 minutes, **starting from
 `empty-conf` or a brand-new event** so nothing seeded carries you. No shortcuts through the API, no
 direct database writes, and the stopwatch runs the whole way.
 
@@ -1233,6 +1577,12 @@ direct database writes, and the stopwatch runs the whole way.
 8. Publish the schedule; open the public page and one embed in a fresh browser. *(≤ 5 min)*
 9. Move one published session; confirm the public page and the calendar feed both follow and the
    change notification goes out. *(≤ 5 min)*
+10. Assign a slide-upload task to your speakers, upload as two of them, chase the third, and export
+    the deliverables you have as one ZIP. *(≤ 15 min)*
+11. Open **Ready to announce**, copy the agenda link and one speaker's share card, and open both
+    signed out. *(≤ 5 min)*
+12. One speaker pulls out: take them off the public site without deleting their record, and confirm
+    the schedule, the gallery and the calendar all agree afterwards. *(≤ 5 min)*
 
 **Record:** total elapsed time, every point where you had to leave a surface to satisfy a
 prerequisite, every screen you had to be told about, and every D-check miss along the way. The
