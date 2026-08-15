@@ -1,4 +1,5 @@
 import type { DashboardOverview } from "../index";
+import { formAcceptsOrWillAccept } from "@/features/forms/index.availability";
 
 /**
  * M56 — phase-aware reordering. An event has one lifecycle (CFP open →
@@ -15,7 +16,10 @@ import type { DashboardOverview } from "../index";
  */
 export type EventPhase = "cfp" | "decisions" | "onboarding" | "live" | "wrap";
 
-type PhaseInput = Pick<DashboardOverview, "event" | "statusCounts" | "kpis" | "forms">;
+// `forms` deliberately drops `status`: the raw column does not move when a
+// close date elapses, so phase must read the derived `availability`.
+type PhaseForm = Omit<DashboardOverview["forms"][number], "status">;
+type PhaseInput = Pick<DashboardOverview, "event" | "statusCounts" | "kpis"> & { forms: readonly PhaseForm[] };
 
 /** "Live" starts this many days before the event — final-days prep counts as event week. */
 const LIVE_STARTS_DAYS_BEFORE = 2;
@@ -26,7 +30,7 @@ export function computeEventPhase(overview: PhaseInput): EventPhase {
   const { daysToEvent } = overview.event;
   if (daysToEvent < WRAP_AFTER_DAYS * -1) return "wrap";
   if (daysToEvent <= LIVE_STARTS_DAYS_BEFORE) return "live";
-  if (overview.forms.some((form) => form.status === "open")) return "cfp";
+  if (overview.forms.some((form) => formAcceptsOrWillAccept(form.availability))) return "cfp";
   const awaitingDecision = overview.statusCounts.pending + overview.statusCounts.accept_queue + overview.statusCounts.decline_queue;
   if (awaitingDecision > 0) return "decisions";
   if (overview.kpis.acceptedSpeakers > 0) return "onboarding";

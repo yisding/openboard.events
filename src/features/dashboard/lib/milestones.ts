@@ -1,4 +1,5 @@
 import type { DashboardOverview } from "../index";
+import { formAcceptsOrWillAccept } from "@/features/forms/index.availability";
 
 /**
  * M60 — "Milestone acknowledgments... small dashboard moments that make the
@@ -18,7 +19,10 @@ export type MilestoneId = "first_submission" | "cfp_closed" | "decisions_sent" |
 
 export type Milestone = { id: MilestoneId; title: string; detail: string; href: string };
 
-type MilestoneInput = Pick<DashboardOverview, "event" | "forms" | "statusCounts" | "kpis" | "latestCfpSubmission">;
+// Same reason as `PhaseInput`: the stored status never reports a call that
+// ended by its own deadline.
+type MilestoneForm = Omit<DashboardOverview["forms"][number], "status">;
+type MilestoneInput = Pick<DashboardOverview, "event" | "statusCounts" | "kpis" | "latestCfpSubmission"> & { forms: readonly MilestoneForm[] };
 
 export function computeMilestones(overview: MilestoneInput): Milestone[] {
   const milestones: Milestone[] = [];
@@ -44,7 +48,7 @@ export function computeMilestones(overview: MilestoneInput): Milestone[] {
   // at least one submission exists — an event with no forms yet, or one
   // whose only form is still open, has nothing to acknowledge.
   const totalSubmitted = overview.forms.reduce((sum, form) => sum + form.submitted, 0);
-  if (overview.forms.length > 0 && overview.forms.every((form) => form.status !== "open") && totalSubmitted > 0) {
+  if (overview.forms.length > 0 && overview.forms.every((form) => !formAcceptsOrWillAccept(form.availability)) && totalSubmitted > 0) {
     milestones.push({
       id: "cfp_closed",
       title: "Call for speakers closed",
