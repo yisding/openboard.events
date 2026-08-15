@@ -50,7 +50,23 @@ export function parseCsv(text: string): string[][] {
   // still buffered (no final newline, or the file was empty) is one more row
   // — unless it is the single empty field an empty file parses to.
   if (field.length > 0 || row.length > 0) endRow();
-  return rows.filter((cells) => !(cells.length === 1 && cells[0] === ""));
+  // Trailing only, as documented. Dropping blank rows *anywhere* compacted the
+  // array, and `readSpeakerCsvRows` derives its 1-based `rowNumber` from the
+  // index of that compacted array — so one blank separator line at row 40 of a
+  // 200-row export shifted every reported row number below it by one, and the
+  // error CSV an organizer downloads pointed them at the wrong record. An
+  // interior blank row is kept here and skipped, still counted, by the reader.
+  while (rows.length > 0) {
+    const last = rows[rows.length - 1];
+    if (last && last.length === 1 && last[0] === "") rows.pop();
+    else break;
+  }
+  return rows;
+}
+
+/** A row the file contains but that carries no data at all — a separator line. */
+function isBlankRow(cells: string[]): boolean {
+  return cells.every((cell) => cell.trim() === "");
 }
 
 export type SpeakerCsvRowResult = {
@@ -73,12 +89,15 @@ const emailSchema = z.string().trim().toLowerCase().pipe(z.email());
  */
 export function readSpeakerCsvRows(rows: string[][], mapping: SpeakerCsvColumnMapping): SpeakerCsvRowResult[] {
   const [, ...dataRows] = rows;
-  return dataRows.map((cells, index): SpeakerCsvRowResult => {
+  // Blank separator lines are skipped but still counted, so `rowNumber` keeps
+  // meaning what the docstring on the field says: the line a spreadsheet shows.
+  return dataRows.flatMap((cells, index): SpeakerCsvRowResult[] => {
+    if (isBlankRow(cells)) return [];
     const rowNumber = index + 2; // +1 for the header, +1 to go from 0-based
     const rawEmail = cells[mapping.email]?.trim() ?? "";
-    if (!rawEmail) return { rowNumber, email: null, values: {}, error: "Missing email" };
+    if (!rawEmail) return [{ rowNumber, email: null, values: {}, error: "Missing email" }];
     const parsedEmail = emailSchema.safeParse(rawEmail);
-    if (!parsedEmail.success) return { rowNumber, email: null, values: {}, error: `Invalid email "${rawEmail}"` };
+    if (!parsedEmail.success) return [{ rowNumber, email: null, values: {}, error: `Invalid email "${rawEmail}"` }];
     const values: Partial<Record<SpeakerCsvField, string>> = {};
     for (const field of SPEAKER_CSV_FIELDS) {
       const columnIndex = mapping.fields[field];
@@ -86,6 +105,6 @@ export function readSpeakerCsvRows(rows: string[][], mapping: SpeakerCsvColumnMa
       const raw = cells[columnIndex]?.trim() ?? "";
       if (raw) values[field] = raw;
     }
-    return { rowNumber, email: parsedEmail.data, values, error: null };
+    return [{ rowNumber, email: parsedEmail.data, values, error: null }];
   });
 }
