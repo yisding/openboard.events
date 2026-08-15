@@ -233,7 +233,18 @@ export async function submitCfpForm(
 
   // Routing stamps on create only; the rules are evaluated against the same
   // visible answers that are about to be stored.
-  const routing = applyRouting(await getActiveRoutingRules(input.eventId, input.formId), cleanAnswersToRecord(abstract.clean));
+  // Only the abstract section's answers are in scope here, so a rule sourced
+  // from a participant question can never be evaluated — the editor offers
+  // those fields, so such rules exist. Pass the evaluable set explicitly and
+  // let `applyRouting` skip anything it cannot answer.
+  const routableFieldIds = new Set<string>(
+    sectionSnapshot(rendered, false).sections.flatMap((section) => section.fields.map((field) => field.id)),
+  );
+  const routing = applyRouting(
+    await getActiveRoutingRules(input.eventId, input.formId),
+    cleanAnswersToRecord(abstract.clean),
+    routableFieldIds,
+  );
   const mapped = deriveMappedFields(rendered, abstract.clean);
 
   return withTx(async (tx) => {
