@@ -58,6 +58,6 @@ export async function GET(request: NextRequest, route: { params: Promise<{ slug:
     const { rows, nextCursor } = await listPublicSubmissions(eventId, { ...(status ? { status } : {}), limit, cursorCode });
     return privateData(rows, { nextCursor });
   } catch (error) {
-    return apiV1ErrorResponse(error);
+    return apiV1ErrorResponse(error, request);
   }
 }

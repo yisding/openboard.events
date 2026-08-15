@@ -17,7 +17,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
   try {
     return await handleGet(request, params);
   } catch (error) {
-    return apiV1ErrorResponse(error);
+    return apiV1ErrorResponse(error, request);
   }
 }
 

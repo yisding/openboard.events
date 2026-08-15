@@ -43,6 +43,6 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
       },
     });
   } catch (error) {
-    return apiV1ErrorResponse(error);
+    return apiV1ErrorResponse(error, request);
   }
 }

@@ -1,10 +1,9 @@
 import { NextRequest } from "next/server";
-import { z } from "zod";
 import { adminAuth } from "@/features/auth";
 import { exportSubmissionsCsv, submissionFiltersSchema } from "@/features/submissions";
-import { apiErrorSchema, eventIdSchema } from "@/shared/contracts";
-import { AppError, isAppError, toHttp } from "@/shared/lib/errors";
+import { eventIdSchema } from "@/shared/contracts";
 import { eventDayKey } from "@/shared/lib/time";
+import { errorEnvelope } from "@/shared/server/handler";
 
 export const dynamic = "force-dynamic";
 
@@ -20,16 +19,12 @@ function queryInput(searchParams: URLSearchParams): Record<string, string | stri
 /** Mirrors `defineHandler`'s catch block (`src/shared/server/handler.ts`) so an
  *  error from this route still carries the same envelope shape every other
  *  internal route returns. */
-function errorResponse(error: unknown): Response {
-  const appError = isAppError(error)
-    ? error
-    : error instanceof z.ZodError
-      ? new AppError("VALIDATION", "Request validation failed")
-      : new AppError("INTERNAL", "Unexpected server error");
-  const envelope = apiErrorSchema.parse({
-    error: { code: appError.code, message: appError.message, data: appError.details },
+function errorResponse(error: unknown, request?: Request): Response {
+  const { envelope, status } = errorEnvelope(error, {
+    requestId: request?.headers.get("cf-ray") ?? crypto.randomUUID(),
+    feature: "submissions",
   });
-  return Response.json(envelope, { status: toHttp(appError.code) });
+  return Response.json(envelope, { status });
 }
 
 /**
@@ -66,6 +61,6 @@ export async function GET(request: NextRequest, route: { params: Promise<{ event
       },
     });
   } catch (error) {
-    return errorResponse(error);
+    return errorResponse(error, request);
   }
 }
