@@ -9,6 +9,8 @@ const TOKEN = /\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/gu;
 // Built by buildOutstandingList from individually escaped task names/dates.
 // Built by buildCalendarButtons from individually escaped application URLs.
 const PRE_ESCAPED = new Set(["tasks.outstanding_list", "calendar.buttons_html"]);
+/** Tokens whose empty value is a fact about the contact, not a missing variable. */
+const OPTIONAL_WHEN_EMPTY = new Set(["speaker.last_name"]);
 
 const COMMON_TOKENS = [
   "event.name", "event.start_date", "event.location", "event.timezone",
@@ -66,7 +68,17 @@ function resolve(vars: TemplateVars, path: string): string {
   for (const part of path.split(".")) {
     value = typeof value === "object" && value !== null ? (value as Record<string, unknown>)[part] : undefined;
   }
-  if (value === undefined || value === null || value === "" || typeof value === "object") {
+  if (value === undefined || value === null || typeof value === "object") {
+    throw new AppError("TEMPLATE_VAR_MISSING", `missing variable ${path}`);
+  }
+  // An empty string usually means the context failed to supply something, and
+  // `isTerminalFailure` treats TEMPLATE_VAR_MISSING as unretryable — so an
+  // empty value permanently fails the message. For a genuinely optional field
+  // that is wrong: `contacts.last_name` is `NOT NULL DEFAULT ''`, the contract
+  // types it `z.string()` (empty is valid), and `speaker.first_name` already
+  // has a `"there"` fallback for exactly this. A surname has no sensible
+  // filler, so the empty value renders as itself instead of killing the send.
+  if (value === "" && !OPTIONAL_WHEN_EMPTY.has(path)) {
     throw new AppError("TEMPLATE_VAR_MISSING", `missing variable ${path}`);
   }
   const text = String(value);

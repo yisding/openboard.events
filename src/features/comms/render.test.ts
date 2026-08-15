@@ -17,6 +17,37 @@ describe("communications template renderer", () => {
     expect(rendered.html).not.toContain("America/Los_Angeles");
   });
 
+  it("renders a contact with no surname instead of failing the send permanently", () => {
+    // `contacts.last_name` is NOT NULL DEFAULT '', so a contact created from a
+    // submission or an invitation normally has none. An empty value used to
+    // raise TEMPLATE_VAR_MISSING, which `isTerminalFailure` treats as
+    // unretryable — so an organizer who wrote "{{speaker.first_name}}
+    // {{speaker.last_name}}" into a template permanently failed the mail for
+    // every such speaker.
+    const vars = {
+      ...common,
+      speaker: { first_name: "Nadia", last_name: "", email: "nadia@example.com" },
+      submission: { title: "A talk", code: "SESS-7" },
+    } as TemplateVars;
+    const rendered = renderTemplateContent(
+      "submission_received",
+      "Received, {{speaker.first_name}} {{speaker.last_name}}",
+      "<p>Hi {{speaker.first_name}} {{speaker.last_name}}.</p>",
+      vars,
+    );
+    expect(rendered.subject).toBe("Received, Nadia");
+    expect(rendered.html).toContain("Hi Nadia .");
+  });
+
+  it("still refuses a variable the context genuinely failed to supply", () => {
+    const vars = {
+      ...common,
+      submission: { title: "", code: "SESS-7" },
+    } as TemplateVars;
+    expect(() => renderTemplateContent("submission_received", "Received", "<p>{{submission.title}}</p>", vars))
+      .toThrowError(/missing variable submission\.title/u);
+  });
+
   it("escapes hostile values in the subject and body", () => {
     const vars = { ...common, submission: { title: ";lkj<img onerror=alert(1)>", code: "SESS-7" } } as TemplateVars;
     const rendered = renderTemplate("submission_received", vars);
