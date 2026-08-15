@@ -301,12 +301,14 @@ stores only the credentials and direct database URL needed by the deployment wor
 - [x] Publish and verify SPF and DKIM (aligned; proven with delivered Gmail mail).
 - [x] Enable aggregate reporting using [`docs/runbooks/dmarc.md`](runbooks/dmarc.md)
   (protected run 31862396508; `reportingConfigured: true`, status rev. 7).
-- [ ] Advance the DMARC policy using the runbook's evidence and dwell gates; record
-  `dmarc=pass` evidence at every stage.
+- [x] Publish full quarantine at the exact From-domain record after the owner-approved compressed
+  rollout; keep the runbook's aggregate-report and receiver gates before reject.
 - [x] Use one stable product sender on the authenticated domain
   (`Openboard <hello@mail.openboard.events>`).
-- [ ] Enable Resend Receiving on `mail.openboard.events`, publish and verify its inbound MX, and
-  confirm replies appear in Resend; deployed send mode requires `hello@mail.openboard.events` as
+- [x] Enable Resend Receiving on `mail.openboard.events` and publish the priority-10 inbound MX to
+  `inbound-smtp.us-east-1.amazonaws.com` without changing Resend's independent bounce MX.
+- [x] Confirm Resend verifies the inbound MX and a fresh message to
+  `hello@mail.openboard.events` appears in Receiving. Deployed send mode requires that address as
   `EMAIL_REPLY_TO` so From and Reply-To keep one stable identity.
 - [ ] Create the production `RESEND_API_KEY` (the preview uses a domain-scoped key).
 - [x] Prove OTP delivery in a fresh Gmail inbox (`portal_login` + `submission_received`,
@@ -380,6 +382,7 @@ A successful deploy is not the full hackathon infrastructure proof.
 - [x] Record jobs tail output showing authenticated scheduled calls.
 - [x] Record Workers compressed size and deployed CPU/resource-limit observations.
 - [x] Record the Resend DNS, Gmail/Outlook authentication, Gmail Inbox, and Outlook Junk evidence.
-- [ ] Record the pre-quarantine no-regression authentication and placement probe.
+- [x] Record the pre-quarantine authentication and placement baseline.
+- [ ] Record the full-quarantine no-regression authentication and placement probe before reject.
 - [x] Record the final preview URL without recording any secret values; record production
   after its first successful deployment.

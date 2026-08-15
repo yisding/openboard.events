@@ -1,8 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   apexDmarcRecord,
   cloudflareRua,
   parseDmarcPolicy,
+  publicDmarcRecord,
+  readPublicFromDomainPolicy,
   summarizeDmarcStatus,
   validateZoneId,
 } from "../scripts/manage-dmarc";
@@ -26,6 +28,49 @@ describe("DMARC operations", () => {
     expect(() => parseDmarcPolicy("v=DMARC1; p=none; pct=10percent")).toThrow("0 to 100");
     expect(() => parseDmarcPolicy("v=DMARC1; broken")).toThrow("invalid DMARC tag");
     expect(() => cloudflareRua("not-a-prefix")).toThrow("32 lowercase hex");
+  });
+
+  it("reads one exact DMARC TXT answer from DNS JSON", () => {
+    expect(publicDmarcRecord({
+      Status: 0,
+      Answer: [{
+        name: "_dmarc.mail.openboard.events.",
+        type: 16,
+        data: '"v=DMARC1; p=quarantine; " "pct=100"',
+      }],
+    }, "_dmarc.mail.openboard.events")).toBe("v=DMARC1; p=quarantine; pct=100");
+  });
+
+  it("fails closed when public DNS has no unique exact-name DMARC answer", () => {
+    expect(() => publicDmarcRecord({ Status: 3 }, "_dmarc.mail.openboard.events"))
+      .toThrow("returned status 3");
+    expect(() => publicDmarcRecord({
+      Status: 0,
+      Answer: [
+        { name: "_dmarc.mail.openboard.events.", type: 16, data: '"v=DMARC1; p=none"' },
+        { name: "_dmarc.mail.openboard.events.", type: 16, data: '"v=DMARC1; p=reject"' },
+      ],
+    }, "_dmarc.mail.openboard.events")).toThrow("exactly one public TXT");
+  });
+
+  it("requires Cloudflare and Google public DNS to agree on the From-domain policy", async () => {
+    const answer = (policy: string) => new Response(JSON.stringify({
+      Status: 0,
+      Answer: [{
+        name: "_dmarc.mail.openboard.events.",
+        type: 16,
+        data: `"v=DMARC1; p=${policy}; pct=100"`,
+      }],
+    }), { status: 200 });
+    const agreeing = vi.fn(async () => answer("quarantine")) as unknown as typeof fetch;
+    await expect(readPublicFromDomainPolicy(agreeing)).resolves.toMatchObject({
+      policy: { policy: "quarantine", percentage: 100 },
+      resolvers: ["cloudflare", "google"],
+    });
+
+    const disagreeing = vi.fn(async (input: string | URL | Request) =>
+      answer(new URL(input instanceof Request ? input.url : input).hostname === "dns.google" ? "reject" : "quarantine")) as unknown as typeof fetch;
+    await expect(readPublicFromDomainPolicy(disagreeing)).rejects.toThrow("public resolvers disagree");
   });
 
   it("requires exactly one apex DMARC record", () => {

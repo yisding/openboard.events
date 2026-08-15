@@ -24,8 +24,12 @@ environment must contain `CLOUDFLARE_DMARC_API_TOKEN`, scoped only to the
 environment variable. The explicit ID means the token does not need Zone Read. Never add DNS,
 Workers, account-wide, or other zone permissions to this credential.
 
-Use the `status` operation for a read-only snapshot. It records the live policy, report URI,
-Cloudflare's approved-source inventory, and whether the first aggregate report has arrived.
+Use the `status` operation for a read-only snapshot. It records the apex reporting policy, report
+URI, Cloudflare's approved-source inventory, whether the first aggregate report has arrived, and
+the sender-subdomain policy observed independently through Cloudflare and Google public DNS.
+`policy` in the Cloudflare API result describes `_dmarc.openboard.events`; do not mistake it for
+the enforced `_dmarc.mail.openboard.events` policy. The `fromDomainPolicy` field is the latter,
+and the operation fails when the public resolvers disagree.
 Cloudflare dashboard → **Email → DMARC Management** owns the per-source pass/fail detail; inspect
 **View reports** and **View all** before approving any enforcement step.
 
@@ -38,10 +42,25 @@ main commit `a0fd73be`. The operation returned `changed: true`, `reportingConfig
 resolved the resulting single apex record with Cloudflare's generated `rua` immediately after
 the operation.
 
-The seven-day reporting dwell starts at that timestamp. `2026-08-22T03:40:22Z` is therefore
-the earliest possible quarantine-10 entry, not an automatic promotion date: at least two
-independent receivers must first contribute reports, every legitimate source must be identified,
-and Gmail and Outlook test messages must show `dmarc=pass`.
+The original rollout plan started a seven-day reporting dwell at that timestamp. After the sender
+inventory and receiver probes below showed that Resend is the only legitimate path for the exact
+From domain, the repository/zone owner explicitly approved skipping the percentage stages. At
+`2026-08-15T04:36Z`, an authenticated Cloudflare CLI operation published this sender-subdomain
+record with a 300-second TTL:
+
+```text
+_dmarc.mail.openboard.events TXT "v=DMARC1; p=quarantine; pct=100; rua=mailto:<Cloudflare aggregate-report address>;"
+```
+
+The operation changed neither the apex reporting policy nor unrelated apex-domain mail. The exact
+record was observed through Cloudflare and Google public resolvers immediately afterward. This is
+an owner-approved compression of the earlier plan, not evidence that the skipped dwell occurred.
+
+Resend Receiving verified the priority-10 `mail.openboard.events` MX to
+`inbound-smtp.us-east-1.amazonaws.com` at `2026-08-15T05:07Z`. A fresh provider-level message to
+`hello@mail.openboard.events` appeared in the Receiving feed at `2026-08-15T05:08Z`, proving the
+reply mailbox route independently of the application outboxes. The `send.mail.openboard.events`
+bounce/complaint MX remained unchanged.
 
 At `2026-08-15T03:50Z`, the production speaker-portal path queued one test message for an
 authorized Gmail recipient and one for an authorized Outlook.com recipient. Both requests
@@ -55,12 +74,11 @@ addresses, message identifiers, signatures, or bearer links:
 - Outlook reported the same aligned DKIM, SPF, and `dmarc=pass`, plus `compauth=pass`. It placed
   the message in Junk despite those passes.
 
-Gmail Inbox and Outlook Junk are the reporting-stage placement baseline. The Outlook decision is
-not a DMARC policy action: the message passed DMARC and no receiver enforcement was requested by
-`p=none`. Repeat both tests before quarantine-10, comparing authentication and folder placement.
-A worse placement result or any authentication regression blocks promotion; an unchanged Outlook
-Junk result remains a separate sender-reputation/content issue and must not be presented as proof
-that DMARC caused it.
+Gmail Inbox and Outlook Junk are the pre-enforcement placement baseline. The Outlook decision was
+not a DMARC policy action: the message passed DMARC while the policy was `p=none`. Repeat both tests
+under full quarantine before reject, comparing authentication and folder placement. A worse result
+or any authentication regression blocks promotion; an unchanged Outlook Junk result remains a
+separate sender-reputation/content issue and must not be presented as proof that DMARC caused it.
 
 ## Stage gates
 
@@ -77,17 +95,18 @@ passing sources are unapproved senders and block promotion.
 
 | Stage | Minimum evidence before entry | Minimum dwell before next stage |
 | --- | --- | --- |
-| reporting (`p=none`) | reporting configured; test mail shows `dmarc=pass` | 7 days with reports from at least two independent receivers |
-| quarantine 10% | every legitimate source identified and aligned; zero unknown passing sources | 48 hours and two aggregate-report periods |
-| quarantine 50% | no legitimate DMARC failures or delivery regression at 10% | 48 hours and two aggregate-report periods |
-| quarantine 100% | no legitimate DMARC failures or delivery regression at 50% | 7 days |
+| reporting (`p=none`) | reporting configured; test mail shows `dmarc=pass` | superseded by the owner-approved compressed rollout on 2026-08-15 |
+| quarantine 10% | planned but skipped; no claim of completed dwell | not applicable |
+| quarantine 50% | planned but skipped; no claim of completed dwell | not applicable |
+| quarantine 100% | Resend confirmed as the only From-domain sender; Gmail and Outlook both passed aligned DMARC | 48 hours and two aggregate-report periods from independent receivers |
 | reject 100% | zero unidentified legitimate senders and zero legitimate failures at full quarantine | permanent; review weekly |
 
-The percentage stages reduce risk, but receivers are allowed to ignore `pct`; keep the evidence
-gate even when observed filtering appears lower than the published percentage.
+The skipped percentage stages would have reduced exposure, but receivers are allowed to ignore
+`pct` anyway. Full quarantine is now live; never infer that the historical 10% and 50% gates were
+completed. Retain all authentication, report, and placement gates before reject.
 
 Record Inbox/Junk placement with every Gmail and Outlook probe so delivery changes can be
-compared with the reporting-stage baseline. Authentication results determine DMARC alignment;
+compared with the pre-enforcement baseline. Authentication results determine DMARC alignment;
 folder placement is the separate regression signal. A receiver without a recorded baseline blocks
 promotion until one is captured.
 
@@ -107,6 +126,11 @@ DNS TTL is 300 seconds; verify authoritative DNS and two public resolvers within
 reject is active and legitimate mail is failing, roll directly back to `p=none`, preserve the
 Cloudflare `rua`, and treat the sending path as an incident. Never disable aggregate reporting
 during rollback.
+
+The protected repository token intentionally cannot edit DNS. Policy mutation requires an
+owner-approved, authenticated Cloudflare DNS operation; the protected **DMARC operations** status
+run is the independent post-change evidence. Do not broaden the reporting token to combine these
+roles.
 
 After every change, verify:
 

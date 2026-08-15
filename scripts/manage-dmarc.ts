@@ -20,6 +20,17 @@ type DnsRecord = {
   type?: string;
 };
 
+type DnsJsonAnswer = {
+  data?: string;
+  name?: string;
+  type?: number;
+};
+
+export type DnsJsonResponse = {
+  Answer?: DnsJsonAnswer[];
+  Status?: number;
+};
+
 export type ApprovedDmarcSource = {
   domain?: string;
   ips?: string[];
@@ -69,6 +80,82 @@ export function parseDmarcPolicy(content: string): DmarcPolicy {
     percentage,
     aggregateReportUris: tags.rua?.split(",").map((uri) => uri.trim()).filter(Boolean) ?? [],
     tags,
+  };
+}
+
+function decodeDnsTxt(data: string): string {
+  const trimmed = data.trim();
+  if (!trimmed.startsWith('"')) return trimmed;
+  let decoded = "";
+  let index = 0;
+  while (index < trimmed.length) {
+    while (/\s/u.test(trimmed[index] ?? "")) index += 1;
+    if (index >= trimmed.length) break;
+    if (trimmed[index] !== '"') throw new Error("invalid DNS TXT presentation");
+    index += 1;
+    while (index < trimmed.length && trimmed[index] !== '"') {
+      if (trimmed[index] !== "\\") {
+        decoded += trimmed[index];
+        index += 1;
+        continue;
+      }
+      index += 1;
+      const decimalEscape = trimmed.slice(index, index + 3);
+      if (/^\d{3}$/u.test(decimalEscape)) {
+        decoded += String.fromCodePoint(Number.parseInt(decimalEscape, 10));
+        index += 3;
+      } else if (index < trimmed.length) {
+        decoded += trimmed[index];
+        index += 1;
+      }
+    }
+    if (trimmed[index] !== '"') throw new Error("unterminated DNS TXT presentation");
+    index += 1;
+  }
+  return decoded;
+}
+
+export function publicDmarcRecord(response: DnsJsonResponse, name: string): string {
+  if (response.Status !== 0) throw new Error(`DNS lookup for ${name} returned status ${response.Status ?? "unknown"}`);
+  const normalizedName = name.toLowerCase().replace(/\.$/u, "");
+  const records = (response.Answer ?? [])
+    .filter((answer) => answer.type === 16
+      && answer.name?.toLowerCase().replace(/\.$/u, "") === normalizedName
+      && typeof answer.data === "string")
+    .map((answer) => decodeDnsTxt(answer.data ?? ""));
+  if (records.length !== 1) throw new Error(`expected exactly one public TXT record at ${name}`);
+  return records[0] ?? "";
+}
+
+function canonicalPolicy(policy: DmarcPolicy): string {
+  return JSON.stringify(Object.entries(policy.tags).sort(([left], [right]) => left.localeCompare(right)));
+}
+
+export async function readPublicFromDomainPolicy(fetcher: typeof fetch = fetch): Promise<{
+  policy: DmarcPolicy;
+  record: string;
+  resolvers: string[];
+}> {
+  const name = `_dmarc.${DMARC_FROM_DOMAIN}`;
+  const resolvers = [
+    { name: "cloudflare", url: new URL(`https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=TXT`) },
+    { name: "google", url: new URL(`https://dns.google/resolve?name=${encodeURIComponent(name)}&type=TXT`) },
+  ];
+  const observed = await Promise.all(resolvers.map(async (resolver) => {
+    const response = await fetcher(resolver.url, { headers: { accept: "application/dns-json" } });
+    if (!response.ok) throw new Error(`${resolver.name} DNS lookup failed (${response.status})`);
+    const payload = await response.json() as DnsJsonResponse;
+    const record = publicDmarcRecord(payload, name);
+    return { resolver: resolver.name, record, policy: parseDmarcPolicy(record) };
+  }));
+  const [first, ...rest] = observed;
+  if (!first || rest.some((result) => canonicalPolicy(result.policy) !== canonicalPolicy(first.policy))) {
+    throw new Error(`public resolvers disagree on ${name}`);
+  }
+  return {
+    policy: first.policy,
+    record: first.record,
+    resolvers: observed.map((result) => result.resolver),
   };
 }
 
@@ -144,7 +231,12 @@ async function readStatus(apiToken: string, zoneId: string): Promise<CloudflareD
   return cloudflareRequest(apiToken, `zones/${encodeURIComponent(zoneId)}/email/auth/dmarc-reports`);
 }
 
-function printableSummary(operation: string, changed: boolean, status: CloudflareDmarcStatus) {
+function printableSummary(
+  operation: string,
+  changed: boolean,
+  status: CloudflareDmarcStatus,
+  fromDomain: Awaited<ReturnType<typeof readPublicFromDomainPolicy>>,
+) {
   const summary = summarizeDmarcStatus(status);
   return {
     operation,
@@ -164,6 +256,14 @@ function printableSummary(operation: string, changed: boolean, status: Cloudflar
       ips: source.ips ?? [],
     })),
     record: summary.record,
+    fromDomainPolicy: {
+      policy: fromDomain.policy.policy ?? null,
+      subdomainPolicy: fromDomain.policy.subdomainPolicy ?? null,
+      percentage: fromDomain.policy.percentage ?? 100,
+      aggregateReportUris: fromDomain.policy.aggregateReportUris,
+      record: fromDomain.record,
+      resolvers: fromDomain.resolvers,
+    },
   };
 }
 
@@ -198,7 +298,8 @@ async function main(): Promise<void> {
     }
   }
 
-  console.log(JSON.stringify(printableSummary(operation, changed, status)));
+  const fromDomain = await readPublicFromDomainPolicy();
+  console.log(JSON.stringify(printableSummary(operation, changed, status, fromDomain)));
 }
 
 if (process.argv[1] && basename(process.argv[1]) === "manage-dmarc.ts") {

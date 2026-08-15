@@ -89,16 +89,18 @@ application-level backstop, and the parser accepts only the current root-prefixe
   Resend Receiving owns the inbound MX at `mail.openboard.events`; Resend's independent
   `send.mail.openboard.events` MX remains the bounce/complaint return path. The deployed env
   contract requires both values, preventing an event name or unmonitored mailbox from silently
-  becoming the platform identity.
+  becoming the platform identity. Resend verified the inbound MX and accepted a provider-level
+  message for `hello@mail.openboard.events` into its Receiving feed on `2026-08-15`.
 - **DMARC changes are report-gated and From-subdomain scoped.** Cloudflare DMARC Management
   collects aggregate reports from the organizational record. Enforcement is published at
   `_dmarc.mail.openboard.events`, matching the only production From domain, so unrelated apex
-  mail is not changed accidentally. Production-environment approval and the dwell/evidence gates
-  in `docs/runbooks/dmarc.md` are required before each quarantine or reject stage. Protected run
-  31862396508 enabled and verified aggregate reporting at `2026-08-15T03:40:22Z`; policy remains
-  `p=none` while the seven-day, two-receiver evidence window is collected. Production probes at
-  `2026-08-15T03:50Z` passed aligned DKIM, SPF, and DMARC at both Gmail and Outlook, and Outlook
-  also passed composite authentication. Gmail placed its message in Inbox; Outlook placed its
-  passing message in Junk. Those are the pre-enforcement placement baselines and must be retested
-  before the first quarantine stage; the Outlook result is not attributed to a `p=none` DMARC
-  action.
+  mail is not changed accidentally. Protected run 31862396508 enabled and verified aggregate
+  reporting at `2026-08-15T03:40:22Z`. Production probes at `2026-08-15T03:50Z` then passed
+  aligned DKIM, SPF, and DMARC at both Gmail and Outlook, and Outlook also passed composite
+  authentication. Gmail placed its message in Inbox; Outlook placed its passing message in Junk.
+  After confirming that this repository's Resend configuration is the only sender for the From
+  domain, the repository/zone owner approved a compressed rollout and published
+  `p=quarantine; pct=100` at `2026-08-15T04:36Z`. The original percentage stages are retained as
+  historical planning context, not as claims about live DNS. Reject still requires two aggregate
+  report periods, no unidentified passing source, no legitimate failure, and repeat Gmail/Outlook
+  probes under the quarantine policy. Outlook Junk is the placement baseline, not a DMARC failure.
