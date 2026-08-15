@@ -505,6 +505,24 @@ describe("M52: the central Files view's deliverable list", () => {
       expect(after.rows[0]?.export_state.nextIndex).toBe(3);
     });
 
+    it("rescues a job whose very first step never ran", async () => {
+      const { createFileExportJobIn, getFileExportJobIn, nudgeStalledFileExportsIn } = await import("@/features/portal/deliverables/server/export");
+      // The POST route starts step one through `ctx.waitUntil(...).catch(() =>
+      // undefined)`. If that never runs — no Worker context, or a transient
+      // failure it swallows — the job sits `pending` with nobody polling it.
+      // That is precisely the "closed browser tab" case this sweep is for, and
+      // filtering on `processing` alone made it the one case it could not fix.
+      const job = await createFileExportJobIn(
+        db, eventId, null, [{ taskId: bigTask, contactId: irene, submissionId: null }], "none",
+      );
+      expect(job.status).toBe("pending");
+
+      const swept = await nudgeStalledFileExportsIn(db);
+
+      expect(swept.nudged).toBeGreaterThan(0);
+      expect((await getFileExportJobIn(db, eventId, job.id))?.status).not.toBe("pending");
+    });
+
     it("a single-step job (fits under the part-size target in one call) still completes and needs no second step", async () => {
       const { createFileExportJobIn, getFileExportJobIn, processFileExportJobIn } = await import("@/features/portal/deliverables/server/export");
       const job = await createFileExportJobIn(db, eventId, null, [{ taskId: bigTask, contactId: irene, submissionId: null }], "none");

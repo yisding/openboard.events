@@ -532,16 +532,24 @@ export const pruneExpiredFileExports = () => pruneExpiredFileExportsIn(db);
 
 /**
  * Belt-and-braces forward progress for a job nobody is polling (a closed
- * browser tab): advances every not-yet-expired `processing` job whose lease
- * is currently free by exactly one step, the same bounded unit
- * `processFileExportJobIn` always uses. Wired into the same cron tick as
+ * browser tab): advances every not-yet-expired job whose lease is currently
+ * free by exactly one step, the same bounded unit `processFileExportJobIn`
+ * always uses.
+ *
+ * The status set matches `claimStepIn`'s on purpose. A job is created
+ * `pending` and only becomes `processing` once a step has actually run, so
+ * filtering on `processing` alone excluded exactly the case this sweep exists
+ * for: the POST route kicks off the first step through `ctx.waitUntil(...)`
+ * with `.catch(() => undefined)`, so a transient failure there — or no Worker
+ * context at all — leaves the job `pending` with nobody polling it and nothing
+ * able to pick it up, until it silently expires 24 hours later. Wired into the same cron tick as
  * `pruneExpiredFileExportsIn`; the ordinary path is still the Files view's
  * poll loop, which converges far faster than a once-a-day cron tick would.
  */
 export async function nudgeStalledFileExportsIn(dbOrTx: DbOrTx): Promise<{ nudged: number; deferred: number }> {
   const stalled = await dbOrTx.execute<{ id: string; event_id: string; total: number }>(sql`
     SELECT id, event_id, count(*) OVER () AS total FROM file_export_jobs
-    WHERE status = 'processing'
+    WHERE status IN ('pending', 'processing')
       AND (expires_at IS NULL OR expires_at > now())
       AND coalesce((export_state->>'claimedAt')::timestamptz, 'epoch'::timestamptz) < now() - interval '25 seconds'
     ORDER BY updated_at
