@@ -30,6 +30,7 @@ import {
 } from "../participant-step";
 import {
   assertMapsToMatchesTarget,
+  assertNoNewlyOrphanedVisibility,
   assertNotLockedField,
   assertStructuralAllowed,
   assertUniqueFieldKey,
@@ -746,6 +747,7 @@ export async function updateFieldIn(dbOrTx: DbOrTx, eventId: EventId, formId: Fo
   const nextOptions = isOptions && (patch.optionLabels !== undefined || nextMapsTo === "submission.track_id" || nextMapsTo === "submission.format_id")
     ? await reconcileOptions(dbOrTx, eventId, field, patch.optionLabels ?? field.options.map((option) => option.label), nextMapsTo, nextType)
     : isOptions ? field.options : [];
+  assertNoNewlyOrphanedVisibility(fields, field.id, field.options, nextOptions);
   const updated: BuilderField = {
     ...field,
     key: nextKey,
@@ -971,6 +973,24 @@ export async function deleteFormIn(dbOrTx: DbOrTx, eventId: EventId, formId: For
   `);
   if (Number((hasResponses.rows ?? [])[0]?.n ?? 0) > 0) {
     throw new AppError("CONFLICT", "This form has collected responses and cannot be deleted.");
+  }
+  // Autosaved drafts are invisible to `hasNonDraftSubmissionsIn`, which filters
+  // `status <> 'draft'` — but their answers are not harmless. `form_fields`
+  // cascades from `forms`, while `submission_answers.field_id -> form_fields`
+  // carries no ON DELETE at all, and `submissions.form_id` is SET NULL so the
+  // draft rows survive the delete. The DELETE below therefore raised a raw FK
+  // 500 on a form someone had merely started filling in — the exact outcome the
+  // route's own doc comment says this precheck exists to prevent.
+  //
+  // Keyed on answers rather than on drafts, because an empty draft really is
+  // deletable: its `submissions` row cleanly takes the SET NULL.
+  const hasAnswers = await dbOrTx.execute<{ n: number }>(sql`
+    SELECT count(*)::int AS n FROM submission_answers a
+    JOIN form_fields f ON f.id = a.field_id AND f.event_id = a.event_id
+    WHERE f.event_id = ${eventId} AND f.form_id = ${formId}
+  `);
+  if (Number((hasAnswers.rows ?? [])[0]?.n ?? 0) > 0) {
+    throw new AppError("CONFLICT", "This form has saved answers and cannot be deleted. Duplicate it if you need a fresh copy to edit.");
   }
   const result = await dbOrTx.execute<{ id: string }>(sql`
     DELETE FROM forms WHERE id = ${formId} AND event_id = ${eventId} RETURNING id
