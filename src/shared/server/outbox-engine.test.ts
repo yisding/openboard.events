@@ -121,7 +121,6 @@ describe("shared outbox engine", () => {
       deliver: async () => { throw new Error("provider unavailable"); },
       deliveryKey: (row) => String(row.id),
       isTerminalError: () => false,
-      transitionDelivery: async () => undefined,
       transitionFailure: async (_row, transition) => { transitions.push(transition); },
     });
 
