@@ -35,7 +35,7 @@ together they reduced the seven-feature strongly connected group to none.
 
 The resulting measurements are 43 feature dependency directions, zero direct
 cross-feature implementation imports, zero cyclic groups, zero server-to-UI or
-route imports, 88 tables, 779 modeled columns, 33 enums, and 43 migrations. CI
+route imports, 89 tables, 783 modeled columns, 33 enums, and 44 migrations. CI
 now ratchets each zero-debt architecture baseline and the migration/query-schema
 comparison.
 
@@ -160,7 +160,30 @@ apex reporting policy from the sender-subdomain enforcement policy and fails whe
 Cloudflare and Google public DNS disagree. The remaining roadmap gate is reject:
 full quarantine must produce two independent aggregate-report periods with no
 unidentified passing source or legitimate failure, followed by no-regression
-Gmail and Outlook authentication and placement probes.
+Gmail and Outlook authentication and placement probes. The 48-hour time floor
+ends at `2026-08-17T04:36Z`; elapsed time alone is not evidence, so reject also
+waits for both receiver reports and the fresh placement observations.
+
+Live agenda testing then exposed one production-shaped gap outside the original
+roadmap inventory: speaker removal, unpublish, unschedule, and hard delete could
+remove a published session without preserving the calendar event needed for a
+real CANCEL. PR #432 stores immutable REQUEST snapshots and dedicated hard-delete
+cancellation jobs, makes retries reuse the prepared method and payload, keeps
+cancellation state durable across session deletion, and bounds its retained PII.
+Merge SHA `0752539d` passed main CI, preview canary, production migration/deploy,
+and production smoke in protected run 31870522118.
+
+PR #433 added a serialized, production-protected receiver canary instead of
+leaving that path to ad hoc database edits. Protected run 31872007661 exercised
+the agenda mutation layer and recorded provider acceptance for two initial
+REQUESTs, two rescheduled REQUESTs, and two CANCELs, then removed the temporary
+published session. Portal-login and admin-reset request routes for the same
+authorized Gmail and Outlook addresses returned `200`; the portal product
+outbox drained with no new application errors. The reset route is intentionally
+enumeration-neutral, so that response alone does not claim an admin message was
+sent. Provider acceptance is not receiver placement: Gmail and Outlook
+folder/calendar observations and headers from this fresh six-message probe still
+need to be recorded before reject.
 
 ## Sequencing and workstreams
 
@@ -393,15 +416,17 @@ Exit criteria:
 - Aggregate reports show no unidentified legitimate sender before `p=reject`.
 - The runbook names owners, monitoring, and rollback thresholds.
 
-Status: in progress in PRs #420, #421, #423, #430, and #431. Aggregate reporting,
-full quarantine, the stable sender identity, and the reply-capable inbound route
-are live. The repository/zone owner explicitly approved the compressed move to
-`p=quarantine; pct=100` after confirming the single Resend sender inventory and
-clean Gmail/Outlook alignment. That exception supersedes the earlier percentage
-schedule without manufacturing dwell evidence. Before reject, full quarantine
-must still produce two aggregate-report periods from independent receivers with
-no unidentified legitimate sender or legitimate failure; Gmail Inbox and Outlook
-Junk placement plus authentication must be rechecked for regression.
+Status: in progress in PRs #420, #421, #423, #430, #431, #432, and #433.
+Aggregate reporting, full quarantine, the stable sender identity, the
+reply-capable inbound route, durable calendar cancellation, and the protected
+calendar receiver canary are live. The repository/zone owner explicitly
+approved the compressed move to `p=quarantine; pct=100` after confirming the
+single Resend sender inventory and clean Gmail/Outlook alignment. That exception
+supersedes the earlier percentage schedule without manufacturing dwell evidence.
+Before reject, full quarantine must still produce two aggregate-report periods
+from independent receivers with no unidentified legitimate sender or legitimate
+failure; Gmail Inbox and Outlook Junk placement plus authentication must be
+rechecked for regression.
 
 ## Proposed pull-request order
 
@@ -424,7 +449,9 @@ Junk placement plus authentication must be rechecked for regression.
 11. DMARC reporting, sender stabilization, and enforcement (reporting and
     baseline evidence in PRs #420, #421, and #423; stable From/Reply-To and
     Receiving in PR #430; live full-quarantine record and independent policy
-    observation in PR #431; evidence-gated reject remains open).
+    observation in PR #431; durable calendar cancellation in PR #432; protected
+    provider receiver canary in PR #433; placement evidence and evidence-gated
+    reject remain open).
 
 Each PR must include migration rollback/forward-recovery notes when it changes
 stored data, focused tests for the failure mode it closes, and before/after

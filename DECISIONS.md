@@ -70,24 +70,32 @@ protocol.
 
 ## R2 key scheme and lifecycle
 
-Objects are keyed `evt_<eventId>/staging/...`, so `staging` is the second path segment and no
-static R2 lifecycle prefix rule can isolate staging objects (`Prefix: "staging/"` matches
-nothing; `Prefix: "evt_"` would expire published files too). Orphan cleanup is therefore an
-application-level sweep — `cleanupOrphans`, on the daily cron — until the `staging/` segment is
-hoisted to the bucket root in `buildStagingKey` and its parsers. `docs/runbooks/r2-lifecycle.md`
-has the full analysis.
+New temporary objects use `staging/evt_<eventId>/...`; finalized objects move outside that
+prefix. Preview reconciles a two-day `staging/` lifecycle rule without replacing unrelated
+bucket rules, and the application cleanup remains defense in depth. The bounded legacy migration
+finished with zero remaining legacy rows or objects in preview and production; compatibility
+parsing is retired. `docs/runbooks/r2-lifecycle.md` has the operational details.
+
+## Mail identity and calendar cancellation
+
+- Both application outboxes use `Openboard <hello@mail.openboard.events>` as one stable From and
+  Reply-To identity. Resend Receiving owns the priority-10 `mail.openboard.events` inbound MX;
+  its bounce return-path MX remains separate.
+- A prepared calendar REQUEST stores the immutable event snapshot that its retry and any later
+  CANCEL must reuse. Speaker removal, unpublish, unschedule, and hard delete all preserve a
+  durable cancellation path; address changes fail closed instead of sending snapshot PII to an
+  old address.
+- The protected **Production mail delivery probe** is the supported live REQUEST/reschedule/CANCEL
+  canary. Provider acceptance is application evidence, not proof of Inbox placement; Gmail and
+  Outlook placement and authentication headers remain separately recorded receiver evidence.
 
 ## Known operational limits
 
-- **Per-event submit throughput is serialized.** `createSubmissionIn` takes the event row
-  `FOR UPDATE` before the final-submit checks, so one event sustains roughly 1.7 submits/sec
-  (~580 ms per submit, flat under contention; verified with a 50-concurrent deployed load test:
-  50/50 `200 ok`, zero duplicate codes). Correct by design, but a per-event ceiling worth
-  knowing before marketing a launch-day rush.
-- **Sign-in bursts are CPU-bound on Workers Free.** PBKDF2 at 100,000 iterations runs on every
-  attempt (including unknown addresses against the dummy hash), so an unpaced burst can hit
-  Cloudflare error 1102 (resource limits) before the application 429 does. The throttle itself
-  holds: five attempts per email+IP per 15 minutes, then `429 RATE_LIMITED`.
-- **DMARC is monitor-only.** Deliverability is proven aligned (`dkim=pass`, `spf=pass`,
-  `dmarc=pass` on the `EMAIL_FROM` domain), but the published policy is `p=NONE`; tightening to
-  `quarantine`/`reject` is optional hardening, not a gate.
+- **The Worker artifact still needs the pinned chunk contract.** Next/OpenNext defaults exceed
+  the Workers Free module limit; the supported numeric-chunk override and final minification keep
+  the deployed graph within budget. Removing either requires a measured rebuild against the
+  pinned version pair and the workerd smoke suite.
+- **DMARC reject is evidence-gated.** `mail.openboard.events` publishes
+  `p=quarantine; pct=100`. Reject waits for 48 hours and two independent aggregate-report periods
+  with no unidentified legitimate sender or legitimate failure, plus no-regression Gmail and
+  Outlook authentication and placement. Outlook Junk is the current placement baseline.

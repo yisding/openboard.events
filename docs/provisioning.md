@@ -278,10 +278,10 @@ that order.
 
 - [x] Keep production promotion manual. A successful `main` CI run always deploys `preview`
   only, leaving time for its scheduled uptime checks before protected promotion.
-- [ ] Merge to `main` (or run the `Deploy` workflow for `preview`) and verify the automatic
+- [x] Merge to `main` (or run the `Deploy` workflow for `preview`) and verify the automatic
   migration → web → jobs → smoke succeeds. The `preview` environment must have no required
   reviewer, or every merge will queue an approval instead of deploying.
-- [ ] Confirm an automatic deployment for a superseded `main` SHA reports that it was
+- [x] Confirm an automatic deployment for a superseded `main` SHA reports that it was
   skipped before checkout, migration, or deployment. Do not remove this freshness gate or
   change deployment concurrency to cancel an in-progress migration/deploy.
 
@@ -292,32 +292,40 @@ stores only the credentials and direct database URL needed by the deployment wor
 
 - [x] Verify a dedicated sending subdomain in Resend (`mail.openboard.events`, status rev. 7).
 - [x] Publish and verify SPF and DKIM (aligned; proven with delivered Gmail mail).
-- [ ] Confirm the DMARC policy and record `dmarc=pass` evidence.
-- [x] Choose a real `EMAIL_FROM` mailbox or alias on that domain
-  (`AI.Engineer Sandbox <hello@mail.openboard.events>`).
-- [ ] Create the production `RESEND_API_KEY` (the preview uses a domain-scoped key).
+- [x] Confirm the sender policy is `p=quarantine; pct=100` and record aligned Gmail/Outlook
+  `dmarc=pass` evidence.
+- [x] Use one stable From and Reply-To identity
+  (`Openboard <hello@mail.openboard.events>`).
+- [x] Enable Resend Receiving and publish the priority-10 `mail.openboard.events` inbound MX
+  without changing the independent bounce MX.
+- [x] Create the production `RESEND_API_KEY`; protected live probes have delivered through it.
 - [x] Prove OTP delivery in a fresh Gmail inbox (`portal_login` + `submission_received`,
   status rev. 7).
-- [ ] Prove OTP and calendar REQUEST/reschedule/CANCEL delivery in a fresh **Outlook** inbox,
-  and calendar delivery in Gmail.
-- [ ] Record the remaining alignment evidence in `DECISIONS.md`.
+- [x] Prove production OTP authentication at Outlook; the baseline message reached Junk with
+  SPF, DKIM, DMARC, and composite authentication passing.
+- [x] Prove provider acceptance for calendar REQUEST/reschedule/CANCEL at Gmail and Outlook
+  (protected run 31872007661: six accepted messages and successful cleanup).
+- [ ] Record Gmail and Outlook placement/calendar behavior and authentication headers for those
+  six calendar messages; provider acceptance alone does not close the receiver gate.
+- [x] Record the alignment, sender identity, inbound route, and enforcement state in
+  `DECISIONS.md`.
 
 ## 9. Deploy production manually
 
-- [ ] Confirm `sb-prod`, `sb-files`, production CORS, Resend, and GitHub production protection
+- [x] Confirm `sb-prod`, `sb-files`, production CORS, Resend, and GitHub production protection
   are ready.
-- [ ] Bootstrap `sb-web`, then set its runtime secrets exactly as for preview, using the
+- [x] Bootstrap `sb-web`, then set its runtime secrets exactly as for preview, using the
   production values plus `RESEND_API_KEY`.
-- [ ] Confirm production uses `EMAIL_MODE=send`, `EMAIL_FALLBACK_UI=0`, and no
+- [x] Confirm production uses `EMAIL_MODE=send`, `EMAIL_FALLBACK_UI=0`, and no
   `EMAIL_ALLOWLIST`.
-- [ ] Create `sb-jobs` after `sb-web`, and confirm its declared `WEB_JOBS` binding resolves to
+- [x] Create `sb-jobs` after `sb-web`, and confirm its declared `WEB_JOBS` binding resolves to
   `sb-web#JobsEntrypoint` and its application secret inventory is empty.
-- [ ] After preview has passed at least one scheduled 15-minute uptime cycle, manually run the
+- [x] After preview has passed at least one scheduled 15-minute uptime cycle, manually run the
   `Deploy` workflow for `production` and approve its protected environment gate. The workflow
   first replays the exact commit through preview; production cannot be selected alone.
-- [ ] Confirm preview migration → web → jobs → smoke → browser canary succeeds, followed by the
+- [x] Confirm preview migration → web → jobs → smoke → browser canary succeeds, followed by the
   production migration → web → jobs → smoke leg.
-- [ ] Confirm the real production health response and jobs cron logs.
+- [x] Confirm the real production health response and jobs cron logs.
 - [ ] Keep automatic production promotion disabled after launch. Subsequent production releases
   use the same protected manual dispatch so every release retains a preview soak and canary.
 
