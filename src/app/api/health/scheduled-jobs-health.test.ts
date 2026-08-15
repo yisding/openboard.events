@@ -44,6 +44,7 @@ describe("scheduledJobsHealth", () => {
     expect(result).toEqual({ ok: false, error: "scheduled jobs health check failed" });
     expect(JSON.parse(spy.mock.calls[0]?.[0] as string)).toMatchObject({
       level: "error",
+      msg: "health.scheduled_jobs_failed",
       feature: "observability",
       error: "relation scheduled_job_heartbeats is missing",
     });

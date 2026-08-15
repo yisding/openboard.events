@@ -75,13 +75,20 @@ describe("AST source invariants", () => {
   it("keeps console writes in the logging module and out of product code", () => {
     const root = fixture({
       "src/app/api/health/route.ts": 'export const GET = () => { console.error("health check failed"); };',
-      "src/features/example/boundary.tsx": 'export const report = (error) => console["warn"](error);',
+      // A computed method is the shape `log.ts` itself uses, and a bare
+      // reference handed to `.catch` writes to the console without ever
+      // appearing as a `console.x(...)` call.
+      "src/features/example/boundary.tsx": `
+        export const report = (level, error) => console[level](error);
+        export const forward = (promise) => promise.catch(console.error);
+        export const viaGlobal = () => globalThis.console.warn("indirect");
+      `,
       "src/features/example/boundary.test.ts": 'it("spies", () => { console.log("allowed in tests"); });',
     });
 
     const result = check(root);
     expect(result.status).toBe(1);
-    expect(result.stderr.match(/\[console-owner\]/gu)).toHaveLength(2);
+    expect(result.stderr.match(/\[console-owner\]/gu)).toHaveLength(4);
     expect(result.stderr).not.toContain("boundary.test.ts");
   });
 

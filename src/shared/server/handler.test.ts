@@ -178,6 +178,7 @@ describe("defineHandler error-tracking seam (PLAN P3-OPS release-gate item 5)", 
 
     const captured = JSON.parse(spy.mock.calls[0]?.[0] as string);
     expect(captured.error).toBe("R2 credentials are not configured");
+    expect(spy).toHaveBeenCalledTimes(2);
   });
 
   it("does not capture an expected AppError (VALIDATION/CONFLICT/etc.)", async () => {

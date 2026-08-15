@@ -1,5 +1,6 @@
 /**
- * The one module in the product that is allowed to call `console`.
+ * The one module under `src/` that is allowed to call `console`. (The jobs
+ * Worker in `workers/` is built separately and is outside the rule's walk.)
  *
  * Every diagnostic line — request completion, a degraded rate limiter, a
  * captured 500, a failed health probe, a client error boundary — is a single
@@ -35,15 +36,17 @@ export type LogEntry = {
   componentStack?: string;
 };
 
-const CONSOLE_METHOD: Record<LogEntry["level"], "debug" | "info" | "warn" | "error"> = {
-  debug: "debug",
-  info: "info",
-  warn: "warn",
-  error: "error",
-};
-
 export function log(entry: LogEntry): void {
-  console[CONSOLE_METHOD[entry.level]](JSON.stringify(entry));
+  const line = JSON.stringify(entry);
+  // An explicit switch rather than `console[entry.level]`: this is usually
+  // called from a catch block, so an unrecognized level must not turn a
+  // handled error into a `console[undefined] is not a function` crash.
+  switch (entry.level) {
+    case "debug": console.debug(line); return;
+    case "info": console.info(line); return;
+    case "warn": console.warn(line); return;
+    default: console.error(line);
+  }
 }
 
 /** Narrow an unknown throw to the message field of a `LogEntry`. */

@@ -53,6 +53,7 @@ describe("commsHealth", () => {
     expect(result).toEqual({ ok: false, error: "comms health check failed" });
     expect(JSON.parse(spy.mock.calls[0]?.[0] as string)).toMatchObject({
       level: "error",
+      msg: "health.comms_failed",
       feature: "observability",
       error: "relation \"communication_logs\" does not exist",
     });

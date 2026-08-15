@@ -42,9 +42,9 @@ export function definePrivateJobRoute(job: JobName, run: () => Promise<JobStats>
         ms: Date.now() - started,
         error: "Job failed",
       };
-      // The failure itself is already on the wire through `captureError` above,
-      // with the real message and stack; a second line would only repeat the
-      // sanitized response body.
+      // `captureError` carries the real message and stack but has no duration
+      // field, so the tick's timing would otherwise be lost on the failure path.
+      log({ level: "error", msg: "job.failed", requestId, feature: "jobs", code: job, durationMs: result.ms });
       return Response.json(result, { status: 500 });
     }
   }

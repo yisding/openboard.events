@@ -43,6 +43,7 @@ describe("operationalErrorsHealth", () => {
     expect(result).toEqual({ ok: false, error: "operational error health check failed" });
     expect(JSON.parse(spy.mock.calls[0]?.[0] as string)).toMatchObject({
       level: "error",
+      msg: "health.operational_errors_failed",
       feature: "observability",
       error: "relation operational_error_buckets is missing",
     });

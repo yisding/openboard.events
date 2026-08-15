@@ -182,6 +182,19 @@ function numericValue(node: ts.Expression): number | null {
   return null;
 }
 
+/** `console`, however it is parenthesized, asserted, or reached off globalThis. */
+function isConsoleReference(node: ts.Expression): boolean {
+  const target = unwrapExpression(node);
+  if (ts.isIdentifier(target)) return target.text === "console";
+  if (ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target)) {
+    const owner = unwrapExpression(target.expression);
+    return accessName(target) === "console"
+      && ts.isIdentifier(owner)
+      && (owner.text === "globalThis" || owner.text === "global");
+  }
+  return false;
+}
+
 function unwrapExpression(node: ts.Expression): ts.Expression {
   if (
     ts.isParenthesizedExpression(node)
@@ -412,17 +425,6 @@ function inspectFile(absolutePath: string): Violation[] {
     if (ts.isCallExpression(node)) {
       if (
         !isTestFile
-        && !CONSOLE_OWNERS.has(path)
-        && accessName(node.expression) !== null
-        && (ts.isPropertyAccessExpression(node.expression) || ts.isElementAccessExpression(node.expression))
-        && ts.isIdentifier(node.expression.expression)
-        && node.expression.expression.text === "console"
-      ) {
-        report(node, "console-owner", "emit structured diagnostics through src/shared/lib/log.ts");
-      }
-
-      if (
-        !isTestFile
         && path !== IDENTITY_RESOLUTION_FILE
         && ts.isIdentifier(node.expression)
         && node.expression.text === "eq"
@@ -463,6 +465,19 @@ function inspectFile(absolutePath: string): Violation[] {
           routeRefresh ??= node;
         }
       }
+    }
+
+    // Anchored on the member access rather than the call so that a computed
+    // method (`console[level](…)` — the shape `log.ts` itself uses) and a bare
+    // reference passed as a callback (`promise.catch(console.error)`) are both
+    // caught, not just a direct `console.log(…)`.
+    if (
+      !isTestFile
+      && !CONSOLE_OWNERS.has(path)
+      && (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node))
+      && isConsoleReference(node.expression)
+    ) {
+      report(node, "console-owner", "emit structured diagnostics through src/shared/lib/log.ts");
     }
 
     if (
