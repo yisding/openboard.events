@@ -544,7 +544,7 @@ describe("M52: the central Files view's deliverable list", () => {
       const parts = exportR2Fake.uploads.get(String(uploadId)) ?? [];
       // Every part but the last has to clear R2's floor.
       for (const part of parts.slice(0, -1)) {
-        expect(part.length).toBeGreaterThanOrEqual(5 * 1024 * 1024);
+        expect(part?.length ?? 0).toBeGreaterThanOrEqual(5 * 1024 * 1024);
       }
     });
 
