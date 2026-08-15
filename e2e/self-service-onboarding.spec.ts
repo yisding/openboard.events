@@ -19,6 +19,27 @@ import {
 const ONBOARDING_TIMEZONE = "America/Los_Angeles";
 const PNG_1X1_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 
+const ALIAS_REQUEST_DEADLINE_MS = 2_000;
+const MIN_ALIAS_FAN_OUT = 3;
+
+/**
+ * Alias coverage is a consistency proof, not a load test: asking one fresh
+ * Worker isolate to render every alias at once turns the canary itself into the
+ * source of 1102/503s, so the fan-out stays bounded.
+ *
+ * It cannot stay *fixed*, though. A sweep costs
+ * `ceil(paths / fanOut) * ALIAS_REQUEST_DEADLINE_MS` in the degraded case every
+ * assertion here exists to catch, and a poll that cannot finish a second sweep
+ * inside the budget is not polling — it is reporting whatever the first look
+ * happened to see. At three workers the twelve-alias check spent eight of its
+ * ten seconds on a single sweep. Size the fan-out to fit two full sweeps in the
+ * budget, and never below the historical three.
+ */
+function aliasFanOut(pathCount: number, timeoutMs: number): number {
+  const batchesPerSweep = Math.max(1, Math.floor(timeoutMs / 2 / ALIAS_REQUEST_DEADLINE_MS));
+  return Math.min(pathCount, Math.max(MIN_ALIAS_FAN_OUT, Math.ceil(pathCount / batchesPerSweep)));
+}
+
 async function waitForPublicContent(
   request: APIRequestContext,
   paths: readonly string[],
@@ -26,11 +47,6 @@ async function waitForPublicContent(
   timeoutMs: number,
 ): Promise<void> {
   await expect.poll(async () => {
-    // Alias coverage is a consistency proof, not a load test. Bound fan-out so
-    // one poll does not ask a fresh Worker isolate to render eight cache misses
-    // simultaneously and turn the canary itself into the source of 1102/503s.
-    // Three workers with two-second request deadlines still check all eight
-    // schedule aliases inside the ten-second mutation budget.
     const results: Array<string | null> = new Array(paths.length).fill(null);
     let nextPath = 0;
     const checkNext = async (): Promise<void> => {
@@ -39,7 +55,7 @@ async function waitForPublicContent(
       const path = paths[index];
       if (path === undefined) return;
       try {
-        const response = await request.get(path, { timeout: Math.min(timeoutMs, 2_000) });
+        const response = await request.get(path, { timeout: Math.min(timeoutMs, ALIAS_REQUEST_DEADLINE_MS) });
         const body = await response.text();
         // React inserts empty comments between adjacent server-rendered text
         // chunks (for example `This <!-- -->agenda<!-- --> is...`). Compare
@@ -54,7 +70,7 @@ async function waitForPublicContent(
       }
       await checkNext();
     };
-    await Promise.all(Array.from({ length: Math.min(3, paths.length) }, checkNext));
+    await Promise.all(Array.from({ length: aliasFanOut(paths.length, timeoutMs) }, checkNext));
     return results.filter((result): result is string => result !== null);
   }, {
     message: `every public alias should contain ${JSON.stringify(expected)}`,
