@@ -4,7 +4,7 @@ import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { sanitizeTemplateBody } from "@/features/comms/template-body";
+import { sanitizeTemplateBody } from "@/shared/lib/template-body";
 import { RichTextEditor, type RichTextEditorHandle } from "./rich-text-editor";
 
 Object.assign(globalThis, { React, IS_REACT_ACT_ENVIRONMENT: true });

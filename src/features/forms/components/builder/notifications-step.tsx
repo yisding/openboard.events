@@ -4,6 +4,7 @@ import { useState } from "react";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { Button, Field, Switch } from "@/shared/ui/ui-kit";
 import type { BuilderForm, FormPatch } from "../../builder-types";
+import { sanitizeTemplateBody } from "@/shared/lib/template-body";
 
 const captionStyle = { color: "var(--muted)", fontSize: "var(--text-xs)", margin: "-12px 0 16px" } as const;
 const fallbackNote = { color: "var(--muted)", fontSize: "var(--text-xs)", lineHeight: 1.5, margin: "6px 0 16px" } as const;
@@ -68,7 +69,7 @@ export function NotificationsStep({ form, onChange }: {
               />
             </Field>
             <Field label="Body">
-              <RichTextEditor ariaLabel="Confirmation email body" value={form.confirmationBodyHtml} onChange={(confirmationBodyHtml) => onChange({ confirmationBodyHtml })} maxChars={5000} />
+              <RichTextEditor ariaLabel="Confirmation email body" value={form.confirmationBodyHtml} onChange={(confirmationBodyHtml) => onChange({ confirmationBodyHtml })} sanitizeHtml={sanitizeTemplateBody} maxChars={5000} />
             </Field>
           </div>
         )}
