@@ -4,14 +4,20 @@ import { portalTokens } from "@/db/schema";
 import type { ContactId, EventId, TokenId, TokenPurpose } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { addDuration } from "@/shared/lib/time";
-import { randomBytes, sha256, toBase64Url } from "@/shared/lib/crypto";
+import { randomBytes, randomInt, sha256, toBase64Url } from "@/shared/lib/crypto";
 
 export type IssuedPortalToken = { tokenId: TokenId; raw: string; otp?: string; expiresAt: Date };
 export type ConsumedPortalToken = { contactId: ContactId; eventId: EventId };
 
+/**
+ * `randomInt`, not `% 1_000_000` over a raw draw. 2^32 is not a multiple of a
+ * million, so the modulo left the first 967_296 codes reachable from 4_295
+ * seeds and the rest from 4_294 — a small but free edge on a login credential.
+ * The shared helper rejection-samples the short tail away, the same way
+ * `publicSubmissionCode` already draws its codes.
+ */
 function sixDigitOtp(): string {
-  const value = crypto.getRandomValues(new Uint32Array(1))[0] ?? 0;
-  return String(value % 1_000_000).padStart(6, "0");
+  return String(randomInt(1_000_000)).padStart(6, "0");
 }
 
 export async function issuePortalToken(dbOrTx: DbOrTx, args: {

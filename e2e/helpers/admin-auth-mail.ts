@@ -32,11 +32,13 @@ const DELIVERED_EVENTS = new Set(["delivered", "opened", "clicked"]);
 const delay = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 function decodeHtmlAttribute(value: string): string {
+  // `&amp;` last: decoding it first would let an escaped `&amp;quot;` collapse
+  // into a bare `"` and cut the recovered link short.
   return value
-    .replaceAll("&amp;", "&")
     .replaceAll("&quot;", '"')
     .replaceAll("&#39;", "'")
-    .replaceAll("&#x27;", "'");
+    .replaceAll("&#x27;", "'")
+    .replaceAll("&amp;", "&");
 }
 
 export function verificationLinkFromHtml(html: string): string | null {

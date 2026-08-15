@@ -53,8 +53,15 @@ const TOKENS_BY_KEY: Record<TemplateKey, readonly string[]> = {
   ],
 };
 
+/**
+ * `&amp;` is decoded last, and the order matters. Decoding it first turns the
+ * escaped text `&amp;lt;` into `&lt;` in time for the very next replacement to
+ * read it as markup and hand back `<` — a tag the author had escaped on
+ * purpose. Unescaping the ampersand once everything else is done leaves it as
+ * the literal `&` it stands for.
+ */
 function decodeEntities(value: string): string {
-  return value.replaceAll("&nbsp;", " ").replaceAll("&amp;", "&").replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&quot;", '"').replaceAll("&#39;", "'").replace(/&#(\d+);/gu, (_match, code: string) => String.fromCodePoint(Number(code)));
+  return value.replaceAll("&nbsp;", " ").replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&quot;", '"').replaceAll("&#39;", "'").replace(/&#(\d+);/gu, (_match, code: string) => String.fromCodePoint(Number(code))).replaceAll("&amp;", "&");
 }
 
 const ANCHOR = /<a\b[^>]*\bhref\s*=\s*"([^"]*)"[^>]*>([\s\S]*?)<\/a\s*>/giu;
