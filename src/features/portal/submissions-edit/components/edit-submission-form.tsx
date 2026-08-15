@@ -10,6 +10,7 @@ import type { AnswerValue, FormSnapshot } from "@/shared/contracts";
 import { FormUploadProvider } from "@/shared/ui/app/form-upload-context";
 import { useToast } from "@/shared/ui/toast";
 import { Button } from "@/shared/ui/ui-kit";
+import { readFieldErrors } from "@/shared/lib/api-client";
 import type { EditableSubmissionSummary } from "../server/queries";
 
 /**
@@ -65,7 +66,7 @@ export function EditSubmissionForm({
         error?: { code?: string; message?: string; data?: { fieldErrors?: Record<string, string> } };
       } | null;
       if (!response.ok) {
-        const errors = payload?.error?.data?.fieldErrors;
+        const errors = readFieldErrors(payload?.error);
         if (errors) {
           setFieldErrors(errors);
           window.requestAnimationFrame(() => formPanelRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus());

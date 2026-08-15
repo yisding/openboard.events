@@ -12,6 +12,7 @@ import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { Button, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
+import { readFieldErrors } from "@/shared/lib/api-client";
 import { formatCode } from "@/features/submissions/index.client";
 import type { MyTaskDetail } from "../server/queries";
 
@@ -76,7 +77,7 @@ export function TaskDetailView({
       if (!response.ok) {
         // Field errors belong beside their questions; anything else is a
         // sentence, not a form state.
-        const errors = payload?.error?.data?.fieldErrors;
+        const errors = readFieldErrors(payload?.error);
         if (errors) {
           setFieldErrors(errors);
           window.requestAnimationFrame(() => formPanelRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus());

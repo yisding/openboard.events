@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { api } from "./api-client";
+import { api, readFieldErrors } from "./api-client";
 
 describe("api client", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -64,5 +64,32 @@ describe("api client", () => {
   it("maps a non-JSON gateway failure to the standard internal error", async () => {
     vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(new Response("Bad gateway", { status: 502 })));
     await expect(api("tasks/1", z.object({ name: z.string() }))).rejects.toMatchObject({ code: "INTERNAL", message: "Unexpected API response (502)" });
+  });
+});
+
+describe("readFieldErrors", () => {
+  it("reads each of the three shapes the server states field errors in", () => {
+    expect(readFieldErrors({ fieldErrors: { slug: "flat" } })).toEqual({ slug: "flat" });
+    expect(readFieldErrors({ data: { fieldErrors: { slug: "nested" } } })).toEqual({ slug: "nested" });
+    expect(readFieldErrors({ message: "That slug is taken", data: { field: "slug" } })).toEqual({ slug: "That slug is taken" });
+  });
+
+  it("prefers the flat map, then the nested one, then the single-field form", () => {
+    expect(readFieldErrors({
+      message: "single",
+      fieldErrors: { a: "flat" },
+      data: { fieldErrors: { b: "nested" }, field: "c" },
+    })).toEqual({ a: "flat" });
+    expect(readFieldErrors({
+      message: "single",
+      data: { fieldErrors: { b: "nested" }, field: "c" },
+    })).toEqual({ b: "nested" });
+  });
+
+  it("returns undefined rather than an empty map when the envelope carries none", () => {
+    expect(readFieldErrors(undefined)).toBeUndefined();
+    expect(readFieldErrors(null)).toBeUndefined();
+    expect(readFieldErrors({ message: "no fields here" })).toBeUndefined();
+    expect(readFieldErrors({ message: "m", data: { field: 42 } })).toBeUndefined();
   });
 });
