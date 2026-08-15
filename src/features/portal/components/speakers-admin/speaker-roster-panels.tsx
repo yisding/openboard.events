@@ -91,15 +91,79 @@ function bytesLabel(size: number): string {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+class RosterMutationError extends Error {
+  constructor(message: string, readonly outcome: "definitive" | "ambiguous") {
+    super(message);
+  }
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function rosterErrorMessage(value: unknown): string | null {
+  if (!isObject(value) || !isObject(value.error)) return null;
+  return typeof value.error.message === "string" ? value.error.message : null;
+}
+
+function rosterExtrasFrom(value: unknown): SpeakerRosterExtras | null {
+  if (!isObject(value) || !isObject(value.data)) return null;
+  const data = value.data;
+  if (
+    typeof data.workflowStatus !== "string"
+    || !Array.isArray(data.fields)
+    || !Array.isArray(data.values)
+    || !Array.isArray(data.unavailability)
+    || !Array.isArray(data.uploads)
+  ) return null;
+  return data as SpeakerRosterExtras;
+}
+
+async function readRosterResponse(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    throw new RosterMutationError("The server returned an unreadable response", "ambiguous");
+  }
+}
+
 async function patchRoster(eventId: string, contactId: string, body: Record<string, unknown>): Promise<SpeakerRosterExtras> {
-  const response = await fetch(`/api/internal/speakers/${eventId}/${contactId}/roster`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const json = await response.json() as { data?: SpeakerRosterExtras; error?: { message?: string } };
-  if (!response.ok || !json.data) throw new Error(json.error?.message ?? "Could not save that change");
-  return json.data;
+  let response: Response;
+  try {
+    response = await fetch(`/api/internal/speakers/${eventId}/${contactId}/roster`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new RosterMutationError("The connection ended before the save was confirmed", "ambiguous");
+  }
+  const json = await readRosterResponse(response);
+  if (!response.ok) {
+    const outcome = response.status >= 400 && response.status < 500 ? "definitive" : "ambiguous";
+    throw new RosterMutationError(rosterErrorMessage(json) ?? "Could not save that change", outcome);
+  }
+  const data = rosterExtrasFrom(json);
+  if (!data) throw new RosterMutationError("The server returned an unreadable response", "ambiguous");
+  return data;
+}
+
+async function loadRosterAuthority(eventId: string, contactId: string): Promise<SpeakerRosterExtras> {
+  let response: Response;
+  try {
+    response = await fetch(`/api/internal/speakers/${eventId}/${contactId}/roster`);
+  } catch {
+    throw new Error("Could not check the saved value");
+  }
+  let json: unknown;
+  try {
+    json = await response.json();
+  } catch {
+    throw new Error("Could not check the saved value");
+  }
+  const data = rosterExtrasFrom(json);
+  if (!response.ok || !data) throw new Error(rosterErrorMessage(json) ?? "Could not check the saved value");
+  return data;
 }
 
 /** Invite through M06b's exact login-challenge path (work order step 4). */
@@ -214,6 +278,12 @@ function AddLogisticsFieldRow({ eventId, onCreated }: { eventId: string; onCreat
   );
 }
 
+type LogisticsRecovery = {
+  attemptedValue: string;
+  previousValue: string;
+  phase: "checking" | "needs_check" | "needs_retry" | "conflict";
+};
+
 function LogisticsPanel({ eventId, contactId, extras, onSaved }: { eventId: string; contactId: string; extras: SpeakerRosterExtras; onSaved: (extras: SpeakerRosterExtras) => void }) {
   const { toast } = useToast();
   const router = useRouter();
@@ -222,40 +292,117 @@ function LogisticsPanel({ eventId, contactId, extras, onSaved }: { eventId: stri
   const [baseline, setBaseline] = useState<Record<string, string>>(incomingValues);
   const baselineRef = useRef(incomingValues);
   const [savingFields, setSavingFields] = useState<Set<string>>(() => new Set());
+  const activeFields = useRef(new Set<string>());
   const [savedField, setSavedField] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [recoveries, setRecoveries] = useState<Record<string, LogisticsRecovery>>({});
   const dirty = extras.fields.some((field) => (values[field.id] ?? "") !== (baseline[field.id] ?? ""));
-  useUnsavedWorkGuard(dirty);
+  const recovering = Object.keys(recoveries).length > 0;
+  const saving = savingFields.size > 0;
+  useUnsavedWorkGuard(dirty || recovering || saving, { blocking: recovering || saving });
 
   useEffect(() => {
-    setValues((current) => mergeIncomingLogisticsValues(current, baselineRef.current, incomingValues));
+    const previousBaseline = baselineRef.current;
+    setValues((current) => mergeIncomingLogisticsValues(current, previousBaseline, incomingValues));
     baselineRef.current = incomingValues;
     setBaseline(incomingValues);
   }, [incomingValues]);
 
-  async function save(fieldId: string, value: string) {
-    if (savingFields.has(fieldId)) return;
-    const previous = baselineRef.current[fieldId] ?? "";
-    setSavingFields((current) => new Set(current).add(fieldId));
+  function clearFieldError(fieldId: string) {
     setFieldErrors((current) => {
       const next = { ...current };
       delete next[fieldId];
       return next;
     });
+  }
+
+  function clearRecovery(fieldId: string) {
+    setRecoveries((current) => {
+      const next = { ...current };
+      delete next[fieldId];
+      return next;
+    });
+  }
+
+  function applyAuthority(fieldId: string, nextExtras: SpeakerRosterExtras, fieldValue?: string) {
+    const nextBaseline = logisticsValuesFrom(nextExtras);
+    const previousBaseline = baselineRef.current;
+    setValues((current) => {
+      const next = mergeIncomingLogisticsValues(current, previousBaseline, nextBaseline);
+      return fieldValue === undefined ? next : { ...next, [fieldId]: fieldValue };
+    });
+    baselineRef.current = nextBaseline;
+    setBaseline(nextBaseline);
+    onSaved(nextExtras);
+  }
+
+  async function reconcile(fieldId: string, recovery: LogisticsRecovery) {
+    setRecoveries((current) => ({ ...current, [fieldId]: { ...recovery, phase: "checking" } }));
+    clearFieldError(fieldId);
+    let nextExtras: SpeakerRosterExtras;
+    try {
+      nextExtras = await loadRosterAuthority(eventId, contactId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not check the saved value";
+      setRecoveries((current) => ({ ...current, [fieldId]: { ...recovery, phase: "needs_check" } }));
+      setFieldErrors((current) => ({ ...current, [fieldId]: `${message}. Your attempted value is still protected.` }));
+      return;
+    }
+
+    const fieldStillExists = nextExtras.fields.some((field) => field.id === fieldId);
+    if (!fieldStillExists) {
+      applyAuthority(fieldId, nextExtras);
+      clearRecovery(fieldId);
+      clearFieldError(fieldId);
+      toast("This field was removed while the save was being checked.");
+      return;
+    }
+
+    const authorityValue = logisticsValuesFrom(nextExtras)[fieldId] ?? "";
+    if (authorityValue === recovery.attemptedValue) {
+      applyAuthority(fieldId, nextExtras, authorityValue);
+      clearRecovery(fieldId);
+      clearFieldError(fieldId);
+      setSavedField(fieldId);
+      toast("Saved value confirmed");
+      return;
+    }
+    if (authorityValue === recovery.previousValue) {
+      applyAuthority(fieldId, nextExtras, recovery.attemptedValue);
+      setRecoveries((current) => ({ ...current, [fieldId]: { ...recovery, phase: "needs_retry" } }));
+      setFieldErrors((current) => ({ ...current, [fieldId]: "That change was not saved. Retry it or discard it." }));
+      return;
+    }
+
+    applyAuthority(fieldId, nextExtras, authorityValue);
+    setRecoveries((current) => ({ ...current, [fieldId]: { ...recovery, previousValue: authorityValue, phase: "conflict" } }));
+    setFieldErrors((current) => ({ ...current, [fieldId]: "This value changed elsewhere. Review it before overwriting." }));
+  }
+
+  async function save(fieldId: string, value: string, previous = baselineRef.current[fieldId] ?? "") {
+    if (activeFields.current.has(fieldId)) return;
+    activeFields.current.add(fieldId);
+    setSavingFields((current) => new Set(current).add(fieldId));
+    clearFieldError(fieldId);
     try {
       const nextExtras = await patchRoster(eventId, contactId, { logisticsValues: { [fieldId]: value } });
-      const nextBaseline = logisticsValuesFrom(nextExtras);
-      setValues((current) => mergeIncomingLogisticsValues(current, baselineRef.current, nextBaseline));
-      baselineRef.current = nextBaseline;
-      setBaseline(nextBaseline);
+      applyAuthority(fieldId, nextExtras, logisticsValuesFrom(nextExtras)[fieldId] ?? "");
+      clearRecovery(fieldId);
       setSavedField(fieldId);
-      onSaved(nextExtras);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not save that field";
-      setValues((current) => ({ ...current, [fieldId]: previous }));
-      setFieldErrors((current) => ({ ...current, [fieldId]: message }));
-      toast(`${message}. The previous value was restored.`);
+      if (error instanceof RosterMutationError && error.outcome === "ambiguous") {
+        const recovery = { attemptedValue: value, previousValue: previous, phase: "checking" } satisfies LogisticsRecovery;
+        setRecoveries((current) => ({ ...current, [fieldId]: recovery }));
+        await reconcile(fieldId, recovery);
+      } else {
+        setValues((current) => ({ ...current, [fieldId]: previous }));
+        clearRecovery(fieldId);
+        setFieldErrors((current) => ({ ...current, [fieldId]: message }));
+        toast(`${message}. The previous value was restored.`);
+      }
     } finally {
+      activeFields.current.delete(fieldId);
       setSavingFields((current) => {
         const next = new Set(current);
         next.delete(fieldId);
@@ -286,37 +433,59 @@ function LogisticsPanel({ eventId, contactId, extras, onSaved }: { eventId: stri
         {extras.fields.map((field) => {
           const current = values[field.id] ?? "";
           const saving = savingFields.has(field.id);
+          const recovery = recoveries[field.id];
+          const locked = saving || Boolean(recovery);
           return (
-            <Field
-              key={field.id}
-              label={field.label}
-              error={fieldErrors[field.id]}
-              errorId={`logistics-${field.id}-error`}
-              {...(saving ? { hint: "Saving…" } : savedField === field.id ? { hint: "Saved" } : {})}
-            >
-              {field.fieldType === "select" ? (
-                <Select
-                  value={current}
-                  disabled={saving}
-                  aria-invalid={Boolean(fieldErrors[field.id]) || undefined}
-                  aria-describedby={fieldErrors[field.id] ? `logistics-${field.id}-error` : undefined}
-                  onChange={(event) => change(field.id, event.target.value)}
-                  onBlur={(event) => { if (event.target.value !== (baseline[field.id] ?? "")) void save(field.id, event.target.value); }}
-                >
-                  <option value="">—</option>
-                  {field.options.map((option) => <option key={option} value={option}>{option}</option>)}
-                </Select>
-              ) : (
-                <input
-                  value={current}
-                  disabled={saving}
-                  aria-invalid={Boolean(fieldErrors[field.id]) || undefined}
-                  aria-describedby={fieldErrors[field.id] ? `logistics-${field.id}-error` : undefined}
-                  onChange={(event) => change(field.id, event.target.value)}
-                  onBlur={(event) => { if (event.target.value !== (baseline[field.id] ?? "")) void save(field.id, event.target.value); }}
-                />
+            <div key={field.id} className="form-stack">
+              <Field
+                label={field.label}
+                error={fieldErrors[field.id]}
+                errorId={`logistics-${field.id}-error`}
+                {...(saving || recovery?.phase === "checking" ? { hint: "Checking saved value…" } : savedField === field.id ? { hint: "Saved" } : {})}
+              >
+                {field.fieldType === "select" ? (
+                  <Select
+                    value={current}
+                    disabled={locked}
+                    aria-invalid={Boolean(fieldErrors[field.id]) || undefined}
+                    aria-describedby={fieldErrors[field.id] ? `logistics-${field.id}-error` : undefined}
+                    onChange={(event) => change(field.id, event.target.value)}
+                    onBlur={(event) => { if (event.target.value !== (baseline[field.id] ?? "")) void save(field.id, event.target.value); }}
+                  >
+                    <option value="">—</option>
+                    {field.options.map((option) => <option key={option} value={option}>{option}</option>)}
+                  </Select>
+                ) : (
+                  <input
+                    value={current}
+                    disabled={locked}
+                    aria-invalid={Boolean(fieldErrors[field.id]) || undefined}
+                    aria-describedby={fieldErrors[field.id] ? `logistics-${field.id}-error` : undefined}
+                    onChange={(event) => change(field.id, event.target.value)}
+                    onBlur={(event) => { if (event.target.value !== (baseline[field.id] ?? "")) void save(field.id, event.target.value); }}
+                  />
+                )}
+              </Field>
+              {recovery?.phase === "needs_check" && (
+                <Button size="sm" variant="secondary" onClick={() => void reconcile(field.id, recovery)}>Check saved value</Button>
               )}
-            </Field>
+              {recovery?.phase === "needs_retry" && (
+                <div className="button-row">
+                  <Button size="sm" onClick={() => void save(field.id, recovery.attemptedValue, recovery.previousValue)}>Retry save</Button>
+                  <Button size="sm" variant="secondary" onClick={() => {
+                    setValues((valuesNow) => ({ ...valuesNow, [field.id]: baselineRef.current[field.id] ?? "" }));
+                    clearRecovery(field.id);
+                    clearFieldError(field.id);
+                  }}>Discard change</Button>
+                </div>
+              )}
+              {recovery?.phase === "conflict" && (
+                <div className="button-row">
+                  <Button size="sm" onClick={() => void save(field.id, recovery.attemptedValue, recovery.previousValue)}>Use my value</Button>
+                  <Button size="sm" variant="secondary" onClick={() => { clearRecovery(field.id); clearFieldError(field.id); }}>Keep current</Button>
+                </div>
+              )}
+            </div>
           );
         })}
       </div>
