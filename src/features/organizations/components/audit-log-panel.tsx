@@ -6,6 +6,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import type { OrganizationAuditLogEntryDTO } from "@/shared/contracts";
 import { DataTable } from "@/shared/ui/app/data-table";
 import { EmptyState } from "@/shared/ui/ui-kit";
+import { LocalTime } from "@/shared/ui/app/local-time";
 
 const ACTION_LABELS: Record<string, string> = {
   "member.invited": "Invited a teammate",
@@ -18,7 +19,7 @@ const ACTION_LABELS: Record<string, string> = {
 /** M44 — admin/audit view over organization membership actions (`organization_audit_log`, `drizzle/0011_user_management.sql`). Read-only: the log is append-only by construction. */
 export function AuditLogPanel({ initialEntries }: { initialEntries: OrganizationAuditLogEntryDTO[] }) {
   const columns = useMemo<Array<ColumnDef<OrganizationAuditLogEntryDTO, unknown>>>(() => [
-    { id: "createdAt", header: "When", cell: ({ row }) => new Date(row.original.createdAt).toLocaleString() },
+    { id: "createdAt", header: "When", cell: ({ row }) => <LocalTime instant={row.original.createdAt} /> },
     { id: "actor", header: "Who", cell: ({ row }) => row.original.actorEmail ?? "(deleted account)" },
     { id: "action", header: "Action", cell: ({ row }) => ACTION_LABELS[row.original.action] ?? row.original.action },
     { id: "target", header: "Affected", cell: ({ row }) => row.original.targetEmail ?? "—" },

@@ -21,6 +21,7 @@ import { DataTable } from "@/shared/ui/app/data-table";
 import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
 import { Dash } from "@/shared/ui/app/dash";
 import { Avatar, Button, EmptyState, PageHeader, Select } from "@/shared/ui/ui-kit";
+import { LocalTime } from "@/shared/ui/app/local-time";
 import { CrmNav } from "./crm-nav";
 import { ContactCreateDialog } from "./contact-create-dialog";
 import { CrmImportDialog } from "./crm-import-dialog";
@@ -174,7 +175,7 @@ export function DirectoryView({
       id: "lastActivityAt",
       header: "Last activity",
       accessorKey: "lastActivityAt",
-      cell: ({ row }) => row.original.lastActivityAt ? <span className="table-date">{new Date(row.original.lastActivityAt).toLocaleDateString()}</span> : <Dash />,
+      cell: ({ row }) => row.original.lastActivityAt ? <span className="table-date"><LocalTime instant={row.original.lastActivityAt} style="date" /></span> : <Dash />,
     },
   ], []);
 

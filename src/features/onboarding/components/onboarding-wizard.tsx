@@ -16,7 +16,7 @@ import { EVENT_TYPES, type EventType } from "@/features/events/index.schemas";
 import { formOpenState, type FormOpenReason } from "@/features/forms/index.availability";
 import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
 import { DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
-import { endOfDayInTz, eventDayKey, formatInZone, timeZoneOptionLabel } from "@/shared/lib/time";
+import { endOfDayInTz, eventDayKey, formatInZone, timeZoneOptionLabel, viewerTimeZone } from "@/shared/lib/time";
 
 const DEFAULT_TZ = "America/Los_Angeles";
 const CUSTOM_TRACK_COLOR = DEFAULT_BRAND_COLOR;
@@ -366,7 +366,7 @@ export function OnboardingWizard({
 
   useEffect(() => {
     if (initialState?.event) return;
-    setTimezone(preferredTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone, timeZones));
+    setTimezone(preferredTimeZone(viewerTimeZone(), timeZones));
   }, [initialState?.event, timeZones]);
 
   useEffect(() => {

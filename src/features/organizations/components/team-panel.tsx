@@ -26,6 +26,7 @@ import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
 import { isAppError, isDefinitiveWriteFailure } from "@/shared/lib/errors";
+import { LocalTime } from "@/shared/ui/app/local-time";
 
 const ROLES: MemberRole[] = ["owner", "organizer", "reviewer"];
 
@@ -423,7 +424,7 @@ export function TeamPanel({
   const invitationColumns = useMemo<Array<ColumnDef<OrganizationInvitationDTO, unknown>>>(() => [
     { id: "email", header: "Invited", accessorKey: "email" },
     { id: "role", header: "Role", cell: ({ row }) => <StatusBadge value={row.original.role} /> },
-    { id: "expiresAt", header: "Expires", cell: ({ row }) => new Date(row.original.expiresAt).toLocaleDateString() },
+    { id: "expiresAt", header: "Expires", cell: ({ row }) => <LocalTime instant={row.original.expiresAt} style="date" /> },
     { id: "actions", header: "", cell: ({ row }) => canManage ? <Button variant="danger" size="sm" disabled={teamWritesLocked} onClick={() => setPendingRevoke(row.original)}>Revoke</Button> : null },
   ], [canManage, teamWritesLocked]);
 

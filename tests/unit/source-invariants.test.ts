@@ -92,6 +92,37 @@ describe("AST source invariants", () => {
     expect(result.stderr).not.toContain("boundary.test.ts");
   });
 
+  it("keeps instant formatting in the time module and out of product code", () => {
+    const root = fixture({
+      "src/features/example/audit.tsx": `
+        export const when = (row) => new Date(row.createdAt).toLocaleString();
+        export const day = (row) => new Date(row.at).toLocaleDateString();
+        export const clock = (row) => new Date(row.at).toLocaleTimeString();
+        export const label = (d) => new Intl.DateTimeFormat("en-US", { timeZone: "UTC" }).format(d);
+        export const zone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
+      `,
+      // The owning module is the one place all of this is allowed.
+      "src/shared/lib/time.ts": `
+        export const f = (d, tz) => new Intl.DateTimeFormat("en-US", { timeZone: tz }).format(d);
+        export const viewerTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
+        export const loose = (d) => d.toLocaleString();
+      `,
+      // The picker owns its own explicit-zone construction, but not toLocale*.
+      "src/shared/ui/app/datetime-picker.tsx": `
+        export const shown = (d, tz) => new Intl.DateTimeFormat("en-US", { timeZone: tz }).format(d);
+        export const sloppy = (d) => d.toLocaleDateString();
+      `,
+      "src/features/example/audit.test.ts": 'it("formats", () => { new Date().toLocaleString(); });',
+    });
+
+    const result = check(root);
+    expect(result.status).toBe(1);
+    expect(result.stderr.match(/\[viewer-time\]/gu)).toHaveLength(6);
+    // The message names the owning module, so match the reported path instead.
+    expect(result.stderr).not.toMatch(/^src\/shared\/lib\/time\.ts:/mu);
+    expect(result.stderr).not.toMatch(/^src\/features\/example\/audit\.test\.ts:/mu);
+  });
+
   it("rejects syntax-aware JSX and inline style variants without matching strings", () => {
     const root = fixture({
       "src/features/example/view.tsx": `
