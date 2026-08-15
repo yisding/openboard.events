@@ -64,7 +64,20 @@ function toTaskDto(row: TaskRow): TaskDTO {
   });
 }
 
-export type TaskCounts = { completed: number; open: number; overdue: number };
+/**
+ * `completed`/`open`/`overdue` are the assignment-progress numbers the card
+ * renders, and they come from `task_assignments_v` — which drops inactive tasks
+ * and non-accepted submissions, deliberately, because an inactive task assigns
+ * nobody.
+ *
+ * `recorded` is a plain count of `task_completions` rows, which is what the
+ * server's shape-change lock actually tests. Without it the editor derived
+ * `locked` from `completed`, so deactivating a task with completions dropped
+ * that to 0, unlocked the target and mode controls, and let an organizer fill
+ * the whole form in before the save came back FORM_LOCKED — the exact outcome
+ * the lock's own comment says the disabled controls exist to prevent.
+ */
+export type TaskCounts = { completed: number; open: number; overdue: number; recorded: number };
 
 /**
  * `TaskDTO` plus the per-task assignment counts the admin cards show. Named
@@ -86,12 +99,13 @@ export type TaskFilters = { targetType?: TaskTarget | "all" | undefined; search?
 export async function listTasksIn(dbOrTx: DbOrTx, eventId: EventId, filters: TaskFilters = {}): Promise<AdminTaskDTO[]> {
   const targetType = filters.targetType && filters.targetType !== "all" ? filters.targetType : null;
   const search = filters.search?.trim() || null;
-  const result = await dbOrTx.execute<TaskRow & { completed_count: number; open_count: number; overdue_count: number }>(sql`
+  const result = await dbOrTx.execute<TaskRow & { completed_count: number; open_count: number; overdue_count: number; recorded_count: number }>(sql`
     SELECT t.id, t.name, t.description_html, t.target_type, t.completion_mode, t.form_id, t.file_request_id,
            t.due_at, t.is_active, t.created_at, t.updated_at,
            count(v.contact_id) FILTER (WHERE v.completed) AS completed_count,
            count(v.contact_id) FILTER (WHERE NOT v.completed) AS open_count,
-           count(v.contact_id) FILTER (WHERE v.overdue) AS overdue_count
+           count(v.contact_id) FILTER (WHERE v.overdue) AS overdue_count,
+           (SELECT count(*)::int FROM task_completions tc WHERE tc.task_id = t.id AND tc.event_id = t.event_id) AS recorded_count
     FROM portal_tasks t
     LEFT JOIN task_assignments_v v ON v.task_id = t.id AND v.event_id = t.event_id
     WHERE t.event_id = ${eventId}
@@ -106,6 +120,7 @@ export async function listTasksIn(dbOrTx: DbOrTx, eventId: EventId, filters: Tas
       completed: Number(row.completed_count),
       open: Number(row.open_count),
       overdue: Number(row.overdue_count),
+      recorded: Number(row.recorded_count),
     },
   }));
 }

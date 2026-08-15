@@ -58,7 +58,7 @@ describe("task row menu accessibility", () => {
     const saved = { ...task, name: "Upload final slides" } as TaskDTO;
     expect(mergeSavedTask([task], saved)).toEqual([{ ...saved, counts: task.counts }]);
     const created = { ...saved, id: "00000000-0000-4000-8000-000000000002" } as TaskDTO;
-    expect(mergeSavedTask([task], created)[1]).toEqual({ ...created, counts: { completed: 0, open: 0, overdue: 0 } });
+    expect(mergeSavedTask([task], created)[1]).toEqual({ ...created, counts: { completed: 0, open: 0, overdue: 0, recorded: 0 } });
   });
 
   it("applies authoritative file-request saves and deletes before refresh", () => {

@@ -86,6 +86,7 @@ function toTaskDto(row: TaskRow): TaskDTO {
 }
 
 const STALE_TASK_MESSAGE = "This task changed since you opened it";
+const STALE_FILE_REQUEST_MESSAGE = "This file request changed since you opened it";
 
 /**
  * Create and update each touch the row in one write statement — no `withTx`,
@@ -271,6 +272,17 @@ export const saveFileRequestInputSchema = z.object({
   instructionsHtml: z.string().max(100_000).default(""),
   acceptedExtensions: z.array(z.string().trim().toLowerCase().min(1).max(10)).min(1).default([...DEFAULT_ACCEPTED_EXTENSIONS]),
   maxSizeMb: z.number().int().positive().max(MAX_SIZE_MB).default(MAX_SIZE_MB),
+  /**
+   * Compare-and-swap token, required when updating an existing request.
+   *
+   * The upsert used to be a blind `ON CONFLICT (id) DO UPDATE SET …`, so two
+   * organizers with the editor open both saved and the second silently reverted
+   * the first — no error, nothing to notice. The sibling task path in this same
+   * module has carried this guard since M23; a file request is edited from the
+   * same screen and deserves the same one. Optional in the schema because a
+   * create has nothing to compare against.
+   */
+  expectedUpdatedAt: z.iso.datetime().optional(),
 });
 export type SaveFileRequestInput = z.infer<typeof saveFileRequestInputSchema>;
 
@@ -311,6 +323,9 @@ export async function saveFileRequestIn(
       .where(and(eq(fileRequests.id, input.id), eq(fileRequests.eventId, eventId)))
       .limit(1);
     if (!existing) throw new AppError("NOT_FOUND", "File request not found");
+    if (!input.expectedUpdatedAt) {
+      throw new AppError("VALIDATION", "expectedUpdatedAt is required when updating a file request");
+    }
   }
   const instructionsHtml = sanitize(input.instructionsHtml ?? "");
   const extensions = [...new Set(input.acceptedExtensions.map((extension) => extension.replace(/^\./, "")))];
@@ -318,10 +333,16 @@ export async function saveFileRequestIn(
   const idempotentCreate = options.createIfMissing === true && input.id !== undefined;
   const conflictClause = idempotentCreate
     ? sql`ON CONFLICT (id) DO NOTHING`
+    // Same millisecond-truncated compare-and-swap the task path uses: a client
+    // round-trips `updatedAt` as an ISO string, so comparing at full timestamptz
+    // precision would reject a token that is in fact current.
     : sql`ON CONFLICT (id) DO UPDATE SET
         title = EXCLUDED.title, target_type = EXCLUDED.target_type, instructions_html = EXCLUDED.instructions_html,
-        accepted_extensions = EXCLUDED.accepted_extensions, max_size_mb = EXCLUDED.max_size_mb, updated_at = now()
-      WHERE file_requests.event_id = ${eventId}`;
+        accepted_extensions = EXCLUDED.accepted_extensions, max_size_mb = EXCLUDED.max_size_mb,
+        updated_at = greatest(now(), file_requests.updated_at + interval '1 millisecond')
+      WHERE file_requests.event_id = ${eventId}
+        AND (${input.expectedUpdatedAt ?? null}::timestamptz IS NULL
+             OR date_trunc('milliseconds', file_requests.updated_at) = date_trunc('milliseconds', ${input.expectedUpdatedAt ?? null}::timestamptz))`;
 
   const result = await dbOrTx.execute<FileRequestRow>(sql`
     INSERT INTO file_requests (id, event_id, title, target_type, instructions_html, accepted_extensions, max_size_mb)
@@ -340,7 +361,17 @@ export async function saveFileRequestIn(
     `);
     row = (replay.rows ?? [])[0];
   }
-  if (!row) throw new AppError("NOT_FOUND", "File request not found");
+  if (!row) {
+    // A blocked DO UPDATE returns nothing. The row was present at the preflight
+    // read above, so absence now means it was deleted in the meantime; a
+    // still-present row means the compare-and-swap lost, which is the
+    // recoverable 409 the editor knows how to explain.
+    const current = await dbOrTx.execute<{ id: string }>(sql`
+      SELECT id FROM file_requests WHERE id = ${input.id ?? null}::uuid AND event_id = ${eventId}
+    `);
+    if ((current.rows ?? []).length === 0) throw new AppError("NOT_FOUND", "File request not found");
+    throw new AppError("STALE_WRITE", STALE_FILE_REQUEST_MESSAGE);
+  }
   return toFileRequestDto(row);
 }
 
