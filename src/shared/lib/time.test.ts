@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDuration, daysToEvent, endOfDayInTz, eventDayKey, formatDateRangeInZone, formatDayKeyInZone, formatInZone, formatTimeRangeInZone, timeZoneOptionLabel, zonedInputToUtc } from "./time";
+import { addDuration, daysToEvent, endOfDayInTz, eventDayKey, formatDateRangeInZone, formatDayKeyInZone, formatInZone, formatTimeRangeInZone, timeZoneOptionLabel, wallTimeExistsInZone, zonedInputToUtc } from "./time";
 
 const LA = "America/Los_Angeles";
 
@@ -93,5 +93,36 @@ describe("event timezone API", () => {
 
   it.each(["P", "PT", "P1DT"])("rejects incomplete ISO duration %s", (duration) => {
     expect(() => addDuration(new Date("2026-03-08T09:00:00.000Z"), duration)).toThrow(TypeError);
+  });
+});
+
+describe("wallTimeExistsInZone", () => {
+  const TZ = "America/New_York";
+
+  it("rejects the hour a spring-forward date skips, and shows why the check is needed", () => {
+    // 2026-03-08: the clock goes 01:59 -> 03:00, so 02:00-02:59 never happens.
+    expect(wallTimeExistsInZone("2026-03-08T01:45:00", TZ)).toBe(true);
+    expect(wallTimeExistsInZone("2026-03-08T02:00:00", TZ)).toBe(false);
+    expect(wallTimeExistsInZone("2026-03-08T02:15:00", TZ)).toBe(false);
+    expect(wallTimeExistsInZone("2026-03-08T03:00:00", TZ)).toBe(true);
+
+    // `zonedInputToUtc` does not reject a skipped time — it resolves backwards
+    // to the pre-transition offset, so the instant moves *down* as the
+    // requested minute moves up. A caller deriving two edges from adjacent
+    // minutes can therefore write an end before its start.
+    const at0145 = zonedInputToUtc("2026-03-08T01:45:00", TZ);
+    const at0200 = zonedInputToUtc("2026-03-08T02:00:00", TZ);
+    expect(at0200.getTime()).toBeLessThan(at0145.getTime());
+  });
+
+  it("accepts both passes of an hour a fall-back date repeats", () => {
+    // 2026-11-01 runs 01:00-01:59 twice. Both are real times; only one instant
+    // is chosen, which is a documented ambiguity, not a nonexistent time.
+    expect(wallTimeExistsInZone("2026-11-01T01:30:00", TZ)).toBe(true);
+  });
+
+  it("accepts every wall time in a zone that does not observe DST", () => {
+    expect(wallTimeExistsInZone("2026-03-08T02:00:00", "UTC")).toBe(true);
+    expect(wallTimeExistsInZone("2026-03-08T02:00:00", "Asia/Tokyo")).toBe(true);
   });
 });
