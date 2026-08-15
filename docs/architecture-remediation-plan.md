@@ -140,7 +140,11 @@ inventory is empty. The earliest possible quarantine-10 entry is
 `2026-08-22T03:40:22Z`, and only if reports from two independent receivers plus
 Gmail and Outlook `dmarc=pass` evidence satisfy the runbook gates.
 PR #423 records that live baseline and separates completed reporting setup from
-the still-open enforcement checklist.
+the still-open enforcement checklist. Production probes at `2026-08-15T03:50Z`
+then passed aligned DKIM, SPF, and DMARC at both Gmail and Outlook; Outlook also
+reported `compauth=pass`, but placed its message in Junk. That placement is now
+the documented pre-enforcement reputation/content baseline, not a DMARC failure,
+and must be compared with a repeat Outlook probe before quarantine-10.
 
 ## Sequencing and workstreams
 
@@ -377,7 +381,9 @@ Status: in progress in PRs #420, #421, and #423. The protected reporting
 operation and runbook are implemented, and live aggregate reporting began at
 `2026-08-15T03:40:22Z` in run 31862396508. The required seven-day, two-receiver
 observation and enforcement dwell periods remain. No quarantine or reject
-policy will be published before those evidence gates pass.
+policy will be published before those evidence gates pass. Gmail and Outlook
+authentication evidence is clean; Outlook Junk placement is recorded as the
+baseline and requires a no-regression retest before the first policy change.
 
 ## Proposed pull-request order
 
