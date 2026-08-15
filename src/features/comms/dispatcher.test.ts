@@ -72,6 +72,7 @@ const sendEnv = parseEnv({
   EMAIL_MODE: "send",
   EMAIL_FALLBACK_UI: "0",
   EMAIL_FROM: "mail@example.com",
+  EMAIL_REPLY_TO: "replies@example.com",
   RESEND_API_KEY: "re_test",
 });
 const productionSendEnv = parseEnv({
@@ -328,6 +329,7 @@ describe("communications outbox dispatcher", () => {
 
     expect(sender).toHaveBeenCalledTimes(3);
     expect(messages[0]?.from).toBe("AI Engineer Sandbox <mail@example.com>");
+    expect(messages[0]?.replyTo).toBe("replies@example.com");
     const calendars = messages.map((message) => {
       const attachment = message.attachments?.[0];
       expect(attachment?.filename).toBe("invite.ics");

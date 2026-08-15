@@ -84,6 +84,12 @@ application-level backstop, and the parser accepts only the current root-prefixe
   throttle. Legitimate retries inside that one-second window receive a generic `429`; the preview
   deployment gate proves an unpaced burst cannot escape as Worker `1102`/`503`. See
   `docs/runbooks/sign-in-capacity.md`.
+- **Outbound email has one stable, reply-capable identity.** Both application outboxes send as
+  `Openboard <hello@mail.openboard.events>` and explicitly use the same mailbox for Reply-To.
+  Resend Receiving owns the inbound MX at `mail.openboard.events`; Resend's independent
+  `send.mail.openboard.events` MX remains the bounce/complaint return path. The deployed env
+  contract requires both values, preventing an event name or unmonitored mailbox from silently
+  becoming the platform identity.
 - **DMARC changes are report-gated and From-subdomain scoped.** Cloudflare DMARC Management
   collects aggregate reports from the organizational record. Enforcement is published at
   `_dmarc.mail.openboard.events`, matching the only production From domain, so unrelated apex

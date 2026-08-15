@@ -5,6 +5,7 @@ const message = {
   apiKey: "re_secret",
   from: "mail@example.com",
   to: "speaker@example.com",
+  replyTo: "replies@example.com",
   subject: "A subject",
   html: "<p>Hello</p>",
   text: "Hello",
@@ -22,7 +23,12 @@ describe("email provider adapter", () => {
       Authorization: "Bearer re_secret",
       "Idempotency-Key": "event:received:submission",
     });
-    expect(JSON.parse(String(init?.body))).toMatchObject({ to: ["speaker@example.com"], html: "<p>Hello</p>", text: "Hello" });
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      to: ["speaker@example.com"],
+      reply_to: "replies@example.com",
+      html: "<p>Hello</p>",
+      text: "Hello",
+    });
   });
 
   it("surfaces a bounded provider error", async () => {

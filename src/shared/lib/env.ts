@@ -15,10 +15,9 @@ export function emailFromAddress(value: string): string | null {
 }
 
 /**
- * A From header is a display name and an address — "AI.Engineer Sandbox
- * <hello@mail.openboard.events>" — and that is what makes a decision email look
- * like it came from the event rather than from a robot. Accept both forms and
- * validate the address inside.
+ * A From header is a display name and an address — "Openboard
+ * <hello@mail.openboard.events>". Accept both forms and validate the address
+ * inside.
  */
 const optionalEmailFrom = z.preprocess(
   (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
@@ -26,6 +25,11 @@ const optionalEmailFrom = z.preprocess(
     (value) => emailFromAddress(value) !== null,
     { message: "must be an address, optionally with a display name" },
   ).optional(),
+);
+
+const optionalEmail = z.preprocess(
+  (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+  z.email().optional(),
 );
 
 const optionalLegalVersion = z.preprocess(
@@ -94,6 +98,7 @@ const envSchema = z.object({
   R2_SECRET_ACCESS_KEY: optionalString,
   R2_BUCKET_NAME: optionalString,
   EMAIL_FROM: optionalEmailFrom,
+  EMAIL_REPLY_TO: optionalEmail,
   EMAIL_MODE: z.enum(["log", "send"]).default("log"),
   EMAIL_ALLOWLIST: optionalString,
   EMAIL_FALLBACK_UI: z.enum(["0", "1"]).default("1"),
@@ -227,12 +232,14 @@ const envSchema = z.object({
     if (env.EMAIL_FALLBACK_UI !== "0") context.addIssue({ code: "custom", path: ["EMAIL_FALLBACK_UI"], message: "must be 0 in production" });
     if (!env.RESEND_API_KEY) context.addIssue({ code: "custom", path: ["RESEND_API_KEY"], message: "is required in production" });
     if (!env.EMAIL_FROM) context.addIssue({ code: "custom", path: ["EMAIL_FROM"], message: "is required in production" });
+    if (!env.EMAIL_REPLY_TO) context.addIssue({ code: "custom", path: ["EMAIL_REPLY_TO"], message: "is required in production" });
     if (env.EMAIL_ALLOWLIST) context.addIssue({ code: "custom", path: ["EMAIL_ALLOWLIST"], message: "must be unset in production" });
   }
 
   if (env.APP_ENV === "preview" && env.EMAIL_MODE === "send") {
     if (!env.RESEND_API_KEY) context.addIssue({ code: "custom", path: ["RESEND_API_KEY"], message: "is required when preview email sends" });
     if (!env.EMAIL_FROM) context.addIssue({ code: "custom", path: ["EMAIL_FROM"], message: "is required when preview email sends" });
+    if (!env.EMAIL_REPLY_TO) context.addIssue({ code: "custom", path: ["EMAIL_REPLY_TO"], message: "is required when preview email sends" });
     if (!env.EMAIL_ALLOWLIST) context.addIssue({ code: "custom", path: ["EMAIL_ALLOWLIST"], message: "is required when preview email sends" });
   }
 

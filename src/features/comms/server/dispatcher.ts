@@ -157,6 +157,7 @@ async function processRow(
       apiKey: env.RESEND_API_KEY,
       from: env.EMAIL_FROM,
       to: context.recipientEmail,
+      ...(env.EMAIL_REPLY_TO ? { replyTo: env.EMAIL_REPLY_TO } : {}),
       subject: rendered.subject,
       html: rendered.html,
       text: rendered.text,
