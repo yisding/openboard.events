@@ -112,6 +112,20 @@ export function PaletteDialog({ eventId, base, role, onClose }: { eventId: strin
     };
   }, []);
 
+  /**
+   * The entity-jump half of the palette is organizer-only, and has to be
+   * offered that way rather than merely fail that way.
+   *
+   * `/api/internal/events/[eventId]/search` runs under `adminAuth()`, whose
+   * default role is organizer, and every result it returns links into a view a
+   * reviewer cannot open. A reviewer typing here used to fire a request that
+   * came back FORBIDDEN, which `settleCommandPaletteSearch` cannot tell from a
+   * dropped connection — so they got "Search could not be completed. Check your
+   * connection and try again." beside a Retry button that could never work.
+   *
+   * Their palette is the verb list, which the input still filters.
+   */
+  const entitySearch = role !== "reviewer";
   const verbs = useMemo(() => verbsForRole(base, role), [base, role]);
   const filteredVerbs = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -125,7 +139,7 @@ export function PaletteDialog({ eventId, base, role, onClose }: { eventId: strin
     const term = query.trim();
     const requestId = searchRequest.current + 1;
     searchRequest.current = requestId;
-    if (term.length < 2) {
+    if (!entitySearch || term.length < 2) {
       setSearchState(idleCommandPaletteSearch(term));
       return;
     }
@@ -147,14 +161,16 @@ export function PaletteDialog({ eventId, base, role, onClose }: { eventId: strin
       controller.abort();
       if (searchRequest.current === requestId) searchRequest.current += 1;
     };
-  }, [query, eventId, retryEpoch]);
+  }, [query, eventId, retryEpoch, entitySearch]);
 
   const term = query.trim();
   // Effects run after render. Derive the pending state synchronously so the
   // previous term's results disappear before they can be selected.
-  const currentSearchState = searchState.term === term
-    ? searchState
-    : term.length >= 2 ? loadingCommandPaletteSearch(term) : idleCommandPaletteSearch(term);
+  const currentSearchState = !entitySearch
+    ? idleCommandPaletteSearch(term)
+    : searchState.term === term
+      ? searchState
+      : term.length >= 2 ? loadingCommandPaletteSearch(term) : idleCommandPaletteSearch(term);
 
   const items = useMemo(() => {
     const list = toItems(filteredVerbs, currentSearchState.results);
@@ -163,7 +179,7 @@ export function PaletteDialog({ eventId, base, role, onClose }: { eventId: strin
   }, [filteredVerbs, currentSearchState.results, query]);
   const activeOptionId = items[activeIndex] ? `${listboxId}-option-${activeIndex}` : undefined;
   useEffect(() => setActiveIndex(0), [items.length]);
-  const feedback = commandPaletteSearchFeedback(currentSearchState, items.length);
+  const feedback = commandPaletteSearchFeedback(currentSearchState, items.length, { entitySearch });
 
   function go(item: PaletteItem) {
     const egg = PALETTE_EGGS.find((candidate) => candidate.item.key === item.key);
@@ -224,7 +240,7 @@ export function PaletteDialog({ eventId, base, role, onClose }: { eventId: strin
             ref={inputRef}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Jump to a speaker, submission or session… or run a command"
+            placeholder={entitySearch ? "Jump to a speaker, submission or session… or run a command" : "Run a command"}
             aria-label="Search anything"
             role="combobox"
             aria-expanded="true"

@@ -108,4 +108,31 @@ describe("paletteEggsForQuery", () => {
       expect(item.key.startsWith("egg:")).toBe(true);
     }
   });
+
+  it("offers a reviewer commands only, never the entity search that would fail for them", () => {
+    const html = renderToStaticMarkup(React.createElement(ToastProvider, null, React.createElement(PaletteDialog, {
+      eventId: "00000000-0000-4000-8000-000000000001",
+      base: "/events/00000000-0000-4000-8000-000000000001",
+      role: "reviewer",
+      onClose: () => undefined,
+    })));
+
+    // The placeholder is the promise the palette makes. A reviewer's search
+    // route answers FORBIDDEN and every result links somewhere they cannot go,
+    // so promising speakers and submissions sets them up for an error with a
+    // Retry button that can never succeed.
+    expect(html).toContain('placeholder="Run a command"');
+    expect(html).not.toContain("Jump to a speaker");
+  });
+
+  it("still offers an organizer the entity search", () => {
+    const html = renderToStaticMarkup(React.createElement(ToastProvider, null, React.createElement(PaletteDialog, {
+      eventId: "00000000-0000-4000-8000-000000000001",
+      base: "/events/00000000-0000-4000-8000-000000000001",
+      role: "organizer",
+      onClose: () => undefined,
+    })));
+    expect(html).toContain("Jump to a speaker");
+  });
+
 });

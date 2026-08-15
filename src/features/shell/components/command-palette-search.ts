@@ -60,9 +60,15 @@ export async function settleCommandPaletteSearch({
   }
 }
 
+/**
+ * `entitySearch: false` is the verbs-only palette a reviewer gets. The idle
+ * copy has to change with it: "Keep typing to search speakers, submissions, and
+ * sessions" is an invitation to wait for results that are never coming.
+ */
 export function commandPaletteSearchFeedback(
   state: CommandPaletteSearchState,
   itemCount: number,
+  { entitySearch = true }: { entitySearch?: boolean } = {},
 ): { message: string; visible: boolean; retry: boolean } {
   if (state.status === "loading") {
     return { message: `Searching for “${state.term}”…`, visible: true, retry: false };
@@ -76,9 +82,12 @@ export function commandPaletteSearchFeedback(
       : { message: `${itemCount} ${itemCount === 1 ? "option" : "options"} available.`, visible: false, retry: false };
   }
   if (state.term) {
-    return itemCount === 0
+    if (itemCount > 0) {
+      return { message: `${itemCount} matching ${itemCount === 1 ? "command" : "commands"} available.`, visible: false, retry: false };
+    }
+    return entitySearch
       ? { message: "Keep typing to search speakers, submissions, and sessions.", visible: true, retry: false }
-      : { message: `${itemCount} matching ${itemCount === 1 ? "command" : "commands"} available.`, visible: false, retry: false };
+      : { message: `No commands match “${state.term}”.`, visible: true, retry: false };
   }
   return { message: `${itemCount} ${itemCount === 1 ? "command is" : "commands are"} ready.`, visible: false, retry: false };
 }
