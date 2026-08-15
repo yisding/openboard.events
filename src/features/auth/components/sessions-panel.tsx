@@ -10,7 +10,7 @@ import { Button, EmptyState } from "@/shared/ui/ui-kit";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
-import { type AppError, isAppError } from "@/shared/lib/errors";
+import { isAppError, isDefinitiveWriteFailure } from "@/shared/lib/errors";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 
 // Server-provided props, not user input parsed off the wire — so this is a
@@ -37,10 +37,6 @@ const sessionsSchema = z.array(sessionSummarySchema);
 type SessionMutationRecovery =
   | { action: "revoke"; target: AdminSessionSummary; originalIndex: number }
   | { action: "revoke-all" };
-
-function isDefinitiveSessionMutationError(error: unknown): error is AppError {
-  return isAppError(error) && error.code !== "INTERNAL";
-}
 
 function recoveryCopy(recovery: SessionMutationRecovery): string {
   return recovery.action === "revoke"
@@ -100,7 +96,7 @@ export function SessionsPanel({ initialSessions }: { initialSessions: AdminSessi
     } catch (caught) {
       if (isAppError(caught) && caught.code === "UNAUTHORIZED") {
         goToLogin("This sign-in is no longer active. Sign in again to continue.");
-      } else if (isDefinitiveSessionMutationError(caught)) {
+      } else if (isDefinitiveWriteFailure(caught)) {
         restoreTarget(operation);
         toast(caught.message, { kind: "error" });
       } else {
@@ -122,7 +118,7 @@ export function SessionsPanel({ initialSessions }: { initialSessions: AdminSessi
     } catch (caught) {
       if (isAppError(caught) && caught.code === "UNAUTHORIZED") {
         goToLogin("You’re signed out everywhere. Sign in again to continue.");
-      } else if (isDefinitiveSessionMutationError(caught)) {
+      } else if (isDefinitiveWriteFailure(caught)) {
         toast(caught.message, { kind: "error" });
       } else {
         setRecovery({ action: "revoke-all" });
@@ -150,7 +146,7 @@ export function SessionsPanel({ initialSessions }: { initialSessions: AdminSessi
     } catch (caught) {
       if (isAppError(caught) && caught.code === "UNAUTHORIZED") {
         goToLogin("You’re signed out. Sign in again to continue.");
-      } else if (isDefinitiveSessionMutationError(caught)) {
+      } else if (isDefinitiveWriteFailure(caught)) {
         toast(`${caught.message} The earlier outcome is still unconfirmed; check sessions before leaving.`, { kind: "error" });
       } else {
         toast("The session change is still unconfirmed. Restore your connection, then retry this exact action or check sessions.", { kind: "error" });
@@ -182,7 +178,7 @@ export function SessionsPanel({ initialSessions }: { initialSessions: AdminSessi
     } catch (caught) {
       if (isAppError(caught) && caught.code === "UNAUTHORIZED") {
         goToLogin("You’re signed out. Sign in again to continue.");
-      } else if (isDefinitiveSessionMutationError(caught)) {
+      } else if (isDefinitiveWriteFailure(caught)) {
         toast(`${caught.message} The session change remains unconfirmed.`, { kind: "error" });
       } else {
         toast("Sessions still couldn’t be checked. Restore your connection and try again.", { kind: "error" });

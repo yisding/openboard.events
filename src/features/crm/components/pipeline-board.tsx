@@ -33,7 +33,7 @@ import {
 import { Button, EmptyState, Field, Modal, PageHeader, Select } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
-import { AppError, isAppError } from "@/shared/lib/errors";
+import { AppError, isAppError, isDefinitiveWriteFailure } from "@/shared/lib/errors";
 import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
 import { CrmNav } from "./crm-nav";
 
@@ -56,12 +56,8 @@ type AddProspectRecovery = {
 };
 type PipelineAuthority = { entries: CrmPipelineEntryDTO[]; contacts: Record<string, ContactLite> };
 
-export function pipelineCreateOutcomeUnknown(error: unknown): boolean {
-  return !isAppError(error) || error.code === "INTERNAL";
-}
-
 export function pipelineTransitionNeedsAuthority(error: unknown): boolean {
-  return pipelineCreateOutcomeUnknown(error)
+  return !isDefinitiveWriteFailure(error)
     || (isAppError(error) && (error.code === "STALE_WRITE" || error.code === "CONFLICT"));
 }
 
@@ -265,7 +261,7 @@ function AddProspectDialog({ organizationId, events, open, onClose, onCreated }:
         toast(message, { kind: "error" });
         return;
       }
-      const outcomeUnknown = pipelineCreateOutcomeUnknown(caught);
+      const outcomeUnknown = !isDefinitiveWriteFailure(caught);
       if (outcomeUnknown) setRecovery({ attempt, confirmedEntry: null, closeOnly: false });
       else {
         setRecovery(null);
@@ -429,7 +425,7 @@ export function PipelineBoard({
           mutationsBlockedRef.current = true;
           setAuthorityRefresh("pending");
           toast(
-            isAppError(caught) && caught.code !== "INTERNAL"
+            isDefinitiveWriteFailure(caught)
               ? `${caught.message}${/[.!?]$/u.test(caught.message) ? "" : "."} The pipeline is refreshing.`
               : PIPELINE_TRANSITION_RECOVERY_MESSAGE,
             { kind: "error" },

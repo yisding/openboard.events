@@ -23,7 +23,7 @@ import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
-import { isAppError } from "@/shared/lib/errors";
+import { isAppError, isDefinitiveWriteFailure } from "@/shared/lib/errors";
 import type { VocabKind } from "../schemas";
 import { KeyedSerialQueue } from "./keyed-serial-queue";
 import { canDeleteVocabItem, restoreFailedVocabDeletion, restoreVocabOrder } from "./vocab-state";
@@ -287,7 +287,7 @@ export function VocabTab({ eventId, kind, initialItems }: { eventId: EventId; ki
         originalIndex,
         persistedItems.current.get(removed.id),
       ));
-      if (isAppError(caught) && caught.code !== "INTERNAL") {
+      if (isDefinitiveWriteFailure(caught)) {
         try {
           applyAuthoritativeItems(await requestAuthoritativeItems());
         } catch {
@@ -317,7 +317,7 @@ export function VocabTab({ eventId, kind, initialItems }: { eventId: EventId; ki
       toast(`Vocabulary checked: ${operation.item.name} is no longer in ${copy.title.toLowerCase()}.`);
       router.refresh();
     } catch (caught) {
-      if (isAppError(caught) && caught.code !== "INTERNAL") {
+      if (isDefinitiveWriteFailure(caught)) {
         try {
           applyAuthoritativeItems(await requestAuthoritativeItems());
           setDeleteRecovery(null);

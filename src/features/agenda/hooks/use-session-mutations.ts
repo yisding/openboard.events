@@ -10,7 +10,7 @@ import {
   type SubmissionId,
 } from "@/shared/contracts";
 import { api } from "@/shared/lib/api-client";
-import { isAppError } from "@/shared/lib/errors";
+import { isDefinitiveWriteFailure } from "@/shared/lib/errors";
 import { agendaKeys } from "./keys";
 
 const savedSchema = scheduledSessionDtoSchema;
@@ -68,7 +68,7 @@ export function useSessionMutations(eventId: EventId) {
     // its exact retry payload locked; definitive 4xx responses remain purely
     // editable and do not disturb the form.
     onError: async (error, payload) => {
-      if (payload.id === undefined && (!isAppError(error) || error.code === "INTERNAL")) {
+      if (payload.id === undefined && !isDefinitiveWriteFailure(error)) {
         await refreshSessionsAndAnnouncement();
       }
     },

@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { EventId, ScheduledSessionDTO, SessionContentRevisionDTO, SessionId } from "@/shared/contracts";
 import { sessionContentRevisionDtoSchema, sessionIdSchema } from "@/shared/contracts";
 import { z } from "zod";
-import { isAppError } from "@/shared/lib/errors";
+import { isAppError, isDefinitiveWriteFailure } from "@/shared/lib/errors";
 import { api } from "@/shared/lib/api-client";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
@@ -65,10 +65,6 @@ const CREATE_RECOVERY_MESSAGE = "We could not confirm whether this session was c
 function messageFor(caught: unknown, fallback: string): string {
   if (!isAppError(caught)) return fallback;
   return caught.code === "STALE_WRITE" ? STALE_MESSAGE : caught.message;
-}
-
-function isAmbiguousCreateFailure(caught: unknown): boolean {
-  return !isAppError(caught) || caught.code === "INTERNAL";
 }
 
 /**
@@ -220,7 +216,7 @@ export function SessionFormDialog({
       toast(session ? "Session updated" : "Session created");
       closeAfterMutation();
     } catch (caught) {
-      const ambiguousCreate = !session && isAmbiguousCreateFailure(caught);
+      const ambiguousCreate = !session && !isDefinitiveWriteFailure(caught);
       if (ambiguousCreate && "creationId" in payload && payload.creationId !== undefined) {
         setCreateRecovery((current) => current ?? { payload: payload as SaveSessionPayload & { creationId: SessionId } });
       }

@@ -38,7 +38,7 @@ import {
   sectionIdSchema,
   taskTargetSchema,
 } from "@/shared/contracts";
-import { AppError, isAppError } from "@/shared/lib/errors";
+import { AppError, isAppError, isDefinitiveWriteFailure } from "@/shared/lib/errors";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { copyText } from "@/shared/ui/app/copy-text";
 import { requestGuardedEditorClose } from "@/shared/ui/app/modal-editor-guard";
@@ -120,10 +120,6 @@ async function requestData<T>(path: string, init?: RequestInit): Promise<T> {
 
 function json(method: string, body: unknown): RequestInit {
   return { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) };
-}
-
-export function formAvailabilityOutcomeUnknown(error: unknown): boolean {
-  return !isAppError(error) || error.code === "INTERNAL";
 }
 
 export function formAvailabilityRecoveryMessage(action: FormAvailabilityAction): string {
@@ -394,7 +390,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
       toast("Participant step saved — confirmed from the completed request");
       return true;
     } catch (error) {
-      if (!formAvailabilityOutcomeUnknown(error)) {
+      if (isDefinitiveWriteFailure(error)) {
         setParticipantStepRecovery(null);
         if (isAppError(error)) toast(error.message, { kind: "error" });
         return false;
@@ -433,7 +429,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
         applyParticipantStepAuthority(next, recovery);
         toast("Participant step saved");
       } catch (error) {
-        if (formAvailabilityOutcomeUnknown(error)) await replayParticipantStep(recovery);
+        if (!isDefinitiveWriteFailure(error)) await replayParticipantStep(recovery);
         else if (isAppError(error)) toast(error.message, { kind: "error" });
       }
     } finally {
@@ -621,7 +617,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
         : "Form closed — confirmed from the completed request");
       return true;
     } catch (error) {
-      if (!formAvailabilityOutcomeUnknown(error)) {
+      if (isDefinitiveWriteFailure(error)) {
         setAvailabilityRecovery(null);
         setPendingAvailabilityAction(null);
         if (isAppError(error)) toast(error.message, { kind: "error" });
@@ -685,7 +681,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
       toast(action === "open" ? "Form availability updated" : "Form closed");
       router.refresh();
     } catch (error) {
-      if (formAvailabilityOutcomeUnknown(error)) await replayAvailability(recovery);
+      if (!isDefinitiveWriteFailure(error)) await replayAvailability(recovery);
       else if (isAppError(error)) toast(error.message, { kind: "error" });
     } finally {
       setBusy(false);

@@ -1,5 +1,5 @@
 import type { ConflictDTO, ScheduledSessionDTO } from "@/shared/contracts";
-import { isAppError } from "@/shared/lib/errors";
+import { isDefinitiveWriteFailure } from "@/shared/lib/errors";
 
 export type BulkPublishPreflight = {
   candidates: ScheduledSessionDTO[];
@@ -16,7 +16,7 @@ export function bulkPublishFailureMessage(
   // are definitive and already carry the organizer's actionable guidance.
   // INTERNAL can be raised after the transaction commits (for example during
   // route revalidation), so it must be treated like a lost network response.
-  if (isAppError(error) && error.code !== "INTERNAL") return error.message;
+  if (isDefinitiveWriteFailure(error)) return error.message;
   const outcome = published
     ? "those sessions were published or all speaker emails were queued"
     : "those sessions were unpublished";
