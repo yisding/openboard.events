@@ -48,6 +48,29 @@ describe("communications template renderer", () => {
       .toThrowError(/missing variable submission\.title/u);
   });
 
+  it("carries each link's destination into the plain-text alternative", () => {
+    // Stripping tags deletes the href, so the text/plain part used to read
+    // "Open your speaker portal" with no address anywhere in it — and the
+    // unsubscribe line the layout appends had nowhere to go either.
+    const rendered = renderTemplate("submission_received", SAMPLE_VARS.submission_received);
+    expect(rendered.html).toContain("<a href=");
+    expect(rendered.text).toMatch(/\(https?:\/\//u);
+    // The HTML part is untouched.
+    expect(rendered.html).not.toContain(" (https://");
+  });
+
+  it("does not repeat a URL that is already its own label", () => {
+    const vars = { ...common, submission: { title: "A talk", code: "SESS-7" } } as TemplateVars;
+    const rendered = renderTemplateContent(
+      "submission_received",
+      "Received",
+      '<p><a href="https://example.com/x">https://example.com/x</a></p>',
+      vars,
+    );
+    expect(rendered.text).toContain("https://example.com/x");
+    expect(rendered.text).not.toContain("https://example.com/x (https://example.com/x)");
+  });
+
   it("escapes hostile values in the subject and body", () => {
     const vars = { ...common, submission: { title: ";lkj<img onerror=alert(1)>", code: "SESS-7" } } as TemplateVars;
     const rendered = renderTemplate("submission_received", vars);
