@@ -1,4 +1,5 @@
 import { sql, type SQLWrapper } from "drizzle-orm";
+import { OUTSTANDING_REVIEW_WORK_SQL } from "@/db/review-work";
 import { db } from "@/db/client";
 import type { EventId, UserId } from "@/shared/contracts";
 
@@ -53,7 +54,7 @@ export async function getReviewerQueueCountIn(dbOrTx: NavCountsDb, eventId: Even
     JOIN evaluation_plans p ON p.id = ra.plan_id AND p.event_id = ra.event_id
     LEFT JOIN reviews r ON r.plan_id = ra.plan_id AND r.submission_id = ra.submission_id AND r.reviewer_user_id = ra.reviewer_user_id
     WHERE ra.event_id = ${eventId} AND ra.reviewer_user_id = ${reviewerUserId}
-      AND ra.status = 'assigned'
+      AND ${OUTSTANDING_REVIEW_WORK_SQL}
       AND p.status = 'open'
       AND (p.opens_at IS NULL OR p.opens_at <= now())
       AND (p.closes_at IS NULL OR p.closes_at > now())

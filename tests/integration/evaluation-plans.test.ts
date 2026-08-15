@@ -491,6 +491,29 @@ describe("evaluation plans and reviewer routing", () => {
     expect(plan?.reviewers[0]?.assigned).toBe(1);
   });
 
+  it("stops counting a withdrawn submission as work the reviewer can still do", async () => {
+    const planId = await seedPlan();
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: grace, trackIds: null }]);
+    const before = (await listPlansIn(db, eventId))[0]?.reviewers[0]?.assigned ?? 0;
+    expect(before).toBeGreaterThan(0);
+
+    const priorStatus = (await pglite.query<{ status: string }>(
+      "SELECT status FROM submissions WHERE id = $1", [agentsTalk],
+    )).rows[0]?.status ?? "pending";
+    await pglite.query("UPDATE submissions SET status = 'withdrawn' WHERE id = $1", [agentsTalk]);
+
+    try {
+      // The queue already hid it. The per-reviewer counter did not, so the plan
+      // row sat at n-1/n forever with nothing the reviewer could clear — and
+      // the reminder path mailed them about it.
+      const after = (await listPlansIn(db, eventId))[0]?.reviewers[0]?.assigned ?? 0;
+      expect(after).toBe(before - 1);
+    } finally {
+      // Shared seed row: hand it back the way the other cases expect it.
+      await pglite.query("UPDATE submissions SET status = $2 WHERE id = $1", [agentsTalk, priorStatus]);
+    }
+  });
+
   it("refuses to route submissions to someone who is not a member", async () => {
     const planId = await seedPlan();
     const error = await assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: stranger, trackIds: null }])
