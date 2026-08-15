@@ -19,6 +19,14 @@ divisible by 15, and `cleanup` at 09:00 UTC. Airtable remains deferred and is
 not part of the RPC contract. A missed tick self-heals on the next one because
 every real job is an idempotent bounded database scan.
 
+`cleanup` is five independent sweeps behind one job name — R2 orphans, the data
+retention sweep, the stalled-file-export nudge, expired-export pruning, and
+operational-error pruning. They settle rather than short-circuit: a tick that
+pruned four hundred rows and failed one sweep reports the four hundred and
+names the sweep that failed, instead of discarding both. The export nudge takes
+a bounded batch and reports the remainder as deferred, so a backlog waits for
+the next tick instead of running this one past its CPU budget.
+
 Each RPC call has a 120-second caller-side deadline. Every due sibling is allowed to settle,
 then the aggregate `waitUntil()` promise rejects if any request failed.
 Cloudflare therefore records a failed Cron Trigger invocation instead of a false success. Dispatcher
@@ -33,6 +41,16 @@ Local scheduled test with both Worker configs and the Service Binding connected
 pnpm build:worker
 pnpm exec wrangler dev -c workers/jobs/wrangler.jsonc -c wrangler.jsonc --test-scheduled
 curl 'http://localhost:8787/__scheduled?cron=*+*+*+*+*'
+```
+
+That drives whatever the tick's own UTC clock says is due, which outside 09:00
+is the outbox alone. To exercise one job directly, run the web app with
+`pnpm dev` and call its private route — the entrypoint that hides these paths
+is the deployed Worker's, not the Next route:
+
+```bash
+curl -X POST -H 'x-openboard-private-job: JobsEntrypoint' \
+  http://localhost:3000/worker-jobs/cleanup
 ```
 
 Deploy web first, then run `pnpm deploy:jobs:preview` or `pnpm deploy:jobs:production`.

@@ -69,6 +69,12 @@ Keep `.dev.vars` at its example defaults — `APP_ENV=local`, `EMAIL_MODE=log`, 
 Resend. Admin authentication always uses Better Auth; there is no provider switch or test-only
 session endpoint.
 
+Two more secrets are blank in the example file and are needed only by the plans that reach the
+surfaces they sign: `UNSUBSCRIBE_SECRET` (MTP-12's unsubscribe link) and `SPEAKER_SHARE_SECRET`
+(the `/speaking/<token>` share page in MTP-07 §5, MTP-10 and MTP-11). Any 32+ character string
+will do locally. Left blank, those two paths fail with an internal error rather than a bad
+token — that is configuration, not a defect.
+
 **File uploads** presign against real R2. Either fill `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`,
 `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME=sb-files-dev`, or run those steps on Env C. CORS is only
 genuinely exercised on a deployed origin.
@@ -91,6 +97,23 @@ curl 'http://localhost:8787/__scheduled?cron=*+*+*+*+*'
 The web job implementations are reachable only through the local Service Binding; there is no
 public job callback to invoke by hand.
 
+One cron fires every minute and the dispatcher decides what is due from the tick's own UTC clock:
+`outbox` every tick, `reminders` when the minute divides by 15, `cleanup` only at 09:00 UTC.
+So the `__scheduled` call above drains the outbox and nothing else, and waiting for 09:00 to
+exercise `cleanup` is not a test plan. Under `pnpm dev` — and only there — the private job routes
+answer a direct call, because the block that hides them lives in the deployed Worker's public
+entrypoint (`custom-worker.ts`), not in the Next route:
+
+```bash
+curl -X POST -H 'x-openboard-private-job: JobsEntrypoint' \
+  http://localhost:3000/worker-jobs/cleanup    # or outbox, or reminders
+```
+
+The response is that tick's stats. `cleanup` runs five independent sweeps — R2 orphans, the
+retention sweep, the stalled-export nudge, expired-export pruning, and operational-error pruning —
+and reports what each one did even when a sibling fails. On Env C the same path is a `404`
+before OpenNext ever sees it; MTP-12 step 15 is the check that it stays that way.
+
 With `EMAIL_MODE=log` the dispatcher writes the rendered message to the server log instead of calling
 Resend — that log line is the artifact for local email assertions.
 
@@ -107,6 +130,7 @@ Resend — that log line is the artifact for local email assertions.
 | Reviewer / second reviewer | `reviewer@openboard.dev`, `reviewer2@openboard.dev` / `BOOTSTRAP_REVIEWER_PASSWORD` |
 | Speakers (12) | `ada@openboard.events`, and `grace@`, `alan@`, `katherine@`, `margaret@`, `barbara@`, `tim@`, `radia@`, `linus@`, `sophie@`, `james@`, `shafi@` |
 | Deliberately incomplete | `margaret`, `barbara` (no headshot); `tim`, `radia` (no bio); `james` (neither) — these drive the attention strip and `missing_assets_v` |
+| Seeded review rounds | **Round 1** — open, 1–5, two weighted numeric criteria (Relevance ×2, Quality ×1), all three members assigned — `reviewer@` scoped to AI Agents and Platforms, the organizer and `reviewer2@` to everything — and partial scores. **Round 2 · Blind shortlist** — blind, windowed (opened yesterday, closes +14 days), typed criteria (numeric *Originality* ×2, select *Recommendation* ×1), and all four assignment states on one progress row: `reviewer@` is left entirely outstanding, `reviewer2@` supplies the completed rows, and one pair is recused |
 | Tracks | AI Agents, Platforms, Security, Community |
 | Rooms | Main Stage (800), Workshop A (120), Workshop B (120), Studio (60), Atrium (200) |
 | Formats | Keynote 45, Talk 30, Workshop 90, Panel 45, Break 15 |
@@ -138,11 +162,16 @@ both display as **Pending** to them, and the raw enum string must never reach a 
 
 ### 0.6 Roles and where each surface lives
 
-- Organizer: `/events`, `/events/<eventId>/{dashboard,forms,abstracts,evaluation,agenda,speakers,tasks,files,communications,resources,embeds,settings}`
+- Organizer: `/events`, `/events/new`, `/events/<eventId>/{dashboard,forms,abstracts,evaluation,agenda,speakers,tasks,files,communications,resources,embeds,settings}`, plus `settings/api-keys` and `tasks/forms` one level down
 - Reviewer: `/events/<eventId>/review` only — the nav hides everything else
-- Speaker: `/portal/<eventSlug>/…`
-- Public: `/e/<eventSlug>/…`, `/embed/<eventSlug>/…`, `/submit/…`, `/api/v1/…`
-- Organization: `/organizations`, `/organizations/<orgId>/{team,audit,billing,onboarding,crm}`
+- Speaker: `/portal/<eventSlug>/…`, including the public `login`, `verify` and `unsubscribe` pages inside that prefix
+- Public: `/e/<eventSlug>/…`, `/embed/<eventSlug>/…`, `/submit/…`, `/speaking/<token>`, `/cal/<token>`, `/f/<fileId>`, `/api/v1/…`
+- Organization: `/organizations`, `/organizations/<orgId>/{team,audit,billing,onboarding,crm}`, with `crm/segments`, `crm/pipeline` and `crm/<contactId>` under the CRM
+- Account and sign-up: `/login`, `/login/{forgot,reset}`, `/signup`, `/signup/{check-email,confirm,verified}`, `/join`, `/account/sessions`
+
+Only `/events/*`, `/portal/*`, `/organizations/*` and `/account/*` run the middleware. That is
+what preserves the return path on a signed-out deep link, so a link into a CRM contact, a billing
+page or your own sessions comes back to itself after sign-in rather than to the picker.
 
 ### 0.7 The design bar
 
@@ -231,7 +260,7 @@ across the seam. Appendix C compresses all five into a timed capstone rehearsal.
 
 ## MTP-03 — Solicit: authoring the CFP, publishing it, and the invited-speaker intake
 
-**Environments:** A · **Duration:** ~75 min · **Precondition:** MTP-01, signed in as organizer, clock
+**Environments:** A · **Duration:** ~85 min · **Precondition:** MTP-01, signed in as organizer, clock
 set outside Pacific.
 
 **Objective.** Prove an organizer can author a call for speakers that asks the right questions of the
@@ -252,9 +281,12 @@ the CFP.
 | 8 | Add **Room preference**, visible only when Session length = 90 | The builder preview hides it until 90 is chosen |
 | 9 | Nest a second condition (visible when Session length = 90 **and** Track = Platforms) | Both conditions are evaluated; neither alone reveals the field |
 | 10 | Create a condition that references a field, then delete that field | The app refuses, or repairs the rule and says so. A silently broken rule is S1 |
+| 10a | Delete a field in the middle of a section, then add a new one | The new question lands **last**, and stays there through a reload and in the public form. A new field that lands beside its deleted predecessor's neighbour, order deciding itself on each save, is the regression |
 | 11 | Add a routing rule: Format = Workshop → track *AI Agents* + tag *Tooling* | Saves; appears in the rules list |
+| 11a | Try to source a rule's condition from a **participant** question — *Company is not Acme → set Track Sponsored* | Refused on save, naming the condition: routing runs at submit time against the abstract answers alone, so a participant question is one it can never evaluate. Record a D10/D6 finding if the picker offers a source the save then rejects |
+| 11b | Author an `is not` / `is empty` rule on an abstract question, then delete that question and submit a proposal | The rule stops matching, whether or not anybody has opened the routing panel since. The failure to avoid is the opposite: an unanswerable `neq`/`not_in`/`empty` rule matching **every** submission, taking first place in first-match-wins, and silently overriding the track the speaker chose |
 | 12 | Add a second, conflicting rule and reorder the two | Precedence is explicit in the UI — the user can tell which wins without guessing (D6) |
-| 13 | Duplicate the form | A copy with its own id and no submissions; the original is untouched |
+| 13 | Duplicate a form **that has a conditional question** | A copy with its own id and no submissions; the original is untouched. Open the copy's rule: its source points at the *copy's* own field, and the public copy hides and reveals exactly as the original does. This is the escape hatch the product itself recommends once a form locks, so a failure here strands the organizer |
 | 14 | Open the seeded CFP and try to delete the locked *Title* / *Email* fields | Refused, with a reason naming the mapping (`submission.title`, `contact.email`) |
 | 15 | Edit a field label on the seeded form *that already has submissions* | Allowed, and a new snapshot version is created — existing submissions keep the version they were made against |
 | 16 | Try a structural change on that same form (delete a field with answers) | Refused with a specific message, not a 500 |
@@ -309,7 +341,7 @@ Zero S1/S2.
 
 ## MTP-04 — Intake: the public submission under real-world conditions
 
-**Environments:** A, with §1 repeated on C · **Duration:** ~75 min · **Precondition:** MTP-03.
+**Environments:** A, with §1 repeated on C · **Duration:** ~90 min · **Precondition:** MTP-03.
 
 **Objective.** Prove a speaker can submit — on a phone, on a bad connection, in another timezone,
 having walked away for a day — and that what lands in the database is exactly what they typed, once.
@@ -329,6 +361,20 @@ having walked away for a day — and that what lands in the database is exactly 
 | 9 | Check Submission B as organizer | Track reads **AI Agents**, tag **Tooling** — the routing rule overrode the speaker's *Platforms* answer |
 | 10 | Open both submissions' answers | B has every answer including the conditional. A has no orphaned Workshop-duration answer — absent, not blank |
 | 11 | *(Env C)* Repeat steps 1–8 with a real inbox | The OTP email arrives from the verified domain and the code works. There is no fixed-code shortcut in any environment; on Env A the same real code is surfaced in the login UI by `EMAIL_FALLBACK_UI=1` |
+
+### §1a Co-speakers
+
+The submitter is always the one primary speaker; the form's participant settings decide which
+additional roles — co-speaker, moderator, panelist — the wizard offers, and the **Speaker** step is
+where they are added. Run this section on a form with at least one secondary role enabled.
+
+| # | Action | Expected result |
+|---|---|---|
+| 11a | On the Speaker step, add a co-speaker and fill in their details; submit | One submission with two participants. The organizer's drawer names both and marks which is primary |
+| 11b | Put a participant question behind a condition whose source is *another participant question*, then fill the primary's answer and leave the co-speaker's blank | The co-speaker's section hides and reveals on exactly the same rule the server evaluates. The two failures to watch for are a required error naming a question that is not on screen, and an answer the speaker typed being discarded as hidden — both mean client and server disagreed about which questions exist for that person |
+| 11c | Put the same question behind a condition sourced from an **abstract** question | Both sides agree again: a participant's visibility is decided by the abstract answers plus that participant's own, never by another participant's |
+| 11d | As the co-speaker, sign in to the portal and open the proposal | Readable. **Edit** belongs to the submitter alone — two people editing one proposal from two browsers, with no locking between them, silently loses one of them |
+| 11e | Accept the submission and notify (MTP-06 §3), then check both contacts | Both are `confirmed`, and both appear on the published session. A co-speaker left unconfirmed is joined out of `published_speakers_v` and the session publishes without them |
 
 ### §2 Validation and content
 
@@ -351,6 +397,7 @@ having walked away for a day — and that what lands in the database is exactly 
 | 21 | Open the same draft in two tabs; edit a field in each; submit from tab A, then tab B | One submission, or a clear conflict message. Never two rows for one draft |
 | 22 | Double-click **Submit** | One submission, one code |
 | 23 | Submit with the network throttled to offline, then restore | A clear failure and a retry that does not duplicate. The user must be able to tell whether it went through (D4) |
+| 23a | Do the same on the **code request** at step 1 | The copy says the send could not be confirmed and leaves the code box usable — a request that may well have been delivered must not be reported as a flat failure that hides the code the speaker is holding. A transport failure is the one case where "we don't know" is the honest answer, and every screen that writes must be able to say it |
 | 24 | Press Back after the success page | You cannot resubmit the same draft by going back |
 | 25 | Submit 3 proposals from one email (the seeded limit), then a 4th | The 4th is blocked by a friendly limit page naming the limit — not a 500, not a silent failure |
 
@@ -397,7 +444,7 @@ as one that fails to fire.
 
 ## MTP-05 — Evaluate: review rounds, assignment, and scoring
 
-**Environments:** A · **Duration:** ~60 min · **Precondition:** MTP-04, so real submissions exist.
+**Environments:** A · **Duration:** ~70 min · **Precondition:** MTP-04, so real submissions exist.
 Two browser profiles: organizer and `reviewer@openboard.dev`.
 
 **Objective.** Prove an organizer can govern a round, a reviewer works exactly their own queue, and
@@ -446,6 +493,10 @@ the number the organizer decides on is the number the criteria define.
 | 21 | Sort Abstracts by Rating | The order matches the ratings; unscored rows sort predictably rather than as zero |
 | 22 | Edit the form after a submission was scored, then re-open the queue item | The reviewer still sees the **pinned snapshot**, not the edited form |
 | 22a | With **Share committee averages** off, score the same proposal as two reviewers; then enable it and reload | Before opt-in, neither reviewer payload nor UI reveals the live mean or reviewer count. After opt-in, both show the committee average clearly |
+| 22b | With the round still hiding averages, open a queued proposal as the reviewer and read the **network response**, not the screen | No rating and no reviewer count anywhere in the JSON. A UI that hides a number the payload carries is not blind review; check the response body, because that is the half that has been wrong before |
+| 22c | With averages shared, score a proposal in **Round 2** that also carries Round 1 scores | The mean the reviewer sees is Round 2's — their own round's — not the event's active plan's. A number no reviewer in this round ever gave is worse than no number |
+| 22d | Delete a criterion, add a different one in its place, and save | Existing scores stay with the criteria that produced them. A new criterion inheriting a deleted one's identity resurfaces old answers under a new label, and is S1 |
+| 22e | Withdraw a submission that is assigned and unscored, then look at the reviewer's nav badge, the round's progress row, and the reminder preflight | All three drop it, the same way the queue already does. A count a reviewer cannot clear — because opening the queue renders nothing — sends reminders nobody can act on |
 
 ### §5 Reminders
 
@@ -463,13 +514,14 @@ to do should be told that clearly; **D9** on the round window (DD-2 regression).
 
 ### Exit criteria
 
-Steps 12, 19, 22 are the load-bearing three: blindness, arithmetic, snapshot pinning.
+Steps 12, 19, 22 are the load-bearing three: blindness, arithmetic, snapshot pinning. Add 22b —
+what a round withholds has to be withheld in the response, not merely left off the screen.
 
 ---
 
 ## MTP-06 — Decide: accept, reject, and tell the speakers
 
-**Environments:** A, with §4 repeated on C · **Duration:** ~75 min · **Precondition:** MTP-05.
+**Environments:** A, with §4 repeated on C · **Duration:** ~85 min · **Precondition:** MTP-05.
 
 **Objective.** Prove the decision machinery is correct in every direction — including undo — and that
 each decision produces exactly one message to exactly the right person, once.
@@ -489,7 +541,7 @@ otherwise. This is 49 attempts; a spreadsheet with a row per pair is the right a
 | 5 | Any transition into `draft` | Refused from every status |
 
 **The trigger needs its own test, and the API cannot give it one.** `transitionStatus`
-(`src/features/submissions/server/mutations.ts:548`) calls `assertTransition` for every source status
+(in `src/features/submissions/server/mutations.ts`) calls `assertTransition` for every source status
 *before* it issues the `UPDATE`, so an illegal pair posted to the API is rejected in the application
 layer and never reaches Postgres. Steps 1–5 therefore prove the application guard only — they would
 pass unchanged if `guard_submission_transition()` were dropped tomorrow.
@@ -538,6 +590,19 @@ ROLLBACK;   -- the trigger should have raised before you get here
 | 23 | As the notified speaker, open the portal | Status reads **Accepted**; the decision is visible without an email |
 | 24 | Check a `decline_queue` submission in the portal | It reads **Pending** — internal queue names never leak (D6, and a privacy matter) |
 
+### §3a Acceptance and confirmation
+
+Acceptance is what confirms a speaker: there is no speaker-facing confirm button, and
+`published_speakers_v` requires `confirmation_status = 'confirmed'`, so an unconfirmed person is
+joined out of the public schedule even when their session is published.
+
+| # | Action | Expected result |
+|---|---|---|
+| 24a | Accept a submission that has a co-speaker, through **Notify** | **Every** participant is confirmed, not only the primary. A session that publishes with one of its two speakers missing is the failure |
+| 24b | Accept a submission by moving it straight to `accepted` from the drawer, and one created already accepted from **Add abstract** | Its participants are confirmed too. Confirmation follows the acceptance, not the mail that announces it — a direct move sends no decision email and used to confirm nobody, so its session published with an empty speaker list |
+| 24c | Set one participant to **declined** by hand, then accept the submission again | They stay declined. An organizer who said someone is not coming must not be overruled by a re-acceptance — only `unconfirmed` is promoted |
+| 24d | Notify an acceptance for a submission with no participants at all, only a submitter | The submitter is confirmed as the fallback. Where participants exist, the submitter is *not* confirmed for being the submitter — the person who filled the form in on somebody else's behalf is not the speaker |
+
 ### §4 Delivery on Env C
 
 | # | Action | Expected result |
@@ -571,7 +636,7 @@ re-notify), step 24 (no internal status leaks), and §5 (counts agree).
 
 ## MTP-07 — Schedule: promotion, placement, conflicts, and publication
 
-**Environments:** A, with §6 on C · **Duration:** ~90 min · **Precondition:** MTP-06, so accepted
+**Environments:** A, with §6 on C · **Duration:** ~105 min · **Precondition:** MTP-06, so accepted
 talks exist. Clock still outside Pacific.
 
 **Objective.** Prove accepted talks become sessions, that placement is safe and reversible, that
@@ -598,6 +663,7 @@ session public.
 | 9 | Drag a session to a new slot | It lands where dropped and survives a reload |
 | 10 | Drag a session to an invalid target (outside a day, onto a break) | Rejected visibly, and the session returns to its origin — no silent snap to a wrong slot |
 | 11 | Resize / change duration so a session crosses midnight or the day boundary | Handled deliberately — either prevented with a reason or represented correctly on both days |
+| 11a | On a day carrying a **DST transition** in the event's zone (move the event's dates onto one, or make a throwaway event that lands on it), drag a session across the transition, then drag one that spans it | The session keeps the length it is *drawn* with — a 60-minute talk stays 60 minutes wherever it is dropped. A session that grows or shrinks by exactly an hour means its span was measured as elapsed UTC instead of on the clock, and every speaker is then sent a `schedule_changed` invite carrying the wrong end time. Resize the same sessions too: both edges must agree |
 | 12 | Place a session in a room whose capacity is below the session's expected capacity | Record what happens. If nothing warns, that is a D-finding to file, not a pass |
 | 13 | Edit the same session in two tabs, saving both | The second save fails visibly on the concurrency check |
 | 14 | Open a session's **revisions** | Prior placements are recorded with who and when |
@@ -632,13 +698,20 @@ session public.
 | # | Action | Expected result |
 |---|---|---|
 | 30 | Publish one session; open `/e/ai-engineer-sandbox-event/schedule` | It appears publicly |
+| 30a | In the session dialog, choose **Leave unscheduled (keep in the tray)** together with the **Published** status, and save. Repeat on a new session and on an existing draft | Refused both times, on the field, with the way out named — schedule it, or save it as a draft. A published session with no time is on no public surface and notifies nobody, while the List view badges it *Published*: indistinguishable from a draft in the one place it shows up |
+| 30b | Unschedule a session that is **already** published — drag it back to the tray | Allowed. This is a different act from publishing something that never had a time, and it is how a talk gets pulled: every speaker's calendar item is cancelled |
 | 31 | Leave another unpublished; search for it publicly and in `/api/v1/events/<slug>/schedule` | Absent from both |
 | 32 | Bulk-publish the rest | All appear on the next load; the action reports how many |
 | 33 | Unpublish a published session | It disappears publicly. Any speaker-facing consequence is visible to the organizer first |
 | 34 | Move a **published** session | The public schedule reflects the move, and a **Schedule changed** message is enqueued — not a duplicate invite |
 | 35 | Delete a published session | Gone publicly; calendar consumers see a cancellation, not a silent gap |
+| 35a | Drain the outbox and open the CANCEL that step 35 produced | It describes the event the recipient actually received — the original title, time and room — even though the session row it came from no longer exists. A cancellation assembled from what is left on a deleted or reassigned session cancels the wrong thing, or nothing |
+| 35b | Force the cancellation to be retried (fail it once, let the dispatcher pick it up again) | The retry is the same message: same UID, same details. A cancellation that redraws itself from current state on each attempt is not a cancellation |
 | 36 | Check the public page's day tabs with your clock outside Pacific | Sessions bin onto the correct **event-local** day. A session at 9 pm Pacific must not appear on the next day |
 | 37 | Publish the whole schedule and compare against Abstracts | Every accepted talk is either scheduled or knowingly unscheduled; nothing accepted has silently vanished |
+| 37a | With nothing published, look for **Ready to announce** on the Agenda toolbar | Absent. Handing an organizer a bundle of links before anything is public is handing them broken links |
+| 37b | Publish the schedule, then open **Ready to announce** | Suggested post copy, the five public URLs, an agenda embed snippet, and one "I'm speaking!" share link per accepted speaker — every row copy-to-clipboard, nothing here mutates anything |
+| 37c | Open one of those share links signed out, in a private window | The speaker's page renders. A speaker with no name reads **Unnamed speaker** — never their email address, in the heading, the tab title, or the link preview a chat client scrapes (MTP-11 step 9a) |
 
 ### §6 On the deployed preview
 
@@ -649,8 +722,8 @@ session public.
 
 ### §7 Design checks
 
-Walk §0.7 on the agenda grid, the session dialog, the conflict indicator, the auto-place preview, and
-every view (list/day/week/track/room). Specifically:
+Walk §0.7 on the agenda grid, the session dialog, the conflict indicator, the auto-place preview,
+the **Ready to announce** modal, and every view (list/day/week/track/room). Specifically:
 
 - **D1** on the session dialog's shared selects (DD-1 regression) and **D9** on its zoned placement inputs (DD-2 regression)
 - **D3** on drag-and-drop — **is there a keyboard path to move a session?** If not, that is S1 for
@@ -661,8 +734,9 @@ every view (list/day/week/track/room). Specifically:
 
 ### Exit criteria
 
-§1 (idempotent promotion), §3 in full (every conflict dimension plus adjacency), §5 steps 31 and 36
-(nothing unpublished leaks; timezone binning). Zero new S1/S2.
+§1 (idempotent promotion), §3 in full (every conflict dimension plus adjacency), §5 steps 30a, 31
+and 36 (nothing publishes without a time; nothing unpublished leaks; timezone binning). Zero new
+S1/S2.
 
 ---
 
@@ -676,7 +750,7 @@ run MTP-09 wherever the operator can be given a real task.
 
 ## MTP-08 — Control, state, and consistency sweep
 
-**Environments:** A (seeded), C to confirm anything suspicious · **Duration:** ~120 min ·
+**Environments:** A (seeded), C to confirm anything suspicious · **Duration:** ~150 min ·
 **Cadence:** every release, and after any change to `globals.css` or `ui-kit.tsx`.
 
 **Objective.** Inventory every interactive control on every surface and hold each to §0.7. This is
@@ -685,7 +759,7 @@ states nobody designed.
 
 ### §1 The inventory
 
-Fill one row per (surface, control type). 24 surfaces × the controls each carries.
+Fill one row per (surface, control type). 30 surfaces × the controls each carries.
 
 | Surface | Control | From the kit? | States (D2) | Keyboard (D3) | Theme (D8) | Notes |
 |---|---|---|---|---|---|---|
@@ -701,17 +775,23 @@ Fill one row per (surface, control type). 24 surfaces × the controls each carri
 | Reviewer queue | scoring controls | | | | | |
 | Agenda grid + session dialog | selects, datetime, drag | | | | | |
 | Auto-place preview | list, accept/reject | | | | | |
+| Ready-to-announce modal | copy rows, links | | | | | |
 | Speakers list + detail | table, filters, invite | | | | | |
 | Speaker roster panels | datetime, selects | | | | | |
 | Tasks admin + task editor | date input, selects | | | | | |
-| Files admin | selects, upload | | | | | |
+| Task forms list + editor | field editors, selects | | | | | |
+| Files admin | selects, upload, export | | | | | |
 | Communications (6 tabs) | tabs, editor, selects | | | | | |
 | Resources admin | table, editor | | | | | |
 | Embeds | config, color input | | | | | |
 | Event settings | tabs, selects, inputs | | | | | |
+| Event settings → API keys | table, create/revoke dialogs | | | | | |
 | Dashboard | select, cards, queue | | | | | |
+| Command palette | search, results, shortcuts | | | | | |
 | Portal (home/tasks/profile/submissions) | uploads, forms | | | | | |
+| Speaker share page (`/speaking/<token>`) | links, share actions | | | | | |
 | Public pages (×6) + embeds | filters, search, star | | | | | |
+| Sign-up and account (`/signup`, `/join`, `/account/sessions`) | forms, revoke | | | | | |
 | Org: team, audit, billing, CRM (×4) | tables, dialogs, pipeline | | | | | |
 
 ### §2 Targeted probes
@@ -798,6 +878,7 @@ The core flow crosses four surfaces. Seams are where tasks die.
 | 11 | Accepted → scheduled | From Abstracts, is there a route to scheduling? From the Agenda, is there a route to what is unscheduled? | Both directions exist |
 | 12 | Scheduled → published | Is the difference between "on my agenda" and "on the website" unmistakable? | Yes — publication state is legible at a glance |
 | 13 | Published → changed | After a change, is the "tell people" step offered, or must it be remembered? | Offered |
+| 14 | Published → announced | Having published, does the operator find the links, embed snippet and per-speaker share cards without being sent hunting? | On the surface where publishing happened, and only once there is something to announce |
 
 ### Exit criteria
 
@@ -831,7 +912,8 @@ threshold outside the core flow is zero S1.
 | 11 | Sign in as organizer | Lands on an event surface with the four nav groups |
 | 12 | Open the seeded Dashboard | Non-empty: counts, attention queue, the five incomplete speakers |
 | 13 | Open **Empty Conf** and click every nav item | A deliberate empty state everywhere. No crash, no `NaN`, no endless spinner. **Record D5 on each** |
-| 14 | `pnpm typecheck && pnpm lint && pnpm invariants && pnpm test` | All green; record the vitest count |
+| 14 | `pnpm typecheck && pnpm lint && pnpm architecture:check && pnpm schema:check && pnpm invariants && pnpm test` | All green; record the vitest count. This is the credential-free set CI runs on every PR, and `pnpm check` is the same list plus both builds |
+| 14a | Note which engine `pnpm test` chose | With Docker running it starts a pinned Postgres container and removes it afterwards; with `TEST_POSTGRES_URL` exported it uses that server untouched; with neither it prints the PGlite notice on stderr and runs the slow path. `pnpm test:pglite` forces PGlite regardless. A run that silently takes far longer than the last one is usually this, not a regression |
 | 15 | *(C)* `bash scripts/post-deploy-smoke.sh <baseUrl>` | All checks pass; any skip names its reason |
 | 16 | *(C)* `curl -s <baseUrl>/api/health` | Same shape as step 10, with the deployed sha |
 
@@ -847,6 +929,7 @@ pipeline on every merge to `main`.
 | # | Action | Expected result |
 |---|---|---|
 | 1 | Visit an event URL signed out | Redirect to `/login`, return path preserved |
+| 1a | Signed out, open a deep link under `/organizations` and one under `/account` — an audit log, a CRM contact, a billing page, `/account/sessions` | Sign-in returns you to the page you asked for, not to the organization picker. These four prefixes are exactly the middleware matcher; a page outside it silently falls back |
 | 2 | Wrong password | Generic failure — does not distinguish "no such user" from "wrong password" |
 | 3 | Correct sign-in as organizer | Reaches the event; footer shows name and **Organizer** |
 | 4 | Sign out, then press Back | No authenticated page is restored |
@@ -875,7 +958,7 @@ failure. See `docs/runbooks/sign-in-capacity.md` for budgets, log fields, and in
 
 ## MTP-10 — Speaker portal
 
-**Environments:** A, **C for uploads** · **Duration:** ~50 min
+**Environments:** A, **C for uploads** · **Duration:** ~55 min
 
 | # | Action | Expected result |
 |---|---|---|
@@ -902,9 +985,12 @@ failure. See `docs/runbooks/sign-in-capacity.md` for budgets, log fields, and in
 | 21 | Repeat 1–6 and 12 at 390×844 | No sideways scroll on home, list, or detail |
 | 22 | Sign in to two different events' portals in one browser | Both sessions coexist; neither leaks the other's tasks |
 | 23 | Follow an unsubscribe link and confirm | Recorded as a suppression (enforcement is MTP-12 step 8) |
+| 24 | Sign in as a speaker with an **accepted** submission on a published schedule | The portal home offers their "I'm speaking!" share link. A speaker with nothing accepted is not offered one |
+| 25 | Open that link in a private window; then paste it into a chat client that unfurls links | The page and its preview carry the speaker's name, talk and event — and no email address. A nameless contact reads **Unnamed speaker**: `first_name`/`last_name` default to empty, so anyone created from a submission or an invitation is nameless until somebody types one in |
+| 26 | Reopen the same link after someone else has already opened it | Still works. It is a share link, not a one-shot token — a speaker who posts it expects it to keep working |
 
-**Design checks.** §0.7 on portal home, task list, task detail, profile, resources — this is the
-surface a speaker sees, so S3s here cost more than elsewhere.
+**Design checks.** §0.7 on portal home, task list, task detail, profile, resources, and the share
+page — this is the surface a speaker sees, so S3s here cost more than elsewhere.
 
 **Known gaps.** Step 12 has a recorded defect (M52) in the portal upload's `attach()` POST: the file
 may land in R2 without the task flipping. Confirm before re-filing.
@@ -913,7 +999,7 @@ may land in R2 without the task flipping. Confirm before re-filing.
 
 ## MTP-11 — Public surfaces, embeds, calendar, and the public API
 
-**Environments:** A for content, **C for headers** · **Duration:** ~50 min · **Precondition:** MTP-07.
+**Environments:** A for content, **C for headers** · **Duration:** ~55 min · **Precondition:** MTP-07.
 
 | # | Action | Expected result |
 |---|---|---|
@@ -926,6 +1012,7 @@ may land in R2 without the task flipping. Confirm before re-filing.
 | 7 | Import that ICS into a calendar client | Correct times for the event zone, with title, room, description |
 | 8 | Compare one session and one speaker across all six surfaces and the admin | Everything agrees |
 | 9 | Search for the draft session and a declined speaker on every public page, every embed, and both APIs | Absent everywhere |
+| 9a | Clear a speaker's first and last name, then find them on the speakers page, the gallery, the session detail, the API, and their `/speaking/<token>` page | **Unnamed speaker** on every one of them. An email address standing in for a missing name is the admin roster's rule; on a public surface it publishes the address, and the share page's OpenGraph card gets scraped and cached by whoever sees it first |
 | 10 | Open a portal invite's `/cal/<token>` | A valid subscribable feed |
 | 11 | Move a published session; refetch | Reflected; a deletion appears as a cancellation |
 | 12 | `/cal/not-a-real-token` | Rejected — feeds are token-authorized |
@@ -934,8 +1021,11 @@ may land in R2 without the task flipping. Confirm before re-filing.
 | 15 | Frame an embed cross-origin | Renders; no `X-Frame-Options` |
 | 16 | *(C)* Request a public page and an embed until regeneration settles | A fresh response has `s-maxage`, or a cached response reports `x-nextjs-cache: HIT`; `STALE` alone is not a pass, and each body marker matches `/api/health`'s unique deployment id |
 | 17 | Unauthenticated `/api/v1/events/<slug>`, `/schedule`, `/speakers` | `200`, published rows only |
+| 17a | Unauthenticated `/api/v1/events/<slug>/schedule/ics`, then again with `?session=<id>` | A valid calendar file for the published schedule, and for the one session. `no-store` — this is a file, not a cacheable JSON document |
 | 18 | `Authorization: Bearer nope` on `/stats` | `401` in the documented envelope — **before** any 404 for a bad slug |
 | 19 | Valid key on `/stats` | `200`; agrees with the dashboard |
+| 19a | Valid key on `/speakers/outstanding-tasks` | The same rows the dashboard's chasing list shows — it reads the same view |
+| 19b | Valid key on `/comms-log`, with and without `limit` | Delivery records only: never a rendered body or subject line. `limit` defaults to 50 and clamps at 200 |
 | 20 | `/submissions?limit=1` then follow `meta.nextCursor` | Pages cleanly; no drafts; no repeats |
 | 21 | Revoke the key; repeat 19 | `401` immediately |
 | 22 | Event A's key against event B | `401`/`404` — keys are per-event |
@@ -949,15 +1039,17 @@ sees; D7 and D8 failures here are public.
 
 ## MTP-12 — Communications, reminders, and delivery compliance
 
-**Environments:** A, **C for delivery** · **Duration:** ~50 min
+**Environments:** A, **C for delivery** · **Duration:** ~65 min
 
 | # | Action | Expected result |
 |---|---|---|
 | 1 | **Communications → Delivery log** | The seeded log: recipient, subject, template, status, time |
 | 2 | Search by recipient and subject | Narrows; clearing restores |
 | 3 | Open one entry | Full detail including rendered body and delivery state |
-| 4 | **Templates** — confirm all 12 event-editable templates (the two admin-auth templates are not event-editable) | Each with a description of its trigger |
+| 4 | **Templates** — confirm all 11 event-editable templates | Each with a description of its trigger. Three of the 14 template keys are platform templates and are deliberately absent: the two admin-auth ones (password reset, email verification) and the organization invitation. Editing one of those through the API is refused, not accepted-and-ignored |
 | 5 | Edit a body with `<script>` plus a legitimate `<a href>`; save | Script stripped, link kept; the UI confirms sanitization |
+| 5a | Put `<a href="{{portal.magic_link}}">Open your speaker portal</a>` in a template body, save, and reload | The token survives the save. Sanitizers drop any `href` that is not http(s)/mailto, and a merge token is neither — so a body stored through the wrong sanitizer reaches every recipient as link-less text |
+| 5b | Do the same in **bulk send**'s composer and in the form builder's confirmation email, whose shipped default is built around that exact link | Same result in both, and the token is still there while you are typing, not stripped under the cursor |
 | 6 | **Preview** | Renders with sample data — no raw `{{tokens}}` |
 | 7 | **Bulk send** to a segment | One row per resolved recipient; the shown count matches |
 | 8 | Suppress one recipient; send again | Skipped, with the reason recorded — not counted as sent |
@@ -967,8 +1059,10 @@ sees; D7 and D8 failures here are public.
 | 12 | Pause it | Shows Paused; the next scan enqueues nothing for it |
 | 13 | Re-activate; trigger the private scheduler on a 15-minute tick | Reminders for overdue items only |
 | 14 | Trigger another eligible tick | No duplicates in the same window |
-| 15 | `POST /api/jobs/outbox` on the public web origin | `404`; no job control endpoint exists |
+| 15 | `POST /api/jobs/outbox` on the public web origin, then `POST /worker-jobs/outbox` **on Env C** — with and without the private header | `404` every time. The retired public callback does not exist, and the private path is refused by the deployed Worker's public entrypoint before OpenNext routing, so no header gets you in from the Internet |
 | 16 | Drain and read the log | Each message rendered once, with template and idempotency key |
+| 16a | Read the **text/plain** alternative of a message that contains links | Each link's destination is beside its label — `Open your speaker portal (https://…)` — including the layout's unsubscribe line. Stripping tags takes the `href` with them, and a client that renders text/plain then shows an email whose every call to action is inert. The subject line and the ICS descriptions deliberately keep the plain text |
+| 16b | Send a template containing `{{speaker.last_name}}` to a contact with no surname (most contacts created from a submission or an invitation have none) | Delivered, with the surname rendering as nothing. An empty value is not a missing variable: a missing one fails the message permanently, on the first attempt, with no retry — which would mean one ordinary greeting silently failing every message to half the roster |
 | 17 | Publish a session; drain | A **Schedule assigned** message ("You're scheduled: …") with ICS and Google/Outlook deeplinks |
 | 18 | Move it; drain | **Schedule changed** replaying the update — not a duplicate invite |
 | 19 | Signed bounce payload to `/api/webhooks/resend` | Accepted; recipient marked bounced and suppressed |
@@ -977,13 +1071,32 @@ sees; D7 and D8 failures here are public.
 | 22 | Deliverability panel | Reflects 19–21 |
 | 23 | *(C, `EMAIL_MODE=send`)* Send to an allowlisted inbox | Delivered from the verified domain; `dmarc=pass`, SPF/DKIM aligned |
 
+### The cleanup tick
+
+`cleanup` is the 09:00 UTC job. Drive it by hand with the `curl` in §0.3 rather than waiting.
+
+| # | Action | Expected result |
+|---|---|---|
+| 24 | Run `cleanup` and read its stats | One number per sweep — orphans, retention, stalled exports, expired exports, operational errors — and a sweep that fails does not erase what its siblings did |
+| 25 | Age a delivered message past 90 days and re-run | The record survives as the audit trail; the rendered subject, body and sealed payload do not. The recipient address stays — bounce and complaint lookups are keyed on it |
+| 26 | Do the same for a password-reset or verification message in the platform outbox | Redacted on the same boundary and by the same rule. This mailbox holds the sealed link on a failed row, so an unaged one keeps every reset credential it ever sent |
+| 27 | Start a file export, kill the browser tab before it finishes, and run `cleanup` | The job is picked up and driven forward. A job that never left `pending` because nothing polled it is exactly the case the sweep exists for; it must not sit until it expires and is pruned 24 hours later with the organizer never getting the ZIP |
+| 28 | Queue more stalled exports than one tick takes (20) | The oldest twenty are worked and the remainder are reported as deferred, not silently dropped and not run serially past the tick's budget |
+
 **Known gaps.** A production Outlook `portal_login` probe on `2026-08-15` passed SPF, DKIM, DMARC,
-and composite authentication but landed in Junk; that is the OTP placement baseline. Outlook
-calendar REQUEST/reschedule/CANCEL delivery is still untested, so a calendar-specific failure is
-new territory. A later Outlook authentication failure or placement worse than that recorded
-baseline is a regression. The matching Gmail probe passed authentication, and its folder placement
-was Inbox. Production forbids `EMAIL_FALLBACK_UI=1`; a credential appearing in a production-mode
-render is a P0.
+and composite authentication but landed in Junk; that is the OTP placement baseline. A later Outlook
+authentication failure or placement worse than that recorded baseline is a regression. The matching
+Gmail probe passed authentication, and its folder placement was Inbox.
+
+Calendar REQUEST/reschedule/CANCEL delivery is no longer hand-tested: the **Production mail
+delivery probe** workflow (`workflow_dispatch`, protected `production` environment, `pnpm
+probe:calendar-delivery`) creates a temporary session on a real production event, reschedules it,
+deletes it, and confirms all three messages reached one Gmail and one Outlook recipient. Run it
+against inboxes you own, and record the folder each landed in — that is the calendar placement
+baseline the way the `portal_login` probe is the OTP one.
+
+Production forbids `EMAIL_FALLBACK_UI=1`; a credential appearing in a production-mode render is
+a P0.
 
 ---
 
@@ -1068,11 +1181,13 @@ test that it does not lie about what it does.
 
 ## Appendix B — Automated counterparts
 
-Ten Playwright specs in [`../e2e/`](../e2e) overlap these plans: `admin-setup` (MTP-01/02),
+Thirteen Playwright specs in [`../e2e/`](../e2e) overlap these plans: `admin-setup` (MTP-01/02),
 `cfp-submit` (MTP-03/04), `abstracts-decide` (MTP-06), `review-operations` (MTP-05), `portal-tasks`
 (MTP-10), `agenda-schedule` (MTP-07), `public-embeds` + `public-widgets-parity` (MTP-11),
-`speaker-content-ops` (MTP-10/12/13), `self-service-onboarding` (MTP-13/13a). They run against a
-deployed target plus the `sb-test` Neon branch — set `E2E_BASE_URL` and `NEON_TEST_URL`, then
+`speaker-content-ops` (MTP-10/12/13), `self-service-onboarding` (MTP-13/13a), and three that
+automate part of the design bar — `rendered-ui-polish`, `responsive-action-groups` and
+`typography-hierarchy` (MTP-08). They run against a deployed target plus the `sb-test` Neon branch —
+set `E2E_BASE_URL`, `NEON_TEST_URL`, `E2E_ADMIN_PASSWORD` and `E2E_REVIEWER_PASSWORD`, then
 `pnpm e2e`.
 
 Run the specs first. These plans exist for what specs cannot do: real inboxes, real calendar clients,

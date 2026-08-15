@@ -54,10 +54,16 @@ copy-link button.
 
 ### What speakers see
 
-Speakers get a clean five-step wizard: verify email with a one-time code, fill in the proposal,
-add speaker details, review, submit. Drafts save to the server as they go, so nothing is lost to
-a closed tab, and speakers can come back and **edit their proposal until the form closes or you
-decide** — no "please re-open my submission" email threads.
+Speakers get a clean four-step wizard: verify email with a one-time code, fill in the proposal,
+add speaker details, review — then submit. (Three steps if you don't collect speaker details.)
+Drafts save to the server as they go, so nothing is lost to a closed tab, and speakers can come
+back and **edit their proposal until the form closes or you decide** — no "please re-open my
+submission" email threads.
+
+A talk is often not one person's. If you turn the roles on, the speaker step takes co-speakers,
+moderators and panelists alongside the submitter, each answering the participant questions in
+their own right; everyone on the proposal can see it in their portal, while editing stays with
+the person who submitted it.
 
 <img src="docs/screenshots/cfp-wizard.png" alt="The public submission wizard, showing the conditional Workshop duration question" width="640">
 
@@ -140,6 +146,9 @@ gallery, and a personal itinerary where attendees star sessions and export them 
 calendar (ICS). The hosted site carries the logo, background artwork, and accent color configured
 in Event settings, so the attendee experience stays recognizably yours.
 
+Publishing means what it says: a session needs a time before it can go public, so you cannot end
+up with a talk marked published that no attendee can find.
+
 ![The public schedule page for the sample event](docs/screenshots/public-schedule.png)
 
 Already have a conference website? **Embeds** gives you an iframe for each surface — agenda,
@@ -148,12 +157,20 @@ They're live: reschedule a talk in the Agenda and every embed updates.
 
 ![The embeds screen with five live embeddable surfaces](docs/screenshots/embeds.png)
 
+Once something is public, **Ready to announce** on the Agenda hands you the announcement in one
+place: suggested copy, the link to every public page, an embed snippet, and a personal
+"I'm speaking!" page for each speaker to post. Your speakers find the same link waiting on their
+portal home. The button appears only once there is a published schedule behind it — announcing
+an empty page is worse than announcing nothing.
+
 ## 6. Let the email run itself
 
 **Communications** owns every routine message: submission received, accepted, declined, task
-assigned and overdue, schedule assigned and changed, portal sign-in. Edit any template with live
-preview and merge tags; schedule-assigned mail carries a calendar invite with Google/Outlook
-links, and schedule *changes* send an updated one.
+assigned and overdue, schedule assigned and changed, portal sign-in, reviewer invited and
+reminded, and your own bulk announcements — eleven templates you can edit, with live preview and
+merge tags. Schedule-assigned mail carries a calendar invite with Google/Outlook links, schedule
+*changes* send an updated one, and cancelling a talk sends a real cancellation that still
+describes the meeting your speaker actually has in their calendar.
 
 ![The template editor with live preview and merge tags](docs/screenshots/communications-templates.png)
 
@@ -181,6 +198,8 @@ Drizzle, Resend for email, R2 for files.
 - [`docs/provisioning.md`](docs/provisioning.md) — standing up Neon/R2/Resend/Cloudflare from
   scratch.
 - [`docs/api.md`](docs/api.md) — the public API reference.
+- [`docs/manual-test-plans.md`](docs/manual-test-plans.md) — the thirteen manual plans, the design
+  bar every screen is held to, and the fixed seed data they run against.
 - [`DECISIONS.md`](DECISIONS.md) — the standing decisions that govern the codebase.
 
 ## License
