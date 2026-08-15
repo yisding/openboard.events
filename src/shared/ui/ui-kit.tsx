@@ -5,6 +5,7 @@ import Image from "next/image";
 import React, { useEffect, useRef, type ButtonHTMLAttributes, type CSSProperties, type ReactNode, type RefObject, type SelectHTMLAttributes } from "react";
 import { cn } from "@/shared/lib/cn";
 import { STATUS_BADGES, type StatusBadgeValue } from "@/shared/ui/status-badge";
+import { raiseTopLayerStack } from "@/shared/ui/top-layer";
 
 export function Button({ variant = "primary", size = "md", type = "button", className, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "ghost" | "danger"; size?: "sm" | "md" | "lg" }) {
   return <button type={type} className={cn("button", `button-${variant}`, size === "sm" && "button-sm", size === "lg" && "button-lg", className)} {...props} />;
@@ -93,6 +94,10 @@ function ModalDialog({ onClose, title, className, children, initialFocusRef, dis
     if (!dialog) return;
     const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     dialog.showModal();
+    // `showModal()` appends the dialog to the top layer, above anything already
+    // there — including a standing error toast, which would then be behind the
+    // backdrop, unclickable and out of the accessibility tree.
+    raiseTopLayerStack();
     initialFocusRef?.current?.focus();
     return () => {
       if (dialog.open) dialog.close();
@@ -116,6 +121,7 @@ function DrawerDialog({ onClose, title, children }: { onClose: () => void; title
     if (!dialog) return;
     const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     dialog.showModal();
+    raiseTopLayerStack();
     return () => {
       if (dialog.open) dialog.close();
       if (returnFocus?.isConnected) returnFocus.focus();

@@ -3,6 +3,7 @@ import type { SearchResult } from "@/features/shell/server/search";
 import {
   COMMAND_PALETTE_SEARCH_ERROR,
   commandPaletteSearchFeedback,
+  searchResultHint,
   idleCommandPaletteSearch,
   loadingCommandPaletteSearch,
   settleCommandPaletteSearch,
@@ -15,9 +16,24 @@ function result(id: string, label: string): SearchResult {
     id,
     label,
     sublabel: `${label.toLowerCase()}@example.com`,
+    status: null,
     href: `/speakers/${id}`,
   };
 }
+
+describe("command palette result hints", () => {
+  it("names a status in the app's vocabulary, never the raw column value", () => {
+    expect(searchResultHint("Submission", { sublabel: "SESS-42", status: "accept_queue" }))
+      .toBe("Submission · SESS-42 · Queued to accept");
+    expect(searchResultHint("Session", { sublabel: null, status: "published" })).toBe("Session · Published");
+  });
+
+  it("drops the parts a result does not have", () => {
+    expect(searchResultHint("Speaker", { sublabel: "ada@example.com", status: null }))
+      .toBe("Speaker · ada@example.com");
+    expect(searchResultHint("Speaker", { sublabel: null, status: null })).toBe("Speaker");
+  });
+});
 
 function deferredResponse() {
   let resolve: ((response: Response) => void) | undefined;

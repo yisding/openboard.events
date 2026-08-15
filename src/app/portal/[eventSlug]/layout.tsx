@@ -1,6 +1,6 @@
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
-import { requirePortal, type PortalSession } from "@/features/auth";
+import { getPortalImpersonator, requirePortal, type PortalSession } from "@/features/auth";
 import { safeInternalPath } from "@/features/auth/safe-next";
 import { PortalRouteShell } from "@/features/portal/portal-route-shell";
 import { isPublicPortalPage } from "@/features/portal/public-pages";
@@ -42,5 +42,8 @@ export default async function Layout({ children, params }: { children: React.Rea
   const shell = await getPortalShellData(session.eventId, session.contactId);
   // A live session whose event or contact row is gone is a signed-out user.
   if (!shell) redirect(`${portalRoot}/login?next=${encodeURIComponent(requestPath)}`);
-  return <PortalRouteShell session={session} shell={shell}>{children}</PortalRouteShell>;
+  // Only read for an impersonated session, so an ordinary speaker's page never
+  // pays for a lookup that would always come back null.
+  const impersonator = session.impersonatedByUserId ? await getPortalImpersonator(session.impersonatedByUserId) : null;
+  return <PortalRouteShell session={session} shell={shell} impersonator={impersonator}>{children}</PortalRouteShell>;
 }

@@ -5,12 +5,15 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
+  type Active,
+  type Announcements,
   type DndContextProps,
   type DragEndEvent,
+  type Over,
 } from "@dnd-kit/core";
 import { LayoutGrid, MapPin } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { EventId, RoomId, ScheduledSessionDTO } from "@/shared/contracts";
 import { wallTimeExistsInZone, zonedInputToUtc } from "@/shared/lib/time";
 import { useToast } from "@/shared/ui/toast";
@@ -23,7 +26,7 @@ import type { AgendaViewProps } from "../index.client";
 import { eventDayKeys, nameLookup, scheduledNeedingRoom, scheduledOnDay, unscheduled } from "../store";
 import { DayGrid, parseCellId } from "./day-view/day-grid";
 import { agendaDayDndContextId } from "./day-view/dnd-context-id";
-import { clampResize, computeGridRange, localWallTimeAt, minutesFromDayStartInZone, pixelDeltaToSlotDelta, wallClockDurationMinutes } from "./day-view/slots";
+import { clampResize, computeGridRange, localWallTimeAt, minutesFromDayStartInZone, pixelDeltaToSlotDelta, slotTimeLabel, wallClockDurationMinutes } from "./day-view/slots";
 import { NeedsRoomPanel, UnscheduledPanel } from "./day-view/unscheduled-panel";
 import { AutoPlaceDialog } from "./auto-place-dialog";
 
@@ -113,7 +116,62 @@ function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speake
     return true;
   };
 
+  // Pointer only, deliberately: a 15-minute-slot grid cannot be driven usefully
+  // by dnd-kit's default 25px keyboard steps, so the keyboard route to
+  // rescheduling is the session dialog's room select and date-time pickers. The
+  // cards and tray rows therefore do not spread dnd-kit's draggable attributes,
+  // which would otherwise advertise a space-bar pickup that does nothing — see
+  // `session-card.tsx` and `day-view/unscheduled-panel.tsx`.
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
+
+  // Whether the resize that just ended actually wrote anything. dnd-kit hands
+  // the announcement callbacks `{active, over}` and no delta, but `DndContext`'s
+  // own `onDragEnd` runs before the dispatch that announces, so `handleResize`
+  // can record the outcome here and the announcer can read it — a drag released
+  // back at its origin has to say "no change" rather than claim a write the
+  // sub-slot guard rejected.
+  const resizeAppliedRef = useRef(false);
+
+  // dnd-kit's default announcements read raw draggable and droppable ids, so a
+  // screen reader heard two UUIDs and a cell key ("dv-cell:<roomId>:555") where
+  // the visible toast said "'MTP07 placement probe' moved". Name the session,
+  // the room and the time instead.
+  const announcements = useMemo<Announcements>(() => {
+    const dataOf = (active: Active): DragData | undefined => active.data.current as DragData | undefined;
+    const titleOf = (active: Active): string => dataOf(active)?.session.title ?? "This session";
+    const slotOf = (over: Over | null): string | null => {
+      const cell = over ? parseCellId(String(over.id)) : null;
+      if (!cell) return null;
+      return `${lookup.room(cell.roomId) ?? "no room"}, ${slotTimeLabel(cell.startMinutes)}`;
+    };
+    const edgeOf = (active: Active): "start" | "end" | null => {
+      const type = dataOf(active)?.type;
+      return type === "resize-start" ? "start" : type === "resize-end" ? "end" : null;
+    };
+    return {
+      onDragStart: ({ active }) => {
+        const edge = edgeOf(active);
+        return edge
+          ? `Adjusting the ${edge} time of ${titleOf(active)}.`
+          : `Picked up ${titleOf(active)}.`;
+      },
+      onDragOver: ({ active, over }) => {
+        const slot = slotOf(over);
+        return slot ? `${titleOf(active)} is over ${slot}.` : undefined;
+      },
+      onDragEnd: ({ active, over }) => {
+        const edge = edgeOf(active);
+        if (edge) {
+          return resizeAppliedRef.current
+            ? `Updated the ${edge} time of ${titleOf(active)}.`
+            : `No change to the ${edge} time of ${titleOf(active)}.`;
+        }
+        const slot = slotOf(over);
+        return slot ? `Moved ${titleOf(active)} to ${slot}.` : `${titleOf(active)} stayed where it was.`;
+      },
+      onDragCancel: ({ active }) => `Cancelled. ${titleOf(active)} stayed where it was.`,
+    };
+  }, [lookup]);
 
   const formatDurationMinutes = (formatId: string | null): number => {
     if (formatId === null) return DEFAULT_FORMAT_DURATION_MINUTES;
@@ -152,6 +210,9 @@ function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speake
   };
 
   const handleResize = (edge: "resize-start" | "resize-end", session: ScheduledSessionDTO, deltaPx: number) => {
+    // Every path that returns early leaves this false, so the drag-end
+    // announcement above describes what happened rather than what was asked for.
+    resizeAppliedRef.current = false;
     if (session.startsAt === null || session.endsAt === null || !selectedDay) return;
     const deltaSlots = pixelDeltaToSlotDelta(deltaPx);
     if (deltaSlots === 0) return; // a jiggle under half a row changes nothing (edge case #5)
@@ -164,6 +225,11 @@ function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speake
     const startMinutes = minutesFromDayStartInZone(session.startsAt, selectedDay, event.timezone);
     const endMinutes = minutesFromDayStartInZone(session.endsAt, selectedDay, event.timezone);
     const next = clampResize(edge === "resize-start" ? "start" : "end", startMinutes, endMinutes, deltaSlots);
+    // The clamp can bottom out at the minimum duration and hand back the same
+    // edges; announcing that as "Updated" would misreport a write that never
+    // happened — and writing it would bump row_version for nothing.
+    if (next.startMinutes === startMinutes && next.endMinutes === endMinutes) return;
+    resizeAppliedRef.current = true;
 
     const startLocal = localWallTimeAt(selectedDay, next.startMinutes);
     const endLocal = localWallTimeAt(selectedDay, next.endMinutes);
@@ -203,7 +269,18 @@ function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speake
           />
         )
         : (
-          <AgendaDayDndContext eventId={eventId} selectedDay={selectedDay} sensors={sensors} onDragEnd={handleDragEnd}>
+          <AgendaDayDndContext
+            eventId={eventId}
+            selectedDay={selectedDay}
+            sensors={sensors}
+            onDragEnd={handleDragEnd}
+            accessibility={{
+              announcements,
+              screenReaderInstructions: {
+                draggable: "Sessions are moved by dragging with a pointer. To reschedule without one, open a session and set its room and time.",
+              },
+            }}
+          >
             <div className="dv-layout">
               <div className="dv-side-panels">
                 <UnscheduledPanel

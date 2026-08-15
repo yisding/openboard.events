@@ -45,4 +45,20 @@ describe("RichTextEditor content preservation", () => {
     expect(emitted).toContain("<pre><code>");
     expect(emitted).toContain("edited ");
   });
+
+  // Every caller treats an `onChange` as "the organizer typed something" and
+  // arms its unsaved-work guard. Mounting is not an edit, so a page that was
+  // only opened must never warn about discarding work on the way out.
+  it("emits nothing while mounting content the organizer has not touched", async () => {
+    const onChange = vi.fn();
+    await act(async () => root.render(
+      <RichTextEditor
+        value={'<p>Thanks for submitting to <a href="{{portal.magic_link}}">the portal</a>.</p>'}
+        onChange={onChange}
+        sanitizeHtml={sanitizeTemplateBody}
+      />,
+    ));
+
+    expect(onChange).not.toHaveBeenCalled();
+  });
 });

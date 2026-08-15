@@ -19,7 +19,7 @@ import type { BuilderEvent, BuilderField, BuilderForm, FormPatch } from "@/featu
 // `sendConfirmation`/`confirmationSubject`/`confirmationBodyHtml`, plain
 // `forms` columns shared by CFP and portal forms (M24 §4) — so it is reused
 // here verbatim rather than rebuilt.
-import { NotificationsStep } from "@/features/forms/index.client";
+import { mapsToLabel, NotificationsStep } from "@/features/forms/index.client";
 import { COMMITTED_FIELD_TYPES } from "@/shared/contracts";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { editorDraftChanged, requestGuardedEditorClose } from "@/shared/ui/app/modal-editor-guard";
@@ -296,7 +296,7 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
               <div className={selectedFieldId === field.id ? "selected builder-field-row" : "builder-field-row"} key={field.id}>
                 <button className="field-row-main" onClick={() => setSelectedFieldId(field.id)}>
                   <span className="field-type-icon">{typeIcon(field.fieldType)}</span>
-                  <div><b>{field.label}{field.required && <em>*</em>}</b><small>{field.mapsTo ? `Maps to ${field.mapsTo}` : "Custom question"}</small></div>
+                  <div><b>{field.label}{field.required && <em>*</em>}</b><small>{field.mapsTo ? `Maps to ${mapsToLabel(field.mapsTo)}` : "Custom question"}</small></div>
                 </button>
                 <button className="icon-button" aria-label={`Move ${field.label} up`} disabled={index === 0 || busy} onClick={() => void moveField(field.id, -1)}><ArrowUp size={14} /></button>
                 <button className="icon-button" aria-label={`Move ${field.label} down`} disabled={index === (section?.fields.length ?? 0) - 1 || busy} onClick={() => void moveField(field.id, 1)}><ArrowDown size={14} /></button>
@@ -437,7 +437,7 @@ function FieldEditModal({ field, busy, onClose, onSave, onDelete }: {
             library at add-time (or left null for a custom field) — this
             builder never lets an admin type an arbitrary maps_to string. */}
         <div className="inline-setting">
-          <div><b>System mapping</b><small>{field.mapsTo ?? "None — custom question"}</small></div>
+          <div><b>System mapping</b><small>{field.mapsTo ? mapsToLabel(field.mapsTo) : "None — custom question"}</small></div>
           {field.locked && <LockKeyhole size={14} />}
         </div>
       </div>

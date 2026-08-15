@@ -22,7 +22,9 @@ import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
 import { Dash } from "@/shared/ui/app/dash";
 import { Avatar, Button, EmptyState, PageHeader, Select } from "@/shared/ui/ui-kit";
 import { LocalTime } from "@/shared/ui/app/local-time";
+import { statusBadgeLabel } from "@/shared/ui/status-badge";
 import { CrmNav } from "./crm-nav";
+import { STAGE_LABEL } from "./pipeline-labels";
 import { ContactCreateDialog } from "./contact-create-dialog";
 import { CrmImportDialog } from "./crm-import-dialog";
 import { CrmBulkEmailDialog } from "./crm-bulk-email-dialog";
@@ -105,7 +107,11 @@ export function DirectoryView({
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, [organizationId]);
-  const [mergeOpen, setMergeOpen] = useState(false);
+  // The pair is frozen when the wizard opens rather than read back off the live
+  // table selection: the merge's own `router.refresh()` hands the table new rows,
+  // which resets the selection, which would otherwise unmount the wizard before
+  // its "merged into" confirmation ever renders.
+  const [mergePair, setMergePair] = useState<[OrganizationContactSummaryDTO, OrganizationContactSummaryDTO] | null>(null);
 
   function openBulkEmail(selectedRows: OrganizationContactSummaryDTO[]) {
     const loaded = loadBulkSendRecovery(window.localStorage, { surface: "crm", scope: organizationId });
@@ -169,7 +175,7 @@ export function DirectoryView({
       id: "source",
       header: "Source",
       accessorKey: "source",
-      cell: ({ row }) => <span style={{ color: "var(--muted)", fontSize: "var(--text-xs)", textTransform: "capitalize" }}>{row.original.source.replaceAll("_", " ")}</span>,
+      cell: ({ row }) => <span style={{ color: "var(--muted)", fontSize: "var(--text-xs)" }}>{statusBadgeLabel(row.original.source)}</span>,
     },
     {
       id: "lastActivityAt",
@@ -226,11 +232,15 @@ export function DirectoryView({
         </div>
       )}
 
-      <div className="abstract-status-tabs" role="tablist">
-        <button type="button" role="tab" aria-selected={!pipelineStage} className={!pipelineStage ? "active" : ""} onClick={() => setParams({ pipelineStage: null })}>All</button>
+      {/* A filter strip, not a tab strip: there is no panel it controls, and each
+          stage toggles independently of the others. `group` + `aria-pressed` is
+          what the repo uses for that shape (see `public-agenda.tsx`), and it
+          leaves each button its own tab stop rather than promising arrow keys. */}
+      <div className="abstract-status-tabs" role="group" aria-label="Pipeline stage">
+        <button type="button" aria-pressed={!pipelineStage} className={!pipelineStage ? "active" : ""} onClick={() => setParams({ pipelineStage: null })}>All</button>
         {CRM_PIPELINE_STAGES.map((stage) => (
-          <button key={stage} type="button" role="tab" aria-selected={pipelineStage === stage} className={pipelineStage === stage ? "active" : ""} onClick={() => setParams({ pipelineStage: pipelineStage === stage ? null : stage })}>
-            {stage[0]?.toUpperCase()}{stage.slice(1)} pipeline
+          <button key={stage} type="button" aria-pressed={pipelineStage === stage} className={pipelineStage === stage ? "active" : ""} onClick={() => setParams({ pipelineStage: pipelineStage === stage ? null : stage })}>
+            {STAGE_LABEL[stage]} pipeline
           </button>
         ))}
       </div>
@@ -244,22 +254,25 @@ export function DirectoryView({
         enableSelection
         getRowLabel={nameOf}
         onSelectionChange={setSelected}
-        renderSelectionBar={({ selectedRows, countLabel, clearSelection }) => (
-          <BulkActionBar
-            count={selectedRows.length}
-            countLabel={countLabel}
-            onClear={clearSelection}
-            actions={<>
-              <Button
-                size="sm"
-                disabled={emailRecoveryUnreadable}
-                title={emailRecoveryUnreadable ? "Clear the unreadable email recovery before starting another send" : undefined}
-                onClick={() => openBulkEmail(selectedRows)}
-              ><Mail size={14} /> Email selected</Button>
-              {selectedRows.length === 2 && <Button size="sm" variant="secondary" onClick={() => { setSelected(selectedRows); setMergeOpen(true); }}><GitMerge size={14} /> Merge selected</Button>}
-            </>}
-          />
-        )}
+        renderSelectionBar={({ selectedRows, countLabel, clearSelection }) => {
+          const [first, second] = selectedRows;
+          return (
+            <BulkActionBar
+              count={selectedRows.length}
+              countLabel={countLabel}
+              onClear={clearSelection}
+              actions={<>
+                <Button
+                  size="sm"
+                  disabled={emailRecoveryUnreadable}
+                  title={emailRecoveryUnreadable ? "Clear the unreadable email recovery before starting another send" : undefined}
+                  onClick={() => openBulkEmail(selectedRows)}
+                ><Mail size={14} /> Email selected</Button>
+                {selectedRows.length === 2 && first && second && <Button size="sm" variant="secondary" onClick={() => setMergePair([first, second])}><GitMerge size={14} /> Merge selected</Button>}
+              </>}
+            />
+          );
+        }}
         selectionEpoch={selectionEpoch}
         serverPagination={{ page, pageSize, total, onPageChange: (next) => setParams({ page: next > 1 ? String(next) : null }, false) }}
         toolbar={
@@ -275,7 +288,7 @@ export function DirectoryView({
             </Select>
             <Select className="compact-select" aria-label="Filter by source" value={source ?? "all"} onChange={(event) => setParams({ source: event.target.value === "all" ? null : event.target.value })}>
               <option value="all">Every source</option>
-              {CRM_CONTACT_SOURCES.map((value) => <option key={value} value={value}>{value.replaceAll("_", " ")}</option>)}
+              {CRM_CONTACT_SOURCES.map((value) => <option key={value} value={value}>{statusBadgeLabel(value)}</option>)}
             </Select>
             <label className="crm-unlinked-filter">
               <input type="checkbox" checked={hasEventLink === false} onChange={(event) => setParams({ hasEventLink: event.target.checked ? "false" : null })} />
@@ -305,13 +318,13 @@ export function DirectoryView({
           onClose={() => { setEmailOpen(false); setSelected([]); setSelectionEpoch((epoch) => epoch + 1); }}
         />
       )}
-      {mergeOpen && selected.length === 2 && selected[0] && selected[1] && (
+      {mergePair && (
         <MergeWizardDialog
           organizationId={organizationId}
-          open={mergeOpen}
-          a={{ id: selected[0].id, label: nameOf(selected[0]), email: selected[0].email }}
-          b={{ id: selected[1].id, label: nameOf(selected[1]), email: selected[1].email }}
-          onClose={() => { setMergeOpen(false); setSelected([]); setSelectionEpoch((epoch) => epoch + 1); }}
+          open
+          a={{ id: mergePair[0].id, label: nameOf(mergePair[0]), email: mergePair[0].email }}
+          b={{ id: mergePair[1].id, label: nameOf(mergePair[1]), email: mergePair[1].email }}
+          onClose={() => { setMergePair(null); setSelected([]); setSelectionEpoch((epoch) => epoch + 1); }}
         />
       )}
     </main>

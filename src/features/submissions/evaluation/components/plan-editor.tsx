@@ -87,6 +87,29 @@ function parseOptions(text: string, existing: PlanDTO["criteria"][number]["optio
   });
 }
 
+/**
+ * The server's rule for a criterion's weight (`positive().max(100)`), stated
+ * where it is typed. Without it the only feedback on a 0 is a round trip
+ * answering "Request validation failed", which names neither the field nor the
+ * criterion — with a dozen inputs on screen the organizer has to guess.
+ */
+export function criterionWeightError(criterion: Pick<CriterionDraft, "kind" | "weight">): string | undefined {
+  if (criterion.kind === "text") return undefined;
+  const valid = Number.isFinite(criterion.weight) && criterion.weight > 0 && criterion.weight <= 100;
+  return valid ? undefined : "Weight has to be above 0 and at most 100 — it is relative, so 2 counts twice as much as 1";
+}
+
+/**
+ * The server applies its weight rule to every kind, but the Weight input is
+ * disabled for written feedback, so a value it would refuse can only be left
+ * over from the type the criterion was switched away from — and the organizer
+ * has no field to fix it in. Send the neutral 1 instead of collecting a 400.
+ */
+export function outgoingCriterionWeight(criterion: Pick<CriterionDraft, "kind" | "weight">): number {
+  if (criterion.kind !== "text") return criterion.weight;
+  return criterionWeightError({ kind: "numeric", weight: criterion.weight }) ? 1 : criterion.weight;
+}
+
 function draftFrom(plan: PlanDTO): PlanDraft {
   return {
     name: plan.name,
@@ -295,6 +318,7 @@ export function PlanEditor({
   const reviewerRecoveryRequired = pendingReviewerPlanId !== null
     && (reviewerLockConflict || assignmentLock !== null);
   const assignmentSaveBlocked = assignmentEditsChanged && assignmentLock !== null;
+  const criteriaInvalid = draft.criteria.some((criterion) => criterionWeightError(criterion) !== undefined);
 
   useUnsavedWorkGuard(dirty);
 
@@ -420,7 +444,7 @@ export function PlanEditor({
         criteria: draft.criteria.map((criterion) => ({
           id: criterion.id,
           label: criterion.label,
-          weight: criterion.weight,
+          weight: outgoingCriterionWeight(criterion),
           kind: criterion.kind,
           required: criterion.required,
           options: criterion.kind === "select"
@@ -571,65 +595,81 @@ export function PlanEditor({
             With no criteria a reviewer gives one score. With criteria they answer each; numbers and scored choices make the
             weighted mean, written feedback never does, and a review counts as finished once every required criterion is answered.
           </p>
-          {draft.criteria.map((criterion, index) => (
-            <div className="evaluation-field-row evaluation-criterion-row" key={criterion.id ?? `new-${index}`}>
-              <Field label="Label">
-                <input
-                  value={criterion.label}
-                  onChange={(event) => patch({
-                    criteria: draft.criteria.map((entry, position) => position === index ? { ...entry, label: event.target.value } : entry),
-                  })}
-                />
-              </Field>
-              <Field label="Type">
-                <Select
-                  value={criterion.kind}
-                  onChange={(event) => patch({
-                    criteria: draft.criteria.map((entry, position) => position === index ? { ...entry, kind: event.target.value as CriterionKind } : entry),
-                  })}
-                >
-                  <option value="numeric">Number on the scale</option>
-                  <option value="select">Choice</option>
-                  <option value="text">Written feedback</option>
-                </Select>
-              </Field>
-              <Field label="Weight" {...(criterion.kind === "text" ? { hint: "Written feedback never enters the mean" } : {})}>
-                <input
-                  type="number" min={1} step={1} value={criterion.weight} disabled={criterion.kind === "text"}
-                  onChange={(event) => patch({
-                    criteria: draft.criteria.map((entry, position) => position === index ? { ...entry, weight: Number(event.target.value) } : entry),
-                  })}
-                />
-              </Field>
-              <Field label="Required">
-                <input
-                  type="checkbox" checked={criterion.required}
-                  aria-label={`${criterion.label || "Criterion"} is required`}
-                  onChange={(event) => patch({
-                    criteria: draft.criteria.map((entry, position) => position === index ? { ...entry, required: event.target.checked } : entry),
-                  })}
-                />
-              </Field>
-              <Button
-                variant="ghost"
-                aria-label={`Remove ${criterion.label || "criterion"}`}
-                onClick={() => patch({ criteria: draft.criteria.filter((_, position) => position !== index) })}
-              >
-                <Trash2 size={15} />
-              </Button>
-              {criterion.kind === "select" && (
-                <Field label="Choices" hint="One per line as “Label:score”. Leave the score off for a choice that is recorded but never averaged.">
-                  <textarea
-                    value={criterion.optionsText}
+          {draft.criteria.map((criterion, index) => {
+            const weightError = criterionWeightError(criterion);
+            const weightErrorId = `evaluation-criterion-weight-error-${criterion.id ?? `new-${index}`}`;
+            return (
+              <div className="evaluation-field-row evaluation-criterion-row" key={criterion.id ?? `new-${index}`}>
+                <Field label="Label">
+                  <input
+                    value={criterion.label}
                     onChange={(event) => patch({
-                      criteria: draft.criteria.map((entry, position) => position === index ? { ...entry, optionsText: event.target.value } : entry),
+                      criteria: draft.criteria.map((entry, position) => position === index ? { ...entry, label: event.target.value } : entry),
                     })}
-                    placeholder={"Strong accept:5\nAccept:4\nNot applicable"}
                   />
                 </Field>
-              )}
-            </div>
-          ))}
+                <Field label="Type">
+                  <Select
+                    value={criterion.kind}
+                    onChange={(event) => patch({
+                      criteria: draft.criteria.map((entry, position) => position === index ? { ...entry, kind: event.target.value as CriterionKind } : entry),
+                    })}
+                  >
+                    <option value="numeric">Number on the scale</option>
+                    <option value="select">Choice</option>
+                    <option value="text">Written feedback</option>
+                  </Select>
+                </Field>
+                <Field
+                  label="Weight"
+                  error={weightError}
+                  errorId={weightErrorId}
+                  {...(criterion.kind === "text" ? { hint: "Written feedback never enters the mean" } : {})}
+                >
+                  <input
+                    // The disabled input shows what will actually be sent, not
+                    // the stale value left over from the kind the criterion was
+                    // switched away from: a written-feedback row displaying 0
+                    // while the payload carries the normalized 1 is the UI
+                    // narrating a number the server never receives.
+                    type="number" min={1} max={100} step={1} value={outgoingCriterionWeight(criterion)} disabled={criterion.kind === "text"}
+                    aria-invalid={weightError ? true : undefined}
+                    aria-describedby={weightError ? weightErrorId : undefined}
+                    onChange={(event) => patch({
+                      criteria: draft.criteria.map((entry, position) => position === index ? { ...entry, weight: Number(event.target.value) } : entry),
+                    })}
+                  />
+                </Field>
+                <Field label="Required">
+                  <input
+                    type="checkbox" checked={criterion.required}
+                    aria-label={`${criterion.label || "Criterion"} is required`}
+                    onChange={(event) => patch({
+                      criteria: draft.criteria.map((entry, position) => position === index ? { ...entry, required: event.target.checked } : entry),
+                    })}
+                  />
+                </Field>
+                <Button
+                  variant="ghost"
+                  aria-label={`Remove ${criterion.label || "criterion"}`}
+                  onClick={() => patch({ criteria: draft.criteria.filter((_, position) => position !== index) })}
+                >
+                  <Trash2 size={15} />
+                </Button>
+                {criterion.kind === "select" && (
+                  <Field label="Choices" hint="One per line as “Label:score”. Leave the score off for a choice that is recorded but never averaged.">
+                    <textarea
+                      value={criterion.optionsText}
+                      onChange={(event) => patch({
+                        criteria: draft.criteria.map((entry, position) => position === index ? { ...entry, optionsText: event.target.value } : entry),
+                      })}
+                      placeholder={"Strong accept:5\nAccept:4\nNot applicable"}
+                    />
+                  </Field>
+                )}
+              </div>
+            );
+          })}
           <Button variant="secondary" onClick={() => patch({ criteria: [...draft.criteria, { id: null, label: "", weight: 1, kind: "numeric", required: true, optionsText: "" }] })}>
             <Plus size={15} /> Add criterion
           </Button>
@@ -671,7 +711,7 @@ export function PlanEditor({
         </p>
         <div className="drawer-actions">
           <Button variant="secondary" disabled={saving || loadingLatest} onClick={closeEditor}>Cancel</Button>
-          <Button disabled={saving || loadingLatest || reviewerRecoveryRequired || assignmentSaveBlocked || draft.name.trim() === ""} onClick={save}>
+          <Button disabled={saving || loadingLatest || reviewerRecoveryRequired || assignmentSaveBlocked || criteriaInvalid || draft.name.trim() === ""} onClick={save}>
             {saving ? "Saving…" : reviewerRecoveryRequired ? "Load latest to continue" : pendingReviewerPlanId ? "Retry reviewer assignments" : persistedPlanId ? "Save round" : "Create round"}
           </Button>
         </div>

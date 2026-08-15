@@ -11,6 +11,7 @@ import { emojiRain } from "@/shared/ui/emoji-rain";
 import { useToast } from "@/shared/ui/toast";
 import {
   commandPaletteSearchFeedback,
+  searchResultHint,
   idleCommandPaletteSearch,
   loadingCommandPaletteSearch,
   settleCommandPaletteSearch,
@@ -82,7 +83,7 @@ export function paletteEggsForQuery(query: string): PaletteItem[] {
 function toItems(verbs: Verb[], results: SearchResult[]): PaletteItem[] {
   return [
     ...verbs.map((verb) => ({ key: `verb:${verb.id}`, icon: Zap, label: verb.label, hint: verb.hint, href: verb.href })),
-    ...results.map((result) => ({ key: `${result.type}:${result.id}`, icon: RESULT_ICON[result.type], label: result.label, hint: result.sublabel ? `${RESULT_LABEL[result.type]} · ${result.sublabel}` : RESULT_LABEL[result.type], href: result.href })),
+    ...results.map((result) => ({ key: `${result.type}:${result.id}`, icon: RESULT_ICON[result.type], label: result.label, hint: searchResultHint(RESULT_LABEL[result.type], result), href: result.href })),
   ];
 }
 

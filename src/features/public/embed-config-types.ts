@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { EMBED_CONTENT_TYPES, embedContentTypeSchema, embedIdSchema, eventIdSchema, type EmbedId, type EventId } from "@/shared/contracts";
+import { ACCENT_HEX_RE } from "@/shared/lib/brand-color";
 
 /**
  * `embeds` (see `drizzle/0000_init.sql`) carries all five `embed_content_type`
@@ -21,6 +22,20 @@ export const embedStyleSchema = z.object({
   showHeader: z.boolean().optional(),
 });
 export type EmbedStyle = z.infer<typeof embedStyleSchema>;
+
+/**
+ * The write shape. It is stricter than `embedStyleSchema` on purpose: stored
+ * rows must keep parsing whatever they already hold, but a *new* accent has to
+ * be a colour the embed renderer will actually paint (`ACCENT_HEX_RE`, shared
+ * with `resolveEmbedOptions`). Without this a typo saved cleanly and was then
+ * discarded at render time, so the organiser's stated intent vanished with no
+ * message anywhere.
+ */
+const embedStylePatchSchema = z.object({
+  accent: z.string().trim().regex(ACCENT_HEX_RE, "Use a hex color like #00a878").optional(),
+  theme: z.enum(["light", "dark"]).optional(),
+  showHeader: z.boolean().optional(),
+});
 
 /**
  * Which fields render on the two speaker-identity surfaces. All default to
@@ -62,7 +77,7 @@ export type EmbedConfigDTO = z.infer<typeof embedConfigDtoSchema>;
 
 export const embedConfigPatchSchema = z.object({
   enabled: z.boolean().optional(),
-  style: embedStyleSchema.optional(),
+  style: embedStylePatchSchema.optional(),
   filters: embedFiltersSchema.optional(),
 });
 export type EmbedConfigPatch = z.infer<typeof embedConfigPatchSchema>;

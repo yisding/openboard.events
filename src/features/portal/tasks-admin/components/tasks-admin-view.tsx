@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { CalendarClock, CheckCircle2, FileText, MoreHorizontal, Plus, Search, Upload, Users } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { BulkReminderRecoveryDialog, useBulkReminderRecovery } from "@/features/comms/index.client";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
@@ -16,7 +16,7 @@ import { TaskEditor } from "./task-editor";
 import { TaskMatrixDrawer } from "./task-matrix-drawer";
 import { taskMutation } from "./task-mutation";
 
-const MODE_LABEL: Record<AdminTaskDTO["completionMode"], string> = { manual: "Manual", form: "Form", file_request: "File Request" };
+const MODE_LABEL: Record<AdminTaskDTO["completionMode"], string> = { manual: "Manual", form: "Form", file_request: "File request" };
 const MODE_ICON: Record<AdminTaskDTO["completionMode"], typeof CheckCircle2> = { manual: CheckCircle2, form: FileText, file_request: Upload };
 
 type Tab = "all" | "contact" | "group" | "submission";
@@ -80,7 +80,14 @@ export function TasksAdminView({
 }) {
   const router = useRouter();
   const { toast } = useToast();
-  const [section, setSection] = useState<"tasks" | "file_requests">("tasks");
+  // `?section=file_requests` deep-links the segment, so a "Create a file
+  // request" call to action elsewhere lands on the screen that creates one
+  // rather than on the Tasks list. Only the initial value is read: the segment
+  // is a local view toggle from there on.
+  const searchParams = useSearchParams();
+  const [section, setSection] = useState<"tasks" | "file_requests">(
+    searchParams.get("section") === "file_requests" ? "file_requests" : "tasks",
+  );
   const [tab, setTab] = useState<Tab>("all");
   const [search, setSearch] = useState("");
   const [tasks, setTasks] = useState(initialTasks);
@@ -175,23 +182,23 @@ export function TasksAdminView({
         eyebrow="PEOPLE"
         title="Tasks"
         description="Create tasks that can be assigned to your portals"
-        actions={<Button onClick={() => setCreating(true)}><Plus size={16} /> Add Task</Button>}
+        actions={<Button onClick={() => setCreating(true)}><Plus size={16} /> Add task</Button>}
       />
 
       <Segmented
         label="Task content type"
         value={section}
         onChange={setSection}
-        items={[{ value: "tasks", label: "Tasks" }, { value: "file_requests", label: "File Requests" }]}
+        items={[{ value: "tasks", label: "Tasks" }, { value: "file_requests", label: "File requests" }]}
       />
 
       {section === "tasks" && (
         <>
           <nav className="abstract-status-tabs" aria-label="Task filters">
-            <button type="button" aria-pressed={tab === "all"} className={tab === "all" ? "active" : ""} onClick={() => setTab("all")}>All Tasks <span>{tabCounts.all}</span></button>
-            <button type="button" aria-pressed={tab === "contact"} className={tab === "contact" ? "active" : ""} onClick={() => setTab("contact")}>Contact Tasks <span>{tabCounts.contact}</span></button>
-            <button type="button" aria-pressed={tab === "group"} className={tab === "group" ? "active" : ""} onClick={() => setTab("group")}>Group Tasks <span>{tabCounts.group}</span></button>
-            <button type="button" aria-pressed={tab === "submission"} className={tab === "submission" ? "active" : ""} onClick={() => setTab("submission")}>Submission Tasks <span>{tabCounts.submission}</span></button>
+            <button type="button" aria-pressed={tab === "all"} className={tab === "all" ? "active" : ""} onClick={() => setTab("all")}>All tasks <span>{tabCounts.all}</span></button>
+            <button type="button" aria-pressed={tab === "contact"} className={tab === "contact" ? "active" : ""} onClick={() => setTab("contact")}>Contact tasks <span>{tabCounts.contact}</span></button>
+            <button type="button" aria-pressed={tab === "group"} className={tab === "group" ? "active" : ""} onClick={() => setTab("group")}>Group tasks <span>{tabCounts.group}</span></button>
+            <button type="button" aria-pressed={tab === "submission"} className={tab === "submission" ? "active" : ""} onClick={() => setTab("submission")}>Submission tasks <span>{tabCounts.submission}</span></button>
           </nav>
 
           <section className="panel data-panel">
@@ -210,7 +217,7 @@ export function TasksAdminView({
                 description={tab === "group"
                   ? "The speaker portal only assigns tasks to speakers and submissions."
                   : "Create a task to collect information, files, or confirmations from your speakers."}
-                action={tab !== "group" ? <Button onClick={() => setCreating(true)}>Add Task</Button> : undefined}
+                action={tab !== "group" ? <Button onClick={() => setCreating(true)}>Add task</Button> : undefined}
               />
             )}
 

@@ -6,13 +6,14 @@ import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { z } from "zod";
 import { DataTable } from "@/shared/ui/app/data-table";
-import { Button, EmptyState } from "@/shared/ui/ui-kit";
+import { Button, EmptyState, StatusBadge } from "@/shared/ui/ui-kit";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
 import { isAppError, isDefinitiveWriteFailure } from "@/shared/lib/errors";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { LocalTime } from "@/shared/ui/app/local-time";
+import { deviceLabel } from "../device-label";
 
 // Server-provided props, not user input parsed off the wire — so this is a
 // plain type, not a zod schema (unlike `revokedSchema`/`revokedAllSchema`
@@ -23,6 +24,7 @@ export type AdminSessionSummary = {
   userAgent: string | null;
   createdAt: string;
   expiresAt: string;
+  isCurrent: boolean;
 };
 const revokedSchema = z.object({ revoked: z.boolean() });
 const revokedAllSchema = z.object({ revoked: z.number() });
@@ -32,6 +34,7 @@ const sessionSummarySchema = z.object({
   userAgent: z.string().nullable(),
   createdAt: z.string(),
   expiresAt: z.string(),
+  isCurrent: z.boolean(),
 });
 const sessionsSchema = z.array(sessionSummarySchema);
 
@@ -93,6 +96,12 @@ export function SessionsPanel({ initialSessions }: { initialSessions: AdminSessi
     setPendingRevoke(null);
     try {
       await api(`me/sessions/${operation.target.id}`, revokedSchema, { method: "DELETE" });
+      // Revoking your own row is a sign-out: staying here would leave the
+      // reader on a page whose every button now answers UNAUTHORIZED.
+      if (operation.target.isCurrent) {
+        goToLogin("Signed out on this device. Sign in again to continue.");
+        return;
+      }
       toast("Session revoked");
     } catch (caught) {
       if (isAppError(caught) && caught.code === "UNAUTHORIZED") {
@@ -190,7 +199,14 @@ export function SessionsPanel({ initialSessions }: { initialSessions: AdminSessi
   }
 
   const columns = useMemo<Array<ColumnDef<AdminSessionSummary, unknown>>>(() => [
-    { id: "device", header: "Device", cell: ({ row }) => row.original.userAgent ?? "Unknown device" },
+    {
+      id: "device",
+      header: "Device",
+      cell: ({ row }) => <div className="session-device">
+        <strong>{deviceLabel(row.original.userAgent)}</strong>
+        {row.original.isCurrent && <StatusBadge value="current_device" />}
+      </div>,
+    },
     { id: "ip", header: "IP address", cell: ({ row }) => row.original.ipAddress ?? "—" },
     { id: "createdAt", header: "Signed in", cell: ({ row }) => <LocalTime instant={row.original.createdAt} /> },
     { id: "expiresAt", header: "Expires", cell: ({ row }) => <LocalTime instant={row.original.expiresAt} /> },
@@ -226,9 +242,11 @@ export function SessionsPanel({ initialSessions }: { initialSessions: AdminSessi
     />
     <ConfirmDialog
       open={pendingRevoke !== null && !locked}
-      title="Revoke this session?"
-      body="That device is signed out immediately."
-      confirmLabel="Revoke"
+      title={pendingRevoke?.isCurrent ? "Sign out this device?" : "Revoke this session?"}
+      body={pendingRevoke?.isCurrent
+        ? "This is the device you're using right now. You'll be signed out here and need to sign in again."
+        : `${deviceLabel(pendingRevoke?.userAgent ?? null)} is signed out immediately.`}
+      confirmLabel={pendingRevoke?.isCurrent ? "Sign out" : "Revoke"}
       onConfirm={() => void confirmRevoke()}
       onCancel={() => setPendingRevoke(null)}
     />

@@ -747,4 +747,36 @@ describe("CRM prospect creation recovery", () => {
     expect(buttonNamed("Retry addition")).toBeUndefined();
     expect(container.querySelector<HTMLFieldSetElement>(".modal-body fieldset")?.disabled).toBe(false);
   });
+
+  it("says a failed directory search did not run instead of showing nothing", async () => {
+    apiMock.mockImplementation(async (path: string) => {
+      if (path.includes("crm/contacts?")) throw new AppError("INTERNAL", "The directory is unavailable");
+      throw new AppError("INTERNAL", "unexpected call");
+    });
+    await renderBoard();
+    await act(async () => buttonNamed("Add prospect")?.click());
+    const search = container.querySelector<HTMLInputElement>('input[aria-label="Search the directory"]');
+    if (!search) throw new Error("Search input was not rendered");
+    await changeValue(search, "ada@example.com");
+    await act(async () => {
+      search.closest("form")?.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("The directory is unavailable");
+    expect(container.querySelector(".speaker-card")).toBeNull();
+    expect(toastMock).toHaveBeenCalledWith("The directory is unavailable", { kind: "error" });
+
+    apiMock.mockImplementation(async (path: string) => {
+      if (path.includes("crm/contacts?")) return { rows: [contact], total: 1 };
+      throw new AppError("INTERNAL", "unexpected call");
+    });
+    await act(async () => {
+      search.closest("form")?.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).not.toContain("The directory is unavailable");
+    expect(container.querySelector(".speaker-card")).not.toBeNull();
+  });
 });

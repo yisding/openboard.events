@@ -22,6 +22,9 @@ import {
 } from "@/shared/contracts";
 import { DataTable } from "@/shared/ui/app/data-table";
 import { Button, EmptyState, Field, Modal, Select, StatusBadge } from "@/shared/ui/ui-kit";
+// The same authored labels the role badge two rows over renders, so the select
+// and the badge can never disagree on what a role is called.
+import { STATUS_BADGES } from "@/shared/ui/status-badge";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
@@ -402,7 +405,7 @@ export function TeamPanel({
       meta: { className: "organization-member-role" },
       cell: ({ row }) => canManage
         ? <Select aria-label={`Role for ${row.original.name || row.original.email}`} value={row.original.role} onChange={(event) => void changeRole(row.original, event.target.value as MemberRole)} disabled={teamWritesLocked || (row.original.userId === currentUserId && currentRole !== "owner")}>
-            {ROLES.map((role) => <option key={role} value={role}>{role}</option>)}
+            {ROLES.map((role) => <option key={role} value={role}>{STATUS_BADGES[role].label}</option>)}
           </Select>
         : <StatusBadge value={row.original.role} />,
     },

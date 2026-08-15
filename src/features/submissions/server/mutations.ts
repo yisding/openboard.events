@@ -474,12 +474,44 @@ export function createSubmission(
   return withTx((tx) => createSubmissionIn(tx, eventId, input, options));
 }
 
+/**
+ * What this speaker has already told the event. The wizard seeds its own
+ * `contact.*` questions from it, so a returning speaker does not retype the name
+ * and company their contact record already holds.
+ */
+type DraftProfile = Record<"firstName" | "lastName" | "company" | "jobTitle" | "bioHtml", string>;
+
 type DraftState = {
   submissionId: SubmissionId;
   code: number;
+  /**
+   * True only when this call is what created the draft row. The wizard resumes
+   * on every page load, so it needs to tell a brand-new draft from a returning
+   * one — otherwise a profile-mapped answer the speaker deliberately cleared is
+   * seeded again from their contact record on the next reload.
+   */
+  created: boolean;
   answers: Record<string, AnswerValue>;
   participants: Array<Pick<DraftParticipantInput, "clientId" | "email" | "role" | "isPrimary" | "sortOrder"> & { answers: Record<string, AnswerValue> }>;
+  profile: DraftProfile;
 };
+
+async function loadDraftProfileIn(tx: TxDb, eventId: EventId, contactId: ContactId): Promise<DraftProfile> {
+  const [contact] = await tx.select({
+    firstName: contacts.firstName,
+    lastName: contacts.lastName,
+    company: contacts.company,
+    jobTitle: contacts.jobTitle,
+    bioHtml: contacts.bioHtml,
+  }).from(contacts).where(and(eq(contacts.id, contactId), eq(contacts.eventId, eventId))).limit(1);
+  return {
+    firstName: contact?.firstName ?? "",
+    lastName: contact?.lastName ?? "",
+    company: contact?.company ?? "",
+    jobTitle: contact?.jobTitle ?? "",
+    bioHtml: contact?.bioHtml ?? "",
+  };
+}
 
 async function resumeDraftIn(
   tx: TxDb,
@@ -487,6 +519,7 @@ async function resumeDraftIn(
   formVersion: number,
   kind: SubmissionKind,
   existing: { id: string; code: number },
+  profile: DraftProfile,
 ): Promise<DraftState> {
   await tx.update(submissions)
     .set({ formVersion, kind, updatedAt: new Date() })
@@ -522,6 +555,8 @@ async function resumeDraftIn(
   return {
     submissionId: existing.id as SubmissionId,
     code: Number(existing.code),
+    created: false,
+    profile,
     answers: Object.fromEntries(rows.map((row) => [row.fieldId, answerValueSchema.parse(row.value)])),
     participants: participantRows.map((row) => ({
       clientId: row.id,
@@ -556,13 +591,27 @@ export async function upsertDraft(
     // via the same is_form_open() predicate, never a JS comparison (S2).
     await assertFormOpen(tx, formId);
 
+    const profile = await loadDraftProfileIn(tx, eventId, contactId);
     const existing = (await tx.execute<{ id: string; code: number }>(sql`
       SELECT id, code FROM submissions
       WHERE event_id = ${eventId} AND form_id = ${formId} AND submitter_contact_id = ${contactId} AND status = 'draft'
       FOR UPDATE
     `)).rows?.[0];
 
-    if (existing) return resumeDraftIn(tx, eventId, formVersion, form.kind, existing);
+    // Resuming comes first, and deliberately before the cap: work already
+    // written must stay reachable even if the speaker went over the cap in the
+    // meantime — an organizer restoring a withdrawn abstract, or the cap itself
+    // being lowered mid-CFP. Submit still refuses under the scoped lock.
+    if (existing) return resumeDraftIn(tx, eventId, formVersion, form.kind, existing, profile);
+
+    // The per-speaker cap is knowable before a single question is answered, and
+    // a draft that could never be submitted is not worth a speaker's afternoon
+    // — so it is checked here as well as under the scoped lock at submit. Drafts
+    // still do not consume the cap; this only refuses to open one more.
+    const [event] = await tx.select({ submissionCapPerUser: events.submissionCapPerUser })
+      .from(events).where(eq(events.id, eventId)).limit(1);
+    if (!event) throw new AppError("NOT_FOUND", "Event not found");
+    await assertUnderLimit(tx, eventId, formId, contactId, form.submissionLimit, event.submissionCapPerUser);
 
     // FOR UPDATE cannot lock a row that does not exist, so two first-time calls
     // both reach here. The partial draft index decides same-scope races, while
@@ -591,7 +640,7 @@ export async function upsertDraft(
           isPrimary: true,
           sortOrder: 0,
         }).onConflictDoNothing();
-        return { submissionId: inserted.id as SubmissionId, code: inserted.code, answers: {}, participants: [] };
+        return { submissionId: inserted.id as SubmissionId, code: inserted.code, created: true, answers: {}, participants: [], profile };
       }
 
       const winner = (await tx.execute<{ id: string; code: number }>(sql`
@@ -600,7 +649,7 @@ export async function upsertDraft(
           AND submitter_contact_id = ${contactId} AND status = 'draft'
         FOR UPDATE
       `)).rows?.[0];
-      if (winner) return resumeDraftIn(tx, eventId, formVersion, form.kind, winner);
+      if (winner) return resumeDraftIn(tx, eventId, formVersion, form.kind, winner, profile);
       log({
         level: "debug",
         msg: "submission.code_collision",
@@ -691,7 +740,17 @@ export async function saveDraftAnswers(
   });
 }
 
-export type TransitionResult = { changed: SubmissionId[]; stale: SubmissionId[] };
+export type TransitionResult = {
+  changed: SubmissionId[];
+  stale: SubmissionId[];
+  /**
+   * How many published sessions this move just took off the public schedule.
+   * `published_sessions_v` carries a promoted session only while its abstract
+   * is `accepted`, so reversing a decision silently unpublishes the talk and
+   * its speaker — the organizer is told instead of finding out publicly.
+   */
+  unpublished: number;
+};
 
 /**
  * Guarded bulk transition. `expectedFrom` is what the organizer's screen showed;
@@ -711,12 +770,13 @@ export async function transitionStatus(
   expectedFrom: SubmissionStatus | SubmissionStatus[],
   actorUserId: UserId | null = null,
 ): Promise<TransitionResult> {
-  if (ids.length === 0) return { changed: [], stale: [] };
+  if (ids.length === 0) return { changed: [], stale: [], unpublished: 0 };
   const from = Array.isArray(expectedFrom) ? expectedFrom : [expectedFrom];
   // A friendly error before the trigger's 23514, for the cases a UI can prevent.
   for (const source of from) assertTransition(source, to);
 
-  const updated = await db.execute<{ id: string }>(sql`
+  const idList = sql.join(ids.map((id) => sql`${id}`), sql`, `);
+  const updated = await db.execute<{ id: string; unpublished: number }>(sql`
     WITH audit_context AS (
       SELECT
         set_config('openboard.submission_status_source', ${actorUserId ? "organizer" : "system"}, true),
@@ -731,20 +791,42 @@ export async function transitionStatus(
         notify_revision = notify_revision + CASE WHEN status IN ('accepted','declined') AND ${to} NOT IN ('accepted','declined') THEN 1 ELSE 0 END
       FROM audit_context
       WHERE event_id = ${eventId}
-        AND id IN (${sql.join(ids.map((id) => sql`${id}`), sql`, `)})
+        AND id IN (${idList})
         AND status IN (${sql.join(from.map((status) => sql`${status}`), sql`, `)})
       RETURNING submissions.id
+    ), accepted_before AS (
+      -- Every CTE reads the same snapshot, so this is the pre-update status.
+      -- Nothing flips sessions.status when a decision is reversed, so without
+      -- this a talk that left accepted long ago would be reported as removed
+      -- from the public schedule again on every later move.
+      SELECT id FROM submissions
+      WHERE event_id = ${eventId} AND id IN (${idList}) AND status = 'accepted'
+    ), unpublished AS (
+      -- published_sessions_v carries a promoted session only while its abstract
+      -- is accepted, so this move has just pulled these talks and their
+      -- speakers off the public schedule. Counted in the same statement so the
+      -- number describes the rows this transition actually moved.
+      SELECT s.id FROM sessions s
+      JOIN changed c ON c.id = s.submission_id
+      JOIN accepted_before a ON a.id = c.id
+      WHERE s.event_id = ${eventId} AND s.status = 'published' AND s.starts_at IS NOT NULL
     )
-    SELECT id FROM changed
+    SELECT changed.id, (SELECT count(*)::int FROM unpublished) AS unpublished FROM changed
   `);
 
-  const changed = (updated.rows ?? []).map((row: { id: string }) => row.id as SubmissionId);
+  const rows = updated.rows ?? [];
+  const changed = rows.map((row: { id: string }) => row.id as SubmissionId);
   // A direct move to `accepted` skips `notifyQueues` entirely — no decision
   // email, and previously no confirmation either, so the session published
   // with an empty speaker array. Acceptance is what confirms a speaker.
   if (to === "accepted") await confirmSubmissionParticipantsIn(db, eventId, changed);
   const changedSet = new Set<string>(changed);
-  return { changed, stale: ids.filter((id) => !changedSet.has(id)) };
+  return {
+    changed,
+    stale: ids.filter((id) => !changedSet.has(id)),
+    // Moving *to* accepted restores those sessions instead of removing them.
+    unpublished: to === "accepted" ? 0 : Number(rows[0]?.unpublished ?? 0),
+  };
 }
 
 export type NotifyResult = {
@@ -770,6 +852,9 @@ export type NotifyPreview = {
   declined: number;
   emailsQueued: number;
   skippedNoRecipient: number;
+  /** Queued rows whose speaker was already sent a decision email before this
+   *  decision was undone — sending again tells them a second time. */
+  alreadyNotified: number;
   queueRevision: string;
   samples: DecisionEmailPreviewSample[];
 };
@@ -781,6 +866,7 @@ type PreviewQueueRow = {
   code: number;
   notifyRevision: number;
   recipientId: string | null;
+  alreadyNotified: boolean;
 };
 
 type QueueRevisionRow = Pick<PreviewQueueRow, "id" | "status" | "notifyRevision">;
@@ -805,7 +891,16 @@ export async function previewNotifyQueuesIn(dbOrTx: DbOrTx, eventId: EventId): P
         SELECT sp.contact_id FROM submission_participants sp
         WHERE sp.submission_id = s.id AND sp.event_id = s.event_id AND sp.is_primary
         LIMIT 1
-      )) AS "recipientId"
+      )) AS "recipientId",
+      -- Re-deciding is legitimate and sends a genuinely new email, so the
+      -- preflight has to say which speakers have already heard a decision for
+      -- this submission. Failed and skipped rows never reached anybody.
+      EXISTS (
+        SELECT 1 FROM communication_logs cl
+        WHERE cl.event_id = s.event_id AND cl.submission_id = s.id
+          AND cl.template_key IN ('submission_accepted', 'submission_declined')
+          AND cl.status NOT IN ('failed', 'skipped')
+      ) AS "alreadyNotified"
     FROM submissions s
     WHERE s.event_id = ${eventId}
       AND s.status IN ('accept_queue', 'decline_queue')
@@ -884,6 +979,7 @@ export async function previewNotifyQueuesIn(dbOrTx: DbOrTx, eventId: EventId): P
     declined: declined.length,
     emailsQueued: deliverable.length,
     skippedNoRecipient: rows.length - deliverable.length,
+    alreadyNotified: deliverable.filter((row) => row.alreadyNotified).length,
     queueRevision: decisionQueueRevision(rows),
     samples,
   };

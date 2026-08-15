@@ -174,6 +174,7 @@ export function AbstractsView({
         }
       />
       <AbstractsTable
+        eventId={eventId}
         rows={rows}
         counts={counts}
         view={view}

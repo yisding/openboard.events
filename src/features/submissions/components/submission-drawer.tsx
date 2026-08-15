@@ -277,6 +277,12 @@ export function SubmissionDrawer({
       setDetail((current) => current && { ...current, title: values.title });
       toast("Submission saved");
       router.refresh();
+    } catch {
+      // A dropped connection rejects rather than answering, so none of the
+      // branches above run. Without this the button just flips back to "Save
+      // changes" and nothing says the edit was never written.
+      if (active.current.eventId !== request.eventId || active.current.submissionId !== request.submissionId) return;
+      setSaveFeedback({ kind: "error", message: "Could not reach the server. This abstract was not saved." });
     } finally {
       // Same rule as above, for the same reason: if the drawer has moved on,
       // `busy` now belongs to whatever is saving *there* and this request has no

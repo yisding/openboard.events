@@ -9,7 +9,7 @@ export type {
   FormPatch,
   SectionPatch,
 } from "./builder-types";
-export { BUILDER_STEPS } from "./builder-types";
+export { BUILDER_STEPS, MAPS_TO_LABELS, mapsToLabel } from "./builder-types";
 export {
   compileAndPublish,
   compileAndPublishIn,

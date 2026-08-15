@@ -59,6 +59,13 @@ export type PortalParticipant = {
 export type PortalSubmissionDetail = PortalSubmissionRow & {
   descriptionHtml: string | null;
   participants: PortalParticipant[];
+  /**
+   * Whether the viewer is the submitter, not merely a listed participant.
+   * `withdraw` scopes its UPDATE by `submitter_contact_id`, so this is the one
+   * flag that decides whether offering the control would end in a bare
+   * NOT_FOUND for a co-speaker looking at a submission they can see.
+   */
+  isSubmitter: boolean;
 };
 
 export function portalStatus(status: SubmissionStatus): PortalStatus {
@@ -146,6 +153,7 @@ export async function getMySubmissionIn(
       submittedAt: submissions.submittedAt,
       updatedAt: submissions.updatedAt,
       descriptionHtml: submissions.descriptionHtml,
+      submitterContactId: submissions.submitterContactId,
       formClosesAt: forms.closesAt,
     })
     .from(submissions)
@@ -197,6 +205,7 @@ export async function getMySubmissionIn(
     submittedAt: row.submittedAt ? row.submittedAt.toISOString() : null,
     updatedAt: row.updatedAt.toISOString(),
     descriptionHtml: row.descriptionHtml,
+    isSubmitter: row.submitterContactId === contactId,
     formClosesAt: row.formClosesAt ? row.formClosesAt.toISOString() : null,
     participants: participants.map((participant) => ({
       contactId: participant.contactId,

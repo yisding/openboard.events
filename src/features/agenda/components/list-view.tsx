@@ -1,8 +1,8 @@
 "use client";
 
 import type { ColumnDef } from "@tanstack/react-table";
-import { AlertTriangle, CalendarDays } from "lucide-react";
-import { useMemo, useState } from "react";
+import { AlertTriangle, CalendarDays, Plus } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
 import type { ScheduledSessionDTO, SessionId } from "@/shared/contracts";
 import { ColorChip } from "@/shared/ui/app/color-chip";
 import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
@@ -25,7 +25,19 @@ import { bulkPublishFailureMessage, bulkPublishPreflight, type BulkPublishPrefli
  * a session with no room, no track and no time is a normal row here, not an
  * edge case that crashes the table.
  */
-export function ListView({ eventId, event, sessions, conflicts, rooms, tracks, formats, speakers, onEdit }: AgendaViewProps) {
+export function ListView({
+  eventId,
+  event,
+  sessions,
+  conflicts,
+  rooms,
+  tracks,
+  formats,
+  speakers,
+  onEdit,
+  onCreate,
+  searchActive = false,
+}: AgendaViewProps & { onCreate?: () => void; searchActive?: boolean }) {
   const { toast } = useToast();
   const { setPublished } = useSessionMutations(eventId);
   const [selected, setSelected] = useState<ScheduledSessionDTO[]>([]);
@@ -145,6 +157,18 @@ export function ListView({ eventId, event, sessions, conflicts, rooms, tracks, f
     setPendingPublish(preflight);
   }
 
+  // Stable identity on purpose, as belt and braces. `DataTable` holds this
+  // callback in a ref and notifies only when the selection itself changed (see
+  // `data-table.tsx`), so an inline literal is safe there today — but this
+  // handler clears the confirm dialog, and an unstable one re-fired on every
+  // render used to wipe that state on the very render that opened it. Keeping
+  // the identity stable stops that outcome depending on DataTable's internals.
+  const onSelectionChanged = useCallback((rows: ScheduledSessionDTO[]) => {
+    setSelected(rows);
+    setPublishBlockerCount(0);
+    setPendingPublish(null);
+  }, []);
+
   return (
     <section className="panel data-panel">
       {publishBlockerCount > 0 && (
@@ -164,11 +188,7 @@ export function ListView({ eventId, event, sessions, conflicts, rooms, tracks, f
         selectionEpoch={selectionEpoch}
         columnVisibilityKey={`agenda-list:${eventId}`}
         getRowId={(row) => String(row.id)}
-        onSelectionChange={(rows) => {
-          setSelected(rows);
-          setPublishBlockerCount(0);
-          setPendingPublish(null);
-        }}
+        onSelectionChange={onSelectionChanged}
         renderSelectionBar={({ selectedRows, countLabel, clearSelection }) => (
           <BulkActionBar
             count={selectedRows.length}
@@ -185,8 +205,11 @@ export function ListView({ eventId, event, sessions, conflicts, rooms, tracks, f
         empty={(
           <EmptyState
             icon={<CalendarDays size={26} />}
-            title="Nothing here yet"
-            description="Sessions will appear here in list view"
+            title={searchActive ? "No sessions match your search" : "No sessions yet"}
+            description={searchActive
+              ? "Try another session title or clear the search."
+              : "Add a session to start building the schedule."}
+            {...(!searchActive && onCreate ? { action: <Button onClick={onCreate}><Plus size={14} aria-hidden /> Add session</Button> } : {})}
           />
         )}
       />

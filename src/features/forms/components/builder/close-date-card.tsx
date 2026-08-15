@@ -27,10 +27,10 @@ export function CloseDateCard({ event, form, onChange }: {
       <h3>Deadlines</h3>
       <p style={captionStyle}>When the form stops accepting new and updated submissions.</p>
       <div className="form-grid">
-        <Field label="Opens At">
+        <Field label="Opens at">
           <DateTimePicker tz={event.timezone} value={form.opensAt} onChange={(opensAt) => onChange({ opensAt })} />
         </Field>
-        <Field label="Select date and time">
+        <Field label="Closes at">
           <DateTimePicker tz={event.timezone} value={form.closesAt} onChange={(closesAt) => onChange({ closesAt })} />
         </Field>
       </div>

@@ -101,6 +101,11 @@ export type LegalityVerdict = { legal: true } | { legal: false; reason: keyof Re
  * Order matches the work order's own listing: room/speaker conflict (through
  * M29's `detectConflicts`, never reimplemented), then a speaker's M51
  * blackout (through M04's shared half-open `overlaps`), then room capacity.
+ *
+ * Track overlap is deliberately *not* screened: `detectConflicts` grades it
+ * `warning` because two sessions of one track running at once is a programming
+ * choice, and blocking on it would make a single-track event unplaceable. The
+ * auto-place dialog says so rather than promising more than this checks.
  */
 export function isCandidateLegal(
   candidate: PlacementCandidate,

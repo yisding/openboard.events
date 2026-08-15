@@ -19,10 +19,21 @@ import type { PortalShellData } from "../portal-context";
 export type { PortalShellData };
 
 // The seeded avatar palette. Picked by a stable hash of the contact id so a
-// speaker keeps the same colour between renders without storing one.
-const AVATAR_COLORS = ["#007454", "#2672a8", "#2a8471", "#347d87", "#45816c", "#6475a2", "#8967af", "#ac5a90", "#b25c63", "#9a6d27"] as const;
+// speaker keeps the same colour between renders without storing one. The hues
+// themselves live in `globals.css` with the rest of the tokens, so the
+// stylesheet governs their contrast against the tint they are drawn on.
+const AVATAR_COLORS = [
+  "var(--avatar-hue-1)", "var(--avatar-hue-2)", "var(--avatar-hue-3)", "var(--avatar-hue-4)", "var(--avatar-hue-5)",
+  "var(--avatar-hue-6)", "var(--avatar-hue-7)", "var(--avatar-hue-8)", "var(--avatar-hue-9)", "var(--avatar-hue-10)",
+] as const;
 
-function avatarColorFor(id: string): string {
+/**
+ * Exported for the admin speaker roster, which draws the same contacts'
+ * avatars: one palette, one hash, so a speaker wears the same hue on the
+ * portal and in the organizer's view — and the `avatar-hue-contrast` test
+ * covers every disc the product draws.
+ */
+export function avatarColorFor(id: string): string {
   let hash = 0;
   for (const character of id) hash = (hash * 31 + (character.codePointAt(0) ?? 0)) % 100_000;
   return AVATAR_COLORS[hash % AVATAR_COLORS.length] ?? AVATAR_COLORS[0];

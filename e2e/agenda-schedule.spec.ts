@@ -258,9 +258,14 @@ test.describe("agenda-schedule", () => {
         await expect(page.locator(root).first()).toBeVisible();
       }
 
-      // The day-scoped views share one day switcher, and the toolbar's zone note
-      // is what keeps a 9pm session off tomorrow's tab for a reader elsewhere.
-      await expect(page.getByText(`All times ${EVENTS.main.timezone}`)).toBeVisible();
+      // The day-scoped views share one day switcher, and the day rail's zone
+      // note is what keeps a 9pm session off tomorrow's tab for a reader
+      // elsewhere. The note names the zone the way every other surface does —
+      // the abbreviation for the shown day ("PDT"), not the IANA id — so match
+      // the shape rather than pinning a literal that flips across DST.
+      const zoneNote = page.locator(".agenda-daybar > span");
+      await expect(zoneNote).toBeVisible();
+      await expect(zoneNote).toHaveText(/^All times (?:[A-Z]{2,5}|GMT[+-]\d{1,2}(?::\d{2})?)$/);
 
       await page.goto(`${AGENDA}?view=list`);
       await expect(page.getByText(SESSIONS.publishedKeynote.title)).toBeVisible();

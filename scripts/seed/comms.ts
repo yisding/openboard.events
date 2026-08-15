@@ -27,6 +27,11 @@ export async function seedComms(ctx: SeedCtx): Promise<void> {
     return;
   }
   await seedDefaultTemplates(tx, eventId);
+  // Empty Conf stays empty of *content*, not of defaults: every event created
+  // through the product gets its templates and reminder ladder from
+  // `createEventIn`, so leaving them out here made the empty-state fixture
+  // less empty-like than a real new event, not more.
+  await seedDefaultTemplates(tx, eventIdSchema.parse(ctx.emptyEventId));
   const [defaultContact] = await tx.select({ id: contacts.id }).from(contacts).where(eq(contacts.eventId, eventId)).orderBy(asc(contacts.createdAt)).limit(1);
   const [unsubscribed] = await tx.select({ id: contacts.id }).from(contacts).where(and(eq(contacts.eventId, eventId), sql`${contacts.unsubscribedAt} IS NOT NULL`)).limit(1);
   const [received] = await tx.select({ id: submissions.id }).from(submissions).where(and(eq(submissions.eventId, eventId), eq(submissions.status, "pending"))).orderBy(asc(submissions.createdAt)).limit(1);

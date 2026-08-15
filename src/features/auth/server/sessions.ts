@@ -2,6 +2,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { adminSessions } from "@/db/schema";
 import type { UserId } from "@/shared/contracts";
+import { getCurrentAdminSessionId } from "./admin";
 
 /**
  * M44 — admin session views over M42's revocable session store
@@ -21,9 +22,11 @@ export type AdminSessionSummary = {
   userAgent: string | null;
   createdAt: string;
   expiresAt: string;
+  /** True for the sign-in reading the list — the one whose Revoke signs *you* out. */
+  isCurrent: boolean;
 };
 
-export async function listAdminSessionsIn(dbOrTx: DbOrTx, userId: UserId): Promise<AdminSessionSummary[]> {
+export async function listAdminSessionsIn(dbOrTx: DbOrTx, userId: UserId, currentSessionId: string | null = null): Promise<AdminSessionSummary[]> {
   const rows = await dbOrTx.select({
     id: adminSessions.id,
     ipAddress: adminSessions.ipAddress,
@@ -37,9 +40,13 @@ export async function listAdminSessionsIn(dbOrTx: DbOrTx, userId: UserId): Promi
     userAgent: row.userAgent,
     createdAt: row.createdAt.toISOString(),
     expiresAt: row.expiresAt.toISOString(),
+    isCurrent: row.id === currentSessionId,
   }));
 }
-export const listAdminSessions = (userId: UserId): Promise<AdminSessionSummary[]> => listAdminSessionsIn(db, userId);
+// The current session id is resolved here rather than at each call site so no
+// caller can render a list where every row looks like someone else's.
+export const listAdminSessions = async (userId: UserId): Promise<AdminSessionSummary[]> =>
+  listAdminSessionsIn(db, userId, await getCurrentAdminSessionId());
 
 /**
  * Scoped by `userId` so a caller can only ever revoke their own session id,

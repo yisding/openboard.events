@@ -175,6 +175,21 @@ describe("submission detail drawer recovery", () => {
     expect(buttonNamed("Retry")).toBeDefined();
   });
 
+  it("says the save did not land when the write drops, and leaves the edit retryable", async () => {
+    fetchMock
+      .mockResolvedValueOnce(Response.json({ data: detail() }))
+      .mockRejectedValueOnce(new TypeError("offline"));
+    await mount(true);
+
+    await act(async () => { editTitle("My unsaved edit"); });
+    await act(async () => buttonNamed("Save changes")?.click());
+    await settle();
+
+    expect(container.textContent).toContain("Could not reach the server. This abstract was not saved.");
+    expect(toastMock).not.toHaveBeenCalledWith("Submission saved");
+    expect(buttonNamed("Save changes")?.disabled).toBe(false);
+  });
+
   it("keeps stale fields locked until the rejected row version is replaced", async () => {
     fetchMock
       .mockResolvedValueOnce(Response.json({ data: detail() }))

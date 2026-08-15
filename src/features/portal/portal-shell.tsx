@@ -19,7 +19,7 @@ const links = [
 
 export function PortalShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { event, speaker, openTaskCount, impersonated } = usePortal();
+  const { event, speaker, openTaskCount, impersonated, impersonator } = usePortal();
   const [openPath, setOpenPath] = useState<string | null>(null);
   const open = openPath === pathname;
   const setOpen = useCallback((next: boolean) => setOpenPath(next ? pathname : null), [pathname]);
@@ -52,6 +52,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           <ImpersonationBanner
             name={`${speaker.firstName} ${speaker.lastName}`}
             email={speaker.email}
+            eventSlug={event.slug}
+            admin={impersonator}
             backHref={`/events/${event.id}/speakers/${speaker.id}`}
           />
         )}

@@ -70,6 +70,7 @@ function SpeakerDetail({
 export function PublicSpeakerGallery({
   eventSlug,
   speakers,
+  hasSessions = false,
   embed = false,
   embedOptions = DEFAULT_EMBED_OPTIONS,
   filters = {},
@@ -77,6 +78,8 @@ export function PublicSpeakerGallery({
 }: {
   eventSlug: string;
   speakers: PublishedSpeakersDTO;
+  /** See `PublicSpeakersList` — the empty state only links to a live agenda. */
+  hasSessions?: boolean;
   embed?: boolean;
   embedOptions?: EmbedOptions;
   filters?: EmbedFilters;
@@ -142,9 +145,10 @@ export function PublicSpeakerGallery({
               <PublicComingSoon
                 icon={Search}
                 title="Speakers coming soon"
-                description="Confirmed speakers will appear here as they're announced — the agenda is the other place to check."
-                linkHref={`/e/${eventSlug}/agenda`}
-                linkLabel="View the agenda"
+                description={hasSessions
+                  ? "Confirmed speakers will appear here as they're announced — the agenda already has sessions to browse."
+                  : "Confirmed speakers will appear here as they're announced."}
+                {...(hasSessions ? { linkHref: `/e/${eventSlug}/agenda`, linkLabel: "View the agenda" } : {})}
               />
             ) : (
               <>

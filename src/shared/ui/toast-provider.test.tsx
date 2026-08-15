@@ -1,5 +1,6 @@
 /** @vitest-environment happy-dom */
 
+import { readFileSync } from "node:fs";
 import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -60,6 +61,18 @@ describe("ToastProvider", () => {
     if (!dismiss) throw new Error("Named error dismissal was not rendered");
     act(() => dismiss.click());
     expect(container.textContent).not.toContain("Decision emails could not be sent");
+  });
+
+  // The stack paints above `<dialog>` drawers by sitting in the top layer, and
+  // top-layer order also decides what a modal dialog blocks: an element below
+  // the dialog takes no pointer events and leaves the accessibility tree. Both
+  // openers therefore re-raise the stack straight after `showModal()`, or an
+  // error toast already on screen is buried by the next drawer.
+  it("is re-raised above a modal dialog opened after it", () => {
+    const kit = readFileSync(`${process.cwd()}/src/shared/ui/ui-kit.tsx`, "utf8");
+
+    expect(kit).toContain('import { raiseTopLayerStack } from "@/shared/ui/top-layer"');
+    expect(kit.match(/dialog\.showModal\(\);\n(?:\s*\/\/[^\n]*\n)*\s*raiseTopLayerStack\(\);/g)).toHaveLength(2);
   });
 
   it("continues to auto-dismiss successes", () => {

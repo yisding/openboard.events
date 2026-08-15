@@ -1,5 +1,6 @@
 "use client";
 
+import { plainTextLength } from "@/shared/contracts";
 import type { SubmissionVocabulary } from "@/features/submissions";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
@@ -48,11 +49,23 @@ function orNull(value: string): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+/**
+ * A rich text editor round-trips an empty document as `<p></p>`, so a
+ * description that was never written and one whose text was deleted are the
+ * same absence. Comparing the markup instead would call an untouched drawer
+ * dirty — and the unsaved-work guard that follows teaches organizers to hit
+ * "Discard changes" reflexively — and would store an empty paragraph in a
+ * column whose "no description" value is NULL.
+ */
+function richTextOrNull(value: string): string | null {
+  return plainTextLength(value) === 0 ? null : orNull(value);
+}
+
 export function toCreateBody(values: AbstractFieldValues, status: string): Record<string, unknown> {
   return {
     status,
     title: values.title.trim(),
-    descriptionHtml: orNull(values.descriptionHtml),
+    descriptionHtml: richTextOrNull(values.descriptionHtml),
     trackId: orNull(values.trackId),
     formatId: orNull(values.formatId),
     level: orNull(values.level),
@@ -73,7 +86,8 @@ export function toCreateBody(values: AbstractFieldValues, status: string): Recor
 export function toPatch(values: AbstractFieldValues, original: AbstractFieldValues): Record<string, unknown> {
   const patch: Record<string, unknown> = {};
   if (values.title !== original.title) patch.title = values.title.trim();
-  if (values.descriptionHtml !== original.descriptionHtml) patch.descriptionHtml = orNull(values.descriptionHtml);
+  const description = richTextOrNull(values.descriptionHtml);
+  if (description !== richTextOrNull(original.descriptionHtml)) patch.descriptionHtml = description;
   if (values.trackId !== original.trackId) patch.trackId = orNull(values.trackId);
   if (values.formatId !== original.formatId) patch.formatId = orNull(values.formatId);
   if (values.level !== original.level) patch.level = orNull(values.level);

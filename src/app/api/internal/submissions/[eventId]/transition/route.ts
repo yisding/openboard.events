@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { adminAuth } from "@/features/auth";
 import { BULK_DECISION_LIMIT } from "@/features/submissions/bulk-decision-limit";
+import { revalidatePublicEvent } from "@/features/public/server/revalidate";
 import { transitionStatus } from "@/features/submissions";
 import { eventIdSchema, submissionIdSchema, submissionStatusSchema, userIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
@@ -20,13 +21,26 @@ const transition = defineHandler({
     to: submissionStatusSchema,
     expectedFrom: z.union([submissionStatusSchema, z.array(submissionStatusSchema).min(1)]),
   }),
-  handler: async ({ eventId, input, session }) => transitionStatus(
-    eventIdSchema.parse(eventId),
-    input.ids,
-    input.to,
-    input.expectedFrom,
-    userIdSchema.parse(session?.actorId),
-  ),
+  handler: async ({ eventId, input, session, requestId }) => {
+    const scopedEventId = eventIdSchema.parse(eventId);
+    const result = await transitionStatus(
+      scopedEventId,
+      input.ids,
+      input.to,
+      input.expectedFrom,
+      userIdSchema.parse(session?.actorId),
+    );
+    // Only an `accepted` submission keeps its promoted session on the public
+    // views, so the public site changes in exactly two cases: a move pulled a
+    // published session off the views (`unpublished`), or a move into
+    // `accepted` restored one. Triage moves between the internal queues must
+    // not drop the ISR entries — a bulk-triage session would otherwise bust
+    // the public schedule and speaker caches on every batch.
+    if (result.unpublished > 0 || (input.to === "accepted" && result.changed.length > 0)) {
+      await revalidatePublicEvent(scopedEventId, ["schedule", "speakers"], requestId);
+    }
+    return result;
+  },
 });
 
 export async function POST(request: NextRequest, route: { params: Promise<{ eventId: string }> }): Promise<Response> {

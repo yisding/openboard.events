@@ -139,13 +139,13 @@ export function PublicItinerary({
     : null;
   const emptyCopy = myScheduleEmptyCopy(starred.length);
 
+  // See `public-sessions.tsx`: with nothing published there are no confirmed
+  // speakers to send anyone to either, so this empty state offers no link.
   const body = schedule.sessions.length === 0 ? (
     <PublicComingSoon
       icon={Star}
       title="Schedule coming soon"
-      description={`Sessions land closer to ${formatInZone(event.startsAt, event.timezone, { month: "long", day: "numeric" })} — meet the confirmed speakers meanwhile, then come back to build your itinerary.`}
-      linkHref={`/e/${eventSlug}/speakers`}
-      linkLabel="Speaker gallery"
+      description={`Sessions land closer to ${formatInZone(event.startsAt, event.timezone, { month: "long", day: "numeric" })} — come back then to star the ones you want.`}
     />
   ) : sessions.length === 0 ? (
     <FilteredItineraryEmptyState eventSlug={eventSlug} starredCount={hydrated ? starred.length : 0} />

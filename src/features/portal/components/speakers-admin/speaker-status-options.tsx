@@ -1,4 +1,10 @@
-export function SpeakerStatusOptions<T extends string>({
+import { statusBadgeLabel, type StatusBadgeValue } from "@/shared/ui/status-badge";
+
+/** The options are narrowed to the badge vocabulary so a button reads the same
+ * words as the badge for the same state — "Awaiting confirmation", not
+ * "unconfirmed" — and adding a status without authoring its label is a type
+ * error at the call site rather than a lowercase enum on screen. */
+export function SpeakerStatusOptions<T extends StatusBadgeValue>({
   label,
   options,
   value,
@@ -22,7 +28,7 @@ export function SpeakerStatusOptions<T extends string>({
           className={value === option ? "active" : ""}
           onClick={() => onChange(option)}
         >
-          {option.replaceAll("_", " ")}
+          {statusBadgeLabel(option)}
         </button>
       ))}
     </div>
