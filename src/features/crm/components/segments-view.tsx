@@ -382,6 +382,7 @@ export function SegmentsView({
           open
           recipients={emailSegment ? emailRecipients : []}
           previewRecipients={emailSegment ? previewRecipients : []}
+          capped={emailSegment ? resolved[emailSegment.id]?.capped ?? false : false}
           initialRecovery={emailRecoveryOpen ? emailRecovery : null}
           onRecoveryChange={setEmailRecovery}
           onClose={() => { setEmailSegment(null); setEmailRecoveryOpen(false); }}

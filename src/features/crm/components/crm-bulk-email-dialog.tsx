@@ -68,6 +68,7 @@ export function CrmBulkEmailDialog({
   previewRecipients,
   initialRecovery = null,
   onRecoveryChange,
+  capped = false,
 }: {
   organizationId: OrganizationId;
   open: boolean;
@@ -84,6 +85,15 @@ export function CrmBulkEmailDialog({
   previewRecipients?: { id: string; name: string; email: string }[];
   initialRecovery?: BulkSendRecoverySnapshot | null;
   onRecoveryChange?: (snapshot: BulkSendRecoverySnapshot | null) => void;
+  /**
+   * The resolution hit `MAX_SEGMENT_RECIPIENTS`, so `recipients` is a truncated
+   * audience rather than the whole one. Hardcoding this `false` meant emailing a
+   * 2,500-contact segment sent to the first 2,000 and reported success: the
+   * other 500 appeared in no error list, no skip count and no failure state.
+   * `canSendBulkMessage` exists to block exactly that, and the comms surface has
+   * always passed the real value.
+   */
+  capped?: boolean;
 }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -124,7 +134,7 @@ export function CrmBulkEmailDialog({
   const currentPreview = preview?.fingerprint === previewFingerprint ? preview : null;
   const canSend = canSendBulkMessage({
     canCompose: ready,
-    capped: false,
+    capped,
     previewFingerprint: preview?.fingerprint ?? null,
     currentFingerprint: previewFingerprint,
   });
@@ -215,7 +225,9 @@ export function CrmBulkEmailDialog({
 
   async function runSendLocked(): Promise<boolean> {
     if (!recovery && (!currentPreview || !canSend)) {
-      setError("Preview this exact audience and message before sending");
+      setError(capped
+        ? "Refine the audience to 2,000 recipients or fewer"
+        : "Preview this exact audience and message before sending");
       return false;
     }
     const candidate = recovery ?? (currentPreview ? {
