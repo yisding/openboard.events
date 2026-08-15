@@ -327,6 +327,25 @@ describe("M44 user management", () => {
 
         const audits = await listOrganizationAuditLogIn(db, org.id);
         expect(audits.filter((entry) => entry.action === "member.invited")).toHaveLength(2);
+
+        // Once it expires it stops being pending. The token is already dead —
+        // `pendingOrganizationInvitationByTokenIn` requires `expires_at > now()`
+        // and the outbox revalidates before sending — but this list kept showing
+        // the row under "Pending invitations" with a past expiry date beside it,
+        // and the write-recovery path stated it as fact. The owner believed
+        // access was still coming while the invitee's link 400s. The
+        // event-scoped sibling query has always filtered this.
+        await pglite.query(
+          "UPDATE organization_invitations SET expires_at = now() - interval '1 day' WHERE id=$1",
+          [first.invitation.id],
+        );
+        expect(await listPendingOrganizationInvitationsIn(db, org.id)).toEqual([]);
+
+        // Re-inviting the same address refreshes that row's expiry, so nothing
+        // is stranded by hiding it.
+        const revived = await inviteForTest(org.id, ownerId, { email: "new.person@example.com", role: "reviewer" });
+        expect(revived.invitation.id).toBe(first.invitation.id);
+        expect(await listPendingOrganizationInvitationsIn(db, org.id)).toHaveLength(1);
       } finally {
         await pglite.query("UPDATE events SET organization_id=$1 WHERE id=$2", [organizationIdSchema.parse("d3fa0000-0000-4000-8000-000000000001"), eventId]);
         await pglite.query("DELETE FROM organizations WHERE id=$1", [org.id]);

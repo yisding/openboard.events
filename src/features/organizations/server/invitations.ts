@@ -323,6 +323,15 @@ export async function listPendingOrganizationInvitationsIn(dbOrTx: DbOrTx, organ
       isNull(organizationInvitations.eventId),
       sql`${organizationInvitations.acceptedAt} IS NULL`,
       sql`${organizationInvitations.revokedAt} IS NULL`,
+      // Same `expires_at > now()` the reviewer-scoped sibling above applies,
+      // and the same one the token lookup enforces. Without it an expired
+      // invitation stayed under the Team panel's "Pending invitations" heading
+      // forever, with a past expiry date beside it — and the write-recovery
+      // path asserted it as fact ("currently has a pending organizer
+      // invitation"). The owner believed access was still coming while the
+      // invitee's link 400s. Re-inviting the same address upserts the expired
+      // row and refreshes its expiry, so nothing is stranded by hiding it.
+      sql`${organizationInvitations.expiresAt} > now()`,
     ))
     .orderBy(asc(organizationInvitations.createdAt));
   return rows.map((row) => organizationInvitationDtoSchema.parse({
