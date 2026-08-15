@@ -1,4 +1,5 @@
 import { sql, type SQL } from "drizzle-orm";
+import { OUTSTANDING_REVIEW_WORK_SQL } from "@/db/review-work";
 import { db, type DbOrTx } from "@/db/client";
 import { criterionIdSchema, type CriterionSpec, type CriterionValue, type EventId, type PlanId, type SubmissionId, type UserId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
@@ -50,7 +51,7 @@ function scopeClause(planTracks: SQL, assignmentTracks: SQL): SQL {
 }
 
 /** A live assignment: recusals stay on the row for the audit trail but stop being work. */
-const LIVE = sql`ra.status = 'assigned'`;
+const LIVE = OUTSTANDING_REVIEW_WORK_SQL;
 
 type PlanRow = {
   id: string; name: string; round: number; scale_min: number; scale_max: number;
@@ -287,7 +288,6 @@ export async function listReviewQueueIn(
     LEFT JOIN submission_ratings_v v ON v.plan_id = p.id AND v.submission_id = s.id AND v.event_id = s.event_id
     WHERE ra.plan_id = ${plan.id} AND ra.event_id = ${eventId} AND ra.reviewer_user_id = ${reviewerUserId}
       AND ${LIVE}
-      AND s.status NOT IN ('draft', 'withdrawn')
     -- Unfinished first: the queue is a worklist, so what still needs a verdict
     -- belongs at the top of it.
     ORDER BY (r.submitted_at IS NOT NULL), s.code

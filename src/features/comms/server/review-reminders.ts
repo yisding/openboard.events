@@ -1,4 +1,5 @@
 import { and, eq, sql } from "drizzle-orm";
+import { OUTSTANDING_REVIEW_WORK_SQL } from "@/db/review-work";
 import { db, type DbOrTx, type TxDb } from "@/db/client";
 import { contacts } from "@/db/schema";
 import { linkUserContactIn, updateContactFields } from "@/features/event-contacts";
@@ -93,7 +94,7 @@ export async function listOutstandingReviewersIn(
     LEFT JOIN reviews r ON r.plan_id = ra.plan_id AND r.submission_id = ra.submission_id
       AND r.reviewer_user_id = ra.reviewer_user_id AND r.submitted_at IS NOT NULL
     WHERE ra.event_id = ${eventId} AND ra.plan_id = ${planId}
-      AND ra.status = 'assigned' AND r.id IS NULL
+      AND ${OUTSTANDING_REVIEW_WORK_SQL} AND r.id IS NULL
     GROUP BY u.id, u.name, u.email, linked_contact.id
     ORDER BY lower(u.name), u.email
   `);
