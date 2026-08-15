@@ -48,6 +48,17 @@ export class SkipEmail extends Error {
   }
 }
 
+/**
+ * First Fair — the reason stamped on every demo event's `skipped` outbox row.
+ *
+ * It is written to be read by an organizer, not by an operator: the demo
+ * event's Communications log is a tour destination, and this string is the
+ * payoff on that screen. Keep it in one place so the delivery log, the
+ * decision-email preflight and the suppression tab can never describe the
+ * barrier three slightly different ways.
+ */
+export const DEMO_MAIL_SKIP_REASON = "demo event — mail is never delivered";
+
 export type BuiltContext = {
   vars: TemplateVars;
   recipientEmail: string;
@@ -233,6 +244,7 @@ export async function buildContext(row: DeliveryOutboxRow, dbOrTx: DbOrTx = db, 
     eventLocation: events.location,
     eventPhysicalAddress: events.physicalAddress,
     logoFileId: events.logoFileId,
+    isDemo: events.isDemo,
     email: contacts.email,
     firstName: contacts.firstName,
     lastName: contacts.lastName,
@@ -243,6 +255,30 @@ export async function buildContext(row: DeliveryOutboxRow, dbOrTx: DbOrTx = db, 
     .leftJoin(contactSuppressions, eq(contactSuppressions.contactId, contacts.id))
     .where(eq(events.id, row.eventId)).limit(1);
   if (!base) throw new SkipEmail("contact no longer exists");
+  // First Fair — the demo-event mail barrier, and the whole reason
+  // `events.is_demo` exists. `buildContext` is the choke point every
+  // `communication_logs` row passes before `sendViaResend`, so this single
+  // line is the difference between "we remembered to filter the senders we
+  // thought of" and "no email ever leaves the building".
+  //
+  // There are NO exceptions on this path — not `portal_login`, not a
+  // transactional decision notice. The moment one exists, the label the
+  // product shows the organizer ("every send is rendered, logged and then
+  // skipped") stops being literally true, and a demo event's eighteen
+  // fabricated speakers are one un-audited branch away from real mail.
+  //
+  // This is not the *only* path, though, and pretending otherwise is how the
+  // second one went unguarded: `admin_auth_email_outbox` is drained by
+  // `dispatchAdminAuthEmailOutboxIn`, never by this dispatcher, and a reviewer
+  // invitation is event-scoped enough to name a demo event. That outbox
+  // carries its own copy of this guard, and `inviteEventReviewerIn` refuses
+  // the write in the first place.
+  //
+  // It sits above the allowlist deliberately: a demo row must never mint a
+  // portal token, never open a sealed payload and never consult a provider,
+  // whatever the environment is configured to do. `scripts/check-source-invariants.ts`
+  // pins this guard by text so a refactor cannot quietly drop it.
+  if (base.isDemo) throw new SkipEmail(DEMO_MAIL_SKIP_REASON);
   if (!isEmailAllowed(base.email, env)) throw new SkipEmail("not in EMAIL_ALLOWLIST");
   // P3-EMAIL: a hard bounce/complaint (Resend webhook, `suppressedAt`) blocks
   // EVERY send, including decision/schedule/portal-login — the address is

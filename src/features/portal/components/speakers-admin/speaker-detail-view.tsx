@@ -66,6 +66,10 @@ function ImpersonateButton({ eventId, contactId, firstName }: { eventId: string;
   const [pending, setPending] = useState(false);
   return (
     <Button
+      // `data-tour`: this button lives in a detail panel that mounts after its
+      // own fetch, and its label carries a speaker's first name, so neither a
+      // selector nor an accessible name can address it.
+      data-tour="speakers.impersonate"
       disabled={pending}
       onClick={() => {
         setPending(true);

@@ -26,9 +26,12 @@ export default async function Page() {
 
   const memberships = (await listOrganizationsForUser(identity.userId))
     .filter(({ role }) => roleSatisfies(role, "organizer"));
+  // `?mode=create` (First Fair, design §1.2): this whole route exists because
+  // somebody asked to create an event, so the guided-setup page is told that
+  // rather than left to offer the demo fork.
   const [only] = memberships;
   if (memberships.length === 1 && only) {
-    redirect(`/organizations/${only.organization.id}/onboarding`);
+    redirect(`/organizations/${only.organization.id}/onboarding?mode=create`);
   }
 
   return (
@@ -51,7 +54,7 @@ export default async function Page() {
         </div>
         {memberships.length > 1 ? <div className="event-grid">
           {memberships.map(({ organization, role }) => (
-            <Link key={organization.id} href={`/organizations/${organization.id}/onboarding`} className="panel settings-section org-picker-card">
+            <Link key={organization.id} href={`/organizations/${organization.id}/onboarding?mode=create`} className="panel settings-section org-picker-card">
               <span className="metric-icon accent"><Building2 size={20} /></span>
               <span>
                 <b>{organization.name}</b>

@@ -2,7 +2,7 @@
 
 import type { ColumnDef } from "@tanstack/react-table";
 import { AlertTriangle, CalendarDays } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { ScheduledSessionDTO, SessionId } from "@/shared/contracts";
 import { ColorChip } from "@/shared/ui/app/color-chip";
 import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
@@ -34,6 +34,18 @@ export function ListView({ eventId, event, sessions, conflicts, rooms, tracks, f
   const [publishBlockerCount, setPublishBlockerCount] = useState(0);
 
   const lookup = useMemo(() => nameLookup({ rooms, tracks, formats, speakers }), [rooms, tracks, formats, speakers]);
+
+  // Stable identity is load-bearing, not cosmetic: `DataTable` re-invokes this
+  // callback from a `useEffect` keyed on its own identity, so an inline arrow
+  // here (a fresh function every ListView render) re-fires that effect on
+  // *every* re-render of this component — including the one triggered by
+  // `setPendingPublish(preflight)` itself, which immediately clobbers that
+  // same state back to null before the confirm dialog can ever paint.
+  const handleSelectionChange = useCallback((rows: ScheduledSessionDTO[]) => {
+    setSelected(rows);
+    setPublishBlockerCount(0);
+    setPendingPublish(null);
+  }, []);
 
   const columns = useMemo<Array<ColumnDef<ScheduledSessionDTO, unknown>>>(() => [
     {
@@ -164,18 +176,17 @@ export function ListView({ eventId, event, sessions, conflicts, rooms, tracks, f
         selectionEpoch={selectionEpoch}
         columnVisibilityKey={`agenda-list:${eventId}`}
         getRowId={(row) => String(row.id)}
-        onSelectionChange={(rows) => {
-          setSelected(rows);
-          setPublishBlockerCount(0);
-          setPendingPublish(null);
-        }}
+        onSelectionChange={handleSelectionChange}
         renderSelectionBar={({ selectedRows, countLabel, clearSelection }) => (
           <BulkActionBar
             count={selectedRows.length}
             countLabel={countLabel}
             onClear={clearSelection}
             actions={<>
-              <Button size="sm" variant="secondary" disabled={setPublished.isPending} onClick={() => reviewPublish(selectedRows)}>Publish selected</Button>
+              {/* `data-tour`: the canonical bulk-selection bar only exists while
+                  rows are selected, so the guided tour has nothing to wait on
+                  until the organizer has already acted. */}
+              <Button data-tour="agenda.publish" size="sm" variant="secondary" disabled={setPublished.isPending} onClick={() => reviewPublish(selectedRows)}>Publish selected</Button>
               <Button size="sm" variant="secondary" disabled={setPublished.isPending} onClick={() => { void bulk(false, selectedRows); }}>Unpublish selected</Button>
             </>}
           />

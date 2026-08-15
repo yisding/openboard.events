@@ -28,6 +28,7 @@ const SUGGESTED_TRACKS: Array<{ name: string; color: string }> = [
 const STEPS = ["Event details", "Tracks", "First form", "Share"] as const;
 const RENDERED_FIELDS = new Set(["name", "slug", "eventType", "timezone", "startsAt", "endsAt"]);
 const deletedSchema = z.object({ deleted: z.boolean() });
+const copiedScaffoldSchema = z.object({ copied: z.boolean() });
 const tracksListSchema = z.array(trackDtoSchema);
 const FIELD_IDS: Record<string, string> = {
   name: "onboarding-event-name",
@@ -327,12 +328,17 @@ export function OnboardingWizard({
   organizationId,
   organizationName,
   hasExistingEvents,
+  hasDemoEvent = false,
   initialState = null,
   nowIso = new Date().toISOString(),
 }: {
   organizationId: OrganizationId;
   organizationName: string;
   hasExistingEvents: boolean;
+  /** First Fair (design §5.4) — whether this organization has a demo event to
+   * offer step 1's "Start from my demo's setup" checkbox against. `false`
+   * simply hides the checkbox; nothing else in the wizard depends on it. */
+  hasDemoEvent?: boolean;
   initialState?: OnboardingResumeState | null;
   nowIso?: string;
 }) {
@@ -348,6 +354,10 @@ export function OnboardingWizard({
   const [timezone, setTimezone] = useState(initialState?.event.timezone ?? DEFAULT_TZ);
   const [startsAt, setStartsAt] = useState<string | null>(initialState?.event.startsAt ?? null);
   const [endsAt, setEndsAt] = useState<string | null>(initialState?.event.endsAt ?? null);
+  // First Fair (design §5.4) — "Start from my demo's setup". Only meaningful
+  // on the create path; there is nothing to copy onto an event that already
+  // exists.
+  const [copyFromDemo, setCopyFromDemo] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -447,6 +457,25 @@ export function OnboardingWizard({
     setEndsAt(saved.endsAt);
   }
 
+  /**
+   * First Fair (design §5.4) — "Start from my demo's setup", fired once,
+   * right after the real event is created. A bonus, not a gate: a failure
+   * here leaves a blank-slate event exactly as the wizard already produced
+   * for everyone else, and the organizer is told rather than silently short
+   * of what they asked for.
+   */
+  async function copyDemoScaffoldOnto(newEventId: EventDTO["id"]) {
+    try {
+      await api(`organizations/${organizationId}/demo/copy-scaffold`, copiedScaffoldSchema, {
+        method: "POST",
+        body: { eventId: newEventId },
+      });
+      toast("Brought over your demo's tracks, rooms and call for speakers");
+    } catch {
+      toast("Could not copy your demo's setup — the event was created without it");
+    }
+  }
+
   async function saveEventStep() {
     if (!name.trim()) return fail("Event name is required", { name: "Event name is required" });
     if (event && !slug.trim()) return fail("Event slug is required", { slug: "Event slug is required" });
@@ -492,6 +521,7 @@ export function OnboardingWizard({
         setCustomClosesAt(deadline.customClosesAt);
       }
       toast(event ? `${saved.name} updated` : `${saved.name} created`);
+      if (!event && copyFromDemo) await copyDemoScaffoldOnto(saved.id);
       setStep(2);
     } catch (caught) {
       const outcomeUnknown = !event && onboardingEventCreateOutcomeUnknown(caught);
@@ -841,6 +871,12 @@ export function OnboardingWizard({
           </div>
           {error && <p ref={summaryRef} tabIndex={-1} className="field-error" role="alert">{error}</p>}
           {eventCreateRecoveryRequired && <p className="portal-note" role="status">Your original details are locked so retrying can safely recover the same event.</p>}
+          {!event && hasDemoEvent && (
+            <label className="onboarding-toggle">
+              <input type="checkbox" checked={copyFromDemo} disabled={!hydrated || saving} onChange={(changeEvent) => setCopyFromDemo(changeEvent.target.checked)} />
+              Start from my demo&rsquo;s setup — bring over its tracks, rooms and call for speakers
+            </label>
+          )}
           <footer className="cfp-actions">
             <Button type="submit" disabled={!hydrated || saving}>{saving ? eventCreateRecoveryRequired ? "Retrying…" : "Saving…" : eventCreateRecoveryRequired ? "Retry event creation" : event ? "Save and continue" : "Create event"} <ArrowRight size={16} /></Button>
           </footer>

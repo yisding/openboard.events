@@ -29,7 +29,7 @@ const frozen = operationMock.frozen;
 
 vi.mock("@/shared/lib/api-client", () => ({ api: apiMock }));
 vi.mock("@/shared/ui/toast", () => ({ useToast: () => ({ toast: toastMock }) }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: routerPushMock }) }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/events/one/settings", useRouter: () => ({ push: routerPushMock }) }));
 vi.mock("../api-key-creation", async (importOriginal) => ({
   ...await importOriginal<typeof import("../api-key-creation")>(),
   newApiKeyCreationOperation: operationMock.create,

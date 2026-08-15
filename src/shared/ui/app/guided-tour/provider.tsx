@@ -1,0 +1,872 @@
+"use client";
+
+import { useQuery } from "@tanstack/react-query";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { z } from "zod";
+import { api } from "@/shared/lib/api-client";
+import { isAppError } from "@/shared/lib/errors";
+import { popoverPosition } from "@/shared/ui/app/popover-position";
+import { QueryBoundary } from "@/shared/ui/app/query-boundary";
+import { useGuardedAction } from "@/shared/ui/app/unsaved-work-guard";
+import { emojiRain } from "@/shared/ui/emoji-rain";
+import { useToast } from "@/shared/ui/toast";
+import { portalTargetFor, tourIdPresent, useTourAnchor } from "./anchor";
+import { TourCoach, TourPill, type TourCoachMode } from "./coach";
+import { useMobileTourViewport } from "./media";
+import { readTourMirror, writeTourMirror } from "./mirror";
+import {
+  CELEBRATION_MS,
+  HINT_REVEAL_MS,
+  OBSERVE_DWELL_MS,
+  POLL_BASE_MS,
+  POLL_HARD_STOP_MS,
+  arcSteps,
+  chapterStepIds,
+  skipNotices,
+  nextArcStepId,
+  nextChapterStepId,
+  nextPollIntervalMs,
+  objectiveSatisfied,
+  resolveTourPath,
+  resolveVisibleStepId,
+  type TourLocation,
+  tourHref,
+  tourProgress,
+  visibleTourSteps,
+  worldChanged,
+} from "./objectives";
+import { onTourSignal } from "./signals";
+import { TourScrim } from "./scrim";
+import type { TourBootstrap, TourCompletion, TourCursor, TourStateWire, TourStatus, TourStep, TourStepOutcome, TourTransport, TourWorld } from "./types";
+
+/**
+ * The tour engine.
+ *
+ * Its one opinion, and the reason it is worth its weight: **objectives are
+ * verified against server world-state, not against clicks.** Nothing here
+ * scripts a click, subscribes to a feature's success handler or knows what a
+ * submission is. It asks one endpoint "has the world reached the objective
+ * yet", which is why completing a step in a second tab, on a phone, after a
+ * refresh or by a route nobody anticipated all count.
+ *
+ * Everything else follows from that: no coupling from features into the tour,
+ * no state to lose, and a spotlight the player can simply ignore.
+ */
+
+const COACH_WIDTH = 320;
+const COACH_CLEARANCE = 260;
+
+const tourWorldValueSchema = z.union([z.number(), z.string(), z.boolean(), z.null()]);
+
+/**
+ * The wire shape the engine needs from whichever route owns the tour. It is
+ * deliberately permissive about extra keys and about anything the host has not
+ * written yet: a tour that hard-fails on an unfamiliar field would take the
+ * whole admin shell down with it.
+ */
+const tourStateSchema = z.object({
+  chapter: z.string(),
+  stepId: z.string(),
+  status: z.enum(["not_started", "active", "paused", "complete"]),
+  armedStepId: z.string().nullish(),
+  armedBaseline: z.record(z.string(), tourWorldValueSchema).nullish(),
+  completed: z.array(z.string()).default([]),
+  questsDone: z.array(z.string()).default([]),
+  world: z.record(z.string(), tourWorldValueSchema).default({}),
+});
+
+const recordedSchema = z.object({ recorded: z.boolean() });
+
+/** The engine's default transport: the repo's own API client, nothing more. */
+function httpTransport(statePath: string, stepsPath: string): TourTransport {
+  return {
+    read: () => api(statePath, tourStateSchema),
+    patch: (patch) => api(statePath, tourStateSchema, { method: "PATCH", body: patch }),
+    record: async (stepId, outcome) => {
+      await api(stepsPath, recordedSchema, { body: { stepId, outcome } });
+    },
+  };
+}
+
+export const tourKeys = {
+  all: (scopeId: string) => ["guided-tour", scopeId] as const,
+  state: (scopeId: string) => ["guided-tour", scopeId, "state"] as const,
+};
+
+type StepRuntime = {
+  /** The coach card's own control was used — the only `via: "self"` evidence. */
+  selfDone: boolean;
+  /** An `observe` anchor has been on screen long enough to count as looked at. */
+  dwellDone: boolean;
+  hintVisible: boolean;
+  /** Ten minutes on one step. A tutorial that hangs is worse than one that yields. */
+  stalled: boolean;
+  pollMs: number;
+};
+
+const FRESH_RUNTIME: StepRuntime = { selfDone: false, dwellDone: false, hintVisible: false, stalled: false, pollMs: POLL_BASE_MS };
+
+function union(current: readonly string[], incoming: readonly string[]): readonly string[] {
+  const missing = incoming.filter((id) => !current.includes(id));
+  return missing.length === 0 ? current : [...current, ...missing];
+}
+
+/**
+ * Whether a step's own href is the URL the browser is already showing.
+ *
+ * Deliberately the same equality `navigate` applies — path plus the exact
+ * query set — so a control offered on the strength of this answer cannot turn
+ * out to be a no-op. Read from the router's reactive values rather than
+ * `window.location`, which does not re-render anything when it changes.
+ */
+function isCurrentLocation(href: string, location: TourLocation): boolean {
+  const [path = "", search = ""] = href.split("?");
+  if (path !== location.pathname) return false;
+  const target = [...new URLSearchParams(search).entries()];
+  const current = Object.entries(location.query);
+  if (target.length !== current.length) return false;
+  return target.every(([key, value]) => location.query[key] === value);
+}
+
+
+/**
+ * Mounts the tour beside the shell's children.
+ *
+ * `null` is the answer for a real event, for a reviewer, and for anyone the
+ * host decided should not see a tutorial — and it renders the children
+ * untouched, with no context, no listeners and no bytes beyond this function.
+ */
+export function GuidedTourMount({ bootstrap, onComplete, onStatusChange, children }: {
+  bootstrap?: TourBootstrap | null;
+  /**
+   * Fired once when the tour ends, either way. The host decides what a
+   * finished tour means: recording a milestone, retiring the shell's ambient
+   * hints (the player has now been personally shown the event switcher, so
+   * beaconing it afterwards is condescending), swapping the resume pill for a
+   * quest log. None of that is the engine's business.
+   */
+  onComplete?: (completion: TourCompletion) => void;
+  /**
+   * Fired whenever the tour's status changes in place — pausing, resuming,
+   * starting, finishing.
+   *
+   * The host's own copy of the status came from a server render, and a soft
+   * navigation reuses that render for the life of the session. Without this,
+   * a host that gates anything on "is the tour running" — the command
+   * palette's Resume entry, ambient hints — stays frozen on whatever was true
+   * when the page loaded, and the palette drops Resume at exactly the moment
+   * the player needs it.
+   *
+   * The live cursor travels with it for the same reason: a host offering
+   * *"Resume the guided tour · Chapter 1"* to somebody who paused in Chapter 8
+   * is not offering to resume, it is offering to lose seven chapters.
+   */
+  onStatusChange?: (status: TourStatus, cursor: TourCursor) => void;
+  children?: ReactNode;
+}) {
+  if (!bootstrap) return <>{children}</>;
+  return <>
+    {children}
+    {/* The tour layer is a sibling, not an ancestor: its query cache must not
+        become the cache the page's own QueryBoundaries inherit. Suspense is
+        what lets `useSearchParams` live in a statically-rendered route. */}
+    <QueryBoundary>
+      <Suspense fallback={null}>
+        <GuidedTourLayer
+          bootstrap={bootstrap}
+          {...(onComplete ? { onComplete } : {})}
+          {...(onStatusChange ? { onStatusChange } : {})}
+        />
+      </Suspense>
+    </QueryBoundary>
+  </>;
+}
+
+function GuidedTourLayer({ bootstrap, onComplete, onStatusChange }: {
+  bootstrap: TourBootstrap;
+  onComplete?: (completion: TourCompletion) => void;
+  onStatusChange?: (status: TourStatus, cursor: TourCursor) => void;
+}) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const { runGuarded, allowNextNavigation } = useGuardedAction();
+  const { toast } = useToast();
+  const mobile = useMobileTourViewport();
+
+  const unavailableChapters = bootstrap.unavailableChapters;
+  const { steps, notices } = useMemo(() => {
+    const visible = visibleTourSteps(bootstrap.steps, { mobile, ...(unavailableChapters ? { unavailableChapters } : {}) });
+    return {
+      steps: visible.steps,
+      notices: skipNotices(bootstrap.steps, visible.steps, bootstrap.chapters, unavailableChapters ?? []),
+    };
+  }, [bootstrap.steps, bootstrap.chapters, mobile, unavailableChapters]);
+
+  const [cursor, setCursor] = useState<TourCursor>(() => bootstrap.cursor);
+  const [completed, setCompleted] = useState<readonly string[]>(bootstrap.completed);
+  const [questsDone, setQuestsDone] = useState<readonly string[]>(bootstrap.questsDone);
+  const [world, setWorld] = useState<TourWorld>(bootstrap.world);
+  const [baseline, setBaseline] = useState<TourWorld | null>(bootstrap.cursor.armedBaseline ?? null);
+  const [runtime, setRuntime] = useState<StepRuntime>(FRESH_RUNTIME);
+  const [celebrating, setCelebrating] = useState(false);
+  const [domPresent, setDomPresent] = useState(false);
+  const [pillHidden, setPillHidden] = useState(false);
+
+  const cursorRef = useRef(cursor);
+  cursorRef.current = cursor;
+  const armedAtRef = useRef(Date.now());
+  const worldRef = useRef(world);
+  /**
+   * The cursor as the *server* last stated it: the bootstrap this layer
+   * mounted with, then every patch reply, conflict re-read and poll.
+   */
+  const serverCursorRef = useRef<{ chapter: string; stepId: string; status: TourStatus }>({
+    chapter: bootstrap.cursor.chapter,
+    stepId: bootstrap.cursor.stepId,
+    status: bootstrap.cursor.status,
+  });
+  /** Cursor writes still waiting for an answer. */
+  const pendingWritesRef = useRef(0);
+  /** Where the golden path was when the player stepped out into a side quest. */
+  const arcReturnRef = useRef<string | null>(null);
+
+  // Never `steps[0]`. A cursor naming a step this viewport dropped resolves
+  // *forward* through the full script — see `resolveVisibleStepId` — so
+  // resuming a laptop tour on a phone skips ahead with the chapter's apology
+  // attached, instead of silently restarting at the cold open and then writing
+  // that restart back to the server on the next advance.
+  const resolvedStepId = useMemo(
+    () => resolveVisibleStepId(bootstrap.steps, steps, cursor.stepId, completed),
+    [bootstrap.steps, steps, cursor.stepId, completed],
+  );
+  const step: TourStep | null = useMemo(
+    () => steps.find((candidate) => candidate.id === resolvedStepId) ?? null,
+    [steps, resolvedStepId],
+  );
+  const sideQuests = useMemo(() => steps.filter((candidate) => candidate.optional === true), [steps]);
+  const progress = useMemo(() => tourProgress(bootstrap.chapters, steps, resolvedStepId ?? cursor.stepId), [bootstrap.chapters, steps, resolvedStepId, cursor.stepId]);
+
+  const running = cursor.status === "active" || cursor.status === "not_started";
+  const anchor = useTourAnchor(step?.anchor, running && step?.presentation !== "modal" && step?.presentation !== "modal-wide");
+
+  /* --- persistence ------------------------------------------------------ */
+
+  const transport = useMemo(
+    () => bootstrap.transport ?? httpTransport(bootstrap.statePath, bootstrap.stepsPath),
+    [bootstrap.transport, bootstrap.statePath, bootstrap.stepsPath],
+  );
+
+  const applyServerState = useCallback((state: TourStateWire) => {
+    // The achievement log is append-only, so the two lists are merged rather
+    // than replaced: a response that raced the POST recording the step the
+    // player just finished must not un-finish it.
+    setCompleted((current) => union(current, state.completed));
+    setQuestsDone((current) => union(current, state.questsDone));
+    setWorld(state.world);
+    if (state.armedBaseline) setBaseline(state.armedBaseline);
+    // Every answer the server gives — a patch reply, a conflict re-read, a
+    // poll — restates where the row is. Remembering it is what lets the
+    // effect below tell "the route module has re-rendered with a cursor
+    // somebody else moved" apart from "the route module has re-rendered".
+    serverCursorRef.current = { chapter: state.chapter, stepId: state.stepId, status: state.status };
+  }, []);
+
+  const patchCursor = useCallback(async (next: TourCursor, expectedStepId: string) => {
+    pendingWritesRef.current += 1;
+    try {
+      const state = await transport.patch({
+        chapter: next.chapter,
+        stepId: next.stepId,
+        status: next.status,
+        expectedStepId,
+        // Present means armed; absent releases the arm. Never `null`: the
+        // server's patch schema takes these as optional, not nullable, and
+        // "no arm" is an omission rather than a value.
+        ...(next.armedStepId ? { armedStepId: next.armedStepId } : {}),
+        ...(next.armedStepId && next.armedBaseline ? { armedBaseline: next.armedBaseline } : {}),
+      });
+      applyServerState(state);
+    } catch (error) {
+      // A lost or rejected write never breaks the tutorial: the cursor lives on
+      // in React and in the localStorage mirror, and the next advance re-sends
+      // it. A stale CAS means another tab moved first — adopt that, because two
+      // tabs disagreeing about the current step is the one state worth healing.
+      if (isAppError(error) && error.code === "CONFLICT") {
+        try {
+          const state = await transport.read();
+          applyServerState(state);
+          // The arm travels with the cursor. Dropping it here would leave the
+          // client believing nothing is armed while the arming effect's deps
+          // are all unchanged, so it would never re-fire — a step silently
+          // unarmed for the rest of the session, which is exactly the
+          // re-baselining the persisted baseline exists to prevent.
+          setCursor({
+            chapter: state.chapter,
+            stepId: state.stepId,
+            status: state.status,
+            ...(state.armedStepId ? { armedStepId: state.armedStepId } : {}),
+            ...(state.armedStepId && state.armedBaseline ? { armedBaseline: state.armedBaseline } : {}),
+          });
+        } catch {
+          // Offline. Keep going locally.
+        }
+      }
+    } finally {
+      pendingWritesRef.current -= 1;
+    }
+  }, [applyServerState, transport]);
+
+  const recordStep = useCallback(async (stepId: string, outcome: TourStepOutcome) => {
+    try {
+      await transport.record(stepId, outcome);
+    } catch {
+      // The achievement log is append-only and idempotent; a missed write is
+      // recovered by the next read, and never by blocking the player.
+    }
+  }, [transport]);
+
+  /* --- navigation ------------------------------------------------------- */
+
+  const query = useMemo(() => Object.fromEntries(searchParams.entries()), [searchParams]);
+  const location = useMemo(() => ({ pathname, query }), [pathname, query]);
+  // Read at call time, so `navigate` — and `goToStep`, `resume` and everything
+  // else built on it — keeps one identity for the life of the tour instead of
+  // churning on every route change.
+  const locationRef = useRef(location);
+  locationRef.current = location;
+
+  const navigate = useCallback((href: string) => {
+    if (typeof window === "undefined") return;
+    // Measured against the *router's* location, through the very predicate
+    // that decides whether "Take me there" is offered at all — so a control
+    // the coach shows can never turn out to be a no-op.
+    //
+    // Never `window.location`, which disagrees for exactly as long as a
+    // guarded navigation is outstanding: the unsaved-work guard answers the
+    // Navigation API's `navigate` event with `intercept()`, and that commits
+    // the URL immediately while the router stays put behind "Discard unsaved
+    // work?". Decline the prompt and the address bar is left pointing at a
+    // page the app never rendered — after which a `window.location` check
+    // swallowed every further trip there in silence. That is precisely how a
+    // dirty form builder made "Take me there" do nothing at all: no
+    // navigation, no prompt, no message.
+    if (isCurrentLocation(href, locationRef.current)) return;
+    // Mandatory: an unguarded push would put the unsaved-work dialog in a fight
+    // with the tour, and the tour would lose in a way that looks like a bug.
+    //
+    // Deliberately without a `destination` hint. That option asks the guard to
+    // compare the target against `window.location` and skip its one-shot
+    // allowance when the two match — right for a host action that ends in a
+    // real unload, wrong here, because during the desync above it would hand
+    // the push straight back to the interceptor and prompt a second time for
+    // a move the organizer has already approved.
+    runGuarded(() => allowNextNavigation(() => router.push(href)));
+  }, [allowNextNavigation, router, runGuarded]);
+
+  const goToStep = useCallback((stepId: string, options: { navigate?: boolean } = {}) => {
+    const next = steps.find((candidate) => candidate.id === stepId);
+    if (!next) return;
+    const previous = cursorRef.current;
+    // A world-armed step arms in the *same* write that moves the cursor onto
+    // it. Two writes — the move, then the arming effect — race each other over
+    // one compare-and-set row: if the arm lands first its predicate names a
+    // step the row has not reached yet, the server conflicts, and the recovery
+    // rewinds the player a step and leaves the objective unarmed. Folding them
+    // makes the transition one statement, and lets the arming effect below
+    // short-circuit on the cursor it can already see.
+    const armsOnEntry = next.kind === "act" && next.objective?.via === "world";
+    const snapshot = worldRef.current;
+    const moved: TourCursor = {
+      chapter: next.chapter,
+      stepId: next.id,
+      status: "active",
+      ...(armsOnEntry ? { armedStepId: next.id, armedBaseline: snapshot } : {}),
+    };
+    setCursor(moved);
+    setRuntime(FRESH_RUNTIME);
+    setCelebrating(false);
+    if (armsOnEntry) {
+      setBaseline(snapshot);
+      armedAtRef.current = Date.now();
+    }
+    writeTourMirror(bootstrap.scopeId, moved);
+    void patchCursor(moved, previous.stepId);
+    if (options.navigate !== false && next.route) navigate(tourHref(next.route, bootstrap.context));
+  }, [bootstrap.context, bootstrap.scopeId, navigate, patchCursor, steps]);
+
+  const setStatus = useCallback((status: TourStatus) => {
+    const previous = cursorRef.current;
+    const moved: TourCursor = { ...previous, status };
+    setCursor(moved);
+    writeTourMirror(bootstrap.scopeId, moved);
+    onStatusChange?.(status, moved);
+    void patchCursor(moved, previous.stepId);
+  }, [bootstrap.scopeId, onStatusChange, patchCursor]);
+
+  /**
+   * Adopting a cursor the *route module* re-rendered with.
+   *
+   * The layer seeds itself from the bootstrap once and then owns the cursor,
+   * which is right for its own advances and wrong for every deliberate move
+   * made from outside it — the demo ribbon's "Restart tour", a reset, another
+   * tab. Those write the row and then ask the page for a fresh render; without
+   * this, the layer keeps the cursor it already had, so a restart out of a
+   * finished tour leaves the screen exactly as dead as it was and the next
+   * advance writes the old position back over the new one.
+   *
+   * The prop's identity only changes when a new server payload arrives, and a
+   * payload rendered while one of this layer's own writes was in flight is
+   * stale by construction — hence the two guards rather than a value compare
+   * alone.
+   */
+  const serverCursor = bootstrap.cursor;
+  useEffect(() => {
+    if (pendingWritesRef.current > 0) return;
+    const known = serverCursorRef.current;
+    if (serverCursor.chapter === known.chapter
+      && serverCursor.stepId === known.stepId
+      && serverCursor.status === known.status) return;
+    serverCursorRef.current = { chapter: serverCursor.chapter, stepId: serverCursor.stepId, status: serverCursor.status };
+    setCursor(serverCursor);
+    setBaseline(serverCursor.armedBaseline ?? null);
+    setRuntime(FRESH_RUNTIME);
+    setCelebrating(false);
+    setPillHidden(false);
+    // The mirror is a record of where this browser got to, and it has just
+    // been overtaken by a decision made somewhere else. Leaving it behind is
+    // what would send the next load straight back to the abandoned step.
+    writeTourMirror(bootstrap.scopeId, serverCursor);
+    onStatusChange?.(serverCursor.status, serverCursor);
+  }, [bootstrap.scopeId, onStatusChange, serverCursor]);
+
+  // Adopting the resolution above, once, and healing the server row *forwards*
+  // with it. Without the write, the next advance would send the server the
+  // step the player never saw as its `expectedStepId`, which the CAS accepts —
+  // and the cursor would go backwards on a row that had been ahead.
+  useEffect(() => {
+    const resolved = resolvedStepId;
+    const current = cursorRef.current;
+    if (resolved === null || resolved === current.stepId) return;
+    const next = steps.find((candidate) => candidate.id === resolved);
+    if (!next) return;
+    const moved: TourCursor = { chapter: next.chapter, stepId: next.id, status: current.status };
+    setCursor(moved);
+    writeTourMirror(bootstrap.scopeId, moved);
+    void patchCursor(moved, current.stepId);
+  }, [bootstrap.scopeId, patchCursor, resolvedStepId, steps]);
+
+  /* --- advancing -------------------------------------------------------- */
+
+  const finish = useCallback((via: TourCompletion["via"]) => {
+    setStatus("complete");
+    onComplete?.({ via });
+    // The end of the script is its own curtain call and does not need a toast
+    // on top of it. Leaving early does: it should feel acknowledged, not
+    // silently obeyed.
+    if (via === "skipped") toast("Tour closed. The demo is yours — nothing in it is read-only.");
+  }, [onComplete, setStatus, toast]);
+
+  const leaveStep = useCallback((outcome: TourStepOutcome) => {
+    if (!step) return;
+    void recordStep(step.id, outcome);
+    if (outcome === "completed") {
+      if (step.optional === true) setQuestsDone((current) => (current.includes(step.id) ? current : [...current, step.id]));
+      else setCompleted((current) => (current.includes(step.id) ? current : [...current, step.id]));
+    }
+    // A side quest is a detour, not a queue entry: finishing one puts the
+    // player back exactly where the arc was, not into the next quest and not
+    // back at some earlier step they deliberately skipped.
+    let target: string | null;
+    if (step.optional === true) {
+      target = arcReturnRef.current
+        ?? arcSteps(steps).find((candidate) => !completed.includes(candidate.id))?.id
+        ?? null;
+      arcReturnRef.current = null;
+    } else {
+      target = nextArcStepId(steps, step.id);
+    }
+    if (target === null) {
+      finish("finished");
+      return;
+    }
+    goToStep(target);
+  }, [completed, finish, goToStep, recordStep, step, steps]);
+
+  const celebrateAndAdvance = useCallback(() => {
+    if (!step || celebrating) return;
+    if (step.reward) {
+      emojiRain([step.reward.emoji], step.reward.drops ?? 6);
+      setCelebrating(true);
+      return;
+    }
+    leaveStep("completed");
+  }, [celebrating, leaveStep, step]);
+
+  // Held in a ref so a poll landing mid-celebration cannot restart the timer
+  // and leave the reward line on screen indefinitely.
+  const leaveStepRef = useRef(leaveStep);
+  useEffect(() => {
+    leaveStepRef.current = leaveStep;
+  }, [leaveStep]);
+  useEffect(() => {
+    if (!celebrating) return;
+    const timer = window.setTimeout(() => leaveStepRef.current("completed"), CELEBRATION_MS);
+    return () => window.clearTimeout(timer);
+  }, [celebrating]);
+
+  const skipChapter = useCallback(() => {
+    if (!step) return;
+    // A side quest borrows its chapter from wherever it thematically belongs,
+    // so "skip this chapter" from inside one would burn a chapter of the
+    // golden path the player has not seen — and, because a quest id is not on
+    // the arc, would then read as "no chapter after this" and end the tour.
+    // Skipping out of a detour just puts them back on the path.
+    if (step.optional === true) {
+      void recordStep(step.id, "skipped");
+      const back = arcReturnRef.current
+        ?? arcSteps(steps).find((candidate) => !completed.includes(candidate.id))?.id
+        ?? null;
+      arcReturnRef.current = null;
+      if (back !== null) goToStep(back);
+      return;
+    }
+    for (const id of chapterStepIds(steps, step.chapter)) {
+      if (!completed.includes(id)) void recordStep(id, "skipped");
+    }
+    const target = nextChapterStepId(steps, step.id);
+    if (target === null) {
+      finish("finished");
+      return;
+    }
+    goToStep(target);
+  }, [completed, finish, goToStep, recordStep, step, steps]);
+
+  const pause = useCallback(() => {
+    setStatus("paused");
+    setPillHidden(false);
+    const where = progress.chapterIndex > 0 && progress.chapter
+      ? `Paused at Chapter ${progress.chapterIndex} — ${progress.chapter.name}. Pick it up whenever.`
+      : "Paused. Pick it up whenever.";
+    toast(where);
+  }, [progress, setStatus, toast]);
+
+  const resume = useCallback(() => {
+    setStatus("active");
+    if (step?.route) navigate(tourHref(step.route, bootstrap.context));
+  }, [bootstrap.context, navigate, setStatus, step]);
+
+
+  /* --- objective verification ------------------------------------------ */
+
+  // `via: "dom"` — one MutationObserver over the content region, which is
+  // where every lazily-mounted target (drawers, tab panels, query boundaries)
+  // eventually lands.
+  const domTarget = step?.objective?.via === "dom" ? step.objective.present : null;
+  useEffect(() => {
+    if (!domTarget || typeof document === "undefined") {
+      setDomPresent(false);
+      return;
+    }
+    const root = document.querySelector("#admin-content") ?? document.body;
+    const check = () => setDomPresent(tourIdPresent(domTarget, document));
+    check();
+    if (typeof MutationObserver !== "function") return;
+    const observer = new MutationObserver(check);
+    observer.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-tour"] });
+    return () => observer.disconnect();
+  }, [domTarget]);
+
+  // `observe` — the anchor has to have been on screen, not merely mounted.
+  const observeElement = step?.kind === "observe" ? anchor.element : null;
+  useEffect(() => {
+    if (step?.kind !== "observe") return;
+    if (!observeElement || typeof IntersectionObserver !== "function") {
+      // No anchor to watch, or a runtime without the observer: dwelling on
+      // nothing is satisfied by waiting the same beat.
+      const timer = window.setTimeout(() => setRuntime((current) => ({ ...current, dwellDone: true })), OBSERVE_DWELL_MS);
+      return () => window.clearTimeout(timer);
+    }
+    let timer = 0;
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries.some((entry) => entry.isIntersecting);
+      if (visible && timer === 0) {
+        timer = window.setTimeout(() => setRuntime((current) => ({ ...current, dwellDone: true })), OBSERVE_DWELL_MS);
+      } else if (!visible && timer !== 0) {
+        window.clearTimeout(timer);
+        timer = 0;
+      }
+    }, { threshold: 0.4 });
+    observer.observe(observeElement);
+    return () => {
+      if (timer !== 0) window.clearTimeout(timer);
+      observer.disconnect();
+    };
+  }, [observeElement, step?.kind, step?.id]);
+
+  const satisfied = useMemo(() => objectiveSatisfied(step?.objective, {
+    location,
+    routeContext: bootstrap.context,
+    world,
+    baseline,
+    domPresent,
+    selfDone: runtime.selfDone,
+  }), [baseline, bootstrap.context, domPresent, location, runtime.selfDone, step?.objective, world]);
+
+  /* --- arming and polling ----------------------------------------------- */
+
+  const worldFact = step?.kind === "act" && step.objective?.via === "world" ? step.objective.fact : null;
+  const armed = running && worldFact !== null && !celebrating && !runtime.stalled;
+
+  // Baselines are persisted rather than captured in memory. Without that, a
+  // reload while a step is armed re-captures the baseline at the *current*
+  // value: an action already taken becomes invisible and has to be redone.
+  useEffect(() => {
+    if (!armed || !step) return;
+    // Only the cursor's own step arms. On the frame before a dropped-step
+    // resolution has been adopted the engine is rendering a step the cursor
+    // does not name yet, and arming that one would persist a baseline for a
+    // step this session is about to leave.
+    if (step.id !== cursorRef.current.stepId) return;
+    if (cursorRef.current.armedStepId === step.id) {
+      setBaseline(cursorRef.current.armedBaseline ?? null);
+      return;
+    }
+    const snapshot = worldRef.current;
+    setBaseline(snapshot);
+    armedAtRef.current = Date.now();
+    const next: TourCursor = { ...cursorRef.current, armedStepId: step.id, armedBaseline: snapshot };
+    setCursor(next);
+    void patchCursor(next, cursorRef.current.stepId);
+  }, [armed, patchCursor, step]);
+
+  const stateQuery = useQuery({
+    queryKey: tourKeys.state(bootstrap.scopeId),
+    queryFn: () => transport.read(),
+    enabled: armed,
+    refetchInterval: runtime.pollMs,
+    // The default 15 s staleness would swallow the refetch on tab focus, which
+    // is precisely the "back from the portal tab, objective already ticked"
+    // moment this feature is built around.
+    staleTime: 0,
+    retry: false,
+  });
+
+  const stateData = stateQuery.data;
+  useEffect(() => {
+    if (!stateData) return;
+    const changed = worldChanged(worldRef.current, stateData.world);
+    worldRef.current = stateData.world;
+    applyServerState(stateData);
+    setRuntime((current) => {
+      const next = nextPollIntervalMs(current.pollMs, { armedForMs: Date.now() - armedAtRef.current, changed });
+      return next === current.pollMs ? current : { ...current, pollMs: next };
+    });
+  }, [applyServerState, stateData, stateQuery.dataUpdatedAt]);
+
+  useEffect(() => {
+    worldRef.current = world;
+  }, [world]);
+
+  // The two latency shortcuts. They shave a poll interval off the two most
+  // pressed objectives and are never the authority: delete every emit and the
+  // tour still completes, one beat later.
+  const refetchState = stateQuery.refetch;
+  useEffect(() => {
+    if (!armed) return;
+    return onTourSignal(() => { void refetchState(); });
+  }, [armed, refetchState]);
+
+  useEffect(() => {
+    if (!armed) return;
+    const timer = window.setTimeout(() => setRuntime((current) => ({ ...current, stalled: true })), POLL_HARD_STOP_MS);
+    return () => window.clearTimeout(timer);
+  }, [armed, step?.id]);
+
+  useEffect(() => {
+    if (!running || !step?.hint || runtime.hintVisible || satisfied) return;
+    const timer = window.setTimeout(() => setRuntime((current) => ({ ...current, hintVisible: true })), HINT_REVEAL_MS);
+    return () => window.clearTimeout(timer);
+  }, [running, runtime.hintVisible, satisfied, step?.hint, step?.id]);
+
+  /* --- advance on satisfaction ------------------------------------------ */
+
+  // Held in a ref so the satisfaction effect fires once per satisfaction, not
+  // once per re-render of the callback it happens to close over.
+  const advanceRef = useRef(celebrateAndAdvance);
+  useEffect(() => {
+    advanceRef.current = celebrateAndAdvance;
+  }, [celebrateAndAdvance]);
+  useEffect(() => {
+    if (!running || !satisfied || celebrating) return;
+    if (step?.kind !== "act") return;
+    advanceRef.current();
+  }, [celebrating, running, satisfied, step?.kind]);
+
+  /* --- keyboard --------------------------------------------------------- */
+
+  useEffect(() => {
+    if (!running) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      // A drawer, modal or palette owns Escape while it is open; the tour is
+      // the outermost thing on screen and takes the key only when nothing else
+      // has claimed it.
+      if (document.querySelector("dialog[open]")) return;
+      event.preventDefault();
+      pause();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [pause, running]);
+
+  // A tour that has been rendered has started. Recording it here rather than
+  // waiting for the first advance is what makes "declined at the cold open"
+  // resumable instead of indistinguishable from never having looked.
+  useEffect(() => {
+    if (cursorRef.current.status === "not_started") setStatus("active");
+  }, [setStatus]);
+
+  /* --- the optimistic mirror -------------------------------------------- */
+
+  useEffect(() => {
+    const mirror = readTourMirror(bootstrap.scopeId);
+    if (!mirror || bootstrap.cursor.status !== "active") return;
+    // Indexed against the *full* script, not the viewport's filtered view: an
+    // id this viewport dropped is absent from the filtered list and compares
+    // as -1, which would make every comparison against it meaningless.
+    const order = bootstrap.steps.map((candidate) => candidate.id);
+    // Adopt the mirror only when it is *ahead* of the server: that is the
+    // advance whose PATCH was still in flight when the tab reloaded. Behind or
+    // unknown, the database wins — cross-device resume is the whole point.
+    if (order.indexOf(mirror.stepId) > order.indexOf(bootstrap.cursor.stepId)) {
+      // The mirror's *status* is adopted with its step, never overwritten with
+      // "active". A mirror recording a finished tour is the same lost write as
+      // one recording an advance, and forcing it back to active restarts the
+      // tutorial on its last step — which for the curtain call is a modal
+      // `<dialog>`. That dialog owns the top layer, so everything behind it
+      // (the demo ribbon's Reset and Delete included) stops taking clicks and
+      // drops out of the accessibility tree, on every load, for good.
+      setCursor({ chapter: mirror.chapter, stepId: mirror.stepId, status: mirror.status });
+    }
+    // Deliberately mount-only: this reconciles one reload, not every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Hiding the pill means "not on this screen", never "not again": design §3.6
+  // promises a way back in on every page of the demo, and a dismissal that
+  // outlived the page would leave a paused tutorial with no affordance
+  // anywhere until the organizer thought to reload.
+  useEffect(() => {
+    setPillHidden(false);
+  }, [pathname]);
+
+  /* --- rendering -------------------------------------------------------- */
+
+  // A running tour always has a card to draw: a cursor naming a step this
+  // build lost resolves forward to the next unfinished objective rather than
+  // to nothing — see `resolveVisibleStepId`. `null` here means the host handed
+  // the engine no steps at all, which is the one case with nothing to offer.
+  if (!step || cursor.status === "complete") return null;
+
+  if (cursor.status === "paused") {
+    if (pillHidden) return null;
+    return <TourPill progress={progress} onResume={resume} onDismiss={() => setPillHidden(true)} />;
+  }
+
+  const inDialog = anchor.element?.closest("dialog[open]") ?? null;
+  const spotlit = !mobile
+    && step.spotlight !== false
+    && step.kind !== "beat"
+    && inDialog === null
+    && anchor.rect !== null;
+  const position = !mobile && anchor.rect && typeof window !== "undefined"
+    ? popoverPosition(step.placement ?? "bottom", anchor.rect, { width: window.innerWidth, height: window.innerHeight }, { width: COACH_WIDTH, clearance: COACH_CLEARANCE })
+    : null;
+
+  const mode: TourCoachMode = celebrating
+    ? "celebrating"
+    : step.kind === "act"
+      ? (runtime.stalled ? "stalled" : "waiting")
+      : step.kind === "observe" && !runtime.dwellDone
+        ? "waiting"
+        : "ready";
+
+  const anchorless = step.anchor !== undefined && step.anchor.kind !== "none" && anchor.status === "missing";
+  const stepRoute = step.route;
+  const takeMeThereHref = stepRoute ? tourHref(stepRoute, bootstrap.context) : null;
+  // Offered only when it is actually a trip. The tour navigates to `step.route`
+  // on entry, so by the time the anchor times out the player is almost always
+  // already there — and `navigate` returns without pushing for the URL the
+  // browser is on, which made the button render and do nothing at all.
+  const elsewhere = takeMeThereHref !== null && !isCurrentLocation(takeMeThereHref, location);
+  const notice = notices[step.id] ?? (!anchorless
+    ? null
+    : elsewhere
+      ? "That control isn't on this screen right now — the step still counts."
+      // On the right screen with nothing to point at: for these steps the
+      // control's absence *is* the work — the workshop question only exists
+      // once Format is Workshop, the publish bar only once rows are selected.
+      // Telling the player it "isn't on this screen" contradicts the very
+      // instruction the card is giving them.
+      : "Nothing to point at yet — it appears once you have started. The step still counts.");
+
+  /**
+   * The finale's scoreboard.
+   *
+   * Keyed off the presentation rather than off any step id: `modal-wide` is
+   * the shape a script reserves for its curtain call, and the engine stays
+   * domain-free. Counted from the achievement log, so a skipped objective is
+   * honestly missing from the total rather than quietly rounded up.
+   */
+  const recap = step.presentation === "modal-wide" ? {
+    objectives: arcSteps(steps).filter((candidate) => completed.includes(candidate.id)).length,
+    objectiveCount: arcSteps(steps).length,
+    quests: questsDone.length,
+    questCount: sideQuests.length,
+  } : null;
+
+  return <>
+    {spotlit && <TourScrim rect={anchor.rect} />}
+    <TourCoach
+      step={step}
+      progress={progress}
+      position={position}
+      container={portalTargetFor(anchor.element)}
+      mode={mode}
+      notice={notice}
+      hintVisible={runtime.hintVisible}
+      mobile={mobile}
+      sideQuests={sideQuests}
+      questsDone={questsDone}
+      recap={recap}
+      onContinue={() => celebrateAndAdvance()}
+      onDecline={step.declineLabel ? pause : null}
+      onAction={step.action ? () => {
+        const action = step.action;
+        if (!action) return;
+        setRuntime((current) => ({ ...current, selfDone: true }));
+        // Through the same `:token` substitution every other navigation in
+        // this file uses. An action href is authored against the script's
+        // context (`/organizations/:organizationId/…`), so navigating it raw
+        // would land the organizer on a literal colon and look exactly like a
+        // broken product. Query strings survive: the token pattern only
+        // matches `:name`.
+        const href = resolveTourPath(action.href, bootstrap.context);
+        if (action.newTab) window.open(href, "_blank", "noopener,noreferrer");
+        else navigate(href);
+      } : null}
+      onShowHint={() => setRuntime((current) => ({ ...current, hintVisible: true }))}
+      onSkipStep={() => leaveStep("skipped")}
+      onSkipChapter={skipChapter}
+      onFinish={() => finish("skipped")}
+      onPause={pause}
+      onSelectQuest={(stepId) => {
+        if (step.optional !== true) arcReturnRef.current = step.id;
+        goToStep(stepId);
+      }}
+      onTakeMeThere={anchorless && elsewhere && takeMeThereHref ? () => navigate(takeMeThereHref) : null}
+    />
+  </>;
+}

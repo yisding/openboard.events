@@ -112,6 +112,11 @@
   --focus-ring: 0 0 0 3px rgba(0, 168, 120, .20);
   --shadow-sm: 0 1px 2px rgba(13, 34, 30, .05), 0 1px 8px rgba(13, 34, 30, .025);
   --shadow: 0 12px 35px rgba(13, 34, 30, .09), 0 2px 8px rgba(13, 34, 30, .05);
+  /* The dim behind anything that takes over the screen. It was already the
+     literal value on `.modal-shell::backdrop`, `.command-palette-shell::backdrop`
+     and the drawer; naming it is what lets the guided tour's spotlight match a
+     native dialog's backdrop instead of guessing at it. */
+  --overlay: rgba(10, 26, 24, .48);
   --radius: 12px;
   /* A compact, enforceable type scale. Meaningful interface copy never drops
      below --text-xs; data tables locally promote both compact steps to 13px. */
@@ -505,7 +510,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 
 /* Dialogs and overlays */
 .modal-shell { border: 0; padding: 0; background: transparent; max-width: calc(100vw - 48px); max-height: calc(100vh - 48px); overflow: visible; }
-.modal-shell::backdrop { background: rgba(10,26,24,.48); backdrop-filter: blur(3px); animation: fade-in .15s ease; }
+.modal-shell::backdrop { background: var(--overlay); backdrop-filter: blur(3px); animation: fade-in .15s ease; }
 .modal { width: min(520px, calc(100vw - 48px)); max-height: calc(100vh - 48px); overflow: hidden; background: var(--surface); border-radius: 14px; box-shadow: 0 25px 80px rgba(10,30,27,.28); display: flex; flex-direction: column; animation: modal-in .2s ease; }
 .modal-wide { width: min(760px, calc(100vw - 48px)); }
 .modal > header { padding: 24px 24px 16px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: flex-start; }
@@ -517,7 +522,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
    focus trap) with .modal-shell but its own shape: a top-anchored search box
    over a flush results list, no header/footer chrome. */
 .command-palette-shell { border: 0; padding: 0; background: transparent; max-width: calc(100vw - 32px); max-height: min(420px, calc(100vh - 96px)); margin-top: 32px; overflow: visible; }
-.command-palette-shell::backdrop { background: rgba(10,26,24,.48); backdrop-filter: blur(3px); animation: fade-in .15s ease; }
+.command-palette-shell::backdrop { background: var(--overlay); backdrop-filter: blur(3px); animation: fade-in .15s ease; }
 .command-palette { width: min(560px, calc(100vw - 32px)); max-height: min(420px, calc(100vh - 96px)); background: var(--surface); border-radius: 14px; box-shadow: 0 25px 80px rgba(10,30,27,.28); display: flex; flex-direction: column; overflow: hidden; animation: modal-in .15s ease; }
 .command-palette-input { display: flex; align-items: center; gap: 8px; padding: 16px 16px; border-bottom: 1px solid var(--line); color: var(--muted); flex: none; }
 .command-palette-input input { flex: 1; border: 0; background: transparent; font-size:var(--text-base); color: var(--ink); outline: none; }
@@ -2258,6 +2263,15 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
   /* The global rule collapses durations but not delays, which would leave a
      staggered hint beacon invisible for its whole entrance delay. */
   .hint-beacon{animation:none}
+  /* Same gotcha, three more places. The tour's waiting pulse is an infinite
+     animation the global rule only shortens (to .01ms, iterated once — a
+     flicker rather than a stop), the coach's entrance is a delay-free but
+     pointless slide, and an eased spotlight is exactly the sliding overlay
+     someone with vestibular sensitivity asked not to see. Turning each off
+     explicitly is the only override the global rule cannot swallow. */
+  .tour-coach-pulse::after{animation:none}
+  .tour-coach{animation:none}
+  .tour-scrim-hole,.tour-scrim-ring{transition:none}
 }
 
 /* ---------------------------------------------------------------------------
@@ -2509,6 +2523,76 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
 .hint-pop-confirm:focus-visible, .hint-pop-skip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .hint-pop-skip { border: 0; background: transparent; color: var(--muted); font: inherit; font-size:var(--text-xs); padding: 6px 2px; cursor: pointer; }
 .hint-pop-skip:hover { color: var(--ink); text-decoration: underline; }
+
+/* ---------------------------------------------------------------------------
+   Guided tour — the sequenced sibling of the first-run hints, in
+   shared/ui/app/guided-tour. Three pieces:
+
+     .tour-scrim   a fixed, pointer-events:none SVG with a real hole in it, so
+                   the player clicks the actual control through the cutout. The
+                   hole's geometry arrives twice: as presentation attributes
+                   (always correct) and as the custom properties below, which
+                   modern engines resolve into SVG2 geometry properties and can
+                   therefore ease between steps.
+     .tour-coach   the card. Not a modal: it never traps focus and never blocks
+                   the page it is pointing at.
+     .tour-pill    what a paused tour leaves behind.
+
+   No new colour values: jade for interaction, the same --overlay the native
+   dialog backdrop uses, and nothing below the 12px --text-xs floor. */
+.tour-anchor { display: contents; }
+.tour-scrim { position: fixed; inset: 0; z-index: 200; width: 100%; height: 100%; pointer-events: none; }
+.tour-scrim-ground { fill: var(--overlay); }
+.tour-scrim-hole, .tour-scrim-ring {
+  x: var(--tour-hole-x); y: var(--tour-hole-y); width: var(--tour-hole-w); height: var(--tour-hole-h);
+  transition: x .22s ease, y .22s ease, width .22s ease, height .22s ease;
+}
+.tour-scrim-ring { fill: none; stroke: var(--accent); stroke-width: 1; }
+
+.tour-coach { position: fixed; z-index: 201; width: 320px; max-width: calc(100vw - 24px); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 13px 15px 14px; animation: modal-in .18s ease; }
+.tour-coach-centred { top: 50%; left: 50%; transform: translate(-50%, -50%); }
+.tour-coach-won { border-color: var(--accent-border); }
+.tour-coach-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 9px; }
+.tour-coach-chapter { color: var(--accent-dark); font-size: var(--text-xs); font-weight: var(--weight-emphasis); letter-spacing: 1.1px; text-transform: uppercase; }
+.tour-coach-close { display: grid; place-items: center; width: 24px; height: 24px; margin: -4px -6px -4px 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
+.tour-coach-close:hover { background: var(--fill); color: var(--ink); }
+.tour-coach-close:focus-visible, .tour-coach-quiet:focus-visible, .tour-coach-tray summary:focus-visible, .tour-coach-more summary:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.tour-coach .progress-track { margin: 0 0 11px; }
+.tour-coach-title { display: block; font-size: var(--text-table); }
+.tour-coach-body { margin: 4px 0 0; color: var(--muted); font-size: var(--text-xs); line-height: 1.55; }
+.tour-coach-notice { margin: 8px 0 0; padding: 7px 9px; border-radius: 8px; background: var(--amber-soft); color: var(--amber); font-size: var(--text-xs); line-height: 1.5; }
+.tour-coach-hint { margin: 8px 0 0; padding: 7px 9px; border-left: 2px solid var(--accent-border); background: var(--accent-faint); color: var(--ink); font-size: var(--text-xs); line-height: 1.5; }
+.tour-coach-status { display: flex; align-items: center; gap: 7px; margin: 10px 0 0; color: var(--muted); font-size: var(--text-xs); }
+.tour-coach-status-done { color: var(--green); font-weight: var(--weight-control); }
+/* The curtain call's scoreboard: the evidence behind "you just ran a
+   conference", in the one presentation wide enough to carry it. */
+.tour-coach-recap { margin: 10px 0 0; color: var(--accent-dark); font-size: var(--text-xs); font-weight: var(--weight-control); letter-spacing: 0.3px; }
+/* The same beacon pulse the ambient hints use, so the tour reads as a
+   descendant of a primitive the app already had. */
+.tour-coach-pulse { position: relative; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.tour-coach-pulse::after { content: ""; position: absolute; inset: -3px; border-radius: 50%; border: 2px solid var(--accent); animation: hint-pulse 2.6s ease-out infinite; }
+.tour-coach-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.tour-coach-quiet { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: var(--text-xs); padding: 6px 2px; border-radius: 6px; cursor: pointer; }
+.tour-coach-quiet:hover { color: var(--ink); text-decoration: underline; }
+.tour-coach-tray, .tour-coach-more { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+.tour-coach-tray summary, .tour-coach-more summary { color: var(--muted); font-size: var(--text-xs); cursor: pointer; border-radius: 6px; }
+.tour-coach-tray summary:hover, .tour-coach-more summary:hover { color: var(--ink); }
+.tour-coach-tray ul, .tour-coach-more ul { display: grid; gap: 2px; margin: 7px 0 0; padding: 0; list-style: none; }
+.tour-coach-tray button, .tour-coach-more button { width: 100%; text-align: left; border: 0; background: transparent; color: var(--ink); font: inherit; font-size: var(--text-xs); padding: 5px 6px; border-radius: 6px; cursor: pointer; }
+.tour-coach-tray button:hover, .tour-coach-more button:hover { background: var(--fill); }
+
+/* Below the sidebar breakpoint the card becomes a sheet and the spotlight is
+   dropped entirely: a cutout the size of the viewport highlights nothing. */
+.tour-coach-sheet { top: auto; right: 12px; bottom: 12px; left: 12px; width: auto; max-width: none; }
+
+.tour-pill { position: fixed; z-index: 199; right: 16px; bottom: 16px; display: flex; align-items: center; gap: 10px; max-width: calc(100vw - 32px); padding: 8px 10px 8px 12px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 999px; box-shadow: var(--shadow); }
+.tour-pill-resume { display: inline-flex; align-items: center; gap: 8px; border: 0; background: transparent; color: var(--ink); font: inherit; font-size: var(--text-xs); font-weight: var(--weight-control); cursor: pointer; }
+.tour-pill-resume span:first-child { color: var(--accent-dark); }
+.tour-pill-resume:hover { color: var(--accent-dark); }
+.tour-pill-bar { width: 68px; }
+.tour-pill-dismiss { display: grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; }
+.tour-pill-dismiss:hover { background: var(--fill); color: var(--ink); }
+.tour-pill-resume:focus-visible, .tour-pill-dismiss:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
 /* ---------------------------------------------------------------------------
    Easter eggs — the emoji-rain overlay (the palette's secret menu, Konami

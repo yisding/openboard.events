@@ -1,10 +1,15 @@
 import type { Metadata } from "next";
 import { PublicItinerary } from "@/features/public/public-itinerary";
 import { getPublicEmbedConfig } from "@/features/public/server/embed-config-queries";
-import { getPublishedSchedule } from "@/features/public/server/public-queries";
+import { getPublicEventIsDemo, getPublishedSchedule } from "@/features/public/server/public-queries";
 import { renderEmbedSurface } from "../embed-page";
 
-export const metadata: Metadata = { title: "Schedule itinerary" };
+/** First Fair (design §6.3) — see `agenda/page.tsx`'s identical comment. */
+export async function generateMetadata({ params }: { params: Promise<{ eventSlug: string }> }): Promise<Metadata> {
+  const { eventSlug } = await params;
+  const isDemo = await getPublicEventIsDemo(eventSlug);
+  return { title: "Schedule itinerary", ...(isDemo ? { robots: { index: false, follow: false } } : {}) };
+}
 
 /** See `/e/**`'s identical comment: never read `searchParams` here, or this
  * route loses the edge cache (status.md rev. 11's "known regression",

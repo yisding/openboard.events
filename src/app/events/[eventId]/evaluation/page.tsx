@@ -26,7 +26,7 @@ export default async function Page({ params }: { params: Promise<{ eventId: stri
       .from(tracks)
       .where(and(eq(tracks.eventId, eventId)))
       .orderBy(tracks.sortOrder),
-    db.select({ timezone: events.timezone }).from(events).where(eq(events.id, eventId)).limit(1),
+    db.select({ timezone: events.timezone, isDemo: events.isDemo }).from(events).where(eq(events.id, eventId)).limit(1),
   ]);
 
   return (
@@ -37,6 +37,7 @@ export default async function Page({ params }: { params: Promise<{ eventId: stri
       pendingReviewerInvitations={pendingReviewerInvitations}
       tracks={trackRows}
       timezone={event[0]?.timezone ?? "America/Los_Angeles"}
+      isDemo={event[0]?.isDemo ?? false}
     />
   );
 }

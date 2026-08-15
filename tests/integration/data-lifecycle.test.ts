@@ -35,6 +35,7 @@ const migrationOnboardingMilestones = readFileSync(new URL("../../drizzle/0023_o
 // belongs in this fixture before organization exports query its current schema.
 const migrationReviewerInvitations = readFileSync(new URL("../../drizzle/0029_event_reviewer_invitations.sql", import.meta.url), "utf8");
 const migrationCalendarCancellationSnapshots = readFileSync(new URL("../../drizzle/0043_calendar_cancellation_snapshots.sql", import.meta.url), "utf8");
+const migrationDemoEventsAndTour = readFileSync(new URL("../../drizzle/0044_demo_events_and_tour.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("47000000-0000-4000-8000-000000000001");
 // Primary submitter, headshot owner, uploader — everything about them is
@@ -77,7 +78,7 @@ beforeAll(async () => {
     migration0, migration1, migrationAdminAuth, migrationRateLimits, migrationContentDeliverables, migrationEmailCompliance,
     migrationRoster, migrationProductAuth, migrationTenancy, migrationUserManagement,
     migrationBilling, migrationCrm, migrationOnboardingMilestones,
-    migrationReviewerInvitations, migrationCalendarCancellationSnapshots,
+    migrationReviewerInvitations, migrationCalendarCancellationSnapshots, migrationDemoEventsAndTour,
   ]) {
     await pglite.exec(migration);
   }

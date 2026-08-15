@@ -181,4 +181,42 @@ describe("AST source invariants", () => {
     expect(result.stderr.match(/\[identity-email-join\]/gu)).toHaveLength(4);
     expect(result.stderr).not.toContain("event-contacts/server/identity-links.ts");
   });
+
+  /**
+   * First Fair — the demo-event mail barrier. A `buildContext` that no longer
+   * carries the guard is the one refactor that would silently arm real mail to
+   * fabricated speakers, so the checker asserts the three fragments by text.
+   */
+  it("rejects a buildContext that has lost the demo mail guard", () => {
+    const root = fixture({
+      "src/features/comms/server/context.ts": `
+        export async function buildContext(row, dbOrTx) {
+          const [base] = await dbOrTx.select({ email: contacts.email }).from(events).limit(1);
+          if (!base) throw new SkipEmail("contact no longer exists");
+          return base;
+        }
+      `,
+    });
+
+    const result = check(root);
+    expect(result.status).toBe(1);
+    expect(result.stderr.match(/\[demo-mail-guard\]/gu)).toHaveLength(3);
+  });
+
+  it("accepts a buildContext that still selects is_demo and skips on it", () => {
+    const root = fixture({
+      "src/features/comms/server/context.ts": `
+        export const DEMO_MAIL_SKIP_REASON = "demo event — mail is never delivered";
+        export async function buildContext(row, dbOrTx) {
+          const [base] = await dbOrTx.select({ isDemo: events.isDemo }).from(events).limit(1);
+          if (!base) throw new SkipEmail("contact no longer exists");
+          if (base.isDemo) throw new SkipEmail(DEMO_MAIL_SKIP_REASON);
+          return base;
+        }
+      `,
+    });
+
+    const result = check(root);
+    expect(result.status, result.stderr).toBe(0);
+  });
 });

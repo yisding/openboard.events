@@ -1,9 +1,14 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { PublicSpeakersList } from "@/features/public/public-speakers-list";
-import { getPublishedSpeakers } from "@/features/public/server/public-queries";
+import { getPublicEventIsDemo, getPublishedSpeakers } from "@/features/public/server/public-queries";
 
-export const metadata: Metadata = { title: "Speakers" };
+/** First Fair (design §6.3) — see `agenda/page.tsx`'s identical comment. */
+export async function generateMetadata({ params }: { params: Promise<{ eventSlug: string }> }): Promise<Metadata> {
+  const { eventSlug } = await params;
+  const isDemo = await getPublicEventIsDemo(eventSlug);
+  return { title: "Speakers", ...(isDemo ? { robots: { index: false, follow: false } } : {}) };
+}
 
 /** Same cache contract as every other public surface. */
 export const revalidate = 60;

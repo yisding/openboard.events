@@ -51,6 +51,13 @@ const migrationTenancy = readFileSync(new URL("../../drizzle/0010_organization_t
 // M49 — `createOrganizationIn`'s CTE now also inserts an `organization_subscriptions`
 // row, so every test in this file that calls it needs the table to exist.
 const migrationBilling = readFileSync(new URL("../../drizzle/0012_billing_scaffold.sql", import.meta.url), "utf8");
+// First Fair added `events.is_demo`. Drizzle names every mapped column on an
+// insert and on a bare `select()`, so this fixture needs 0044 even though it
+// never touches a demo event — the same reason the tenancy migration is here.
+// 0044 also widens 0023's milestone CHECK, so that migration has to be present
+// for the ALTER to find a constraint to replace.
+const migrationOnboardingMilestones = readFileSync(new URL("../../drizzle/0023_onboarding_milestones.sql", import.meta.url), "utf8");
+const migrationDemoEvents = readFileSync(new URL("../../drizzle/0044_demo_events_and_tour.sql", import.meta.url), "utf8");
 
 // Two events and three users that exist *before* the tenancy migration runs —
 // this is the "existing single-org data" the migration has to backfill.
@@ -93,6 +100,8 @@ describe("organization tenancy (M43)", () => {
 
     await pglite.exec(migrationTenancy);
     await pglite.exec(migrationBilling);
+    await pglite.exec(migrationOnboardingMilestones);
+    await pglite.exec(migrationDemoEvents);
     db = drizzle(pglite, { schema }) as unknown as DbOrTx;
   }, 30_000);
 

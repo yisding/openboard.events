@@ -23,8 +23,19 @@ export const eventDtoSchema = z.object({
 });
 export type EventDTO = z.infer<typeof eventDtoSchema>;
 
-/** An event the current actor can actually open, plus its event-scoped role. */
-export const eventAccessDtoSchema = eventDtoSchema.extend({ role: memberRoleSchema });
+/**
+ * An event the current actor can actually open, plus its event-scoped role.
+ *
+ * First Fair (design §5.1, §8.2): `isDemo` lands here and **not** on
+ * `eventDtoSchema`, which is CP1-frozen. This is a strictly additive
+ * extension with a default, so every caller written before demos existed
+ * still parses, and the `/events` hub and the sidebar switcher can label a
+ * demo without the frozen DTO learning what one is.
+ */
+export const eventAccessDtoSchema = eventDtoSchema.extend({
+  role: memberRoleSchema,
+  isDemo: z.boolean().default(false),
+});
 export type EventAccessDTO = z.infer<typeof eventAccessDtoSchema>;
 
 export const trackDtoSchema = z.object({ id: trackIdSchema, name: z.string(), color: z.string(), description: z.string().nullable(), sortOrder: z.int() });

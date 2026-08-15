@@ -73,6 +73,7 @@ export function PlansView({
   members,
   pendingReviewerInvitations,
   timezone,
+  isDemo = false,
 }: {
   eventId: string;
   plans: PlanDTO[];
@@ -81,6 +82,14 @@ export function PlansView({
   pendingReviewerInvitations: OrganizationInvitationDTO[];
   /** The event's zone — a round's open/close window is set in it. */
   timezone: string;
+  /**
+   * First Fair. A reviewer invitation is the one organizer action on this page
+   * that would put real mail in a real stranger's inbox on behalf of a
+   * conference that does not exist, so the demo event does not offer it. The
+   * server refuses it too (`inviteEventReviewerIn`) — this is the half that
+   * keeps the organizer from finding out the hard way.
+   */
+  isDemo?: boolean;
 }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -360,7 +369,7 @@ export function PlansView({
         description="Scoring rounds, who reviews which tracks, and how far each round has got."
         actions={
           <>
-            <Button variant="secondary" onClick={() => setInviting(true)}><UserPlus size={16} /> Invite reviewer{pendingReviewerInvitations.length > 0 ? ` · ${pendingReviewerInvitations.length} pending` : ""}</Button>
+            {!isDemo && <Button variant="secondary" onClick={() => setInviting(true)}><UserPlus size={16} /> Invite reviewer{pendingReviewerInvitations.length > 0 ? ` · ${pendingReviewerInvitations.length} pending` : ""}</Button>}
             <Button onClick={() => setCreating(true)}><Plus size={16} /> New evaluation plan</Button>
           </>
         }

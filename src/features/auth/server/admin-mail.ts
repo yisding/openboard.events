@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, gt, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
-import { adminAuthEmailOutbox } from "@/db/schema";
+import { adminAuthEmailOutbox, events, organizationInvitations } from "@/db/schema";
 import { organizationInvitationIdSchema, type TemplateKey, type UserId } from "@/shared/contracts";
 import { AppError, isAppError } from "@/shared/lib/errors";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
@@ -44,6 +44,33 @@ const TEMPLATES: Record<AdminAuthTemplateKey, {
     outro: "If this was not you, you can ignore this email — your password has not changed.",
   },
 };
+
+/**
+ * First Fair — the demo mail barrier's **second** outbox.
+ *
+ * `admin_auth_email_outbox` is drained by this module, not by the comms
+ * dispatcher, so `buildContext`'s `events.is_demo` guard never sees a row that
+ * lands here. Reviewer invitations are event-scoped and therefore the one
+ * template key that can name a demo event, and `inviteEventReviewerIn` already
+ * refuses those at the writer. This is the symmetric barrier behind it: the
+ * product's claim is "no email ever leaves the building", and a claim that
+ * depends on exactly one writer remembering is not a rail.
+ *
+ * The reason text is duplicated from `@/features/comms`'s
+ * `DEMO_MAIL_SKIP_REASON` rather than imported: `comms -> auth` already exists,
+ * and the reverse edge would be a feature cycle. `check-source-invariants.ts`
+ * pins the literal in both files so they cannot drift apart.
+ */
+const DEMO_MAIL_SKIP_REASON = "demo event — mail is never delivered";
+
+async function namesDemoEventIn(dbOrTx: DbOrTx, invitationId: string): Promise<boolean> {
+  const [row] = await dbOrTx.select({ isDemo: events.isDemo })
+    .from(organizationInvitations)
+    .innerJoin(events, eq(events.id, organizationInvitations.eventId))
+    .where(eq(organizationInvitations.id, invitationId))
+    .limit(1);
+  return row?.isDemo === true;
+}
 
 function requiredSecret(env: RuntimeEnv): string {
   if (!env.SESSION_SECRET) throw new AppError("INTERNAL", "SESSION_SECRET is required for admin auth mail");
@@ -255,6 +282,16 @@ async function deliver(dbOrTx: DbOrTx, row: OutboxRow, env: RuntimeEnv, sender: 
   )).limit(1);
   if (suppressed) {
     return skipRow(dbOrTx, row, "recipient suppressed after bounce or complaint", retainFallback);
+  }
+  // Above the allowlist and above the sealed payload, for the same reason
+  // `buildContext` puts its copy there: a demo row must never open a
+  // credential or consult a provider, whatever the environment is configured
+  // to do. See `DEMO_MAIL_SKIP_REASON` above.
+  if (row.templateKey === "organization_invited") {
+    const invited = organizationInvitationIdSchema.safeParse(row.idempotencyKey.split(":")[2]);
+    if (invited.success && await namesDemoEventIn(dbOrTx, invited.data)) {
+      return skipRow(dbOrTx, row, DEMO_MAIL_SKIP_REASON);
+    }
   }
   if (!isEmailAllowed(row.recipientEmail, env)) {
     return skipRow(dbOrTx, row, "not in EMAIL_ALLOWLIST", retainFallback);

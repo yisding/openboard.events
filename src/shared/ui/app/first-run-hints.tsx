@@ -5,6 +5,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, type C
 import { createPortal } from "react-dom";
 import { cn } from "@/shared/lib/cn";
 import { emojiRain } from "@/shared/ui/emoji-rain";
+import { popoverPosition, type PopoverPlacement } from "./popover-position";
 
 /**
  * First-run hints — small pulsing beacons over UI a first-time organizer may
@@ -25,13 +26,11 @@ import { emojiRain } from "@/shared/ui/emoji-rain";
  * added later stay hidden for someone who already said "not interested".
  */
 
-export type HintPlacement = "right" | "bottom" | "bottom-end";
-
-const POPOVER_WIDTH = 264;
-/* A conservative estimate of the tallest card, used only to keep the fixed
-   popover from opening past the bottom viewport edge. */
-const POPOVER_CLEARANCE = 190;
-const EDGE_MARGIN = 12;
+/* The three placements a beacon ever needs. The geometry itself — including
+   the two placements only the guided tour uses — lives in
+   `popover-position.ts`, shared with the tour's coach card so the two panels
+   clamp to the viewport by exactly the same rule. */
+export type HintPlacement = Extract<PopoverPlacement, "right" | "bottom" | "bottom-end">;
 
 export function hintSkipKey(scope: string): string {
   return `openboard:hints-skipped:${scope}`;
@@ -61,22 +60,6 @@ export function resetHints(scope: string, ids: readonly string[]): void {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(hintSkipKey(scope));
   for (const id of ids) window.localStorage.removeItem(hintStorageKey(id));
-}
-
-type ViewportSize = { width: number; height: number };
-type AnchorRect = { top: number; right: number; bottom: number; left: number };
-
-/**
- * Fixed-position style for the popover, measured from the beacon at the
- * moment it opens. Pure so the clamping is testable; the caller closes the
- * popover on scroll/resize rather than re-measuring.
- */
-export function hintPopoverPosition(placement: HintPlacement, anchor: AnchorRect, viewport: ViewportSize): CSSProperties {
-  const clampLeft = (left: number) => Math.min(Math.max(EDGE_MARGIN, left), Math.max(EDGE_MARGIN, viewport.width - POPOVER_WIDTH - EDGE_MARGIN));
-  const clampTop = (top: number) => Math.min(Math.max(EDGE_MARGIN, top), Math.max(EDGE_MARGIN, viewport.height - POPOVER_CLEARANCE));
-  if (placement === "right") return { left: clampLeft(anchor.right + 10), top: clampTop(anchor.top - 8) };
-  if (placement === "bottom-end") return { left: clampLeft(anchor.right - POPOVER_WIDTH), top: clampTop(anchor.bottom + 10) };
-  return { left: clampLeft(anchor.left), top: clampTop(anchor.bottom + 10) };
 }
 
 type HintsContextValue = {
@@ -190,7 +173,7 @@ export function Hint({ id, title, body, placement = "bottom", block, className, 
       return;
     }
     const rect = beaconRef.current?.getBoundingClientRect();
-    if (rect) setPosition(hintPopoverPosition(placement, rect, { width: window.innerWidth, height: window.innerHeight }));
+    if (rect) setPosition(popoverPosition(placement, rect, { width: window.innerWidth, height: window.innerHeight }));
     context.setOpenId(id);
   }
 

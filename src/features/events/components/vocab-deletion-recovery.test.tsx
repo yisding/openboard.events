@@ -16,7 +16,12 @@ const routerRefreshMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/shared/lib/api-client", () => ({ api: apiMock }));
 vi.mock("@/shared/ui/toast", () => ({ useToast: () => ({ toast: toastMock }) }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: routerPushMock, refresh: routerRefreshMock }) }));
+// The unsaved-work guard rendered underneath reads the route to scope its
+// registrations, so the mock has to answer with the page under test.
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/events/one/settings",
+  useRouter: () => ({ push: routerPushMock, refresh: routerRefreshMock }),
+}));
 
 Object.assign(globalThis, { React, IS_REACT_ACT_ENVIRONMENT: true });
 

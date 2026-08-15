@@ -31,6 +31,11 @@ const migrationTenancy = readFileSync(new URL("../../../drizzle/0010_organizatio
 const migrationUserManagement = readFileSync(new URL("../../../drizzle/0011_user_management.sql", import.meta.url), "utf8");
 const migrationCrm = readFileSync(new URL("../../../drizzle/0013_speaker_crm.sql", import.meta.url), "utf8");
 const migrationCalendarCancellationSnapshots = readFileSync(new URL("../../../drizzle/0043_calendar_cancellation_snapshots.sql", import.meta.url), "utf8");
+// First Fair — `buildContext` now selects `events.is_demo` (the demo-event mail
+// barrier), so every dispatcher fixture needs the column. 0044 widens 0023's
+// milestone CHECK, which is why the milestone table comes along with it.
+const migrationOnboardingMilestones = readFileSync(new URL("../../../drizzle/0023_onboarding_milestones.sql", import.meta.url), "utf8");
+const migrationDemoEvents = readFileSync(new URL("../../../drizzle/0044_demo_events_and_tour.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("e1000000-0000-4000-8000-000000000001");
 const ada = contactIdSchema.parse("e1000000-0000-4000-8000-000000000010");
@@ -69,6 +74,8 @@ describe("composeBulkSpeakerEmailIn (M51)", () => {
     await pglite.exec(migrationUserManagement);
     await pglite.exec(migrationCrm);
     await pglite.exec(migrationCalendarCancellationSnapshots);
+    await pglite.exec(migrationOnboardingMilestones);
+    await pglite.exec(migrationDemoEvents);
     tx = drizzle(pglite, { schema }) as unknown as TxDb;
 
     await pglite.query(

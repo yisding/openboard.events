@@ -100,7 +100,13 @@ export async function listEventsIn(dbOrTx: DbOrTx, userId: UserId, now = new Dat
     .innerJoin(events, eq(events.id, eventMembers.eventId))
     .where(eq(eventMembers.userId, userId));
   return orderEventsByLifecycle(
-    rows.map((row) => ({ ...toEventDto(row.event), role: memberRoleSchema.parse(row.role) })),
+    rows.map((row) => ({
+      ...toEventDto(row.event),
+      role: memberRoleSchema.parse(row.role),
+      // Not on `toEventDto`: that shape is the frozen `EventDTO`. See
+      // `eventAccessDtoSchema`.
+      isDemo: row.event.isDemo,
+    })),
     now.toISOString(),
   );
 }

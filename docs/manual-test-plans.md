@@ -1,6 +1,6 @@
 # Openboard manual test plans
 
-Thirteen manual test plans. They are weighted deliberately: **the core flow — solicit speakers,
+Fourteen manual test plans. They are weighted deliberately: **the core flow — solicit speakers,
 accept or reject their talks, schedule the conference — gets five of the thirteen (MTP-03…MTP-07)
 and roughly half the document**, because that is the loop the product lives or dies on. Two more
 (MTP-08, MTP-09) exist to hold a **design bar**: a screen that works but looks or feels wrong fails
@@ -736,12 +736,15 @@ Fill one row per (surface, control type). 24 surfaces × the controls each carri
 
 ### §3 The `kitchen-sink` cross-check
 
-`/kitchen-sink` and `/kitchen-sink/rich` render the primitives in isolation.
+`/kitchen-sink` and `/kitchen-sink/rich` render the primitives in isolation. `/kitchen-sink/tour`
+drives the guided-tour engine against a fake world with no database behind it — the fastest way to
+exercise the spotlight, the coach card, the missing-anchor degradation and the dialog portal.
 
 | # | Action | Expected result |
 |---|---|---|
 | 16 | Compare each kitchen-sink primitive to its in-app usage | Identical rendering. A drift means a surface has re-implemented a primitive |
 | 17 | List the primitives the kitchen sink does **not** show | Each absence is a gap in the design system; `Select` is present and matches in-app use (DD-1 regression) |
+| 18 | Run `/kitchen-sink/tour` end to end | All four objective kinds complete; the spotlight hole tracks its anchor on scroll instead of closing; a step whose anchor never mounts degrades to a centred card with **Take me there**; the coach portals into an open dialog with no scrim behind it |
 
 ### Exit criteria
 
@@ -1048,6 +1051,97 @@ test that it does not lie about what it does.
 
 ---
 
+## MTP-14 — The demo event and the guided tour
+
+**Environments:** A for the whole plan; C once, to confirm the public `noindex` and the ribbon
+survive the edge cache · **Duration:** ~75 min · **Cadence:** every release that touches
+`src/features/onboarding/**`, `src/shared/ui/app/guided-tour/**`, or any `data-tour` attribute.
+
+**Objective.** The tutorial is the first ten minutes a customer ever spends in Openboard, and it
+makes two promises a test suite cannot check on its own: that it *reads* well, and that nothing
+in it can reach a real person. Three of the four sections below are judgement passes, held to
+§0.7's rubric. The fourth is the safety audit, and it is pass/fail.
+
+Run it as a **fresh organizer** each time: create a new workspace, or `pnpm seed --wipe` first.
+A second run against a workspace that already has a demo takes the *demo-exists* door and skips
+half of what is under test.
+
+### §1 The fork, provisioning, and never being trapped
+
+| # | Action | Expected result |
+|---|---|---|
+| 1 | Sign in as a brand-new organizer with no events | The organization home redirects into setup, and setup renders **two doors of equal weight** plus *Skip both* — not a form |
+| 2 | Take *Skip both*, then reload the organization home | First the organization home renders with an empty state that names the next action; the reload redirects back into setup. One request is all the skip buys, and it is a trap in neither direction |
+| 3 | Press **Create event** anywhere in the product | The wizard, never the fork. Check all five entrances: organization home, `/organizations`, `/events/new`, the event switcher, and the fork's own second door |
+| 4 | Return to the fork and press **Build it for me** | Ten narrated lines appear one at a time, each one naming work the server actually did. No spinner, no fake progress, no line before its phase |
+| 5 | Reload the page mid-build | The screen resumes at the phase the cursor is on. Nothing is built twice |
+| 6 | Let it finish | You land on a dashboard that is already full of a conference. Count what the cold open claims: 18 speakers, 24 proposals |
+| 7 | Open the organization home again | It does **not** redirect into setup any more, and it leads with **Create your real event** |
+| 8 | Open the setup route by hand | The *demo-exists* door, offering to reopen the demo — never a second build |
+
+### §2 Playing it, as a player
+
+Take the whole tour without reading the script first. Judge it the way you would judge a game's
+tutorial, and write down every place you hesitated.
+
+| # | Action | Expected result |
+|---|---|---|
+| 9 | Read every card | Second person, present tense, one idea per card. No card explains a noun without naming a stake. No exclamation marks. No card is longer than it needs to be |
+| 10 | On each `act` step, do the thing **before** reading the hint | The objective completes within about two seconds, and the card says what you achieved rather than "step complete" |
+| 11 | On one `act` step, do the thing in a **second tab** and come back | It is already ticked when you return. This is the whole point of verifying against the world |
+| 12 | On one `act` step, do the thing by a **different route** than the card suggested | It still counts |
+| 13 | Press <kbd>Esc</kbd> | The tour pauses with **no confirmation dialog** and no loss, a toast names the chapter, and a resume pill appears |
+| 14 | Reload, then resume | The same step, on the same screen. Cross-device: resume it on a phone and confirm it lands in the same place |
+| 15 | Skip a chapter, then a single step | Both are one click, neither asks "are you sure", and neither greys out the primary |
+| 16 | Reach Chapter 7 and place a session where the coach says | The Conflicts badge moves **up**, in amber. You caused it, and the product noticed before your speakers would have |
+| 17 | Resolve the conflict | The badge moves back down and the celebration is the biggest one in the tour. The grid, the badge and the Conflicts list quote the same verdict |
+| 18 | Finish | The curtain call counts what you actually did, from the live database — not from a hardcoded string. Verify each number against the screens |
+| 19 | Note the ambient beacons throughout | `FirstRunHints` is silent for the whole tour, and marked seen afterwards. No milestone banner, no activation guide, on the demo's own dashboard |
+
+### §3 Mobile, reduced motion, and a screen reader
+
+| # | Action | Expected result |
+|---|---|---|
+| 20 | Run the required arc at a 390 px viewport | The coach is a bottom sheet, not a floating card. No horizontal page scroll on any step |
+| 21 | Reach a `desktopOnly` chapter on the phone | It is skipped **with copy that says so and why** — a silently missing chapter reads as a bug |
+| 22 | Enable `prefers-reduced-motion` and run the tour again | No emoji rain, no pulsing beacon, no animated spotlight transition — and nothing becomes harder to understand for their absence. The spotlight still frames the right control |
+| 23 | Run three chapters with a screen reader (VoiceOver or NVDA) | The coach announces its title on open; each new objective is announced through the card's live region; the progress bar reads its label; **Pause the tour** and **Resume the tour** are reachable and named |
+| 24 | Tab through a spotlit step without a mouse | The real control is reachable through the hole, focus is visible, and the coach does not trap focus away from the page |
+| 25 | Zoom to 200 % | The card stays on screen and clamps to the viewport rather than hanging off the edge |
+
+### §4 The safety audit — pass/fail, no judgement
+
+| # | Action | Expected result |
+|---|---|---|
+| 26 | Open **Communications → Delivery log** on the demo | Every row is `Skipped`, reason *"demo event — mail is never delivered"*. Zero `queued`, zero `sent` |
+| 27 | Queue decision emails in Chapter 5, then drain the outbox (§0.3) | The rows are rendered and logged, then skipped. **Nothing arrives in any inbox**, including yours |
+| 28 | Read every recipient address on the log | Every one ends `.demo.invalid` |
+| 29 | Check the **Reminders** tab and let the cron run | The overdue task genuinely produces reminder rows — the ladder is not filtered off — and every one of them drains to skipped |
+| 30 | Open **Billing** | *"n of 5 events"* excludes the demo, and a line reads *"1 demo event (not counted toward your plan)"*. Fill the plan to its cap and confirm the demo can still be built |
+| 31 | View source on `/e/<demo slug>/agenda` and each of its four siblings, plus the five `/embed/` twins | `noindex, nofollow` on all ten, and a *"Sample event · built with Openboard"* ribbon on the canonical five |
+| 32 | Compare against a real event's public page | Unchanged: no ribbon, indexable |
+| 33 | Open the organization **Audit log** | `demo.provisioned` is there, with the event id. Reset and delete add their own entries |
+| 34 | Request the organization **export** | The demo event is present and labelled `"isDemo": true`. An export that silently drops data is worse than one that labels it |
+| 35 | **Reset** the demo | One confirmation, no typing. It rebuilds at the same id with an identical, complete world and no duplicates |
+| 36 | **Delete** the demo as a non-owner | Refused |
+| 37 | **Delete** it as the owner, typing the confirmation | Gone, with every child row. Every other event in the organization is untouched |
+| 38 | Try to make a demo over HTTP | `POST /api/internal/events` with `{"isDemo": true}` creates an ordinary event with `is_demo = false`. There is no request that can produce a plan-exempt event |
+
+### Known gaps
+
+- The public CFP round trip (side quest Q1) cannot complete on Env C: the code is emailed and
+  demo mail is suppressed. The quest says so; verify the copy, not the round trip.
+- Headshots are absent from all eighteen speakers **on purpose** — that gap is Chapter 6's
+  payload, not a provisioning defect.
+
+### Exit criteria
+
+Every row of §4 passes. §1–§3 have no open S1, and every hesitation from §2 is written down with
+the card that caused it — the script is pure data, so a copy fix is cheap and a pacing fix is a
+one-line move.
+
+---
+
 ## Appendix A — Coverage and weighting
 
 | Plan | Part | Surfaces | Weight |
@@ -1065,13 +1159,15 @@ test that it does not lie about what it does.
 | MTP-11 | III | public pages, embeds, calendar, API | medium |
 | MTP-12 | III | templates, reminders, webhooks, delivery | medium |
 | MTP-13 | III | orgs, team, GDPR, billing, CRM | medium |
+| **MTP-14** | **II** | **demo provisioning, the guided tour, and the mail/billing/index rails** | **medium** |
 
 ## Appendix B — Automated counterparts
 
-Ten Playwright specs in [`../e2e/`](../e2e) overlap these plans: `admin-setup` (MTP-01/02),
+Eleven Playwright specs in [`../e2e/`](../e2e) overlap these plans: `admin-setup` (MTP-01/02),
 `cfp-submit` (MTP-03/04), `abstracts-decide` (MTP-06), `review-operations` (MTP-05), `portal-tasks`
 (MTP-10), `agenda-schedule` (MTP-07), `public-embeds` + `public-widgets-parity` (MTP-11),
-`speaker-content-ops` (MTP-10/12/13), `self-service-onboarding` (MTP-13/13a). They run against a
+`speaker-content-ops` (MTP-10/12/13), `self-service-onboarding` (MTP-13/13a),
+`demo-tour` (MTP-14 §1 and the machine-checkable half of §4). They run against a
 deployed target plus the `sb-test` Neon branch — set `E2E_BASE_URL` and `NEON_TEST_URL`, then
 `pnpm e2e`.
 

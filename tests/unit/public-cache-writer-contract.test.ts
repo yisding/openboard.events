@@ -191,7 +191,14 @@ describe("public-cache mutation ownership", () => {
     await invoke(placements, "POST", { input: { accepted: [] } });
 
     expectEventInvalidations(7);
-  });
+    // Seven route modules, each imported for real so the assertion is about
+    // the shipped handler rather than a re-description of it. That is around
+    // eight seconds on an idle machine and comfortably past the suite's 20 s
+    // default once every worker is busy — which is what `pnpm check` looks
+    // like. The budget is generous on purpose: this test is slow by design,
+    // and a timeout here reports "the box was loaded", not "the contract
+    // broke".
+  }, 90_000);
 
   it("invalidates public data for visible vocab writes but skips internal tags", async () => {
     const route = await captureRoute(() => import("../../src/app/api/internal/events/[eventId]/vocab/[kind]/[id]/route"));

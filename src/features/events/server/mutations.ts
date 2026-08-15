@@ -127,6 +127,20 @@ export async function createEventIn(
   actorUserId: UserId,
   input: CreateEventInput,
   organizationId?: OrganizationId,
+  /**
+   * Server-only creation options. `isDemo` is deliberately **not** part of
+   * `createEventInputSchema`: that schema is parsed straight from HTTP by
+   * `POST /api/internal/events` and the onboarding route, so a field there
+   * would let any organizer mint unlimited plan-exempt, mail-suppressed
+   * events. This argument has no HTTP surface at all — the demo provisioner
+   * is its only caller.
+   *
+   * It is applied inside the INSERT below rather than by a follow-up UPDATE
+   * so that a demo event cannot exist unflagged for even one instant: the
+   * comms dispatcher's suppression guard hangs off that column, and there is
+   * no writer anywhere that clears it again.
+   */
+  options?: { isDemo?: boolean },
 ): Promise<EventDTO> {
   const slugCandidate = slugify((input.slug ?? "").trim() || input.name);
   assertValidSlug(slugCandidate);
@@ -159,6 +173,9 @@ export async function createEventIn(
       // and letting it decide meant a self-serve organization's event landed in
       // the shared default tenant.
       ...(organizationId ? { organizationId } : {}),
+      // Spread rather than assigned so an omitted option leaves the column
+      // DEFAULT (`false`) in charge, exactly like `organizationId` above.
+      ...(options?.isDemo ? { isDemo: true } : {}),
     });
   } catch (error) {
     if (input.id && isConstraintViolation(error, EVENTS_PRIMARY_KEY)) {

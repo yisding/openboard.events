@@ -65,11 +65,15 @@ export function AgendaToolbar({
           {AGENDA_VIEWS.map((candidate) => {
             const { label, icon: Icon } = VIEW_LABELS[candidate];
             const hasConflicts = candidate === "conflicts" && conflictCount > 0;
+            // First Fair `data-tour`: six tabs, all `role="tab"`, distinguished
+            // only by a word and a count. The guided tour's set-piece turns on
+            // this one, so it is pinned rather than matched by its text.
             return (
               <button
                 key={candidate}
                 type="button"
                 role="tab"
+                {...(candidate === "conflicts" ? { "data-tour": "agenda.conflicts-tab" } : {})}
                 aria-selected={view === candidate}
                 className={[view === candidate ? "active" : "", hasConflicts ? "has-conflicts" : ""].filter(Boolean).join(" ")}
                 onClick={() => onView(candidate)}

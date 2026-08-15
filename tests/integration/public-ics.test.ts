@@ -23,6 +23,13 @@ const migrationContentRevisions = readFileSync(new URL("../../drizzle/0006_conte
 const migrationEmailCompliance = readFileSync(new URL("../../drizzle/0007_email_compliance.sql", import.meta.url), "utf8");
 const migrationOrganizationTenancy = readFileSync(new URL("../../drizzle/0010_organization_tenancy.sql", import.meta.url), "utf8");
 const migrationPublicScheduleRevision = readFileSync(new URL("../../drizzle/0034_public_schedule_revision.sql", import.meta.url), "utf8");
+// First Fair added `events.is_demo`. Drizzle names every mapped column on an
+// insert and on a bare `select()`, so this fixture needs 0044 even though it
+// never touches a demo event — the same reason the tenancy migration is here.
+// 0044 also widens 0023's milestone CHECK, so that migration has to be present
+// for the ALTER to find a constraint to replace.
+const migrationOnboardingMilestones = readFileSync(new URL("../../drizzle/0023_onboarding_milestones.sql", import.meta.url), "utf8");
+const migrationDemoEvents = readFileSync(new URL("../../drizzle/0044_demo_events_and_tour.sql", import.meta.url), "utf8");
 
 const env = parseEnv({
   APP_ENV: "local",
@@ -60,6 +67,8 @@ describe("buildPublicScheduleIcsIn (M53 anonymous itinerary export, reuses M35's
     await pglite.exec(migrationEmailCompliance);
     await pglite.exec(migrationOrganizationTenancy);
     await pglite.exec(migrationPublicScheduleRevision);
+    await pglite.exec(migrationOnboardingMilestones);
+    await pglite.exec(migrationDemoEvents);
     db = drizzle(pglite, { schema }) as unknown as DbOrTx;
 
     await pglite.query(

@@ -16,7 +16,12 @@ const routerReplaceMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/shared/lib/api-client", () => ({ api: apiMock }));
 vi.mock("@/shared/ui/toast", () => ({ useToast: () => ({ toast: toastMock }) }));
+// `usePathname` is not decoration: the unsaved-work guard this panel renders
+// scopes each registration to the route it was made on, so the mock has to
+// answer with the page under test or every guard is swept the moment it
+// registers.
 vi.mock("next/navigation", () => ({
+  usePathname: () => "/account/security",
   useRouter: () => ({ push: routerPushMock, replace: routerReplaceMock }),
 }));
 

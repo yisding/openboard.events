@@ -8,6 +8,7 @@ import { eventAccessDtoSchema, type EventAccessDTO, type EventId, type MemberRol
 import { eventManagementHref } from "@/features/events/access";
 import { eventLifecycle, orderEventsByLifecycle } from "@/features/events/event-lifecycle";
 import { api } from "@/shared/lib/api-client";
+import { StatusBadge } from "@/shared/ui/ui-kit";
 import { formatDateRangeInZone, formatInZone } from "@/shared/lib/time";
 
 type SwitcherEvent = {
@@ -17,7 +18,18 @@ type SwitcherEvent = {
   endsAt: string;
   timezone: string;
   role?: MemberRole;
+  /** First Fair (design §5.1). Optional here because the pre-supplied
+   * kitchen-sink fixture rows are a hand-written subset; the live rows this
+   * component fetches carry it for real, from `eventAccessDtoSchema`'s own
+   * additive field. `EventDTO` itself stays frozen and knows nothing about
+   * demos. */
+  isDemo?: boolean;
 };
+
+/** One reader for both row shapes: the fixture's optional flag and the live DTO's. */
+function rowIsDemo(row: SwitcherEvent | EventAccessDTO): boolean {
+  return row.isDemo === true;
+}
 
 function initials(name: string): string {
   const words = name.trim().split(/\s+/).filter(Boolean);
@@ -54,7 +66,9 @@ export function EventSwitcher({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuId = useId();
   const events = demoEvents ?? remoteEvents;
-  const orderedEvents = events ? orderEventsByLifecycle(events, lifecycleNowIso) : events;
+  const orderedEvents = events
+    ? orderEventsByLifecycle<SwitcherEvent | EventAccessDTO>(events, lifecycleNowIso)
+    : events;
 
   useEffect(() => {
     if (demoEvents || !open || remoteEvents) return;
@@ -144,7 +158,10 @@ export function EventSwitcher({
             >
               <span style={{ fontSize: "var(--text-xs)", fontWeight: 700 }}>{initials(event.name)}</span>
               <span style={{ display: "grid" }}>
-                <b style={{ fontSize: "var(--text-xs)" }}>{event.name}</b>
+                <b style={{ fontSize: "var(--text-xs)", display: "flex", alignItems: "center", gap: 6 }}>
+                  {event.name}
+                  {rowIsDemo(event) && <StatusBadge value="demo" />}
+                </b>
                 <small style={{ fontSize: "var(--text-xs)", color: "var(--muted)" }}>
                   {formatDateRangeInZone(event.startsAt, event.endsAt, event.timezone)}
                 </small>

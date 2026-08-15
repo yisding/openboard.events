@@ -9,8 +9,9 @@ import { isBillingSurfaceEnabled } from "@/features/billing";
 import { getEvent } from "@/features/events";
 import { EventCard } from "@/features/events/components/event-card";
 import { getOrganization, listOrganizationEventsForUser } from "@/features/organizations";
+import { organizationHomeDestination } from "@/features/organizations/event-creation";
 import { getActiveOrganizationOnboardingForUser } from "@/features/onboarding";
-import { PageHeader } from "@/shared/ui/ui-kit";
+import { EmptyState, PageHeader } from "@/shared/ui/ui-kit";
 import { organizationIdSchema, type EventDTO, type MemberRole, type UserId } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
 
@@ -27,10 +28,18 @@ export const dynamic = "force-dynamic";
  * into it, plus links to M44's Team and Audit surfaces this page is the
  * first place either becomes reachable without typing the URL by hand.
  */
-export default async function Page({ params }: { params: Promise<{ organizationId: string }> }) {
+export default async function Page({ params, searchParams }: {
+  params: Promise<{ organizationId: string }>;
+  searchParams: Promise<{ skip?: string }>;
+}) {
   const parsed = organizationIdSchema.safeParse((await params).organizationId);
   if (!parsed.success) notFound();
   const organizationId = parsed.data;
+  // First Fair (design §1.1): the start fork's "skip both" escape hatch is a
+  // query parameter, not a cookie — App Router cannot call `cookies().set()`
+  // during a page render, so the only way to say "not this time" for exactly
+  // one request is to say it in the URL.
+  const skipRequested = (await searchParams).skip === "1";
 
   let canManageEvents = false;
   let actorUserId: UserId | null = null;
@@ -54,29 +63,66 @@ export default async function Page({ params }: { params: Promise<{ organizationI
     getActiveOrganizationOnboardingForUser(organizationId, actorUserId),
   ]);
   if (!organization) notFound();
-  if ((canManageEvents && eventRows.length === 0) || (canManageEvents && progress)) {
+
+  // First Fair (design §1.4). A demo event is a tutorial, not a programme:
+  // it must not silence the eventless nudge (Trap B), and it must never
+  // outrank a half-built real event (Trap C).
+  const realEventCount = eventRows.filter((row) => !row.isDemo).length;
+  const demoEventRow = eventRows.find((row) => row.isDemo) ?? null;
+  if (organizationHomeDestination({
+    canManageEvents,
+    realEventCount,
+    hasDemoEvent: demoEventRow !== null,
+    hasOpenCheckpoint: progress !== null,
+    skipRequested,
+  }) === "onboarding") {
     redirect(`/organizations/${organizationId}/onboarding`);
   }
 
-  const events = (await Promise.all(eventRows.map(async (row) => ({ event: await getEvent(row.id), eventRole: row.eventRole }))))
-    .filter((row): row is { event: EventDTO; eventRole: MemberRole | null } => row.event !== null);
+  const events = (await Promise.all(eventRows.map(async (row) => ({ event: await getEvent(row.id), eventRole: row.eventRole, isDemo: row.isDemo }))))
+    .filter((row): row is { event: EventDTO; eventRole: MemberRole | null; isDemo: boolean } => row.event !== null);
   const billingEnabled = isBillingSurfaceEnabled();
+  // The demo has done its job the moment the organizer wants a real one, so
+  // an organization holding nothing but a demo leads with that instead of
+  // with the grid (design §5.4).
+  const leadWithCreate = canManageEvents && realEventCount === 0 && demoEventRow !== null;
 
   return <>
     <PageHeader
       eyebrow="ORGANIZATION"
       title={organization.name}
-      description="Your organization's event directory. Event access is assigned separately."
+      description={leadWithCreate
+        ? "Your demo event is a complete conference you can break safely. When you are ready for the real one, everything you learned in there still applies."
+        : "Your organization's event directory. Event access is assigned separately."}
       actions={canManageEvents ? <>
         <Link href={`/organizations/${organizationId}/crm`} className="button button-secondary"><Contact size={16} /> Speaker CRM</Link>
         {billingEnabled && <Link href={`/organizations/${organizationId}/billing`} className="button button-secondary"><CreditCard size={16} /> Billing</Link>}
         <Link href={`/organizations/${organizationId}/audit`} className="button button-secondary"><ScrollText size={16} /> Audit log</Link>
         <Link href={`/organizations/${organizationId}/team`} className="button button-secondary"><UsersIcon size={16} /> Team</Link>
-        <Link href={`/organizations/${organizationId}/onboarding`} className="button button-primary"><Sparkles size={16} /> Create event</Link>
+        {/* First Fair (design §1.3): one of the four pull-based entrances into
+            the demo, offered only while this organization has none. It is a
+            secondary action beside a primary "Create event" — a tutorial
+            should be easy to find and never in the way. */}
+        {!demoEventRow && <Link href={`/organizations/${organizationId}/onboarding?mode=demo`} className="button button-secondary"><Sparkles size={16} /> Explore a demo event</Link>}
+        <Link href={`/organizations/${organizationId}/onboarding?mode=create`} className="button button-primary"><Sparkles size={16} /> {leadWithCreate ? "Create your real event" : "Create event"}</Link>
       </> : undefined}
     />
-    <div className="event-grid">
-      {events.map(({ event, eventRole }) => <EventCard key={event.id} event={event} eventRole={eventRole} />)}
-    </div>
+    {events.length === 0
+      // Reachable only through the start fork's `?skip=1` — "not right now"
+      // buys exactly one request without the redirect, and this is what it
+      // buys. Both doors stay open, and neither is forced.
+      ? <EmptyState
+        icon={<Sparkles size={20} />}
+        title="No events here yet"
+        description={canManageEvents
+          ? "Set up your real conference when you are ready, or spend ten minutes inside a finished one first. Neither choice rules the other out."
+          : "Nobody has given you access to an event in this organization yet."}
+        {...(canManageEvents ? {
+          action: <Link href={`/organizations/${organizationId}/onboarding`} className="button button-primary">Choose how to start</Link>,
+        } : {})}
+      />
+      : <div className="event-grid">
+        {events.map(({ event, eventRole, isDemo }) => <EventCard key={event.id} event={event} eventRole={eventRole} isDemo={isDemo} />)}
+      </div>}
   </>;
 }
