@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { PublicItinerary } from "@/features/public/public-itinerary";
-import { getOrCreateEmbedConfig } from "@/features/public/server/embed-config-queries";
+import { getPublicEmbedConfig } from "@/features/public/server/embed-config-queries";
 import { getPublishedSchedule } from "@/features/public/server/public-queries";
 import { renderEmbedSurface } from "../embed-page";
 
@@ -21,7 +21,7 @@ export default async function Page({ params }: { params: Promise<{ eventSlug: st
     eventSlug,
     active: "itinerary",
     disabledLabel: "schedule itinerary",
-    getConfig: (eventId) => getOrCreateEmbedConfig(eventId, "schedule_itinerary"),
+    getConfig: (eventId) => getPublicEmbedConfig(eventId, "schedule_itinerary"),
     getContent: getPublishedSchedule,
     renderContent: (schedule, context) => <PublicItinerary {...context} schedule={schedule} embed />,
   });

@@ -14,6 +14,7 @@ const migration1 = readFileSync(new URL("../../../drizzle/0001_views_triggers.sq
 // M50 is additive on top of the base schema; applying it keeps this fixture
 // aligned with the columns the repository modules now read.
 const migrationReviewOps = readFileSync(new URL("../../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
+const migrationCalendarCancellationSnapshots = readFileSync(new URL("../../../drizzle/0043_calendar_cancellation_snapshots.sql", import.meta.url), "utf8");
 const eventId = eventIdSchema.parse("d0000000-0000-4000-8000-000000000001");
 const speakerId = contactIdSchema.parse("d0000000-0000-4000-8000-000000000002");
 const emptySpeakerId = contactIdSchema.parse("d0000000-0000-4000-8000-000000000003");
@@ -37,6 +38,7 @@ describe("calendar token routes", () => {
     await pglite.exec(migration0);
     await pglite.exec(migration1);
     await pglite.exec(migrationReviewOps);
+    await pglite.exec(migrationCalendarCancellationSnapshots);
     await pglite.query(
       "INSERT INTO events(id,name,slug,location,timezone,starts_at,ends_at) VALUES($1,'AI Engineer','ai-engineer','Fort Mason','America/Los_Angeles','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')",
       [eventId],
@@ -54,8 +56,16 @@ describe("calendar token routes", () => {
       [eventId, sessionId, speakerId, draftSessionId],
     );
     await pglite.query(
-      "INSERT INTO calendar_invites(event_id,contact_id,session_id,ics_uid,sequence,last_method,organizer_email) VALUES($1,$2,$3,'stable-invite@events.example.com',3,'request','mail@events.example.com')",
-      [eventId, speakerId, sessionId],
+      `INSERT INTO calendar_invites(event_id,contact_id,session_id,ics_uid,sequence,last_method,organizer_email,event_snapshot)
+       VALUES($1,$2,$3,'stable-invite@events.example.com',3,'request','mail@events.example.com',$4::jsonb)`,
+      [eventId, speakerId, sessionId, JSON.stringify({
+        version: 1, eventId, sessionId, contactId: speakerId,
+        title: "Published talk", descriptionHtml: "<p>Useful details</p>",
+        startsAt: "2026-09-15T18:00:00.000Z", endsAt: "2026-09-15T18:30:00.000Z",
+        room: null, track: null, eventName: "AI Engineer", eventSlug: "ai-engineer",
+        eventLocation: "Fort Mason", eventTimezone: "America/Los_Angeles",
+        attendeeEmail: "speaker@example.com", attendeeFirstName: "Nadia", attendeeLastName: "Lee",
+      })],
     );
     tx = drizzle(pglite, { schema }) as unknown as TxDb;
   }, 30_000);

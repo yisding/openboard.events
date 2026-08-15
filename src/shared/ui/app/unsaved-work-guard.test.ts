@@ -21,7 +21,7 @@ describe("shell unsaved-work guard wiring", () => {
     expect(source).toContain("if (hasBlockingWork)");
     expect(source).toContain('title={pending?.blocked ? "Action in progress" : "Discard unsaved work?"}');
     expect(source).toContain("confirmDisabled={Boolean(pending?.blocked)}");
-    expect(rootLayout).toContain("<HistoryPositionTracker /><KonamiListener />{children}");
+    expect(rootLayout).toContain("<HistoryPositionTracker /><KonamiListener /><ConsoleGreeting />{children}");
   });
 
   it("keeps same-document actions guarded and leaves reloads to beforeunload", () => {

@@ -1,10 +1,17 @@
 import { and, asc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
-import { communicationLogs, emailTemplates } from "@/db/schema";
+import { calendarCancellationJobs, communicationLogs, emailTemplates } from "@/db/schema";
 import { isTransactionalTemplate, type JobStats } from "@/shared/contracts";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { AppError, isAppError } from "@/shared/lib/errors";
-import { applyCalendarInvite, buildContext, isAdminAuthTemplate, SkipEmail, type OutboxRow } from "./context";
+import {
+  applyCalendarInvite,
+  buildContext,
+  isAdminAuthTemplate,
+  SkipEmail,
+  type DeliveryOutboxRow,
+  type OutboxRow,
+} from "./context";
 import { prepareInviteIn, type PreparedInvite } from "./invites";
 import { renderTemplateContent } from "./render";
 import { sendViaResend, type EmailMessage } from "@/shared/server/email-provider";
@@ -20,7 +27,7 @@ export type OutboxStats = OutboxDispatchStats;
 type Sender = (message: EmailMessage) => Promise<string>;
 type InvitePreparer = (
   dbOrTx: DbOrTx,
-  row: OutboxRow & { contactId: string; sessionId: string },
+  row: DeliveryOutboxRow & { contactId: string },
   env: RuntimeEnv,
   options: { downloadUrl?: string },
 ) => Promise<PreparedInvite | null>;
@@ -69,6 +76,8 @@ async function markSkipped(dbOrTx: DbOrTx, row: OutboxRow, reason: string): Prom
     lockedUntil: null,
     secretPayloadCiphertext: null,
   }).where(eq(communicationLogs.id, row.id));
+  await dbOrTx.delete(calendarCancellationJobs)
+    .where(eq(calendarCancellationJobs.communicationLogId, row.id));
 }
 
 function isTerminalFailure(row: OutboxRow, error: unknown): boolean {
@@ -95,6 +104,10 @@ async function markFailure(
       ? { secretPayloadCiphertext: null }
       : { nextAttemptAt: sql`now() + ${transition.retryDelayMinutes} * interval '1 minute'` }),
   }).where(eq(communicationLogs.id, row.id));
+  if (terminal) {
+    await dbOrTx.delete(calendarCancellationJobs)
+      .where(eq(calendarCancellationJobs.communicationLogId, row.id));
+  }
 }
 
 async function processRow(
@@ -104,7 +117,18 @@ async function processRow(
   sender: Sender,
   prepare: InvitePreparer,
 ): Promise<"sent" | "skipped"> {
-  let context = await buildContext(row, dbOrTx, env);
+  const scheduleTemplate = row.templateKey === "schedule_assigned" || row.templateKey === "schedule_changed";
+  const [cancellationJob] = scheduleTemplate
+    ? await dbOrTx.select({ snapshot: calendarCancellationJobs.snapshot })
+      .from(calendarCancellationJobs)
+      .where(eq(calendarCancellationJobs.communicationLogId, row.id))
+      .limit(1)
+    : [];
+  const deliveryRow: DeliveryOutboxRow = {
+    ...row,
+    calendarCancellationSnapshot: cancellationJob?.snapshot ?? null,
+  };
+  let context = await buildContext(deliveryRow, dbOrTx, env);
   const [template] = await dbOrTx.select({ subject: emailTemplates.subject, bodyHtml: emailTemplates.bodyHtml, enabled: emailTemplates.enabled })
     .from(emailTemplates).where(and(eq(emailTemplates.eventId, row.eventId), eq(emailTemplates.key, row.templateKey))).limit(1);
   if (!template) throw new Error("email template was not found");
@@ -113,9 +137,11 @@ async function processRow(
     return "skipped";
   }
   let invite: PreparedInvite | null = null;
-  if (row.templateKey === "schedule_assigned" || row.templateKey === "schedule_changed") {
-    if (!row.sessionId) throw new AppError("VALIDATION", "schedule email is missing session.id");
-    invite = await prepare(dbOrTx, { ...row, sessionId: row.sessionId }, env, {
+  if (scheduleTemplate) {
+    if (!deliveryRow.sessionId && deliveryRow.calendarCancellationSnapshot === null) {
+      throw new AppError("VALIDATION", "schedule email is missing session.id or cancellation snapshot");
+    }
+    invite = await prepare(dbOrTx, deliveryRow, env, {
       ...(context.calendarDownloadUrl ? { downloadUrl: context.calendarDownloadUrl } : {}),
     });
     if (!invite) throw new SkipEmail("calendar invite is no longer deliverable");
@@ -157,6 +183,7 @@ async function processRow(
       apiKey: env.RESEND_API_KEY,
       from: env.EMAIL_FROM,
       to: context.recipientEmail,
+      ...(env.EMAIL_REPLY_TO ? { replyTo: env.EMAIL_REPLY_TO } : {}),
       subject: rendered.subject,
       html: rendered.html,
       text: rendered.text,
@@ -173,6 +200,8 @@ async function processRow(
     lockedUntil: null,
     secretPayloadCiphertext: null,
   }).where(eq(communicationLogs.id, row.id));
+  await dbOrTx.delete(calendarCancellationJobs)
+    .where(eq(calendarCancellationJobs.communicationLogId, row.id));
   return "sent";
 }
 

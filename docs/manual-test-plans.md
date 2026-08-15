@@ -860,15 +860,16 @@ pipeline on every merge to `main`.
 | 12 | Two browser profiles signed in; open `/account/sessions` | Both listed with device and time — these are real `admin_sessions` rows |
 | 13 | Revoke profile #2 from #1; reload #2 | Signed out on the next request — server-side revocation, not just a cleared cookie |
 | 14 | **Sign out everywhere** | Every session including the current one ends |
-| 15 | *(C)* Six paced wrong-password attempts | Five `401`s then `429 RATE_LIMITED` |
-| 16 | *(Optional, needs Google credentials)* Google sign-in | Round-trips through `/api/auth/callback/google` |
-| 17 | `POST /api/test/login` | `404`; the retired session-minting backdoor does not exist |
+| 15 | *(C)* Six wrong-password attempts, at least one second apart | Five `401`s then `429 RATE_LIMITED` from the durable throttle |
+| 16 | *(C)* `pnpm probe:auth-capacity <baseUrl>` | Twelve unpaced attempts return only `401`/`429`, at least eleven are `429`, p95 is at most 5 s, and no Worker `1102`/`503` escapes |
+| 17 | *(Optional, needs Google credentials)* Google sign-in | Round-trips through `/api/auth/callback/google` |
+| 18 | `POST /api/test/login` | `404`; the retired session-minting backdoor does not exist |
 
 **Design checks.** §0.7 on `/login`, `/login/forgot`, `/login/reset`, `/account/sessions`. D4 matters
 most here: an auth error that is vague is a support ticket.
 
-**Known gaps.** Unpaced attempts on Env C hit Cloudflare 1102/503 before the app throttle answers —
-pace step 15 (~1 s) or the result is inconclusive.
+The Deploy workflow runs step 16 after every preview deployment and blocks production promotion on
+failure. See `docs/runbooks/sign-in-capacity.md` for budgets, log fields, and incident response.
 
 ---
 
@@ -976,9 +977,13 @@ sees; D7 and D8 failures here are public.
 | 22 | Deliverability panel | Reflects 19–21 |
 | 23 | *(C, `EMAIL_MODE=send`)* Send to an allowlisted inbox | Delivered from the verified domain; `dmarc=pass`, SPF/DKIM aligned |
 
-**Known gaps.** The Outlook delivery probe has never been run — a step 23 failure against Outlook is
-new territory, not a regression. Production forbids `EMAIL_FALLBACK_UI=1`; a credential appearing in
-a production-mode render is a P0.
+**Known gaps.** A production Outlook `portal_login` probe on `2026-08-15` passed SPF, DKIM, DMARC,
+and composite authentication but landed in Junk; that is the OTP placement baseline. Outlook
+calendar REQUEST/reschedule/CANCEL delivery is still untested, so a calendar-specific failure is
+new territory. A later Outlook authentication failure or placement worse than that recorded
+baseline is a regression. The matching Gmail probe passed authentication, and its folder placement
+was Inbox. Production forbids `EMAIL_FALLBACK_UI=1`; a credential appearing in a production-mode
+render is a P0.
 
 ---
 

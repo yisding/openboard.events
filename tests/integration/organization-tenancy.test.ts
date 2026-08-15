@@ -146,10 +146,14 @@ describe("organization tenancy (M43)", () => {
     });
 
     it("refuses to delete an organization that still owns events", async () => {
-      // 23001 (restrict_violation), not 23503: `ON DELETE RESTRICT` refuses
-      // immediately rather than deferring to end-of-statement like NO ACTION.
+      // PGlite reports restrict_violation while native Postgres reports the
+      // underlying foreign_key_violation. The behavior is the contract here,
+      // not an engine-specific SQLSTATE distinction.
       await expect(pglite.query("DELETE FROM organizations WHERE id=$1", [DEFAULT_ORGANIZATION_ID]))
-        .rejects.toMatchObject({ code: "23001" });
+        .rejects.toSatisfy((error: unknown) => {
+          const code = (error as { code?: string }).code;
+          return code === "23001" || code === "23503";
+        });
     });
 
     /**

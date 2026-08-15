@@ -50,14 +50,15 @@ const reviewerNavigation: NavigationGroup[] = [
 
 /**
  * The shell's first-run hints, in the order the beacons fade in (top of the
- * sidebar down, then the topbar). Organizer-only: a reviewer's shell renders
- * none of these anchors' targets in the same sense, so their provider gets an
- * empty list and `Hint` degrades to a plain wrapper. Each shows once per
- * browser (localStorage, `MilestoneBanner`'s convention), and "Skip all tips"
- * in any card silences the whole scope at once.
+ * sidebar down, then the topbar). Each role gets the ids whose anchors its
+ * shell actually renders — `Hint` degrades to a plain wrapper for the rest —
+ * so a reviewer is welcomed by their queue rather than by organizer tips
+ * about forms they cannot open. Each shows once per browser (localStorage,
+ * `MilestoneBanner`'s convention), and "Skip all tips" in any card silences
+ * the whole shared `shell` scope at once, for both roles.
  */
-const SHELL_HINT_IDS: readonly string[] = ["shell:event-switcher", "shell:program-forms", "shell:public-preview", "shell:command-palette"];
-const NO_HINT_IDS: readonly string[] = [];
+const SHELL_HINT_IDS: readonly string[] = ["shell:event-switcher", "shell:program-forms", "shell:public-preview", "shell:event-settings", "shell:command-palette"];
+const REVIEWER_HINT_IDS: readonly string[] = ["shell:review-queue", "shell:reviewer-palette"];
 
 export function activeAdminSection(pathname: string, base: string): string | undefined {
   return pathname.startsWith(`${base}/`) ? pathname.slice(base.length + 1).split("/")[0] : undefined;
@@ -140,16 +141,16 @@ export function AdminShell({ eventId, role, event: serverEvent, counts, user, ca
   const accountName = user?.name.trim() || user?.email || "Maya Lin";
   const accountInitials = accountName.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "ML";
   const mobileNavigation = adminMobileNavigationState(isMobile, open);
-  return <UnsavedWorkGuardProvider><FirstRunHints scope="shell" ids={role === "reviewer" ? NO_HINT_IDS : SHELL_HINT_IDS}><div className="app-shell">
+  return <UnsavedWorkGuardProvider><FirstRunHints scope="shell" ids={role === "reviewer" ? REVIEWER_HINT_IDS : SHELL_HINT_IDS}><div className="app-shell">
     <a className="admin-skip-link" href="#admin-content">Skip to main content</a>
     <button ref={menuButtonRef} type="button" className="mobile-menu" aria-label="Open navigation" aria-expanded={open} aria-controls="admin-navigation" onClick={() => setOpen(true)}><Menu size={20} /></button>
     <aside ref={sidebarRef} id="admin-navigation" className={`admin-sidebar ${open ? "open" : ""}`} aria-hidden={mobileNavigation.sidebarHidden || undefined} inert={mobileNavigation.sidebarHidden || undefined}>
       <div className="sidebar-brand"><Brand /><button ref={closeButtonRef} type="button" className="mobile-close" aria-label="Close navigation" onClick={closeMenu}><X size={18} /></button></div>
       <Hint id="shell:event-switcher" title="Your events live here" body="Switch to another event — or jump back to the full list — without losing your place." placement="right" block className="hint-on-switcher"><EventSwitcher eventId={eventId} initialEvent={{ name: event.shortName, detail: `/${event.slug}` }} canCreateEvent={canCreateEvent} nowIso={nowIso} /></Hint>
-      <nav className="sidebar-nav">{visibleNavigation.map((group) => <div className="nav-group" key={group.label}><span>{group.label}</span>{group.items.map((item) => { const Icon = item.icon; const active = item.href === activeSection; const countKey = COUNT_KEY_BY_HREF[item.href]; const count = countKey ? counts?.[countKey] : undefined; const link = <Link key={item.href} href={`${base}/${item.href}`} className={active ? "active" : ""} aria-current={active ? "page" : undefined} onClick={closeMenu}><Icon size={18} /><b>{item.label}</b>{!!count && <em>{count}</em>}</Link>; return item.href === "forms" ? <Hint key={item.href} id="shell:program-forms" title="Start in Forms" body="Your call for speakers begins as a form. Completed entries land in Submissions, ready to review." placement="right" block className="hint-on-nav">{link}</Hint> : link; })}</div>)}</nav>
-      <div className="sidebar-bottom"><Hint id="shell:public-preview" title="See what attendees see" body="Opens your public event page in a new tab — a quick gut check after any change." placement="right" block className="hint-on-nav"><Link href={`/e/${event.slug}/schedule`} target="_blank"><ExternalLink size={17} /> View public event</Link></Hint>{role !== "reviewer" && <Link href={`${base}/settings`}><Settings size={17} /> Event settings</Link>}<div className="sidebar-user"><span>{accountInitials}</span><div><b>{accountName}</b><small>{role === "reviewer" ? "Reviewer" : "Organizer"}</small></div>{user && <SignOutButton kind="admin" compact />}</div></div>
+      <nav className="sidebar-nav">{visibleNavigation.map((group) => <div className="nav-group" key={group.label}><span>{group.label}</span>{group.items.map((item) => { const Icon = item.icon; const active = item.href === activeSection; const countKey = COUNT_KEY_BY_HREF[item.href]; const count = countKey ? counts?.[countKey] : undefined; const link = <Link key={item.href} href={`${base}/${item.href}`} className={active ? "active" : ""} aria-current={active ? "page" : undefined} onClick={closeMenu}><Icon size={18} /><b>{item.label}</b>{!!count && <em>{count}</em>}</Link>; if (item.href === "forms") return <Hint key={item.href} id="shell:program-forms" title="Start in Forms" body="Your call for speakers begins as a form. Completed entries land in Submissions, ready to review." placement="right" block className="hint-on-nav">{link}</Hint>; if (item.href === "review") return <Hint key={item.href} id="shell:review-queue" title="Your queue lives here" body="Every submission waiting on your score sits in this one list. Work it top to bottom, or dip in whenever — nothing gets lost." placement="right" block className="hint-on-nav">{link}</Hint>; return link; })}</div>)}</nav>
+      <div className="sidebar-bottom"><Hint id="shell:public-preview" title="See what attendees see" body="Opens your public event page in a new tab — a quick gut check after any change." placement="right" block className="hint-on-nav"><Link href={`/e/${event.slug}/schedule`} target="_blank"><ExternalLink size={17} /> View public event</Link></Hint>{role !== "reviewer" && <Hint id="shell:event-settings" title="Make it yours" body="Branding, dates, and the words your event uses — tracks, stages, whatever fits — all live in Event settings." placement="right" block className="hint-on-nav"><Link href={`${base}/settings`}><Settings size={17} /> Event settings</Link></Hint>}<div className="sidebar-user"><span>{accountInitials}</span><div><b>{accountName}</b><small>{role === "reviewer" ? "Reviewer" : "Organizer"}</small></div>{user && <SignOutButton kind="admin" compact />}</div></div>
     </aside>
     {open && <button type="button" tabIndex={-1} aria-label="Close navigation" className="mobile-overlay" onClick={closeMenu} />}
-    <main className="app-main" inert={mobileNavigation.backgroundInert || undefined} aria-hidden={mobileNavigation.backgroundInert || undefined}><header className="topbar"><div className="breadcrumbs"><span>{event.shortName}</span><i>/</i><b>{current}</b></div><div className="topbar-actions"><Hint id="shell:command-palette" title="Jump anywhere" body="Press ⌘K to search speakers, submissions and sessions, or run quick actions like assigning reviewers." placement="bottom-end"><CommandPalette eventId={event.id} base={base} role={role} /></Hint></div></header><div id="admin-content" className="app-content" tabIndex={-1}>{children}</div></main>
+    <main className="app-main" inert={mobileNavigation.backgroundInert || undefined} aria-hidden={mobileNavigation.backgroundInert || undefined}><header className="topbar"><div className="breadcrumbs"><span>{event.shortName}</span><i>/</i><b>{current}</b></div><div className="topbar-actions"><Hint id={role === "reviewer" ? "shell:reviewer-palette" : "shell:command-palette"} title="Jump anywhere" body={role === "reviewer" ? "Press ⌘K from any page to jump straight back to your review queue." : "Press ⌘K to search speakers, submissions and sessions, or run quick actions like assigning reviewers."} placement="bottom-end"><CommandPalette eventId={event.id} base={base} role={role} /></Hint></div></header><div id="admin-content" className="app-content" tabIndex={-1}>{children}</div></main>
   </div></FirstRunHints></UnsavedWorkGuardProvider>;
 }

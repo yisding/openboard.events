@@ -36,6 +36,13 @@ export type AgendaViewProps = {
   /** Accepted abstracts, with `alreadyPromoted` refreshed through the agenda cache. */
   accepted: AcceptedForSchedulingRow[];
   day?: string | null;
+  /**
+   * Unscheduled count over the *unfiltered* session list. `sessions` arrives
+   * already narrowed by the agenda's search box, so the Day view's
+   * board-cleared celebration reads this instead — typing a search that hides
+   * the tray must never look like placing its last session.
+   */
+  unscheduledTotal?: number;
   /** Opens the session dialog; the toolbar and every view share one dialog instance. */
   onEdit?: (sessionId: string) => void;
 };

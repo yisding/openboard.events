@@ -303,6 +303,7 @@ async function deliver(dbOrTx: DbOrTx, row: OutboxRow, env: RuntimeEnv, sender: 
       apiKey,
       from,
       to: row.recipientEmail,
+      ...(env.EMAIL_REPLY_TO ? { replyTo: env.EMAIL_REPLY_TO } : {}),
       subject: rendered.subject,
       html: rendered.html,
       text: rendered.text,

@@ -74,6 +74,14 @@ function buttonsNamed(name: string): HTMLButtonElement[] {
     .filter((button) => button.textContent?.trim() === name);
 }
 
+async function waitForEnabledButton(name: string) {
+  await vi.waitFor(async () => {
+    await act(async () => { await Promise.resolve(); });
+    const button = buttonsNamed(name)[0];
+    if (!button || button.disabled) throw new Error(`${name} is not enabled yet`);
+  }, { timeout: 5_000 });
+}
+
 async function change(control: HTMLInputElement | HTMLTextAreaElement, value: string) {
   await act(async () => {
     const prototype = control instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
@@ -131,10 +139,8 @@ describe("CRM partial-batch recovery", () => {
     await change(body, "<p>Hello</p>");
     await act(async () => {
       buttonNamed("Refresh preview")?.click();
-      await Promise.resolve();
-      await Promise.resolve();
     });
-    expect(buttonsNamed("Send to 1")[0]?.disabled).toBe(false);
+    await waitForEnabledButton("Send to 1");
     await act(async () => buttonsNamed("Send to 1")[0]?.click());
     expect(container.textContent).toContain("Send this message to 1 contact?");
     await act(async () => buttonsNamed("Send to 1").at(-1)?.click());

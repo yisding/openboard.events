@@ -27,13 +27,11 @@ async function hashKey(key: string): Promise<string> {
  * request, the next request opens a fresh window rather than waiting for a
  * fixed clock-aligned boundary.
  *
- * Best-effort by design: two concurrent requests can each read the
- * pre-increment count and both land under the limit (`onConflictDoUpdate`
- * is one statement, but two racing upserts still each see their own
- * `RETURNING` row rather than serializing against each other the way a
- * `SELECT … FOR UPDATE` would). That is an acceptable slop of one for an
- * abuse guard, not a correctness invariant — nothing downstream depends on
- * the count being exact under contention.
+ * PostgreSQL serializes conflicting `INSERT ... ON CONFLICT DO UPDATE`
+ * statements on the unique key. Each update therefore evaluates against the
+ * latest row and returns its own post-increment count; a concurrent burst does
+ * not get a free request per caller. The integration suite locks this behavior
+ * down because credential capacity protection relies on the atomic counter.
  *
  * Rows are not self-expiring: this upsert only ever writes, so the daily
  * retention sweep (`features/data-lifecycle/server/retention.ts`) deletes

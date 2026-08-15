@@ -129,7 +129,7 @@ bucket mix-up fails closed.
   cleanup cron), not a substitute for it. That doc also records a real key-scheme finding
   (M07-owned follow-up) that limits what a single static rule can cover today.
 
-## 5. Create the Cloudflare deployment token
+## 5. Create the Cloudflare automation tokens
 
 - [ ] Create a least-privilege Cloudflare API token that can deploy Workers and use the
   required R2 bindings in this account.
@@ -137,6 +137,10 @@ bucket mix-up fails closed.
   currently repository-scoped in GitHub; move it to both protected environments before
   production and then remove the repository-scoped copy.
 - [x] Save the account ID as `CLOUDFLARE_ACCOUNT_ID`.
+- [x] Create a separate API token scoped only to the `openboard.events` zone with
+  **Email Security DMARC Reports Read** and **Email Security DMARC Reports Write**. Do not add
+  Zone Read: the workflow uses an explicit zone ID. Save it only as the production-environment
+  secret `CLOUDFLARE_DMARC_API_TOKEN`; never reuse the deployment token for DMARC operations.
 - [ ] Confirm Cloudflare's repository/Git integration is disabled.
 
 ## 6. Bootstrap preview
@@ -245,6 +249,7 @@ that order.
   | GitHub environment secret | Preview value | Production value |
   |---|---|---|
   | `CLOUDFLARE_API_TOKEN` | scoped Cloudflare token | scoped Cloudflare token |
+  | `CLOUDFLARE_DMARC_API_TOKEN` | unset | zone-scoped DMARC Read/Write token |
   | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID | Cloudflare account ID |
   | `DATABASE_URL_DIRECT` | `sb-test` direct Neon URL | `sb-prod` direct Neon URL |
   | `E2E_RESEND_API_KEY` | optional preview-only, read-capable Resend key for the sent-email delivery probe | unset |
@@ -257,14 +262,16 @@ that order.
   | GitHub environment variable | Preview | Production |
   |---|---|---|
   | `APP_BASE_URL` | exact preview origin | exact production origin |
+  | `CLOUDFLARE_ZONE_ID` | unset | `openboard.events` zone ID |
   | `R2_ACCOUNT_ID` | Cloudflare account ID | Cloudflare account ID |
   | `E2E_SIGNUP_EMAIL` | optional dedicated address included in preview's exact email allowlist | unset |
 
   `E2E_BASE_URL` is derived from `APP_BASE_URL` for the preview E2E job and defaults to the
-  preview origin in `playwright.config.ts` — do not add it. `EMAIL_FROM` also needs no entry:
-  the sender lives in `wrangler.jsonc`'s vars for both environments (the address contains angle
-  brackets, which cannot survive `--var`, so `scripts/deploy-cloudflare.sh` only verifies it is
-  present in config before a production deploy). Leave `EMAIL_ALLOWLIST` unset too — the
+  preview origin in `playwright.config.ts` — do not add it. `EMAIL_FROM` and `EMAIL_REPLY_TO`
+  also need no entries: the stable sender and monitored reply mailbox live in `wrangler.jsonc`'s
+  vars for both environments (the From address contains angle brackets, which cannot survive
+  `--var`, so `scripts/deploy-cloudflare.sh` only verifies both values are present in config
+  before a production deploy). Leave `EMAIL_ALLOWLIST` unset too — the
   one-address preview allowlist is committed in `wrangler.jsonc`, and a GitHub value silently
   overrides it. Leave the `SMOKE_*` variables unset: the deploy workflow fills each unset one
   from `pnpm smoke:fixture-ids`; set one only to deliberately override a fixture.
@@ -292,22 +299,28 @@ stores only the credentials and direct database URL needed by the deployment wor
 
 - [x] Verify a dedicated sending subdomain in Resend (`mail.openboard.events`, status rev. 7).
 - [x] Publish and verify SPF and DKIM (aligned; proven with delivered Gmail mail).
-- [x] Confirm the sender policy is `p=quarantine; pct=100` and record aligned Gmail/Outlook
-  `dmarc=pass` evidence.
-- [x] Use one stable From and Reply-To identity
+- [x] Enable aggregate reporting using [`docs/runbooks/dmarc.md`](runbooks/dmarc.md)
+  (protected run 31862396508; `reportingConfigured: true`, status rev. 7).
+- [x] Publish full quarantine at the exact From-domain record after the owner-approved compressed
+  rollout, record aligned Gmail/Outlook `dmarc=pass`, and keep the runbook's aggregate-report and
+  receiver gates before reject.
+- [x] Use one stable product sender on the authenticated domain
   (`Openboard <hello@mail.openboard.events>`).
-- [x] Enable Resend Receiving and publish the priority-10 `mail.openboard.events` inbound MX
-  without changing the independent bounce MX.
+- [x] Enable Resend Receiving on `mail.openboard.events` and publish the priority-10 inbound MX to
+  `inbound-smtp.us-east-1.amazonaws.com` without changing Resend's independent bounce MX.
+- [x] Confirm Resend verifies the inbound MX and a fresh message to
+  `hello@mail.openboard.events` appears in Receiving. Deployed send mode requires that address as
+  `EMAIL_REPLY_TO` so From and Reply-To keep one stable identity.
 - [x] Create the production `RESEND_API_KEY`; protected live probes have delivered through it.
 - [x] Prove OTP delivery in a fresh Gmail inbox (`portal_login` + `submission_received`,
   status rev. 7).
-- [x] Prove production OTP authentication at Outlook; the baseline message reached Junk with
-  SPF, DKIM, DMARC, and composite authentication passing.
+- [x] Prove production OTP delivery and alignment at Outlook; the first `portal_login` reached
+  Junk with SPF, DKIM, DMARC, and composite authentication passing.
 - [x] Prove provider acceptance for calendar REQUEST/reschedule/CANCEL at Gmail and Outlook
   (protected run 31872007661: six accepted messages and successful cleanup).
 - [ ] Record Gmail and Outlook placement/calendar behavior and authentication headers for those
   six calendar messages; provider acceptance alone does not close the receiver gate.
-- [x] Record the alignment, sender identity, inbound route, and enforcement state in
+- [x] Record the recipient alignment, sender identity, inbound route, and enforcement state in
   `DECISIONS.md`.
 
 ## 9. Deploy production manually
@@ -371,6 +384,8 @@ A successful deploy is not the full hackathon infrastructure proof.
 - [ ] Record a browser presigned upload/CORS probe, including `ETag` visibility.
 - [x] Record jobs tail output showing authenticated scheduled calls.
 - [x] Record Workers compressed size and deployed CPU/resource-limit observations.
-- [ ] Record the Resend DNS and Gmail/Outlook delivery evidence.
+- [x] Record the Resend DNS, Gmail/Outlook authentication, Gmail Inbox, and Outlook Junk evidence.
+- [x] Record the pre-quarantine authentication and placement baseline.
+- [ ] Record the full-quarantine no-regression authentication and placement probe before reject.
 - [x] Record the final preview URL without recording any secret values; record production
   after its first successful deployment.

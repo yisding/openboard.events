@@ -30,6 +30,7 @@ const migrationProductAuth = readFileSync(new URL("../../../drizzle/0009_product
 const migrationTenancy = readFileSync(new URL("../../../drizzle/0010_organization_tenancy.sql", import.meta.url), "utf8");
 const migrationUserManagement = readFileSync(new URL("../../../drizzle/0011_user_management.sql", import.meta.url), "utf8");
 const migrationCrm = readFileSync(new URL("../../../drizzle/0013_speaker_crm.sql", import.meta.url), "utf8");
+const migrationCalendarCancellationSnapshots = readFileSync(new URL("../../../drizzle/0043_calendar_cancellation_snapshots.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("e1000000-0000-4000-8000-000000000001");
 const ada = contactIdSchema.parse("e1000000-0000-4000-8000-000000000010");
@@ -67,6 +68,7 @@ describe("composeBulkSpeakerEmailIn (M51)", () => {
     await pglite.exec(migrationTenancy);
     await pglite.exec(migrationUserManagement);
     await pglite.exec(migrationCrm);
+    await pglite.exec(migrationCalendarCancellationSnapshots);
     tx = drizzle(pglite, { schema }) as unknown as TxDb;
 
     await pglite.query(

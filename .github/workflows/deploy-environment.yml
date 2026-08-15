@@ -110,6 +110,9 @@ jobs:
       - name: Apply migrations with the direct Neon URL
         if: steps.freshness.outputs.current == 'true'
         run: pnpm db:migrate
+      - name: Ensure staging-only R2 lifecycle expiration
+        if: steps.freshness.outputs.current == 'true'
+        run: pnpm r2:lifecycle:ensure "$DEPLOY_ENV"
       - name: Deploy web before jobs
         if: steps.freshness.outputs.current == 'true'
         run: pnpm deploy:web:${{ inputs.environment }}
@@ -124,6 +127,11 @@ jobs:
             smoke_args+=(--production)
           fi
           bash scripts/post-deploy-smoke.sh "$APP_BASE_URL" "${smoke_args[@]}"
+      - name: Prove hostile sign-in bursts stay controlled
+        if: >-
+          steps.freshness.outputs.current == 'true' &&
+          inputs.environment == 'preview'
+        run: pnpm probe:auth-capacity "$APP_BASE_URL"
       - name: Select the self-service journey credential path
         if: >-
           steps.freshness.outputs.current == 'true' &&
@@ -150,3 +158,19 @@ jobs:
           NEON_TEST_URL: ${{ env.DATABASE_URL_DIRECT }}
           E2E_SEED: "0"
         run: pnpm exec playwright test e2e/self-service-onboarding.spec.ts
+      # The journey runs only here, against a real preview, so a runner that is
+      # thrown away takes the only copy of the evidence with it. `trace:
+      # on-first-retry` already writes a trace and a DOM snapshot per failed
+      # retry; keep them so an intermittent failure can be diagnosed after the
+      # fact instead of by re-running and hoping it reproduces.
+      - name: Preserve the self-service journey evidence
+        if: >-
+          failure() &&
+          steps.freshness.outputs.current == 'true' &&
+          inputs.environment == 'preview'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: self-service-journey-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7

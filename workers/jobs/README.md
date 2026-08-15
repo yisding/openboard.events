@@ -14,7 +14,10 @@ internet-addressable `/api/jobs/*` callbacks do not exist.
 | preview | `sb-jobs-preview` | `sb-web-preview` |
 | production | `sb-jobs` | `sb-web` |
 
-One cron runs every minute. `outbox` runs each tick, `reminders` at minutes divisible by 15, and cleanup at 09:00 UTC. Airtable remains deferred and is not part of the RPC contract. A missed tick self-heals on the next one because every real job is an idempotent bounded database scan.
+One cron runs every minute. `outbox` runs each tick, `reminders` at minutes
+divisible by 15, and `cleanup` at 09:00 UTC. Airtable remains deferred and is
+not part of the RPC contract. A missed tick self-heals on the next one because
+every real job is an idempotent bounded database scan.
 
 Each RPC call has a 120-second caller-side deadline. Every due sibling is allowed to settle,
 then the aggregate `waitUntil()` promise rejects if any request failed.

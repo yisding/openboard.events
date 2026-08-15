@@ -254,13 +254,14 @@ export async function notifySchedule(
   next: { status: SessionStatus; startsAt: string | null; scheduleRevision: number },
   recipients: readonly ContactId[],
 ): Promise<number> {
-  if (next.status !== "published" || next.startsAt === null) return 0;
   if (next.scheduleRevision <= prior.scheduleRevision) return 0;
-  // First time this session's time reached a speaker, versus a change to one
-  // they already have on their calendar.
-  const templateKey: TemplateKey = prior.startsAt === null || prior.status !== "published"
-    ? "schedule_assigned"
-    : "schedule_changed";
+  const wasScheduled = prior.status === "published" && prior.startsAt !== null;
+  const isScheduled = next.status === "published" && next.startsAt !== null;
+  if (!wasScheduled && !isScheduled) return 0;
+  // The transition onto the public schedule is an assignment; every later
+  // transition, including leaving the public schedule, changes or cancels the
+  // calendar item the recipient already has.
+  const templateKey: TemplateKey = isScheduled && !wasScheduled ? "schedule_assigned" : "schedule_changed";
   for (const contactId of recipients) {
     await enqueueEmail(asOutboxWriter(dbOrTx), {
       eventId,
@@ -277,20 +278,14 @@ export async function notifySchedule(
  * The other half of "who needs telling": speakers this save *added* to a session
  * that is already published and already timed.
  *
- * `notifySchedule` above is gated on `schedule_revision` moving, and rightly so —
- * the revision is what [M35](../../../plan/modules/M35-ics-calendar-invites.md)
- * derives its ICS `SEQUENCE` from, so bumping it because the speaker list changed
- * would re-issue calendar updates to everyone for a schedule that did not move.
- * But a speaker added to a published, timed session has never been told anything
- * at all, and gating them on a revision bump means they never are.
+ * A published speaker-set change advances `schedule_revision` so a remove and
+ * later re-add cannot reuse the same idempotency key. That does not mean every
+ * continuing speaker should receive an unchanged REQUEST: only newly added
+ * speakers are handed to this notifier.
  *
- * So they are notified here instead, at the *current* revision: their
- * `{event}:sched:{session}:{contact}:{revision}` key has no row yet — that is
- * exactly what "this person was not on this schedule" means — so `enqueueEmail`'s
- * `ON CONFLICT DO NOTHING` lets it through, while the speakers who were already
- * on the session get nothing, because for them nothing changed. And the template
- * is unconditionally `schedule_assigned`: it is this speaker's first notice, even
- * when the session's own history would read as a change.
+ * The template is unconditionally `schedule_assigned`: it is this speaker's
+ * first notice for the current assignment, even when the session's own history
+ * would read as a change.
  */
 async function notifyAddedSpeakers(
   dbOrTx: DbOrTx,
@@ -310,6 +305,29 @@ async function notifyAddedSpeakers(
     });
   }
   return added.length;
+}
+
+/** Removed speakers need a CANCEL even while the session itself stays live. */
+async function notifyRemovedSpeakers(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  sessionId: SessionId,
+  prior: { status: SessionStatus; startsAt: string | null; scheduleRevision: number },
+  next: { scheduleRevision: number },
+  removed: readonly ContactId[],
+): Promise<number> {
+  if (prior.status !== "published" || prior.startsAt === null) return 0;
+  if (next.scheduleRevision <= prior.scheduleRevision) return 0;
+  for (const contactId of removed) {
+    await enqueueEmail(asOutboxWriter(dbOrTx), {
+      eventId,
+      templateKey: "schedule_changed",
+      contactId,
+      idempotencyKey: idem.scheduled(eventId, sessionId, contactId, next.scheduleRevision),
+      refs: { sessionId },
+    });
+  }
+  return removed.length;
 }
 
 const RETURNED_COLUMNS = sql`id, title, slug, description_html, starts_at, ends_at, track_id, room_id, format_id, status, schedule_revision, row_version`;
@@ -557,7 +575,9 @@ export async function saveSessionIn(
   `);
   const prior = (before.rows ?? [])[0];
   if (!prior) throw new AppError("NOT_FOUND", "Session not found");
-  const priorSpeakers = new Set(prior.speaker_ids ?? []);
+  const priorSpeakers = new Set((prior.speaker_ids ?? []) as ContactId[]);
+  const speakerSetChanged = speakers.length !== priorSpeakers.size
+    || speakers.some((contactId) => !priorSpeakers.has(contactId));
 
   /*
    * The bump reads the *incoming* status, not the stored one. A draft with times
@@ -585,12 +605,15 @@ export async function saveSessionIn(
         status = ${input.status},
         row_version = row_version + 1,
         schedule_revision = schedule_revision + CASE
-          WHEN ${input.status}::text = 'published'
-           AND (status::text IS DISTINCT FROM 'published'
+          WHEN (status::text = 'published' AND starts_at IS NOT NULL
+                OR ${input.status}::text = 'published' AND ${input.startsAt}::timestamptz IS NOT NULL)
+           AND (status::text IS DISTINCT FROM ${input.status}::text
                 OR starts_at IS DISTINCT FROM ${input.startsAt}::timestamptz
                 OR ends_at IS DISTINCT FROM ${input.endsAt}::timestamptz
                 OR room_id IS DISTINCT FROM ${input.roomId}::uuid
+                OR ${speakerSetChanged}
                 OR (${input.startsAt}::timestamptz IS NOT NULL
+                    AND ${input.status}::text = 'published'
                     AND (title IS DISTINCT FROM ${input.title}
                          OR description_html IS DISTINCT FROM ${descriptionHtml})))
           THEN 1 ELSE 0 END,
@@ -650,16 +673,20 @@ export async function saveSessionIn(
   };
   const continuing = speakers.filter((contactId) => priorSpeakers.has(contactId));
   const added = speakers.filter((contactId) => !priorSpeakers.has(contactId));
+  const removed = [...priorSpeakers].filter((contactId) => !speakers.includes(contactId));
   // Public feeds also advance their sequence for title/description changes,
   // but the speaker-email policy remains schedule-only. Preserve that policy
   // by calling the notifier only for the status/placement changes it already
   // handled before public feeds began consuming the same revision.
-  const scheduleNoticeChanged = input.status === "published" && (
-    prior.status !== "published"
-    || iso(prior.starts_at) !== (input.startsAt === null ? null : new Date(input.startsAt).toISOString())
-    || iso(prior.ends_at) !== (input.endsAt === null ? null : new Date(input.endsAt).toISOString())
+  const priorScheduled = prior.status === "published" && prior.starts_at !== null;
+  const nextScheduled = input.status === "published" && input.startsAt !== null;
+  const nextStartsAt = input.startsAt === null ? null : new Date(input.startsAt).toISOString();
+  const nextEndsAt = input.endsAt === null ? null : new Date(input.endsAt).toISOString();
+  const scheduleNoticeChanged = priorScheduled !== nextScheduled || (priorScheduled && nextScheduled && (
+    iso(prior.starts_at) !== nextStartsAt
+    || iso(prior.ends_at) !== nextEndsAt
     || prior.room_id !== input.roomId
-  );
+  ));
   if (scheduleNoticeChanged) {
     await notifySchedule(
       dbOrTx, eventId, sessionId,
@@ -669,6 +696,14 @@ export async function saveSessionIn(
     );
   }
   await notifyAddedSpeakers(dbOrTx, eventId, sessionId, nextState, added);
+  await notifyRemovedSpeakers(
+    dbOrTx,
+    eventId,
+    sessionId,
+    { status: prior.status, startsAt: iso(prior.starts_at), scheduleRevision: Number(prior.schedule_revision) },
+    nextState,
+    removed,
+  );
   return toDto(row, speakers);
 }
 
@@ -737,11 +772,59 @@ export async function deleteSessionIn(
   sessionId: SessionId,
   expectedVersion: number,
 ): Promise<void> {
-  // `session_speakers` cascades from the composite FK, so one statement is the
-  // whole delete.
+  // A prepared REQUEST must be cancelled even though the session and
+  // `calendar_invites` row disappear in this same statement. Always create a
+  // dedicated cancellation log: any existing schedule row may already have
+  // reached the provider, even after its claim lock expires, so changing its
+  // payload under the same provider idempotency key is never safe. A previously
+  // prepared CANCEL already owns its durable job and needs no replacement.
   const result = await dbOrTx.execute<{ id: string }>(sql`
-    DELETE FROM sessions WHERE id = ${sessionId} AND event_id = ${eventId} AND row_version = ${expectedVersion}
-    RETURNING id
+    WITH target AS MATERIALIZED (
+      SELECT id, event_id, schedule_revision
+      FROM sessions
+      WHERE id = ${sessionId} AND event_id = ${eventId} AND row_version = ${expectedVersion}
+    ), calendar_state AS MATERIALIZED (
+      SELECT t.id AS session_id, t.event_id, ci.contact_id, ci.ics_uid,
+             ci.organizer_email, ci.event_snapshot,
+             greatest(ci.sequence + 1, t.schedule_revision) AS cancellation_sequence,
+             gen_random_uuid() AS communication_log_id
+      FROM target t
+      JOIN calendar_invites ci ON ci.session_id = t.id AND ci.event_id = t.event_id
+      WHERE ci.last_method = 'request'
+    ), queued AS (
+      INSERT INTO communication_logs (
+        id, event_id, contact_id, template_key, idempotency_key, status, session_id
+      )
+      SELECT calendar_state.communication_log_id, calendar_state.event_id,
+             calendar_state.contact_id, 'schedule_changed',
+             concat(
+               calendar_state.event_id::text, ':calendar_cancel:',
+               calendar_state.session_id::text, ':',
+               calendar_state.contact_id::text, ':',
+               calendar_state.cancellation_sequence
+             ),
+             'queued', NULL
+      FROM calendar_state
+      RETURNING id
+    ), jobs AS (
+      INSERT INTO calendar_cancellation_jobs (communication_log_id, snapshot)
+      SELECT queued.id,
+             calendar_state.event_snapshot || jsonb_build_object(
+               'uid', calendar_state.ics_uid,
+               'sequence', calendar_state.cancellation_sequence,
+               'organizerEmail', calendar_state.organizer_email,
+               'cancelledAt', now()
+             )
+      FROM queued
+      JOIN calendar_state ON calendar_state.communication_log_id = queued.id
+      RETURNING communication_log_id
+    ), deleted AS (
+      DELETE FROM sessions s USING target
+      WHERE s.id = target.id AND s.event_id = target.event_id
+        AND (SELECT count(*) FROM jobs) >= 0
+      RETURNING s.id
+    )
+    SELECT id FROM deleted
   `);
   if ((result.rows ?? []).length > 0) return;
   const existing = await dbOrTx.execute<{ row_version: number }>(sql`
@@ -808,7 +891,10 @@ export async function bulkSetPublishedIn(
       UPDATE sessions s SET
         status = ${status},
         row_version = s.row_version + 1,
-        schedule_revision = s.schedule_revision + CASE WHEN ${status}::text = 'published' AND s.starts_at IS NOT NULL THEN 1 ELSE 0 END,
+        schedule_revision = s.schedule_revision + CASE
+          WHEN s.starts_at IS NOT NULL
+           AND (s.status::text = 'published' OR ${status}::text = 'published')
+          THEN 1 ELSE 0 END,
         updated_at = now()
       FROM prior
       WHERE s.id = prior.id

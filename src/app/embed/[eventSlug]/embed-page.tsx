@@ -1,8 +1,9 @@
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 import { getEventBySlug } from "@/features/events";
-import type { EmbedConfigDTO, EventId } from "@/features/public/embed-config-types";
+import type { EventId } from "@/features/public/embed-config-types";
 import { EmbedDisabledNotice } from "@/features/public/embed-disabled-notice";
+import type { PublicEmbedConfig } from "@/features/public/server/embed-config-queries";
 import {
   PublicEventShell,
   type EmbedOptions,
@@ -13,14 +14,14 @@ import { resolveEmbedOptions } from "./embed-options";
 type EmbedContentContext = {
   eventSlug: string;
   embedOptions: EmbedOptions;
-  filters: EmbedConfigDTO["filters"];
+  filters: PublicEmbedConfig["filters"];
 };
 
 type EmbedSurfaceOptions<Content> = {
   eventSlug: string;
   active: PublicSurface;
   disabledLabel: string;
-  getConfig: (eventId: EventId) => Promise<EmbedConfigDTO>;
+  getConfig: (eventId: EventId) => Promise<PublicEmbedConfig>;
   getContent: (eventSlug: string) => Promise<Content | null>;
   renderContent: (content: Content, context: EmbedContentContext) => ReactNode;
 };

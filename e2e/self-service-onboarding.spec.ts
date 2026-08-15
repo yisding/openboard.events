@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { PUBLIC_CACHE_MUTATION_BUDGET_SECONDS } from "../src/features/public/cache-contract";
 import { eventDayKey, formatDayKeyInZone } from "../src/shared/lib/time";
 import { waitForPortalLoginDelivery, waitForVerificationDelivery } from "./helpers/admin-auth-mail";
+import { apiData } from "./helpers/auth";
 import { queryRows, withDatabase } from "./helpers/db";
 import {
   databaseConfigured,
@@ -15,6 +17,67 @@ import {
 } from "./helpers/env";
 
 const ONBOARDING_TIMEZONE = "America/Los_Angeles";
+const PNG_1X1_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+
+const ALIAS_REQUEST_DEADLINE_MS = 2_000;
+const MIN_ALIAS_FAN_OUT = 3;
+
+/**
+ * Alias coverage is a consistency proof, not a load test: asking one fresh
+ * Worker isolate to render every alias at once turns the canary itself into the
+ * source of 1102/503s, so the fan-out stays bounded.
+ *
+ * It cannot stay *fixed*, though. A sweep costs
+ * `ceil(paths / fanOut) * ALIAS_REQUEST_DEADLINE_MS` in the degraded case every
+ * assertion here exists to catch, and a poll that cannot finish a second sweep
+ * inside the budget is not polling — it is reporting whatever the first look
+ * happened to see. At three workers the twelve-alias check spent eight of its
+ * ten seconds on a single sweep. Size the fan-out to fit two full sweeps in the
+ * budget, and never below the historical three.
+ */
+function aliasFanOut(pathCount: number, timeoutMs: number): number {
+  const batchesPerSweep = Math.max(1, Math.floor(timeoutMs / 2 / ALIAS_REQUEST_DEADLINE_MS));
+  return Math.min(pathCount, Math.max(MIN_ALIAS_FAN_OUT, Math.ceil(pathCount / batchesPerSweep)));
+}
+
+async function waitForPublicContent(
+  request: APIRequestContext,
+  paths: readonly string[],
+  expected: string,
+  timeoutMs: number,
+): Promise<void> {
+  await expect.poll(async () => {
+    const results: Array<string | null> = new Array(paths.length).fill(null);
+    let nextPath = 0;
+    const checkNext = async (): Promise<void> => {
+      const index = nextPath;
+      nextPath += 1;
+      const path = paths[index];
+      if (path === undefined) return;
+      try {
+        const response = await request.get(path, { timeout: Math.min(timeoutMs, ALIAS_REQUEST_DEADLINE_MS) });
+        const body = await response.text();
+        // React inserts empty comments between adjacent server-rendered text
+        // chunks (for example `This <!-- -->agenda<!-- --> is...`). Compare
+        // the rendered text rather than treating those hydration markers as
+        // user-visible content.
+        const renderedText = body.replaceAll("<!-- -->", "");
+        results[index] = response.status() === 200 && renderedText.includes(expected) ? null : `${path} (${response.status()})`;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const failure = /tim(?:e|ed)\s*out/iu.test(message) ? "request timed out" : message;
+        results[index] = `${path} (${failure})`;
+      }
+      await checkNext();
+    };
+    await Promise.all(Array.from({ length: aliasFanOut(paths.length, timeoutMs) }, checkNext));
+    return results.filter((result): result is string => result !== null);
+  }, {
+    message: `every public alias should contain ${JSON.stringify(expected)}`,
+    timeout: timeoutMs,
+    intervals: [250, 500, 1_000],
+  }).toEqual([]);
+}
 
 function addCalendarDays(dayKey: string, days: number): string {
   const date = new Date(`${dayKey}T12:00:00.000Z`);
@@ -143,7 +206,7 @@ test.describe("self-service signup to first value", () => {
     // organization and event, publishes a CFP, then submits through it. Keep
     // the individual 30–60 second UI/delivery limits below as the failure
     // signals; the suite-wide budget only needs to cover their cumulative work.
-    test.setTimeout(300_000);
+    test.setTimeout(420_000);
     page.setDefaultTimeout(30_000);
     page.setDefaultNavigationTimeout(30_000);
     const stamp = `${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`;
@@ -233,11 +296,15 @@ test.describe("self-service signup to first value", () => {
       expect(Number(sessionsBeforeConfirmation[0]?.count ?? 0), "following the emailed GET must not create a scanner session").toBe(0);
       await page.getByRole("button", { name: "Confirm and continue" }).click();
       await expect(page).toHaveURL(/\/organizations\/[0-9a-f-]{36}\/onboarding$/, { timeout: 30_000 });
-      await expect(page.getByText(`Welcome to ${organizationName}`)).toBeVisible();
+      await expect(page.getByText(`Welcome to ${organizationName}`)).toBeVisible({ timeout: 30_000 });
       const onboardingViewport = page.viewportSize();
       await page.setViewportSize({ width: 320, height: 700 });
-      expect((await page.getByText("Customize public URL", { exact: true }).boundingBox())?.height)
-        .toBeGreaterThanOrEqual(44);
+      await expect.poll(async () => (
+        (await page.getByText("Customize public URL", { exact: true }).boundingBox())?.height ?? 0
+      ), {
+        message: "the mobile disclosure hit target should survive deploy-time CSS propagation",
+        timeout: 30_000,
+      }).toBeGreaterThanOrEqual(44);
       if (onboardingViewport) await page.setViewportSize(onboardingViewport);
     });
 
@@ -345,6 +412,7 @@ test.describe("self-service signup to first value", () => {
 
     let eventId = "";
     let formId = "";
+    let publicEventSlug = "";
     let publicLink = "";
     await test.step("publish the first form and capture its public link", async () => {
       await expect(page.getByText(/creates a ready-to-use call for speakers form/i)).toBeVisible({ timeout: 30_000 });
@@ -398,22 +466,28 @@ test.describe("self-service signup to first value", () => {
       const linkInput = page.locator(".onboarding-link-row input");
       await expect(linkInput).toBeVisible();
       publicLink = await linkInput.inputValue();
-      expect(publicLink).toMatch(/\/submit\/[a-z0-9-]+\/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+      const publicLinkMatch = /^\/submit\/([a-z0-9-]+)\/([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/u
+        .exec(new URL(publicLink).pathname);
+      expect(publicLinkMatch, "the public CFP link should contain its event slug and form id").not.toBeNull();
+      if (!publicLinkMatch) throw new Error(`Unexpected public CFP link: ${publicLink}`);
+      publicEventSlug = publicLinkMatch[1] ?? "";
+      formId = publicLinkMatch[2] ?? "";
 
       const restoredResponse = await page.reload();
       await expect(page).toHaveURL(/\/organizations\/[0-9a-f-]{36}\/onboarding\?event=[0-9a-f-]{36}$/);
       eventId = new URL(page.url()).searchParams.get("event") ?? "";
-      formId = new URL(publicLink).pathname.split("/").at(-1) ?? "";
       expect(eventId).toMatch(/^[0-9a-f-]{36}$/);
       expect(formId).toMatch(/^[0-9a-f-]{36}$/);
       const publishedForm = await queryRows<{
         closes_at: string | null;
         event_name: string;
+        event_slug: string;
         progress_step: string;
         status: string;
       }>(
         `SELECT form.closes_at::text AS closes_at, form.status,
-                event.name AS event_name, progress.step AS progress_step
+                event.name AS event_name, event.slug AS event_slug,
+                progress.step AS progress_step
          FROM forms form
          JOIN events event ON event.id = form.event_id
          JOIN event_onboarding_progress progress
@@ -424,6 +498,7 @@ test.describe("self-service signup to first value", () => {
       expect(publishedForm).toHaveLength(1);
       expect(publishedForm[0]?.status).toBe("open");
       expect(publishedForm[0]?.event_name).toBe(correctedEventName);
+      expect(publicEventSlug).toBe(publishedForm[0]?.event_slug);
       expect(publishedForm[0]?.progress_step).toBe("complete");
       expect(publishedForm[0]?.closes_at, "onboarding must not publish an indefinitely open CFP by default").not.toBeNull();
       expect(restoredResponse?.status(), "the completed onboarding checkpoint should restore as a page").toBe(200);
@@ -528,10 +603,20 @@ test.describe("self-service signup to first value", () => {
         await publicPage.getByLabel("Last Name").fill("Speaker");
         await publicPage.getByRole("button", { name: /^review$/i }).click();
         await expect(publicPage.getByText(proposalTitle, { exact: true })).toBeVisible();
-        await publicPage.getByRole("button", { name: /submit proposal/i }).click();
-        await expect(publicPage.getByRole("heading", { name: /your proposal is in/i })).toBeVisible({ timeout: 30_000 });
-        submissionCode = (await publicPage.getByText(/SESS-\d+/).textContent())?.trim() ?? "";
+        const submitResponsePromise = publicPage.waitForResponse((response) =>
+          new URL(response.url()).pathname === `/api/internal/forms/${formId}/submit`
+          && response.request().method() === "POST");
+        await publicPage.getByRole("button", { name: /^submit$/i }).click();
+        const submitResponse = await submitResponsePromise;
+        const submitBody = await submitResponse.json().catch(() => null) as { data?: { code?: number } } | null;
+        expect(submitResponse.ok(), `submit rejected (${submitResponse.status()}): ${JSON.stringify(submitBody)}`).toBe(true);
+        submissionCode = `SESS-${submitBody?.data?.code ?? ""}`;
         expect(submissionCode).toMatch(/^SESS-\d+$/);
+        await expect.poll(async () =>
+          await publicPage.getByRole("heading", { name: /your submission is in/i }).isVisible().catch(() => false)
+          || new URL(publicPage.url()).pathname === `/portal/${publicEventSlug}`,
+        { message: "submission success should render before its documented portal redirect", timeout: 30_000 })
+          .toBe(true);
       } finally {
         // Preserve the failed interaction as the primary error if Playwright
         // has already ended the test; teardown should never mask its locator.
@@ -556,6 +641,196 @@ test.describe("self-service signup to first value", () => {
       await expect(page.getByText("Your first submission arrived", { exact: true })).toBeVisible({ timeout: 30_000 });
       await expect(page.getByText(proposalTitle, { exact: true })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Get your first submission" })).toHaveCount(0);
+    });
+
+    await test.step("a real R2 upload stages under the lifecycle-compatible prefix", async () => {
+      const filename = `staging-prefix-canary-${stamp}.png`;
+      const bytes = Buffer.from(PNG_1X1_BASE64, "base64");
+      const upload = await apiData<{
+        fileId: string;
+        uploadUrl: string;
+        requiredHeaders: Record<string, string>;
+      }>(page.request, "/api/uploads/presign", {
+        method: "POST",
+        data: {
+          eventId,
+          kind: "headshot",
+          filename,
+          mime: "image/png",
+          sizeBytes: bytes.byteLength,
+        },
+      });
+      const [pending] = await queryRows<{ r2_key: string }>(
+        "SELECT r2_key FROM file_assets WHERE id = $1",
+        [upload.fileId],
+      );
+      expect(pending?.r2_key).toBe(`staging/evt_${eventId}/headshot/${upload.fileId}/${filename}`);
+
+      const put = await page.request.put(upload.uploadUrl, {
+        data: bytes,
+        headers: upload.requiredHeaders,
+      });
+      expect(put.ok(), `presigned R2 PUT failed (${put.status()}): ${await put.text()}`).toBe(true);
+      const finalized = await apiData<{ status: string }>(page.request, "/api/uploads/finalize", {
+        method: "POST",
+        data: { fileId: upload.fileId },
+      });
+      expect(finalized.status).toBe("ready");
+
+      const [published] = await queryRows<{ r2_key: string }>(
+        "SELECT r2_key FROM file_assets WHERE id = $1",
+        [upload.fileId],
+      );
+      expect(published?.r2_key).toBe(`evt_${eventId}/headshot/${upload.fileId}/${filename}`);
+    });
+
+    await test.step("public aliases and embeds observe domain invalidation within budget", async () => {
+      type Session = {
+        id: string;
+        title: string;
+        descriptionHtml: string;
+        startsAt: string;
+        endsAt: string;
+        formatId: string | null;
+        trackId: string | null;
+        roomId: string | null;
+        status: "published";
+        rowVersion: number;
+        speakerIds: string[];
+      };
+      type EmbedConfig = { id: string; contentType: string };
+
+      const [fixture] = await queryRows<{
+        slug: string;
+        starts_at: Date;
+        ends_at: Date;
+        contact_id: string;
+      }>(`
+        SELECT event.slug, event.starts_at, event.ends_at,
+               contact.id AS contact_id
+        FROM events event
+        JOIN contacts contact ON contact.event_id = event.id
+        WHERE event.id = $1 AND lower(contact.email) = lower($2)
+        ORDER BY contact.created_at
+        LIMIT 1
+      `, [eventId, SIGNUP_EMAIL]);
+      if (!fixture) throw new Error("the submitted speaker contact was not created");
+      const confirmedSpeaker = await apiData<{ contact: { confirmationStatus: string } }>(
+        page.request,
+        `/api/internal/speakers/${eventId}/${fixture.contact_id}`,
+        { method: "PATCH", data: { confirmationStatus: "confirmed" } },
+      );
+      expect(confirmedSpeaker.contact.confirmationStatus).toBe("confirmed");
+
+      const sessionStartsAt = new Date(new Date(fixture.starts_at).getTime() + 60 * 60 * 1_000);
+      const sessionEndsAt = new Date(sessionStartsAt.getTime() + 30 * 60 * 1_000);
+      expect(sessionEndsAt.getTime()).toBeLessThan(new Date(fixture.ends_at).getTime());
+      const initialTitle = `Cache proof ${stamp}`;
+      const session = await apiData<Session>(page.request, `/api/internal/agenda/sessions?eventId=${eventId}`, {
+        method: "POST",
+        data: {
+          creationId: crypto.randomUUID(),
+          title: initialTitle,
+          descriptionHtml: "<p>Distributed cache proof.</p>",
+          startsAt: sessionStartsAt.toISOString(),
+          endsAt: sessionEndsAt.toISOString(),
+          speakerContactIds: [fixture.contact_id],
+          status: "published",
+        },
+      });
+
+      const schedulePaths = [
+        `/e/${fixture.slug}/schedule`,
+        `/e/${fixture.slug}/agenda`,
+        `/e/${fixture.slug}/sessions`,
+        `/e/${fixture.slug}/itinerary`,
+        `/embed/${fixture.slug}/schedule`,
+        `/embed/${fixture.slug}/agenda`,
+        `/embed/${fixture.slug}/sessions`,
+        `/embed/${fixture.slug}/itinerary`,
+      ];
+      const speakerPaths = [
+        `/e/${fixture.slug}/speakers`,
+        `/e/${fixture.slug}/gallery`,
+        `/embed/${fixture.slug}/speakers`,
+        `/embed/${fixture.slug}/gallery`,
+      ];
+      await waitForPublicContent(page.request, schedulePaths, initialTitle, 30_000);
+      await waitForPublicContent(page.request, speakerPaths, "E2E Speaker", 30_000);
+
+      const changedTitle = `${initialTitle} updated`;
+      const updatedSession = await apiData<Session>(page.request, `/api/internal/agenda/sessions/${session.id}?eventId=${eventId}`, {
+        method: "PATCH",
+        data: {
+          id: session.id,
+          expectedVersion: session.rowVersion,
+          title: changedTitle,
+          descriptionHtml: session.descriptionHtml,
+          formatId: session.formatId,
+          trackId: session.trackId,
+          roomId: session.roomId,
+          startsAt: session.startsAt,
+          endsAt: session.endsAt,
+          speakerContactIds: session.speakerIds,
+          status: session.status,
+        },
+      });
+      expect(updatedSession.title).toBe(changedTitle);
+      await waitForPublicContent(
+        page.request,
+        schedulePaths,
+        changedTitle,
+        PUBLIC_CACHE_MUTATION_BUDGET_SECONDS * 1_000,
+      );
+
+      const changedFirstName = `Cache-${stamp}`;
+      await apiData(page.request, `/api/internal/speakers/${eventId}/${fixture.contact_id}/roster`, {
+        method: "PATCH",
+        data: { firstName: changedFirstName },
+      });
+      await waitForPublicContent(
+        page.request,
+        speakerPaths,
+        `${changedFirstName} Speaker`,
+        PUBLIC_CACHE_MUTATION_BUDGET_SECONDS * 1_000,
+      );
+
+      const event = await apiData<{ rowVersion: number }>(page.request, `/api/internal/events/${eventId}`);
+      const cacheEventName = `${correctedEventName} Cache proof`;
+      await apiData(page.request, `/api/internal/events/${eventId}`, {
+        method: "PATCH",
+        data: { expectedRowVersion: event.rowVersion, patch: { name: cacheEventName } },
+      });
+      await waitForPublicContent(
+        page.request,
+        [...schedulePaths, ...speakerPaths],
+        cacheEventName,
+        PUBLIC_CACHE_MUTATION_BUDGET_SECONDS * 1_000,
+      );
+
+      const configs = await apiData<EmbedConfig[]>(page.request, `/api/internal/embeds/${eventId}`);
+      const agenda = configs.find((config) => config.contentType === "agenda");
+      if (!agenda) throw new Error("the canonical agenda embed config is missing");
+      await apiData(page.request, `/api/internal/embeds/${eventId}/${agenda.id}`, {
+        method: "PATCH",
+        data: { enabled: false },
+      });
+      await waitForPublicContent(
+        page.request,
+        [`/embed/${fixture.slug}/agenda`],
+        "This agenda is not currently available.",
+        PUBLIC_CACHE_MUTATION_BUDGET_SECONDS * 1_000,
+      );
+      await apiData(page.request, `/api/internal/embeds/${eventId}/${agenda.id}`, {
+        method: "PATCH",
+        data: { enabled: true },
+      });
+      await waitForPublicContent(
+        page.request,
+        [`/embed/${fixture.slug}/agenda`],
+        changedTitle,
+        PUBLIC_CACHE_MUTATION_BUDGET_SECONDS * 1_000,
+      );
     });
 
     await test.step("the privacy-safe first-value milestones are complete", async () => {

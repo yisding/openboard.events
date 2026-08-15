@@ -9,6 +9,8 @@ export const idem = {
   taskReminderManualAttempt: (eventId: EventId, taskId: TaskId, contactId: ContactId, submissionId: SubmissionId | null, attemptId: string) =>
     `${eventId}:task_reminder:${taskId}:${contactId}:${submissionId ?? "-"}:manual:attempt:${attemptId}`,
   scheduled: (eventId: EventId, sessionId: SessionId, contactId: ContactId, scheduleRevision: number) => `${eventId}:sched:${sessionId}:${contactId}:${scheduleRevision}`,
+  calendarCancellation: (eventId: EventId, sessionId: SessionId, contactId: ContactId, sequence: number) =>
+    `${eventId}:calendar_cancel:${sessionId}:${contactId}:${sequence}`,
   portalLogin: (eventId: EventId, contactId: ContactId, tokenId: TokenId) => `${eventId}:portal_login:${contactId}:${tokenId}`,
   // M50. One key per reviewer per round per organizer-confirmed attempt. The
   // dialog keeps this caller-generated id across response-loss retries, while

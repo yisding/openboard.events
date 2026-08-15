@@ -6,11 +6,13 @@ import {
   clearAdminLoginThrottle,
   nudgeAdminAuthEmailOutbox,
   throttleAdminLogin,
+  withCredentialVerificationBudget,
 } from "@/features/auth";
 import { isAppError, toHttp } from "@/shared/lib/errors";
 import { getEnv } from "@/shared/lib/env";
+import { log } from "@/shared/lib/log";
 import { assertSameOrigin } from "@/shared/server/csrf";
-import { checkRateLimit } from "@/shared/server/rate-limit";
+import { checkRateLimit, clientIp } from "@/shared/server/rate-limit";
 import { beginGoogleSignup, confirmAdminEmail, handleAdminAuthGet, handleSocialSignIn } from "./_lib";
 
 /**
@@ -26,6 +28,10 @@ import { beginGoogleSignup, confirmAdminEmail, handleAdminAuthGet, handleSocialS
 
 const signInSchema = z.object({ email: z.email(), password: z.string().min(8).max(256) });
 const unauthorized = () => NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Invalid email or password" } }, { status: 401 });
+const CREDENTIAL_BURST_WINDOW_MS = 1_000;
+const credentialRateLimited = () => NextResponse.json({
+  error: { code: "RATE_LIMITED", message: "Too many sign-in attempts. Try again shortly." },
+}, { status: 429 });
 
 /**
  * Better Auth's *own* credential endpoints, reachable through the catch-all
@@ -45,12 +51,6 @@ const PUBLIC_EMAIL_PATHS = new Map<string, PublicEmailPolicy>([
   ["send-verification-email", { ipLimit: 20, emailLimit: 5, windowMs: 10 * 60 * 1000 }],
   ["request-password-reset", { ipLimit: 20, emailLimit: 5, windowMs: 10 * 60 * 1000 }],
 ]);
-
-function clientIp(request: NextRequest): string {
-  return request.headers.get("cf-connecting-ip")
-    ?? request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
-    ?? "unknown";
-}
 
 async function betterAuthHandler(request: Request): Promise<Response> {
   const { getAdminAuth } = await import("@/features/auth/server/better-auth");
@@ -105,6 +105,126 @@ function rateLimited(error: unknown): NextResponse | null {
   return null;
 }
 
+function credentialRequestId(request: NextRequest): string {
+  return request.headers.get("cf-ray") ?? `auth:${crypto.randomUUID()}`;
+}
+
+async function acceptedCredentialResponse(response: Response): Promise<boolean> {
+  if (response.ok) return true;
+  if (response.status !== 403) return false;
+  const body = await response.clone().json().catch(() => null) as { code?: string } | null;
+  if (!body || typeof body !== "object") return false;
+  if (body.code === "EMAIL_NOT_VERIFIED") return true;
+  return "error" in body
+    && (body as { error?: { code?: string } }).error?.code === "EMAIL_NOT_VERIFIED";
+}
+
+async function enforceCredentialBurstLimits(
+  request: NextRequest,
+  normalizedEmail: string,
+  requestId: string,
+): Promise<void> {
+  const limits = [
+    { decision: "ip_limited", key: `auth-signin-burst:ip:${clientIp(request)}`, limit: 1 },
+    { decision: "account_limited", key: `auth-signin-burst:account:${normalizedEmail}`, limit: 3 },
+  ] as const;
+
+  for (const limit of limits) {
+    try {
+      await checkRateLimit(db, {
+        key: limit.key,
+        limit: limit.limit,
+        windowMs: CREDENTIAL_BURST_WINDOW_MS,
+      });
+    } catch (error) {
+      if (isAppError(error) && error.code === "RATE_LIMITED") {
+        log({
+          level: "warn",
+          msg: "auth.credential_throttle",
+          requestId,
+          feature: "auth",
+          code: limit.decision,
+        });
+      }
+      throw error;
+    }
+  }
+}
+
+/**
+ * Every valid password request follows the same three-layer capacity path:
+ * distributed short-burst counters, the durable 15-minute abuse throttle,
+ * then a one-at-a-time per-isolate PBKDF2 budget. Keys are hashed by the
+ * shared limiter and logs contain decisions/durations only — never addresses,
+ * IPs, hashes, or passwords.
+ */
+async function credentialAttempt(
+  request: NextRequest,
+  email: string,
+  verify: () => Promise<Response>,
+): Promise<Response> {
+  const requestId = credentialRequestId(request);
+  const normalizedEmail = email.trim().toLowerCase();
+  let attemptKey: string | undefined;
+
+  try {
+    await enforceCredentialBurstLimits(request, normalizedEmail, requestId);
+    try {
+      attemptKey = await throttleAdminLogin(normalizedEmail, clientIp(request));
+    } catch (error) {
+      if (isAppError(error) && error.code === "RATE_LIMITED") {
+        log({
+          level: "warn",
+          msg: "auth.credential_throttle",
+          requestId,
+          feature: "auth",
+          code: "durable_limited",
+        });
+      }
+      throw error;
+    }
+
+    const startedAt = performance.now();
+    let response: Response;
+    try {
+      response = await withCredentialVerificationBudget(verify);
+    } catch (error) {
+      if (isAppError(error) && error.code === "RATE_LIMITED") {
+        log({
+          level: "warn",
+          msg: "auth.credential_throttle",
+          requestId,
+          feature: "auth",
+          code: "isolate_capacity_limited",
+        });
+      }
+      throw error;
+    }
+
+    const accepted = await acceptedCredentialResponse(response);
+    log({
+      level: "info",
+      msg: "auth.credential_request",
+      requestId,
+      feature: "auth",
+      code: accepted ? "accepted" : "rejected",
+      durationMs: Math.round(performance.now() - startedAt),
+    });
+    if (accepted && attemptKey) await clearAdminLoginThrottle(attemptKey);
+    return response;
+  } catch (error) {
+    if (isAppError(error) && error.code === "RATE_LIMITED") return credentialRateLimited();
+    log({
+      level: "error",
+      msg: "auth.credential_request",
+      requestId,
+      feature: "auth",
+      code: "failed",
+    });
+    throw error;
+  }
+}
+
 /**
  * Proxy a native Better Auth credential endpoint with the application-layer
  * throttle wrapped around it. The response is Better Auth's own, verbatim —
@@ -127,22 +247,13 @@ function parseJson(raw: string): unknown {
 async function throttledBetterAuthPost(request: NextRequest): Promise<Response> {
   const raw = await request.text();
   const parsed = signInSchema.safeParse(parseJson(raw));
-  let attemptKey: string | undefined;
-  try {
-    if (parsed.success) attemptKey = await throttleAdminLogin(parsed.data.email, clientIp(request));
-    const forwarded = new Request(request.url, { method: "POST", headers: request.headers, body: raw });
-    const response = await betterAuthHandler(forwarded);
-    const unverified = response.status === 403
-      && (await response.clone().json().catch(() => null) as { code?: string } | null)?.code === "EMAIL_NOT_VERIFIED";
-    // EMAIL_NOT_VERIFIED is reached only after the credential was accepted.
-    // Do not let a user lock themselves out while looking for their link.
-    if ((response.ok || unverified) && attemptKey) await clearAdminLoginThrottle(attemptKey);
-    return response;
-  } catch (error) {
-    const limited = rateLimited(error);
-    if (limited) return limited;
-    throw error;
-  }
+  const forwarded = () => betterAuthHandler(new Request(request.url, {
+    method: "POST",
+    headers: request.headers,
+    body: raw,
+  }));
+  if (!parsed.success) return forwarded();
+  return credentialAttempt(request, parsed.data.email, forwarded);
 }
 
 function nudgeAuthMail(): void {
@@ -205,17 +316,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
   if (path === "sign-in") {
     const input = signInSchema.safeParse(await request.json().catch(() => null));
     if (!input.success) return unauthorized();
-    let attemptKey: string | undefined;
-    try {
-      attemptKey = await throttleAdminLogin(input.data.email, clientIp(request));
-      const response = await betterAuthSignIn(request, input.data);
-      if ((response.status === 200 || response.status === 403) && attemptKey) await clearAdminLoginThrottle(attemptKey);
-      return response;
-    } catch (error) {
-      const limited = rateLimited(error);
-      if (limited) return limited;
-      throw error;
-    }
+    return credentialAttempt(request, input.data.email, () => betterAuthSignIn(request, input.data));
   }
 
   if (THROTTLED_BETTER_AUTH_PATHS.has(path)) return throttledBetterAuthPost(request);

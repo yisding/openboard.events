@@ -70,11 +70,11 @@ protocol.
 
 ## R2 key scheme and lifecycle
 
-New temporary objects use `staging/evt_<eventId>/...`; finalized objects move outside that
-prefix. Preview reconciles a two-day `staging/` lifecycle rule without replacing unrelated
-bucket rules, and the application cleanup remains defense in depth. The bounded legacy migration
-finished with zero remaining legacy rows or objects in preview and production; compatibility
-parsing is retired. `docs/runbooks/r2-lifecycle.md` has the operational details.
+Pending objects are keyed `staging/evt_<eventId>/...`, while published objects remain under
+`evt_<eventId>/...`. That bucket-root boundary lets the `expire-staging` lifecycle rule target
+only unfinished uploads. The daily `cleanupOrphans` sweep lists that same prefix as an
+application-level backstop, and the parser accepts only the current root-prefixed layout. See
+`docs/runbooks/r2-lifecycle.md` for provisioning and verification.
 
 ## Mail identity and calendar cancellation
 
@@ -95,7 +95,25 @@ parsing is retired. `docs/runbooks/r2-lifecycle.md` has the operational details.
   the Workers Free module limit; the supported numeric-chunk override and final minification keep
   the deployed graph within budget. Removing either requires a measured rebuild against the
   pinned version pair and the workerd smoke suite.
-- **DMARC reject is evidence-gated.** `mail.openboard.events` publishes
-  `p=quarantine; pct=100`. Reject waits for 48 hours and two independent aggregate-report periods
-  with no unidentified legitimate sender or legitimate failure, plus no-regression Gmail and
-  Outlook authentication and placement. Outlook Junk is the current placement baseline.
+- **Sign-in retries are deliberately capacity-bound.** PBKDF2 remains at 100,000 native-WebCrypto
+  iterations, with one verification in flight per isolate. Postgres admits one attempt per
+  trusted IP and three attempts per normalized account key per second ahead of the existing
+  five-per-15-minute durable throttle. Legitimate retries inside that one-second window receive a
+  generic `429`; the preview deployment gate proves an unpaced burst cannot escape as Worker
+  `1102`/`503`. See `docs/runbooks/sign-in-capacity.md`.
+- **DMARC changes are report-gated and From-subdomain scoped.** Cloudflare DMARC Management
+  collects aggregate reports from the organizational record. Enforcement is published at
+  `_dmarc.mail.openboard.events`, matching the only production From domain, so unrelated apex
+  mail is not changed accidentally. Protected run 31862396508 enabled and verified aggregate
+  reporting at `2026-08-15T03:40:22Z`. Production probes at `2026-08-15T03:50Z` then passed
+  aligned DKIM, SPF, and DMARC at both Gmail and Outlook, and Outlook also passed composite
+  authentication. Gmail placed its message in Inbox; Outlook placed its passing message in Junk.
+  After confirming that this repository's Resend configuration is the only sender for the From
+  domain, the repository/zone owner approved a compressed rollout and published
+  `p=quarantine; pct=100` at `2026-08-15T04:36Z`. The original percentage stages are retained as
+  historical planning context, not as claims about live DNS. Reject still requires the 48-hour
+  floor, two independent aggregate-report periods, no unidentified passing source, no legitimate
+  failure, and repeat Gmail/Outlook probes under the quarantine policy. Protected run 31872007661
+  proved provider acceptance for REQUEST, reschedule, and CANCEL at both receivers; their fresh
+  placement and authentication observations remain open. Outlook Junk is the placement baseline,
+  not a DMARC failure.

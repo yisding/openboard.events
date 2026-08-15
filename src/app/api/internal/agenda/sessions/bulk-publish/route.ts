@@ -3,7 +3,7 @@ import { z } from "zod";
 import { agendaAuth, bulkSetPublished } from "@/features/agenda";
 import { eventIdSchema, sessionIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
-import { revalidatePublicEvent } from "@/shared/server/revalidate-public";
+import { revalidatePublicEvent } from "@/features/public/server/revalidate";
 import { nudgeAfterEnqueue } from "../../nudge";
 
 export const dynamic = "force-dynamic";

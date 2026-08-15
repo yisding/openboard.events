@@ -1,6 +1,15 @@
-import { and, isNotNull, isNull, lt, or } from "drizzle-orm";
+import { and, inArray, isNotNull, isNull, lt, or } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
-import { adminLoginAttempts, adminSessions, adminVerifications, communicationLogs, portalSessions, portalTokens, rateLimitBuckets } from "@/db/schema";
+import {
+  adminLoginAttempts,
+  adminSessions,
+  adminVerifications,
+  calendarCancellationJobs,
+  communicationLogs,
+  portalSessions,
+  portalTokens,
+  rateLimitBuckets,
+} from "@/db/schema";
 import type { JobStats } from "@/shared/contracts";
 
 /**
@@ -56,6 +65,7 @@ export type DataRetentionStats = JobStats & {
   expiredPortalSessions: number;
   expiredAdminSessions: number;
   redactedCommunicationLogs: number;
+  removedStaleCalendarCancellationJobs: number;
   staleRateLimitBuckets: number;
   staleAdminLoginAttempts: number;
 };
@@ -95,6 +105,19 @@ export async function runDataRetentionSweepIn(dbOrTx: DbOrTx, now: Date = new Da
       ),
     ))
     .returning();
+  // A cancellation snapshot is active delivery state while its parent log is
+  // queued, including during provider backoff. Terminal rows should already be
+  // cleaned by the dispatcher; this sweep removes any old residue so attendee
+  // PII follows the same 90-day boundary as rendered mail content.
+  const staleCancellationJobs = await dbOrTx.delete(calendarCancellationJobs)
+    .where(inArray(
+      calendarCancellationJobs.communicationLogId,
+      dbOrTx.select({ id: communicationLogs.id }).from(communicationLogs).where(and(
+        lt(communicationLogs.createdAt, bodyCutoff),
+        inArray(communicationLogs.status, ["sent", "skipped", "failed"]),
+      )),
+    ))
+    .returning();
 
   return {
     expiredPortalTokens: expiredPortalTokens.length,
@@ -102,6 +125,7 @@ export async function runDataRetentionSweepIn(dbOrTx: DbOrTx, now: Date = new Da
     expiredPortalSessions: expiredPortalSessions.length,
     expiredAdminSessions: expiredAdminSessions.length,
     redactedCommunicationLogs: redacted.length,
+    removedStaleCalendarCancellationJobs: staleCancellationJobs.length,
     staleRateLimitBuckets: staleRateLimitBuckets.length,
     staleAdminLoginAttempts: staleAdminLoginAttempts.length,
   };

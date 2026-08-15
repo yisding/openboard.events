@@ -27,6 +27,18 @@
     { "binding": "FILES", "bucket_name": "sb-files-dev" },
     { "binding": "NEXT_INC_CACHE_R2_BUCKET", "bucket_name": "sb-files-dev" }
   ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "NEXT_CACHE_DO_QUEUE", "class_name": "DOQueueHandler" },
+      { "name": "NEXT_TAG_CACHE_DO_SHARDED", "class_name": "DOShardedTagCache" }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "cache-v1",
+      "new_sqlite_classes": ["DOQueueHandler", "DOShardedTagCache"]
+    }
+  ],
   "services": [
     { "binding": "WORKER_SELF_REFERENCE", "service": "sb-web-local" }
   ],
@@ -41,7 +53,8 @@
         // only to the allowlist: a preview that can mail anybody is one bad
         // seed away from mailing a stranger.
         "EMAIL_MODE": "send",
-        "EMAIL_FROM": "AI.Engineer Sandbox <hello@mail.openboard.events>",
+        "EMAIL_FROM": "Openboard <hello@mail.openboard.events>",
+        "EMAIL_REPLY_TO": "hello@mail.openboard.events",
         "EMAIL_ALLOWLIST": "yi.s.ding@gmail.com",
         "EMAIL_FALLBACK_UI": "1",
         "AIRTABLE_CRON": "0",
@@ -52,6 +65,12 @@
         { "binding": "FILES", "bucket_name": "sb-files-preview" },
         { "binding": "NEXT_INC_CACHE_R2_BUCKET", "bucket_name": "sb-files-preview" }
       ],
+      "durable_objects": {
+        "bindings": [
+          { "name": "NEXT_CACHE_DO_QUEUE", "class_name": "DOQueueHandler" },
+          { "name": "NEXT_TAG_CACHE_DO_SHARDED", "class_name": "DOShardedTagCache" }
+        ]
+      },
       "services": [
         { "binding": "WORKER_SELF_REFERENCE", "service": "sb-web-preview" }
       ]
@@ -77,7 +96,8 @@
         "BETTER_AUTH_URL": "https://openboard.events",
         "BILLING_MODE": "disabled",
         "EMAIL_MODE": "send",
-        "EMAIL_FROM": "AI.Engineer Sandbox <hello@mail.openboard.events>",
+        "EMAIL_FROM": "Openboard <hello@mail.openboard.events>",
+        "EMAIL_REPLY_TO": "hello@mail.openboard.events",
         "EMAIL_FALLBACK_UI": "0",
         "AIRTABLE_CRON": "0",
         "NEXT_INC_CACHE_R2_PREFIX": "open-next-cache",
@@ -87,6 +107,12 @@
         { "binding": "FILES", "bucket_name": "sb-files" },
         { "binding": "NEXT_INC_CACHE_R2_BUCKET", "bucket_name": "sb-files" }
       ],
+      "durable_objects": {
+        "bindings": [
+          { "name": "NEXT_CACHE_DO_QUEUE", "class_name": "DOQueueHandler" },
+          { "name": "NEXT_TAG_CACHE_DO_SHARDED", "class_name": "DOShardedTagCache" }
+        ]
+      },
       "services": [
         { "binding": "WORKER_SELF_REFERENCE", "service": "sb-web" }
       ]

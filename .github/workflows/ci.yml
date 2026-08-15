@@ -39,6 +39,22 @@ jobs:
   tests:
     name: Test suite (shard ${{ matrix.shard }}/2)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+        env:
+          POSTGRES_USER: openboard
+          POSTGRES_PASSWORD: openboard
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U openboard -d postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_POSTGRES_URL: postgresql://openboard:openboard@127.0.0.1:5432/postgres
     strategy:
       matrix:
         shard: [1, 2]

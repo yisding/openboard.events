@@ -133,6 +133,7 @@ describe("platform admin auth mail outbox", () => {
       APP_BASE_URL: "https://preview.openboard.test",
       EMAIL_MODE: "send" as const,
       EMAIL_FROM: "Openboard <hello@example.com>",
+      EMAIL_REPLY_TO: "replies@example.com",
       EMAIL_ALLOWLIST: "organizer@example.com",
       RESEND_API_KEY: "re_test",
     };
@@ -186,6 +187,7 @@ describe("platform admin auth mail outbox", () => {
       EMAIL_MODE: "send",
       EMAIL_FALLBACK_UI: "0",
       EMAIL_FROM: "Openboard <hello@example.com>",
+      EMAIL_REPLY_TO: "replies@example.com",
       EMAIL_ALLOWLIST: "organizer@example.com",
       RESEND_API_KEY: "re_test",
     });
@@ -202,6 +204,7 @@ describe("platform admin auth mail outbox", () => {
     const second = await dispatchAdminAuthEmailOutboxIn(tx, 10, { env: sendEnv, sender: success });
     expect(second).toMatchObject({ claimed: 1, sent: 1 });
     expect(success.mock.calls[0]?.[0].idempotencyKey).toBe(queued?.idempotencyKey);
+    expect(success.mock.calls[0]?.[0].replyTo).toBe("replies@example.com");
 
     const [sent] = await tx.select().from(adminAuthEmailOutbox).where(eq(adminAuthEmailOutbox.id, queued?.id ?? ""));
     expect(sent).toMatchObject({ status: "sent", providerMessageId: "resend-message-id", attempts: 2 });
