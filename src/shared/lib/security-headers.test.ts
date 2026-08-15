@@ -22,6 +22,24 @@ describe("security-headers", () => {
     expect(value(embed.headers, "Strict-Transport-Security")).toContain("max-age=");
   });
 
+  it("relaxes only framing for embeds, keeping every other directive", () => {
+    // The exception is about being iframeable by other sites, not about opting
+    // the surface out of the rest of the policy. `frame-ancestors *` used to be
+    // the *whole* embed CSP, so those pages shipped no default-src, script-src,
+    // object-src, base-uri or form-action at all.
+    const embed = value(rule("/embed/:path*").headers, "Content-Security-Policy") ?? "";
+    const strict = value(rule("/((?!embed/).*)").headers, "Content-Security-Policy") ?? "";
+
+    expect(embed).toContain("frame-ancestors *");
+    expect(embed).not.toContain("frame-ancestors 'none'");
+    // Every directive except the framing one is identical to the strict policy.
+    const directives = (policy: string) => policy.split("; ").filter((part) => !part.startsWith("frame-ancestors"));
+    expect(directives(embed)).toEqual(directives(strict));
+    expect(embed).toContain("object-src 'none'");
+    expect(embed).toContain("base-uri 'self'");
+    expect(embed).toContain("form-action 'self'");
+  });
+
   it("denies framing and locks down the CSP everywhere else", () => {
     const rest = rule("/((?!embed/).*)");
     expect(value(rest.headers, "X-Frame-Options")).toBe("DENY");

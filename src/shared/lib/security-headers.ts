@@ -13,7 +13,7 @@ import { WIDE_IFRAME_HOSTS } from "./embed-hosts";
  * blank (`e2e/public-embeds.spec.ts`).
  */
 
-export function contentSecurityPolicy(allowUnsafeEval = false): string {
+export function contentSecurityPolicy(allowUnsafeEval = false, frameAncestors = "'none'"): string {
   const scriptSource = [
     "'self'",
     // Next.js App Router hydrates from inline <script> tags it writes itself
@@ -47,11 +47,25 @@ export function contentSecurityPolicy(allowUnsafeEval = false): string {
     "form-action 'self'",
     "base-uri 'self'",
     "object-src 'none'",
-    "frame-ancestors 'none'",
+    `frame-ancestors ${frameAncestors}`,
   ].join("; ");
 }
 
-const EMBED_CONTENT_SECURITY_POLICY = "frame-ancestors *";
+/**
+ * The embed policy differs from the strict one in exactly one directive.
+ *
+ * It used to *be* that directive: `/embed/**` shipped `frame-ancestors *` and
+ * nothing else, so those pages had no `default-src`, `script-src`,
+ * `object-src 'none'`, `base-uri` or `form-action` at all. The exception the
+ * module doc describes is about framing — embeds are iframed by other sites on
+ * purpose — not about opting the surface out of every other protection.
+ *
+ * Still a single header, so the "never both, or the stricter one wins in older
+ * browsers" hazard the doc warns about does not arise.
+ */
+function embedContentSecurityPolicy(allowUnsafeEval = false): string {
+  return contentSecurityPolicy(allowUnsafeEval, "*");
+}
 
 const STRICT_TRANSPORT_SECURITY = "max-age=63072000; includeSubDomains; preload";
 
@@ -67,16 +81,18 @@ function securityHeaders(allowUnsafeEval = false) {
 
 // No X-Frame-Options here on purpose — see the module doc. nosniff and HSTS
 // are transport/content concerns, orthogonal to framing, so both still apply.
-const EMBED_SECURITY_HEADERS = [
-  { key: "Content-Security-Policy", value: EMBED_CONTENT_SECURITY_POLICY },
-  { key: "X-Content-Type-Options", value: "nosniff" },
-  { key: "Strict-Transport-Security", value: STRICT_TRANSPORT_SECURITY },
-];
+function embedSecurityHeaders(allowUnsafeEval = false) {
+  return [
+    { key: "Content-Security-Policy", value: embedContentSecurityPolicy(allowUnsafeEval) },
+    { key: "X-Content-Type-Options", value: "nosniff" },
+    { key: "Strict-Transport-Security", value: STRICT_TRANSPORT_SECURITY },
+  ];
+}
 
 /** Shape `next.config.ts`'s `headers()` returns verbatim. */
 export function buildHeadersConfig(allowUnsafeEval = false) {
   return [
-    { source: "/embed/:path*", headers: EMBED_SECURITY_HEADERS },
+    { source: "/embed/:path*", headers: embedSecurityHeaders(allowUnsafeEval) },
     { source: "/((?!embed/).*)", headers: securityHeaders(allowUnsafeEval) },
   ];
 }
