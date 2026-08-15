@@ -4,7 +4,8 @@ import { drizzle } from "drizzle-orm/pglite";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { DbOrTx } from "@/db/client";
 import * as schema from "@/db/schema";
-import { eventIdSchema } from "@/shared/contracts";
+import { authorizeAdmin } from "@/features/auth";
+import { eventIdSchema, userIdSchema } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
 import {
   createResourcePageIn,
@@ -23,6 +24,8 @@ const migrationReviewOps = readFileSync(new URL("../../../../../drizzle/0004_rev
 
 const eventId = eventIdSchema.parse("d6000000-0000-4000-8000-000000000001");
 const otherEventId = eventIdSchema.parse("d6000000-0000-4000-8000-000000000002");
+const organizerId = userIdSchema.parse("d6000000-0000-4000-8000-000000000003");
+const reviewerId = userIdSchema.parse("d6000000-0000-4000-8000-000000000004");
 
 let pglite: PGlite;
 let db: DbOrTx;
@@ -45,6 +48,14 @@ describe("resource pages: database CRUD, the wide-sanitize-on-save law, and even
     await pglite.query(
       "INSERT INTO events(id,name,slug,starts_at,ends_at,timezone) VALUES($1,'Other Event','other-event','2026-10-01T16:00:00Z','2026-10-02T01:00:00Z','America/Los_Angeles')",
       [otherEventId],
+    );
+    await pglite.query(
+      "INSERT INTO users(id,email,name) VALUES($1,'resource-organizer@example.test','Resource Organizer'),($2,'resource-reviewer@example.test','Resource Reviewer')",
+      [organizerId, reviewerId],
+    );
+    await pglite.query(
+      "INSERT INTO event_members(user_id,event_id,role) VALUES($1,$3,'organizer'),($2,$3,'reviewer')",
+      [organizerId, reviewerId, eventId],
     );
   }, 60_000);
 
@@ -188,16 +199,36 @@ describe("resource pages: database CRUD, the wide-sanitize-on-save law, and even
     expect(isAppError(rejected) && rejected.code).toBe("VALIDATION");
   });
 
-  it("delete removes the row and 404s on a page that does not belong to the event", async () => {
+  it("makes authorized event-scoped absence canonical while preserving cross-event rows and organizer authorization", async () => {
     const { pageId } = await saveResourcePageIn(db, eventId, pageInput({ title: "Deletable", slug: "deletable" }));
+    await authorizeAdmin(db, {
+      userId: organizerId,
+      email: "resource-organizer@example.test",
+      name: "Resource Organizer",
+    }, eventId, "organizer");
     await deleteResourcePageIn(db, eventId, pageId);
     expect(await getResourcePageByIdIn(db, eventId, pageId)).toBeNull();
 
-    const notFound = await deleteResourcePageIn(db, eventId, pageId).catch((thrown: unknown) => thrown);
-    expect(isAppError(notFound) && notFound.code).toBe("NOT_FOUND");
+    // A response-loss replay reaches the same canonical absent state.
+    await expect(deleteResourcePageIn(db, eventId, pageId)).resolves.toBeUndefined();
 
     const { pageId: otherPageId } = await saveResourcePageIn(db, otherEventId, pageInput({ title: "Belongs To Other", slug: "belongs-to-other" }));
-    const wrongEventDelete = await deleteResourcePageIn(db, eventId, otherPageId).catch((thrown: unknown) => thrown);
-    expect(isAppError(wrongEventDelete) && wrongEventDelete.code).toBe("NOT_FOUND");
+    await expect(deleteResourcePageIn(db, eventId, otherPageId)).resolves.toBeUndefined();
+    expect(await getResourcePageByIdIn(db, otherEventId, otherPageId)).not.toBeNull();
+
+    // The actual route's organizer guard uses this same authorization query;
+    // a reviewer is refused before the event-scoped DELETE can run.
+    const protectedPage = await saveResourcePageIn(db, eventId, pageInput({ title: "Organizer Only", slug: "organizer-only" }));
+    const deleteAsReviewer = async () => {
+      await authorizeAdmin(db, {
+        userId: reviewerId,
+        email: "resource-reviewer@example.test",
+        name: "Resource Reviewer",
+      }, eventId, "organizer");
+      await deleteResourcePageIn(db, eventId, protectedPage.pageId);
+    };
+    const forbidden = await deleteAsReviewer().catch((thrown: unknown) => thrown);
+    expect(isAppError(forbidden) && forbidden.code).toBe("FORBIDDEN");
+    expect(await getResourcePageByIdIn(db, eventId, protectedPage.pageId)).not.toBeNull();
   });
 });
