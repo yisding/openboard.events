@@ -54,7 +54,9 @@ const conditionSourceFieldSchema = z.object({
 });
 const formFieldsResponseSchema = z.object({
   context: formContextSchema,
-  sections: z.array(z.object({ fields: z.array(conditionSourceFieldSchema) })),
+  // `key` is carried so the participant section can be dropped below — the
+  // server refuses to route on those fields, so offering them is a dead end.
+  sections: z.array(z.object({ key: z.string(), fields: z.array(conditionSourceFieldSchema) })),
 });
 
 const rulesListSchema = z.array(routingRuleRowSchema);
@@ -158,7 +160,13 @@ export function RoutingRulesPanel({ eventId, formId, onDraftStateChange }: { eve
         api(`events/${eventId}/vocab/tags`, tagsListSchema),
       ]);
       setContext(form.context);
-      setFields(form.sections.flatMap((section) => section.fields));
+      // The server's own `routableFields` excludes the participant section, and
+      // `assertConditionsValid` rejects a rule that names one of its fields.
+      // Offering them here meant picking, say, "Company" as a routing source
+      // produced "Condition 1 references a question that is not on this form"
+      // — about a question visibly present in the picker just used, with no way
+      // to ever save the rule.
+      setFields(form.sections.filter((section) => section.key !== "participant").flatMap((section) => section.fields));
       setRules(ruleRows);
       setTracks(trackRows);
       setTags(tagRows);
