@@ -33,6 +33,14 @@ describe("parseCsv", () => {
   it("parses an empty file as zero rows", () => {
     expect(parseCsv("")).toEqual([]);
   });
+
+  it("keeps a blank line in the middle, which is what row numbering counts", () => {
+    // Dropping blanks *anywhere* compacted the array, and `readSpeakerCsvRows`
+    // derives its 1-based `rowNumber` from that compacted index.
+    expect(parseCsv("email\r\nada@example.com\r\n\r\ngrace@example.com\r\n")).toEqual([
+      ["email"], ["ada@example.com"], [""], ["grace@example.com"],
+    ]);
+  });
 });
 
 describe("readSpeakerCsvRows", () => {
@@ -70,5 +78,18 @@ describe("readSpeakerCsvRows", () => {
     const table = [["Email"], ["a@example.com"], ["b@example.com"]];
     const rows = readSpeakerCsvRows(table, { email: 0, fields: {} });
     expect(rows.map((row) => row.rowNumber)).toEqual([2, 3]);
+  });
+});
+
+describe("readSpeakerCsvRows row numbering", () => {
+  it("keeps reporting the line a spreadsheet shows when the file has a blank separator", () => {
+    // One blank separator used to shift every reported row number below it by
+    // one, so "Row 3: Invalid email" pointed the organizer at row 4's data —
+    // in the preview table and in the error CSV they download.
+    const rows = parseCsv("email\r\nada@example.com\r\n\r\nnot-an-email\r\n");
+    const parsed = readSpeakerCsvRows(rows, { email: 0, fields: {} });
+
+    expect(parsed.map((row) => row.rowNumber)).toEqual([2, 4]);
+    expect(parsed[1]?.error).toBe('Invalid email "not-an-email"');
   });
 });

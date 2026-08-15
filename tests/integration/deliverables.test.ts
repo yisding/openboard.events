@@ -271,6 +271,18 @@ describe("M52: the central Files view's deliverable list", () => {
     expect(adaCounts.all).toBe(adaOnly.length);
     expect(adaCounts.all).toBeLessThan(counts.all);
 
+    // The Speaker column renders "Ada Lovelace" and the box is labelled "Search
+    // speaker, request, or session", so copying that name out of the table has
+    // to match. Matching first and last name separately meant the obvious
+    // gesture found nothing and every tab badge dropped to 0.
+    const [fullName, fullNameCounts] = await Promise.all([
+      listDeliverablesIn(db, eventId, { search: "Ada Lovelace" }),
+      getDeliverableStateCountsIn(db, eventId, { search: "Ada Lovelace" }),
+    ]);
+    expect(fullName.length).toBe(adaOnly.length);
+    expect(fullNameCounts.all).toBe(adaCounts.all);
+    expect(fullNameCounts.all).toBeGreaterThan(0);
+
     // Never crosses the event boundary either.
     expect((await getDeliverableStateCountsIn(db, otherEventId)).all).toBe(0);
   });

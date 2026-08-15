@@ -138,7 +138,7 @@ describe("tasks admin: database CRUD, the assignment-view counting law, and REST
     }));
     const replayedRequest = await createFileRequestIn(db, eventId, saveFileRequestInputSchema.parse({
       id: stableRequestId, title: "Stale retry files", targetType: "contact",
-      instructionsHtml: "<p>Stale</p>", acceptedExtensions: ["zip"], maxSizeMb: 400,
+      instructionsHtml: "<p>Stale</p>", acceptedExtensions: ["zip"], maxSizeMb: 75,
     }));
 
     expect(replayedTask).toMatchObject({ id: stableTaskId, name: "Original task", descriptionHtml: "<p>Original</p>", isActive: true });
