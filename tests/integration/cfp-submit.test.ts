@@ -694,6 +694,45 @@ describe("CFP submit, end to end through the server path", () => {
     expect(stored.rows[0]?.value.v).toBe("Analytical Engines");
   });
 
+  it("writes through a contact mapping placed on an abstract-section field", async () => {
+    // `createFieldIn` accepts a `contact.*` mapping on any field, and the
+    // builder's Maps-to select offers every target regardless of section — but
+    // `submitCfpForm` read only `mapped.submission` and dropped
+    // `mapped.contact`, so an organizer who put "Job title" on the Submission
+    // step watched every speaker answer it while `contacts.job_title` stayed
+    // NULL forever. The portal task runtime applies the whole snapshot's
+    // contact map, so the two runtimes disagreed about the same authoring
+    // choice.
+    //
+    // The mapping moves rather than being added: every `contact.*` target is
+    // already claimed by the participant section, and `assertUniqueMapsTo`
+    // allows only one live field per target.
+    const abstractMapped = structuredClone(GOLDEN_SNAPSHOT) as typeof GOLDEN_SNAPSHOT;
+    abstractMapped.version = 7;
+    const notes = abstractMapped.sections.flatMap((section) => section.fields).find((candidate) => candidate.key === "notes");
+    const participantSection = abstractMapped.sections.find((candidate) => candidate.key === "participant");
+    if (!notes || !participantSection) throw new Error("golden snapshot shape changed");
+    notes.mapsTo = "contact.job_title";
+    participantSection.fields = participantSection.fields.filter((candidate) => candidate.key !== "job_title");
+    await pglite.query(
+      "INSERT INTO form_versions(event_id,form_id,version,snapshot) VALUES($1,$2,7,$3::jsonb)",
+      [eventId, formId, JSON.stringify(abstractMapped)],
+    );
+
+    await submitCfpForm({
+      eventId,
+      formId,
+      contactId: speaker,
+      formVersion: 7,
+      answers: answers({ [notes.id]: text("Countess of Lovelace") }),
+    });
+
+    const profile = await pglite.query<{ job_title: string | null }>(
+      "SELECT job_title FROM contacts WHERE id=$1", [speaker],
+    );
+    expect(profile.rows[0]?.job_title).toBe("Countess of Lovelace");
+  });
+
   it("rolls back submission creation when the profile update fails", async () => {
     await pglite.query("ALTER TABLE contacts DROP CONSTRAINT IF EXISTS contacts_reject_test_name");
     await pglite.query("ALTER TABLE contacts ADD CONSTRAINT contacts_reject_test_name CHECK (first_name <> 'ROLLBACK')");
