@@ -28,4 +28,11 @@ export function middleware(request: NextRequest) {
   return NextResponse.next({ request: { headers: requestHeaders } });
 }
 
-export const config = { matcher: ["/events/:path*", "/portal/:path*"] };
+// Every prefix whose pages read `x-openboard-request-path` must be listed here:
+// outside the matcher the middleware never runs, the header is absent, and
+// `safeInternalPath` silently returns its fallback — so a signed-out deep link
+// into `/organizations/<id>/billing` sends the user to the org picker after
+// signing in instead of back to the page they asked for.
+export const config = {
+  matcher: ["/events/:path*", "/portal/:path*", "/organizations/:path*", "/account/:path*"],
+};
