@@ -50,15 +50,17 @@ The recipient-provided authentication results established the expected path with
 addresses, message identifiers, signatures, or bearer links:
 
 - Gmail reported aligned Resend DKIM for `mail.openboard.events`, SPF for
-  `send.mail.openboard.events`, and `dmarc=pass` under the current `p=none` policy.
+  `send.mail.openboard.events`, and `dmarc=pass` under the current `p=none` policy. It placed the
+  message in Inbox.
 - Outlook reported the same aligned DKIM, SPF, and `dmarc=pass`, plus `compauth=pass`. It placed
   the message in Junk despite those passes.
 
-The Outlook placement is the reporting-stage baseline, not a DMARC policy action: the message
-passed DMARC and no receiver enforcement was requested by `p=none`. Repeat the Outlook test
-before quarantine-10 and compare both authentication and folder placement. A worse placement
-result or any authentication regression blocks promotion; an unchanged Junk result remains a
-separate sender-reputation/content issue and must not be presented as proof that DMARC caused it.
+Gmail Inbox and Outlook Junk are the reporting-stage placement baseline. The Outlook decision is
+not a DMARC policy action: the message passed DMARC and no receiver enforcement was requested by
+`p=none`. Repeat both tests before quarantine-10, comparing authentication and folder placement.
+A worse placement result or any authentication regression blocks promotion; an unchanged Outlook
+Junk result remains a separate sender-reputation/content issue and must not be presented as proof
+that DMARC caused it.
 
 ## Stage gates
 
@@ -86,7 +88,8 @@ gate even when observed filtering appears lower than the published percentage.
 
 Record Inbox/Junk placement with every Gmail and Outlook probe so delivery changes can be
 compared with the reporting-stage baseline. Authentication results determine DMARC alignment;
-folder placement is the separate regression signal.
+folder placement is the separate regression signal. A receiver without a recorded baseline blocks
+promotion until one is captured.
 
 ## Monitoring and rollback
 

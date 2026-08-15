@@ -92,6 +92,7 @@ application-level backstop, and the parser accepts only the current root-prefixe
   31862396508 enabled and verified aggregate reporting at `2026-08-15T03:40:22Z`; policy remains
   `p=none` while the seven-day, two-receiver evidence window is collected. Production probes at
   `2026-08-15T03:50Z` passed aligned DKIM, SPF, and DMARC at both Gmail and Outlook, and Outlook
-  also passed composite authentication. Outlook placed its passing message in Junk, which is
-  recorded as the pre-enforcement reputation/content baseline and must be retested before the
-  first quarantine stage; it is not attributed to a `p=none` DMARC action.
+  also passed composite authentication. Gmail placed its message in Inbox; Outlook placed its
+  passing message in Junk. Those are the pre-enforcement placement baselines and must be retested
+  before the first quarantine stage; the Outlook result is not attributed to a `p=none` DMARC
+  action.

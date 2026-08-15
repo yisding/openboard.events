@@ -307,9 +307,12 @@ stores only the credentials and direct database URL needed by the deployment wor
 - [ ] Create the production `RESEND_API_KEY` (the preview uses a domain-scoped key).
 - [x] Prove OTP delivery in a fresh Gmail inbox (`portal_login` + `submission_received`,
   status rev. 7).
-- [ ] Prove OTP and calendar REQUEST/reschedule/CANCEL delivery in a fresh **Outlook** inbox,
-  and calendar delivery in Gmail.
-- [ ] Record the remaining alignment evidence in `DECISIONS.md`.
+- [x] Prove production OTP delivery and alignment at Outlook; the first `portal_login` reached
+  Junk with SPF, DKIM, DMARC, and composite authentication passing.
+- [ ] Prove calendar REQUEST/reschedule/CANCEL delivery in a fresh **Outlook** inbox and calendar
+  delivery in Gmail; repeat the Gmail/Outlook authentication and placement probe before DMARC
+  quarantine-10.
+- [x] Record the recipient alignment evidence in `DECISIONS.md`.
 
 ## 9. Deploy production manually
 
@@ -372,6 +375,7 @@ A successful deploy is not the full hackathon infrastructure proof.
 - [ ] Record a browser presigned upload/CORS probe, including `ETag` visibility.
 - [x] Record jobs tail output showing authenticated scheduled calls.
 - [x] Record Workers compressed size and deployed CPU/resource-limit observations.
-- [x] Record the Resend DNS and Gmail/Outlook authentication and placement evidence.
+- [x] Record the Resend DNS, Gmail/Outlook authentication, Gmail Inbox, and Outlook Junk evidence.
+- [ ] Record the pre-quarantine no-regression authentication and placement probe.
 - [x] Record the final preview URL without recording any secret values; record production
   after its first successful deployment.
