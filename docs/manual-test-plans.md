@@ -1382,8 +1382,9 @@ rooms — without silently invalidating what has already been built on top of it
 
 | # | Action | Expected result |
 |---|---|---|
-| 5 | Change the dates without touching the timezone | Refused: starts, ends and timezone move **together**, because moving two of the three silently reinterprets every session already placed |
-| 6 | Shrink the dates so a scheduled session would fall outside them | Refused, and the message points at the session. Then move that session inside the new window and repeat |
+| 5 | Change a date from the settings form | Accepted, if the bounds still fit. The form always sends starts, ends and timezone as one bundle, and that is the point — the three move together because sending two of them silently reinterprets every session already placed |
+| 5a | Issue the same change as a hand-made `PATCH` that omits `timezone` | Refused, naming the field. The bundle rule lives on the route, not in the form; a client that sends half of it is the case the guard exists for |
+| 6 | Shrink the dates so a scheduled session would fall outside them | Refused: *"These dates would leave scheduled sessions outside the event. Move or unschedule them first."* Then move that session inside the new window and repeat — it saves. The message names no session, so record how long it takes you to find the offending one on a full agenda; that is a D4 finding worth filing rather than a pass |
 | 7 | Widen the dates | Accepted; the agenda grid grows and existing placements do not move |
 | 8 | Save settings in two tabs | The second is refused as stale rather than overwriting the first |
 | 9 | Change the timezone (with dates, per step 5) on an event with placed sessions | Record precisely what happens to each session's displayed time and to the public day tabs, on a workstation outside both zones. Whatever the product does here, it must be one thing and it must be legible before the save |
@@ -1398,8 +1399,9 @@ rooms — without silently invalidating what has already been built on top of it
 | 13 | Delete a **track** that a form's routing or visibility rule references, or that an evaluation round is scoped to | Refused, naming *where* it is still used — forms and rounds by name, not a count |
 | 14 | Delete a **format** that is still in use | Refused the same way |
 | 15 | Clear those references, then delete the track and the format | They go, and nothing that referenced them is left pointing at a dead id |
-| 16 | Delete a **room** that has sessions in it, including one that is published and timed | Allowed, and it is not silent: those sessions lose their room, the published-and-timed ones advance a schedule revision and a **Schedule changed** message goes out to their speakers, and the room disappears from any embed's filter |
-| 17 | Drain the outbox after step 16 | Exactly one change message per affected speaker, carrying the room's absence — not a duplicate invite (MTP-12 step 18) |
+| 16 | Delete a **room** that has sessions in it, including one that is published and timed | Allowed, and it cascades in one statement: those sessions lose their room, the published-and-timed ones advance their schedule revision exactly once, and the room disappears from any embed's filter. Confirm each of the three |
+| 17 | Drain the outbox after step 16, then open the affected speaker's calendar item | **No mail is sent by the deletion itself** — see Known gaps. The speaker's invite still names a room that no longer exists until that session is next saved, which is when the advanced revision finally ships. Record whether the organizer was warned before deleting (D4) |
+| 17a | Save one of those sessions and drain again | *Now* a **Schedule changed** message goes out, carrying the room's absence — one per speaker, not a duplicate invite (MTP-12 step 18) |
 | 18 | Delete a **tag** that is applied to submissions | Record what happens; a tag that vanishes from the vocabulary but survives on rows is a data finding |
 | 19 | Rename a track that is on a published session | The public pages show the new name without needing a redeploy |
 
@@ -1420,11 +1422,19 @@ surface. Specifically: **D4** on every deletion in §3 — each must name what i
 survives; **D9** on the date and timezone fields; **D2** on the one-time secret display (it is
 useless if it can be dismissed by accident with no way back).
 
+**Known gaps.** Deleting a room advances the schedule revision of every published, timed session
+it strands but does not enqueue anything: the notification path belongs to the agenda's own save,
+which this statement does not go through. Until a session is saved again, its speakers hold a
+calendar item naming a deleted room. Steps 17 and 17a exist to keep that visible rather than to
+re-file it each release — confirm it still behaves this way, and treat a *missing warning before the
+delete* as the live finding.
+
 ### Exit criteria
 
-Steps 5, 6 and 8 (an event's shape cannot be changed out from under its schedule), 13–16 (a
-vocabulary deletion either refuses or cleans up after itself, and never leaves a dangling
-reference), and 20–22 (a secret is shown once and a retry does not mint a second).
+Steps 5a, 6 and 8 (an event's shape cannot be changed out from under its schedule, whatever the
+client sends), 13–16 (a vocabulary deletion either refuses or cleans up after itself, and never
+leaves a dangling reference), and 20–22 (a secret is shown once and a retry does not mint a
+second).
 
 ---
 
