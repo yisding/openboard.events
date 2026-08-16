@@ -85,6 +85,10 @@ export function SpeakerImportDialog({ eventId, open, onClose }: { eventId: strin
       if (!headerRow || headerRow.length === 0) { setError("That file has no header row"); return; }
       setCsvText(text);
       setHeaders(headerRow);
+      // A correction is keyed by row number against the file it was typed for;
+      // a new upload reuses those row numbers, so stale fixes must not survive
+      // it (Back → Back → pick a different file would otherwise re-apply them).
+      setFixes({});
       // A column named "email" (any case) is the overwhelmingly common case;
       // preselect it so most files need zero mapping clicks.
       const guessedEmail = headerRow.findIndex((cell) => cell.trim().toLowerCase() === "email");
@@ -95,8 +99,8 @@ export function SpeakerImportDialog({ eventId, open, onClose }: { eventId: strin
     reader.readAsText(file);
   }
 
-  async function runPreview(text: string = csvText) {
-    if (!mapping) return;
+  async function runPreview(text: string = csvText): Promise<boolean> {
+    if (!mapping) return false;
     setBusy(true);
     setError(null);
     try {
@@ -109,8 +113,10 @@ export function SpeakerImportDialog({ eventId, open, onClose }: { eventId: strin
       if (!response.ok || !json.data) throw new Error(json.error?.message ?? "Could not read that file");
       setPreview(json.data);
       setStep("preview");
+      return true;
     } catch (previewError) {
       setError(previewError instanceof Error ? previewError.message : "Could not read that file");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -134,9 +140,13 @@ export function SpeakerImportDialog({ eventId, open, onClose }: { eventId: strin
     }
     if (Object.keys(corrections).length === 0) return;
     const corrected = applyCsvCellEdits(csvText, mapping.email, corrections);
-    setCsvText(corrected);
-    setFixes({});
-    await runPreview(corrected);
+    // Only adopt the corrected file once the server has actually previewed it.
+    // If the request fails the old preview stands and the typed fixes remain,
+    // so the footer can't fall back to importing unpreviewed corrections.
+    if (await runPreview(corrected)) {
+      setCsvText(corrected);
+      setFixes({});
+    }
   }
 
   async function runCommit() {
@@ -215,7 +225,7 @@ export function SpeakerImportDialog({ eventId, open, onClose }: { eventId: strin
       {step === "map" && (
         <div className="form-stack">
           <Field label="Email column" required>
-            <Select value={emailColumn ?? ""} onChange={(event) => setEmailColumn(event.target.value === "" ? null : Number(event.target.value))}>
+            <Select value={emailColumn ?? ""} onChange={(event) => { setFixes({}); setEmailColumn(event.target.value === "" ? null : Number(event.target.value)); }}>
               <option value="">Select a column…</option>
               {headers.map((header, index) => <option key={index} value={index}>{header || `Column ${index + 1}`}</option>)}
             </Select>

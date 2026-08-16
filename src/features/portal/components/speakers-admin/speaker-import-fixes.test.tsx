@@ -158,4 +158,42 @@ describe("correcting a rejected CSV row in the preview", () => {
 
     expect(document.querySelector('input[aria-label="Corrected email for row 2"]')).toBeNull();
   });
+
+  it("drops a typed correction when a different file is uploaded", async () => {
+    await reachRejectedPreview();
+    await type(input("Corrected email for row 3"), "grace@example.com");
+    expect(button("Re-check 1 row")).toBeTruthy();
+
+    // Back out to the upload step and pick a different file. The row-3
+    // correction belonged to the first file and must not survive the swap.
+    await act(async () => button("Back").click()); // preview -> map
+    await act(async () => button("Back").click()); // map -> upload
+    harness.csv.text = "email,first\r\nzoe@example.com,Zoe\r\ngrace@example.com,Grace\r\n";
+    await act(async () => button("Choose a CSV file").click());
+    await flush();
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(cleanPreview));
+    await act(async () => button("Preview").click());
+    await flush();
+
+    // The footer offers a plain import, not a re-check of a stale fix, so no
+    // correction can be silently written into the new file's row 3.
+    expect(button("Import 2 speakers")).toBeTruthy();
+    expect([...document.querySelectorAll("button")].some((node) => node.textContent?.includes("Re-check"))).toBe(false);
+  });
+
+  it("keeps the typed fix when the re-check request fails", async () => {
+    await reachRejectedPreview();
+    await type(input("Corrected email for row 3"), "grace@example.com");
+
+    fetchMock.mockRejectedValueOnce(new Error("network"));
+    await act(async () => button("Re-check 1 row").click());
+    await flush();
+
+    // A failed re-check leaves the fix in place (so it isn't lost) and does not
+    // fall back to importing the corrected-but-unpreviewed CSV: the footer still
+    // shows the re-check, not an import.
+    expect(button("Re-check 1 row")).toBeTruthy();
+    expect(input("Corrected email for row 3").value).toBe("grace@example.com");
+  });
 });
