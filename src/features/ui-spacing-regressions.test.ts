@@ -276,6 +276,16 @@ describe("shared UI spacing regressions", () => {
     expect(builder).toContain('live question{section.fields.length === 1 ? "" : "s"}');
   });
 
+  it("lets the recovery banner stack instead of pushing the page sideways", () => {
+    // Icon + paragraph + two nowrap buttons has a min-content width of ~376px,
+    // so on a 360px screen the banner stopped shrinking and moved the document
+    // instead — putting its own recovery actions 47px off the right edge. It is
+    // shared by eight surfaces, including the only way out of an unconfirmed
+    // session revoke or event-access grant.
+    expect(css).toContain(".locked-banner{display:grid;grid-template-columns:auto minmax(0,1fr)");
+    expect(css).toContain(".locked-banner>.button{grid-column:1/-1;width:100%}");
+  });
+
   it("gives discrete public session and gallery actions full pointer targets", () => {
     expect(css).toContain(
       ".public-session-main h3 button{width:100%;min-height:32px;",
