@@ -216,12 +216,15 @@ export function EmptyState({ icon, title, description, action }: { icon: ReactNo
  *
  * A `<label>` with no `for` labels its *first labelable descendant*, which is
  * the right element only when the field holds exactly one input. It is the
- * wrong one for a composite control — the date picker puts a calendar button
- * beside its input, the rich text editor puts a whole toolbar before its
- * textbox — and it is silently nothing at all when the control is a
- * `contenteditable`. Pointing the label at an explicit `id` also gives the
- * field the `id`/`name` pair that autofill and form tooling look for, which a
- * wrapping label never provided.
+ * wrong one when something labelable is written *ahead* of the real control:
+ * the rich text editor leads with a toolbar, so a wrapping label lands on its
+ * Bold button. And it is silently nothing at all when the control is a
+ * `contenteditable`, which no label can be associated with — that editor is
+ * both cases at once, which is why its field uses `group` instead. (The date
+ * picker is not one of them: its `<input>` is written before the calendar
+ * button, so nesting already resolves to the input there.) Pointing the label
+ * at an explicit `id` also gives the field the `id`/`name` pair that autofill
+ * and form tooling look for, which a wrapping label never provided.
  */
 export function Field({ label, hint, hintId, htmlFor, required, error, errorId, group, radioGroup, children }: { label: string; hint?: string; hintId?: string; htmlFor?: string; required?: boolean; error?: string | undefined; errorId?: string; group?: boolean; radioGroup?: boolean; children?: ReactNode }) {
   const inner = <>

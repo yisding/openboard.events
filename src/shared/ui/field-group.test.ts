@@ -89,15 +89,27 @@ function fieldElements(source: string): Array<{ open: string; body: string; inde
   return found;
 }
 
+/**
+ * The shapes a `<label>` must not be wrapped around.
+ *
+ * `<button>`/`<Segmented>` is the choice-grid case above. `<label>` is the
+ * other one, and it is worse: a checkbox list — the speaker pickers, the bulk
+ * send filters — gives every option its own `<label>`, and nesting a label
+ * inside a label is invalid HTML with no defined parse. The outer one still
+ * labels the first checkbox and names it after every other option's text, so
+ * it fails the same way while looking nothing like the first case. It was
+ * missed until #595 because the scan keyed on `<button` alone.
+ */
+const CONTROL_SET = /<button|<Segmented\b|<label\b/;
+
 describe("Field never wraps a control set in a label", () => {
-  it("marks every button-bearing Field as a group", () => {
+  it("marks every Field holding a set of controls as a group", () => {
     const offenders: string[] = [];
     for (const file of tsxFiles(SRC)) {
       const source = readFileSync(file, "utf8");
       if (!source.includes("<Field")) continue;
       for (const element of fieldElements(source)) {
-        // `Segmented` renders a row of buttons, so it carries the same hazard.
-        if (!/<button|<Segmented\b/.test(element.body)) continue;
+        if (!CONTROL_SET.test(element.body)) continue;
         if (/\bgroup\b/.test(element.open)) continue;
         offenders.push(`${file.slice(SRC.length)}:${source.slice(0, element.index).split("\n").length}`);
       }
@@ -112,5 +124,17 @@ describe("Field never wraps a control set in a label", () => {
     const grids = fieldElements(source).filter((element) => /<button/.test(element.body));
     expect(grids.length).toBeGreaterThan(0);
     expect(grids.every((element) => /\bgroup\b/.test(element.open))).toBe(true);
+  });
+
+  it("finds the checkbox lists too, which the button-only scan walked past", () => {
+    // Both abstract drawers reach the same picker: the detail drawer through
+    // the agenda's session dialog, the manual one inline. A scan that only
+    // knew about buttons passed on `add-abstract-drawer.tsx` for a release.
+    for (const path of ["features/agenda/components/session-form-dialog.tsx", "features/submissions/components/add-abstract-drawer.tsx"]) {
+      const source = readFileSync(join(SRC, path), "utf8");
+      const pickers = fieldElements(source).filter((element) => /<label\b/.test(element.body) && !/<button/.test(element.body));
+      expect(pickers.length, path).toBeGreaterThan(0);
+      expect(pickers.every((element) => /\bgroup\b/.test(element.open)), path).toBe(true);
+    }
   });
 });
