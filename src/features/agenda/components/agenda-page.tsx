@@ -6,12 +6,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { AcceptedForSchedulingRow, ScheduledSessionDTO } from "@/shared/contracts";
 import type { QuerySeed } from "@/shared/lib/query-client";
 import { QueryBoundary } from "@/shared/ui/app/query-boundary";
+import type { QuickAddedSpeaker } from "@/shared/ui/app/speaker-quick-add";
 import { PageHeader } from "@/shared/ui/ui-kit";
 import { detectConflicts, toScheduledSession } from "../conflicts";
 import { useAcceptedForAgenda, useAnnounceBundle } from "../hooks/use-agenda-supporting-data";
 import { useSessions } from "../hooks/use-sessions";
 import type { AgendaViewProps } from "../index.client";
-import { conflictsForAgendaView, conflictsTouchingSessions, createSessionDefaultDay, eventDayKeys, unscheduled, type AgendaView } from "../store";
+import { conflictsForAgendaView, conflictsTouchingSessions, createSessionDefaultDay, eventDayKeys, unscheduled, withQuickAddedSpeakers, type AgendaView } from "../store";
 import { AgendaToolbar } from "./agenda-toolbar";
 import { AnnounceBundleTrigger } from "./announce-bundle-panel";
 import ConflictsView from "./conflicts-view";
@@ -64,6 +65,22 @@ function AgendaPageInner({ eventSlug, view, ...props }: Omit<AgendaPageProps, "q
     const next = props.day && eventDays.includes(props.day) ? props.day : eventDays[0] ?? null;
     setActiveGridDay(next);
   }, [props.day, eventDays]);
+
+  /**
+   * Speakers created through the session dialog's quick-add, held here rather
+   * than inside the dialog.
+   *
+   * The dialog is not the only thing that needs them: the moment the session is
+   * saved, every view's Speakers column asks `nameLookup` for that contact's
+   * name, and the server-rendered `props.speakers` will not carry it until the
+   * next navigation. Kept across dialog opens on purpose — the contact belongs
+   * to the event, not to the session that happened to be open when it was made.
+   */
+  const [addedSpeakers, setAddedSpeakers] = useState<QuickAddedSpeaker[]>([]);
+  const speakers = useMemo(
+    () => withQuickAddedSpeakers(props.speakers, addedSpeakers),
+    [props.speakers, addedSpeakers],
+  );
 
   const sessionsQuery = useSessions(props.eventId);
   const acceptedQuery = useAcceptedForAgenda(props.eventId);
@@ -125,6 +142,7 @@ function AgendaPageInner({ eventSlug, view, ...props }: Omit<AgendaPageProps, "q
 
   const viewProps: AgendaViewProps = {
     ...props,
+    speakers,
     sessions: visible,
     conflicts: liveConflicts,
     accepted,
@@ -197,7 +215,8 @@ function AgendaPageInner({ eventSlug, view, ...props }: Omit<AgendaPageProps, "q
         rooms={props.rooms}
         tracks={props.tracks}
         formats={props.formats}
-        speakers={props.speakers}
+        speakers={speakers}
+        onSpeakerAdded={(speaker) => setAddedSpeakers((current) => [...current, speaker])}
       />
     </div>
   );

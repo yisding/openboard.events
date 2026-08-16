@@ -331,6 +331,10 @@ export function AbstractsTable({
             onSubmit={(event) => { event.preventDefault(); onFilter({ search: draftSearch }); }}
           >
             <input
+              // The one field on this screen inside a real `<form>`: without a
+              // name it is the unidentifiable control browser form tooling
+              // complains about, even though `aria-label` names it for people.
+              name="search"
               value={draftSearch}
               onChange={(event) => setDraftSearch(event.target.value)}
               placeholder="Search code, title or speaker"
