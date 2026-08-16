@@ -79,11 +79,25 @@ export function ResourcePageEditor({
   const [slugTouched, setSlugTouched] = useState(Boolean(page));
   const [mode, setMode] = useState<(typeof BODY_MODES)[number]>("rich");
   const [saving, setSaving] = useState(false);
+  /**
+   * Somebody else's edit landed first. The draft stays exactly where it is —
+   * this used to toast "please re-apply your edit" and then close the modal,
+   * which threw the edit away in the same breath as asking for it back. The
+   * task editor beside this one has always kept its draft and offered "Load
+   * latest"; this now does the same.
+   */
+  const [stale, setStale] = useState(false);
+  const staleRef = useRef<HTMLDivElement>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const createRequestId = useRef(createStableCreateRequestId());
   const { runGuarded } = useGuardedAction();
   const dirty = open && editorDraftChanged(draft, baseline);
   useUnsavedWorkGuard(dirty);
+
+  useEffect(() => {
+    if (!stale) return;
+    window.requestAnimationFrame(() => staleRef.current?.focus());
+  }, [stale]);
 
   useEffect(() => {
     if (!open) {
@@ -98,6 +112,9 @@ export function ResourcePageEditor({
     setSlugTouched(Boolean(page));
     setMode("rich");
     setFieldErrors({});
+    // Reopening, or loading the latest, clears the banner along with the draft
+    // it was protecting.
+    setStale(false);
   }, [open, page]);
 
   function setTitle(title: string) {
@@ -153,12 +170,11 @@ export function ResourcePageEditor({
       } | null;
       if (response.status === 409 || payload?.error?.code === "STALE_WRITE") {
         // Not an error the organizer caused, and not one they can fix by saving
-        // again: somebody else's edit landed first, so say so and let the list
-        // refetch rather than silently overwriting it.
-        toast("This page changed since you opened it. Reloading the latest version — please re-apply your edit.", { kind: "error" });
-        await recoverStaleResourcePage(onSaved, () => {
-          toast("The latest page could not be reloaded. Refresh the browser before editing it again.", { kind: "error" });
-        });
+        // again: somebody else's edit landed first. Say so, and keep every word
+        // they have typed — closing the modal here discarded the rewrite the
+        // toast was asking them to re-apply.
+        setStale(true);
+        toast("This page changed since you opened it. Your draft is still here.", { kind: "error" });
         return;
       }
       if (!response.ok) {
@@ -188,9 +204,26 @@ export function ResourcePageEditor({
       wide
       footer={<>
         <Button variant="secondary" onClick={closeEditor} disabled={saving}>Cancel</Button>
-        <Button disabled={!draft.title.trim() || saving} onClick={save}>{saving ? "Saving…" : draft.id ? "Save changes" : "Create page"}</Button>
+        <Button disabled={!draft.title.trim() || saving || stale} onClick={save}>{saving ? "Saving…" : draft.id ? "Save changes" : "Create page"}</Button>
       </>}
     >
+      {stale && (
+        <div ref={staleRef} className="notify-bar" role="alert" tabIndex={-1}>
+          <div>
+            <p><b>This page changed since you opened it.</b></p>
+            <small>Your draft is still here. Load the latest page only when you are ready to replace it.</small>
+          </div>
+          <Button
+            variant="secondary"
+            disabled={saving}
+            onClick={() => void recoverStaleResourcePage(onSaved, () => {
+              toast("The latest page could not be reloaded. Refresh the browser before editing it again.", { kind: "error" });
+            })}
+          >
+            Load latest
+          </Button>
+        </div>
+      )}
       <div ref={formRef} className="form-stack" inert={saving || undefined} aria-busy={saving || undefined}>
         <Field label="Title" required error={fieldErrors.title} errorId="resource-title-error">
           <input required aria-invalid={Boolean(fieldErrors.title) || undefined} aria-describedby={fieldErrors.title ? "resource-title-error" : undefined} value={draft.title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Speaker Guide" />

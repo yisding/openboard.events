@@ -38,3 +38,24 @@ describe("resource page validation recovery", () => {
     expect(source.indexOf("setBaseline(draft)")).toBeLessThan(source.indexOf("await onSaved()"));
   });
 });
+
+describe("stale-write handling shape", () => {
+  const source = readFileSync(new URL("./resource-page-editor.tsx", import.meta.url), "utf8");
+
+  it("keeps the organizer's draft when somebody else's edit landed first", () => {
+    // This used to toast "please re-apply your edit" and then call `onSaved`,
+    // whose parent closes the editor and refetches — throwing the rewrite away
+    // in the same breath as asking for it back. `setBaseline(draft)` runs only
+    // on success, so `useUnsavedWorkGuard` never got a chance to intervene on a
+    // programmatic close. The task editor beside this one has always kept its
+    // draft and offered "Load latest".
+    expect(source).toContain("setStale(true)");
+    expect(source).toContain("Your draft is still here");
+    // The 409 branch must not close the editor.
+    const staleBranch = source.slice(source.indexOf('payload?.error?.code === "STALE_WRITE"'), source.indexOf("if (!response.ok)"));
+    expect(staleBranch).not.toContain("onSaved");
+    expect(staleBranch).not.toContain("closeEditor");
+    // Loading the latest is an explicit, separate gesture.
+    expect(source).toContain("Load latest");
+  });
+});
