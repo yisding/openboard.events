@@ -77,3 +77,13 @@ promote compact steps to `--text-table` (13px). The only 10px exceptions are six
 decorative labels inside the scaled landing-page product miniature; the
 repository invariant checks their exact selectors and rejects other CSS or
 inline values below the floor.
+
+## Deliberately out of scope
+
+- **Dark mode for the admin app.** Only public embeds theme dark. A full second
+  palette waits for a real demand signal; the token migration above is what
+  makes it cheap to take on later.
+- **Visual rebrand of any kind** — palette, radii, and the typography family
+  all stay.
+- **Contract or status-enum changes** are frozen under CP1; any status
+  consolidation must be view-layer only.

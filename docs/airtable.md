@@ -1,4 +1,4 @@
-# Airtable sync (M39)
+# Airtable sync
 
 An event organizer connects their own Airtable account from the event's settings, and Openboard
 keeps a base in that account in step with the event's programme. This document is two things: a
@@ -208,7 +208,7 @@ UTC (`minute % 15 === 5`) — deliberately staggered off `reminders`' `:00/:15/:
 never colliding with `cleanup`'s 09:00 run — **and only when `AIRTABLE_CRON === "1"`**. The flag is
 read in the dispatcher itself, before the `WEB_JOBS` RPC is ever called:
 
-- With the flag unset or `"0"` (the default everywhere today): `"airtable"` never appears in the
+- With the flag unset or `"0"`: `"airtable"` never appears in the
   dispatched job list, `WEB_JOBS.runJob("airtable")` is never invoked, no heartbeat is written, and
   `/api/health`'s `jobs.airtableLastSuccessAgeSeconds` correctly stays `null` — a switched-off
   integration must never read as a fresh success.
@@ -216,8 +216,8 @@ read in the dispatcher itself, before the `WEB_JOBS` RPC is ever called:
   defense-in-depth check of the same flag and returns `{ airtableSkippedDisabled: 1 }` with zero
   Airtable calls if it is ever reached directly (a hand-curled request bypassing the dispatcher).
 - **Manual "Sync now" in the settings panel ignores this flag entirely.** It calls the sync engine
-  directly. The flag gates scheduled *cron pressure*, not the feature — this is what let WP1/WP2
-  ship to production and be used for real connections while `AIRTABLE_CRON` stays `"0"`.
+  directly. The flag gates scheduled *cron pressure*, not the feature — manual sync keeps working
+  whatever the flag says.
 
 The `airtable` job route itself is a single sweep (`runDueAirtableSyncs()`); the lease-reap that a
 second "stale runs" sweep would otherwise do is already folded into that same call (it reaps
@@ -228,25 +228,25 @@ The daily `cleanup` job additionally runs two Airtable-specific sweeps: pruning
 `airtable_sync_runs` history older than 30 days, and deleting abandoned `pending` connections (a
 wizard someone closed before picking a base) whose token has sat unused for over 24 hours.
 
-### Turning scheduled sync on for real
+### The scheduled-sync switch
 
-`AIRTABLE_CRON` is `"0"` in every environment today (`wrangler.jsonc`'s three env blocks and
-`workers/jobs/wrangler.jsonc`'s three env blocks). Flipping it to `"1"` is a **separate, deliberate
-commit**, gated on:
+`AIRTABLE_CRON` is `"1"` in every environment (`wrangler.jsonc`'s three env blocks and
+`workers/jobs/wrangler.jsonc`'s three env blocks — the two files must always change together in
+one deploy). It is the kill switch for scheduled sync: set all six back to `"0"` to pause cron
+pressure without touching manual "Sync now". After a deploy that changes the flag, verify
+`jobs.airtableLastSuccessAgeSeconds` on `/api/health` after the first live tick and the
+`sb-jobs[-preview]` Cron Trigger Past Events, per `docs/runbooks/alerting.md`. A sweep with no
+connections due is a successful no-op and still writes the heartbeat, so the age becomes a number
+on the first `:05/:20/:35/:50` tick after the flag lands.
 
-1. At least one real organizer connection existing in the target environment.
-2. A captured transcript from `scripts/airtable-acceptance.ts` run by hand against a real PAT:
-   `whoami` → create a scratch base → `ensureBaseSchema` → push a seeded fixture event → push again
-   and assert **zero** write calls → delete one session and assert exactly **one** delete call →
-   print a counters-only table → print the scratch base's URL. Airtable exposes no base-deletion
-   API, so the last step is a printed instruction to delete the base by hand, not a prompt: nothing
-   waits for an answer, and the operator has to go and do it. The script reads
-   `AIRTABLE_API_KEY` through `getEnv()` and never echoes it; that env var is a local-only
-   convenience for this script and is rejected by `src/shared/lib/env.ts` in any deployed
-   environment.
-3. Reviewing the resulting `jobs.airtableLastSuccessAgeSeconds` field on `/api/health` after the
-   first live tick, and the `sb-jobs[-preview]` Cron Trigger Past Events, per
-   `docs/runbooks/alerting.md`.
+To re-verify the write path end-to-end against a real PAT, run `scripts/airtable-acceptance.ts`
+by hand: `whoami` → create a scratch base → `ensureBaseSchema` → push a seeded fixture event →
+push again and assert **zero** write calls → delete one session and assert exactly **one** delete
+call → print a counters-only table → print the scratch base's URL. Airtable exposes no
+base-deletion API, so the last step is a printed instruction to delete the base by hand. The
+script reads `AIRTABLE_API_KEY` through `getEnv()` and never echoes it; that env var is a
+local-only convenience for this script and is rejected by `src/shared/lib/env.ts` in any deployed
+environment.
 
 ### Health and alerting
 
