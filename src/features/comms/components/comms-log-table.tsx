@@ -181,7 +181,7 @@ function CommsLogTableInner({ eventId, contactId, contactName, timezone }: Comms
       />
       <LogDetailSheet eventId={eventId} logId={openLogId} timezone={timezone} onClose={() => setOpenLogId(null)} />
       {contactId && sendingTo && (
-        <SendReminderDialog eventId={eventId} contactId={contactId} contactName={contactName ?? "this speaker"} onClose={() => setSendingTo(false)} />
+        <SendReminderDialog eventId={eventId} contactId={contactId} contactName={contactName ?? "this speaker"} timezone={timezone} onClose={() => setSendingTo(false)} />
       )}
     </section>
   );
