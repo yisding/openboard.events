@@ -1,26 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState, type SelectHTMLAttributes } from "react";
-import { timeZoneOptionLabel } from "@/shared/lib/time";
+import { browserTimeZones, timeZoneOptionLabel } from "@/shared/lib/time";
 import { Select } from "@/shared/ui/ui-kit";
-
-export const DEFAULT_TIME_ZONE = "America/Los_Angeles";
-
-const FALLBACK_TIME_ZONES = [
-  DEFAULT_TIME_ZONE, "America/New_York", "America/Chicago", "America/Denver",
-  "Europe/London", "Europe/Paris", "Asia/Tokyo", "UTC",
-];
-
-/** Every zone the rendering runtime knows, with `UTC` guaranteed present. */
-export function browserTimeZones(): string[] {
-  try {
-    const zones = Intl.supportedValuesOf("timeZone");
-    if (zones.length === 0) return FALLBACK_TIME_ZONES;
-    return zones.includes("UTC") ? zones : ["UTC", ...zones];
-  } catch {
-    return FALLBACK_TIME_ZONES;
-  }
-}
 
 /**
  * The one timezone picker. Three surfaces choose an event's zone — `/events/new`,
@@ -39,9 +21,14 @@ export function browserTimeZones(): string[] {
  * in the console.
  *
  * Rendering only the selected zone before hydration reduces the disagreement to
- * a single option, and `suppressHydrationWarning` settles that one: a zone the
- * visitor cannot open the list to change yet was never load-bearing, and not
- * shipping 419 options in the HTML is its own small win.
+ * a single option, and `suppressHydrationWarning` settles that one. What that
+ * costs is bounded: only the *label* can differ across ICU builds, and the
+ * value — the IANA id the API and every date calculation use — is not locale
+ * data, so the control holds the right zone throughout. What a visitor loses in
+ * the pre-hydration window is the ability to pick a *different* zone, and only
+ * on the two surfaces that leave the control enabled then (`/events/new` and
+ * Settings → Details; the wizard passes `disabled={!hydrated}` and so has no
+ * window at all). Not shipping 419 options in the HTML is its own small win.
  *
  * A stored zone the runtime no longer lists still gets an option of its own, so
  * the control never renders blank while claiming to hold a value.

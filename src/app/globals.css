@@ -1106,8 +1106,18 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
    twelve times taller than its neighbours. `overflow-wrap:anywhere` handles the
    other half of that — a single unbroken 200-character "word" overflows a clamp
    rather than wrapping inside it. The full title is one click away in the
-   drawer, and the cell carries it as a `title` tooltip meanwhile. */
-.submission-title-cell b,.submission-title-cell span{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
+   drawer, and the cell carries it as a `title` tooltip meanwhile.
+
+   The `b` half is scoped to this column rather than to `.submission-title-cell`,
+   which is *not* private to the abstracts table: the comms log recipient cell,
+   suppressions, the agenda list view and kitchen-sink all render the same
+   two-line block, and none of them has a 300-character `b`. One of them would
+   actively regress — the ≤768px rule near the end of this file gives
+   `.comms-log-col-recipient .submission-title-cell b` `text-overflow:ellipsis`
+   and `white-space:nowrap` but says nothing about `display`, and ellipsis does
+   not apply to a `-webkit-box` (nor does a clamp fire on a single nowrap line),
+   so a wide clamp here would turn that name's ellipsis into a hard clip. */
+.abstracts-title-column .submission-title-cell b,.submission-title-cell span{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
 
 .data-table th.abstracts-title-column,.data-table td.abstracts-title-column{width:340px;min-width:280px}
 

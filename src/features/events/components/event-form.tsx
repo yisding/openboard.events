@@ -4,12 +4,13 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Field, Select } from "@/shared/ui/ui-kit";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
-import { DEFAULT_TIME_ZONE, TimeZoneSelect } from "@/shared/ui/app/time-zone-select";
+import { TimeZoneSelect } from "@/shared/ui/app/time-zone-select";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
 import { isAppError, isDefinitiveWriteFailure } from "@/shared/lib/errors";
 import { eventDtoSchema } from "@/shared/contracts";
 import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
+import { DEFAULT_TIME_ZONE } from "@/shared/lib/time";
 import { EVENT_TYPES, type EventType } from "../schemas";
 
 /**

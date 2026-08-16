@@ -16,8 +16,8 @@ import { EVENT_TYPES, type EventType } from "@/features/events/index.schemas";
 import { formOpenState, type FormOpenReason } from "@/features/forms/index.availability";
 import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
 import { DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
-import { endOfDayInTz, eventDayKey, formatInZone, viewerTimeZone } from "@/shared/lib/time";
-import { browserTimeZones, DEFAULT_TIME_ZONE, TimeZoneSelect } from "@/shared/ui/app/time-zone-select";
+import { browserTimeZones, DEFAULT_TIME_ZONE, endOfDayInTz, eventDayKey, formatInZone, viewerTimeZone } from "@/shared/lib/time";
+import { TimeZoneSelect } from "@/shared/ui/app/time-zone-select";
 
 const CUSTOM_TRACK_COLOR = DEFAULT_BRAND_COLOR;
 const SUGGESTED_TRACKS: Array<{ name: string; color: string }> = [
