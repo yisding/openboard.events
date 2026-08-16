@@ -414,6 +414,51 @@ describe("database-backed form builder", () => {
     await pglite.query("DELETE FROM contacts WHERE id=$1", [contactId]);
   });
 
+  it("refuses a visibility rule built against an option that was never saved", async () => {
+    const source = await createFormIn(database, eventId, { internalName: "Placeholder CFP", kind: "abstract", collectParticipants: false });
+    const section = required(source.sections[0], "abstract section");
+    let form = await createFieldIn(
+      database, eventId, source.id,
+      { sectionId: section.id, label: "Delivery style", fieldType: "dropdown" },
+      source.updatedAt,
+    );
+    const format = required(form.sections.flatMap((s) => s.fields).find((field) => field.label === "Delivery style"), "format field");
+    form = await createFieldIn(
+      database, eventId, source.id,
+      { sectionId: section.id, label: "Workshop length", fieldType: "text" },
+      form.updatedAt,
+    );
+    const dependent = required(form.sections.flatMap((s) => s.fields).find((field) => field.label === "Workshop length"), "dependent field");
+
+    // The builder mints `draft-N` for an option line with no saved id to claim,
+    // and the inspector's source list comes from live builder state — so an
+    // organizer who typed a new option and clicked straight over to another
+    // question could pick it. `conditionSchema.value` is a plain string and
+    // `compileFormSnapshot` validates only condition *ordering*, so this saved
+    // silently: the server then minted a real UUID for the option while the rule
+    // kept `draft-2`, leaving the dependent question hidden on the public form
+    // forever with nothing to see but "Shown when Format is draft-2".
+    const refused = await updateFieldIn(
+      database, eventId, source.id, dependent.id,
+      { visibility: { match: "all", conditions: [{ sourceFieldId: format.id, op: "eq", value: "draft-2" }] } },
+      form.updatedAt,
+    ).catch((thrown: unknown) => thrown);
+    expect(isAppError(refused) && refused.code).toBe("VALIDATION");
+    expect(isAppError(refused) && refused.message).toContain("Workshop length");
+
+    // A rule naming a real option still saves.
+    const realOption = required(
+      required(form.sections.flatMap((s) => s.fields).find((field) => field.id === format.id), "format field").options[0],
+      "an existing option",
+    );
+    form = await updateFieldIn(
+      database, eventId, source.id, dependent.id,
+      { visibility: { match: "all", conditions: [{ sourceFieldId: format.id, op: "eq", value: realOption.id }] } },
+      form.updatedAt,
+    );
+    expect(form.sections.flatMap((s) => s.fields).find((field) => field.id === dependent.id)?.visibility?.conditions[0]?.value).toBe(realOption.id);
+  });
+
   it("refuses an option deletion that would orphan another question's visibility rule", async () => {
     const source = await createFormIn(database, eventId, { internalName: "Orphan CFP", kind: "abstract", collectParticipants: false });
     const section = required(source.sections[0], "abstract section");

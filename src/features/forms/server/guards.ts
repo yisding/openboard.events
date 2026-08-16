@@ -117,3 +117,51 @@ export function assertNoNewlyOrphanedVisibility(
     }
   }
 }
+
+/**
+ * Refuse a visibility rule whose value does not name a live option of its
+ * source field.
+ *
+ * The builder mints `draft-N` placeholder ids for option lines that have no
+ * saved id to claim yet, and `FieldInspector` builds its "earlier fields" list
+ * from live builder state — so the condition editor offered those placeholders
+ * and stored one as `condition.value`. Add a "Workshop" line to a Format
+ * dropdown, click straight over to another question and set "Show when Format is
+ * Workshop", save that question, then save Format: the server mints a real UUID
+ * for the option while the rule still says `draft-2`. `conditionSchema.value` is
+ * a plain string and `compileFormSnapshot` validates only condition *ordering*,
+ * so nothing refused it. The dependent question then never appears on the public
+ * form — or, with `is not`, always does — and after a reload the rule summary
+ * reads "Shown when Format is draft-2" with a blank value select.
+ *
+ * Only checked when a patch actually supplies `visibility`, so a form already
+ * carrying a dangling rule stays editable.
+ */
+export function assertVisibilityValuesResolve(
+  fields: readonly BuilderField[],
+  field: Pick<BuilderField, "id" | "label" | "visibility">,
+): void {
+  const conditions = field.visibility?.conditions ?? [];
+  if (conditions.length === 0) return;
+  const byId = new Map(fields.map((candidate) => [candidate.id, candidate]));
+
+  for (const condition of conditions) {
+    const source = byId.get(condition.sourceFieldId);
+    // A missing source field is `compileFormSnapshot`'s to reject, not this
+    // guard's — it already refuses a forward or dangling reference.
+    if (!source) continue;
+    if (source.fieldType !== "dropdown" && source.fieldType !== "multiselect") continue;
+    if (condition.value === undefined) continue;
+    const values = Array.isArray(condition.value) ? condition.value : [condition.value];
+    const live = new Set(source.options.map((option) => option.id));
+    for (const value of values) {
+      if (typeof value === "string" && !live.has(value)) {
+        throw new AppError(
+          "VALIDATION",
+          `“${field.label}” is shown for an option of “${source.label}” that no longer exists. Save that question first, then set this rule.`,
+          { fieldId: field.id },
+        );
+      }
+    }
+  }
+}
