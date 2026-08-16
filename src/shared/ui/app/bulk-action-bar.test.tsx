@@ -30,8 +30,8 @@ describe("BulkActionBar", () => {
     // `overflow:hidden` makes .data-panel the sticky bar's nearest scrollport, and
     // that panel never scrolls — so the offset can never engage. `clip` is not a
     // scroll container and still clips the panel chrome.
-    expect(css).toContain(".data-panel{overflow:clip}");
-    expect(css).not.toContain(".data-panel{overflow:hidden}");
+    expect(css).toContain(".data-panel{overflow:clip");
+    expect(css).not.toContain(".data-panel{overflow:hidden");
     expect(css).toContain(".bulk-bar{position:sticky;z-index:15;top:var(--admin-topbar-height)");
   });
 });
