@@ -3,10 +3,12 @@ import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
+  contactIdSchema,
   eventIdSchema,
   roomIdSchema,
   scheduledSessionDtoSchema,
   sessionIdSchema,
+  trackIdSchema,
   type AcceptedForSchedulingRow,
   type ConflictDTO,
   type ScheduledSessionDTO,
@@ -19,6 +21,8 @@ Object.assign(globalThis, { React });
 const id = (suffix: string) => `d5000000-0000-4000-8000-0000000000${suffix}`;
 const sessionId = (suffix: string) => sessionIdSchema.parse(id(suffix));
 const roomA = roomIdSchema.parse(id("10"));
+const trackId = trackIdSchema.parse(id("11"));
+const speakerId = contactIdSchema.parse(id("12"));
 const tz = "America/Los_Angeles";
 const eventId = eventIdSchema.parse(id("40"));
 
@@ -159,6 +163,44 @@ describe("<ConflictsView>", () => {
     // The overlap lands on Aug 11 in the event's own zone — the jump link must
     // carry that day key, not whatever day the viewer happens to be in.
     expect(html).toContain(`/events/${eventId}/agenda?view=day&amp;day=2026-08-11`);
+  });
+
+  it("names the speaker, the room and the track that actually collided", () => {
+    const sessions: ScheduledSessionDTO[] = [
+      session({ id: id("01"), title: "Platform deep dive" }),
+      session({ id: id("02"), title: "Vector search at scale" }),
+      session({ id: id("03"), title: "Agent evals live" }),
+      session({ id: id("04"), title: "Guardrails that do not annoy anyone" }),
+      session({ id: id("05"), title: "Prompt injection, live" }),
+      session({ id: id("06"), title: "Retrieval that behaves" }),
+    ];
+    const conflicts: ConflictDTO[] = [
+      conflict({ kind: "room", a: sessionId("01"), b: sessionId("02"), subjectId: String(roomA) }),
+      conflict({ kind: "speaker", a: sessionId("03"), b: sessionId("04"), subjectId: String(speakerId) }),
+      conflict({ kind: "track", severity: "warning", a: sessionId("05"), b: sessionId("06"), subjectId: String(trackId) }),
+    ];
+    const html = renderToStaticMarkup(React.createElement(ConflictsView, {
+      ...baseProps,
+      rooms: [{ id: roomA, name: "Studio", capacity: 60, sortOrder: 0 }],
+      tracks: [{ id: trackId, name: "Safety", color: "#00a878", description: null, sortOrder: 0 }],
+      speakers: [{ contactId: speakerId, name: "Ada Lovelace" }],
+      sessions,
+      conflicts,
+    }));
+
+    // The kind alone ("SPEAKER CONFLICT") never said which speaker was in two
+    // places at once — the engine knew, and now the row says so.
+    expect(html).toContain("Ada Lovelace");
+    expect(html).toContain("Studio");
+    expect(html).toContain("Safety");
+  });
+
+  it("still renders a conflict whose subject has since been deleted", () => {
+    const sessions = [session({ id: id("01"), title: "Alpha" }), session({ id: id("02"), title: "Beta" })];
+    const html = renderToStaticMarkup(React.createElement(ConflictsView, { ...baseProps, sessions, conflicts: [conflict({})] }));
+    expect(html).toContain("Room conflict");
+    expect(html).toContain("Alpha");
+    expect(html).not.toContain("undefined");
   });
 
   it("falls back only when the full session lookup genuinely lacks an endpoint", () => {

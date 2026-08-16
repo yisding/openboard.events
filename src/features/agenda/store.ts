@@ -173,6 +173,40 @@ export function scheduledNeedingRoom(
     && (session.roomId === null || !roomIds.has(String(session.roomId))));
 }
 
+/**
+ * The event's speakers, plus the ones created from inside the session dialog
+ * since this page was rendered.
+ *
+ * `speakers` is server-rendered vocabulary: a contact quick-added a second ago
+ * is not in it until the next navigation, while the session that was saved with
+ * that contact arrives through the live session cache immediately. Every view
+ * resolves speaker *names* through `nameLookup`, which drops an id it cannot
+ * name — so without this the row the organizer just created showed an em-dash
+ * under SPEAKERS until a full reload, for a speaker they had just typed in.
+ *
+ * Merged rather than appended blindly: the server list wins once it catches up,
+ * so a refreshed contact does not appear twice under two spellings of its name.
+ */
+export function withQuickAddedSpeakers(
+  known: readonly SpeakerOption[],
+  added: readonly { contactId: string; name: string }[],
+): SpeakerOption[] {
+  const seen = new Set(known.map((speaker) => String(speaker.contactId)));
+  const merged: SpeakerOption[] = [...known];
+  for (const speaker of added) {
+    // Quick-add is idempotent on email, so adding the same address twice
+    // answers with the same contact id both times.
+    if (seen.has(speaker.contactId)) continue;
+    seen.add(speaker.contactId);
+    // The id is the contact row the server has just created and echoed back.
+    // Re-validating it here would turn a successful create into a thrown
+    // exception inside a click handler, so it is trusted as the branded id it
+    // already is.
+    merged.push({ ...speaker, contactId: speaker.contactId as SpeakerOption["contactId"] });
+  }
+  return merged;
+}
+
 export type NameLookup = {
   room: (id: string | null) => string | null;
   track: (id: string | null) => TrackDTO | null;

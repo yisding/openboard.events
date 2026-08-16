@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
-import { agendaAuth, listSessionContentRevisions, restoreSessionContent } from "@/features/agenda";
+import { agendaAuth, listSessionContentRevisions, listSessionPlacementRevisions, restoreSessionContent } from "@/features/agenda";
 import { eventIdSchema, sessionIdSchema, userIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
 import { revalidatePublicEvent } from "@/features/public/server/revalidate";
@@ -9,7 +9,14 @@ export const dynamic = "force-dynamic";
 
 const paramsSchema = z.object({ sessionId: sessionIdSchema });
 
-/** M52 — a session's attributed title/description history, newest first. */
+/**
+ * M52 — a session's attributed title/description history, newest first, and
+ * (MTP-07 step 14) its placement history beside it.
+ *
+ * Both halves in one response because the dialog shows them in one panel: two
+ * endpoints would mean two spinners and two ways for the same panel to be
+ * half-loaded.
+ */
 const list = defineHandler({
   // Organizer, like the sessions list beside it: this carries session titles and
   // descriptions plus the editor's name or email, and its only client is the
@@ -18,7 +25,12 @@ const list = defineHandler({
   input: z.object({}),
   handler: async ({ eventId, params }) => {
     const { sessionId } = paramsSchema.parse(params);
-    return listSessionContentRevisions(eventIdSchema.parse(eventId), sessionId);
+    const scopedEventId = eventIdSchema.parse(eventId);
+    const [content, placements] = await Promise.all([
+      listSessionContentRevisions(scopedEventId, sessionId),
+      listSessionPlacementRevisions(scopedEventId, sessionId),
+    ]);
+    return { content, placements };
   },
 });
 

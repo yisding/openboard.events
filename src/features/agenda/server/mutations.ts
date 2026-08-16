@@ -16,6 +16,7 @@ import {
   type ConflictDTO,
   type ContactId,
   type EventId,
+  type LinkedSubmission,
   type ScheduledSessionDTO,
   type SessionId,
   type SessionStatus,
@@ -171,6 +172,7 @@ type SessionRowShape = {
   starts_at: string | Date | null; ends_at: string | Date | null;
   track_id: string | null; room_id: string | null; format_id: string | null;
   status: SessionStatus; schedule_revision: number; row_version: number;
+  submission_id: string | null;
 };
 
 function iso(value: string | Date | null): string | null {
@@ -225,7 +227,58 @@ async function assertWithinEventBounds(
   }
 }
 
-function toDto(row: SessionRowShape, speakerIds: readonly ContactId[]): ScheduledSessionDTO {
+/**
+ * Everything a write response needs from the abstract behind a session, read
+ * once.
+ *
+ * Two features want this row and both want it on every write. The linked
+ * abstract's live identity is what stops a saved or dragged row from losing its
+ * "no longer public" mark until the next refetch puts it back; the declared
+ * audience size is the figure Auto-place already weighs a room's `capacity`
+ * against, and carrying it back is what lets the dialog and the grid warn about
+ * the same mismatch without a refetch. They are four columns and one column of
+ * the same primary-key lookup, so this is one query and not two.
+ *
+ * Sessions authored in the agenda have no `submission_id` and cost no query at
+ * all. A `submission_id` whose row is gone (or belongs to another event) reads
+ * as no abstract and no estimate, which is exactly what the read path reports.
+ */
+type AbstractFacts = { linkedSubmission: LinkedSubmission | null; expectedAttendance: number | null };
+
+const NO_ABSTRACT: AbstractFacts = { linkedSubmission: null, expectedAttendance: null };
+
+async function abstractFactsFor(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  submissionId: string | null,
+): Promise<AbstractFacts> {
+  if (submissionId === null) return NO_ABSTRACT;
+  const result = await dbOrTx.execute<{
+    id: string; code: number; title: string; status: string; capacity: number | string | null;
+  }>(sql`
+    SELECT id, code, title, status, capacity FROM submissions
+    WHERE id = ${submissionId} AND event_id = ${eventId}
+  `);
+  const row = (result.rows ?? [])[0];
+  if (!row) return NO_ABSTRACT;
+  return {
+    linkedSubmission: {
+      id: row.id as LinkedSubmission["id"],
+      code: Number(row.code),
+      title: row.title,
+      status: row.status as LinkedSubmission["status"],
+    },
+    expectedAttendance: typeof row.capacity === "number" || typeof row.capacity === "string"
+      ? Number(row.capacity)
+      : null,
+  };
+}
+
+function toDto(
+  row: SessionRowShape,
+  speakerIds: readonly ContactId[],
+  abstract: AbstractFacts = NO_ABSTRACT,
+): ScheduledSessionDTO {
   return {
     id: row.id as SessionId,
     title: row.title,
@@ -240,7 +293,49 @@ function toDto(row: SessionRowShape, speakerIds: readonly ContactId[]): Schedule
     scheduleRevision: Number(row.schedule_revision),
     rowVersion: Number(row.row_version),
     speakerIds: [...speakerIds],
+    linkedSubmission: abstract.linkedSubmission,
+    expectedAttendance: abstract.expectedAttendance,
   };
+}
+
+type PlacementSide = { startsAt: string | null; endsAt: string | null; roomId: string | null };
+
+/** A move is worth recording only when it actually moved something. */
+function placementChanged(before: PlacementSide, after: PlacementSide): boolean {
+  return before.startsAt !== after.startsAt || before.endsAt !== after.endsAt || before.roomId !== after.roomId;
+}
+
+/**
+ * MTP-07 step 14 — record one placement change, with who and when.
+ *
+ * Room names are resolved here and frozen into the row rather than referenced:
+ * the history has to keep saying "Studio" after Studio is renamed or deleted.
+ * The caller is responsible for atomicity — `moveSessionInTx` runs inside its
+ * transaction, and `saveSessionIn` records the same fact as a CTE of its single
+ * update statement instead of calling this.
+ */
+async function recordPlacementRevisionIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  sessionId: SessionId,
+  before: PlacementSide,
+  after: PlacementSide,
+  actorUserId: UserId | null,
+): Promise<void> {
+  if (!placementChanged(before, after)) return;
+  await dbOrTx.execute(sql`
+    INSERT INTO session_placement_revisions (
+      event_id, session_id, from_starts_at, from_ends_at, from_room_name,
+      to_starts_at, to_ends_at, to_room_name, moved_by_user_id
+    )
+    VALUES (
+      ${eventId}, ${sessionId}, ${before.startsAt}::timestamptz, ${before.endsAt}::timestamptz,
+      (SELECT r.name FROM rooms r WHERE r.id = ${before.roomId}::uuid AND r.event_id = ${eventId}),
+      ${after.startsAt}::timestamptz, ${after.endsAt}::timestamptz,
+      (SELECT r.name FROM rooms r WHERE r.id = ${after.roomId}::uuid AND r.event_id = ${eventId}),
+      ${actorUserId}
+    )
+  `);
 }
 
 /**
@@ -340,7 +435,7 @@ async function notifyRemovedSpeakers(
   return removed.length;
 }
 
-const RETURNED_COLUMNS = sql`id, title, slug, description_html, starts_at, ends_at, track_id, room_id, format_id, status, schedule_revision, row_version`;
+const RETURNED_COLUMNS = sql`id, title, slug, description_html, starts_at, ends_at, track_id, room_id, format_id, status, schedule_revision, row_version, submission_id`;
 
 async function insertSession(
   dbOrTx: DbOrTx,
@@ -393,7 +488,6 @@ async function insertSession(
 
 type CreatedSessionRow = SessionRowShape & {
   event_id: string;
-  submission_id: string | null;
   speaker_ids: string[] | null;
 };
 
@@ -435,7 +529,7 @@ async function recoverCreatedSession(
   }
 
   const result = await dbOrTx.execute<CreatedSessionRow>(sql`
-    SELECT ${RETURNED_COLUMNS}, s.event_id, s.submission_id,
+    SELECT ${RETURNED_COLUMNS}, s.event_id,
       (
         SELECT coalesce(array_agg(ss.contact_id ORDER BY ss.sort_order, ss.contact_id), '{}')
         FROM session_speakers ss
@@ -654,6 +748,27 @@ export async function saveSessionIn(
       FROM updated
       WHERE updated.title IS DISTINCT FROM ${prior.title}
          OR updated.description_html IS DISTINCT FROM ${prior.description_html}
+    ), placement_ins AS (
+      -- MTP-07: the mirror image of the content revision above. A dialog save
+      -- that changes the time or the room is a move — indistinguishable, to a
+      -- speaker, from dragging the card — so it is recorded here rather than
+      -- only in moveSessionInTx. Same two guards: fed by the updated CTE, so a
+      -- lost version race records nothing, and skipped entirely when the
+      -- placement did not actually change.
+      INSERT INTO session_placement_revisions (
+        event_id, session_id, from_starts_at, from_ends_at, from_room_name,
+        to_starts_at, to_ends_at, to_room_name, moved_by_user_id
+      )
+      SELECT ${eventId}, updated.id,
+             ${iso(prior.starts_at)}::timestamptz, ${iso(prior.ends_at)}::timestamptz,
+             (SELECT r.name FROM rooms r WHERE r.id = ${prior.room_id}::uuid AND r.event_id = ${eventId}),
+             updated.starts_at, updated.ends_at,
+             (SELECT r.name FROM rooms r WHERE r.id = updated.room_id AND r.event_id = ${eventId}),
+             ${actorUserId}
+      FROM updated
+      WHERE updated.starts_at IS DISTINCT FROM ${iso(prior.starts_at)}::timestamptz
+         OR updated.ends_at IS DISTINCT FROM ${iso(prior.ends_at)}::timestamptz
+         OR updated.room_id IS DISTINCT FROM ${prior.room_id}::uuid
     )
     SELECT ${RETURNED_COLUMNS} FROM updated
   `);
@@ -716,7 +831,7 @@ export async function saveSessionIn(
     nextState,
     removed,
   );
-  return toDto(row, speakers);
+  return toDto(row, speakers, await abstractFactsFor(dbOrTx, eventId, row.submission_id));
 }
 
 export const saveSession = (eventId: EventId, input: unknown, actorUserId: UserId | null = null) =>
@@ -795,7 +910,7 @@ export async function restoreSessionContentIn(
     SELECT contact_id FROM session_speakers WHERE session_id = ${sessionId} AND event_id = ${eventId} ORDER BY sort_order, contact_id
   `);
   const speakerIds = (speakerRows.rows ?? []).map((speaker) => speaker.contact_id as ContactId);
-  return toDto(row, speakerIds);
+  return toDto(row, speakerIds, await abstractFactsFor(dbOrTx, eventId, row.submission_id));
 }
 
 export const restoreSessionContent = (eventId: EventId, sessionId: SessionId, revisionId: string, expectedVersion: number, actorUserId: UserId | null = null) =>
@@ -1158,6 +1273,7 @@ export async function moveSessionInTx(
   tx: TxDb,
   eventId: EventId,
   input: MoveSessionInput,
+  actorUserId: UserId | null = null,
 ): Promise<{ session: ScheduledSessionDTO; speakerIds: ContactId[] }> {
   // All placement writes take locks in event -> session order. The transaction
   // keeps this guard locked through the session update and outbox inserts; doing
@@ -1211,6 +1327,15 @@ export async function moveSessionInTx(
   `);
   const speakerIds = (speakerRows.rows ?? []).map((speaker) => speaker.contact_id as ContactId);
 
+  // MTP-07 step 14, inside the same transaction as the move itself: a drag, an
+  // Auto-place apply and an Undo all arrive here, so all three leave a trace.
+  await recordPlacementRevisionIn(
+    tx, eventId, input.id,
+    { startsAt: iso(prior.starts_at), endsAt: iso(prior.ends_at), roomId: prior.room_id },
+    { startsAt: iso(row.starts_at), endsAt: iso(row.ends_at), roomId: row.room_id },
+    actorUserId,
+  );
+
   await notifySchedule(
     tx, eventId, input.id,
     { status: prior.status, startsAt: iso(prior.starts_at), scheduleRevision: Number(prior.schedule_revision) },
@@ -1218,15 +1343,16 @@ export async function moveSessionInTx(
     speakerIds,
   );
 
-  return { session: toDto(row, speakerIds), speakerIds };
+  return { session: toDto(row, speakerIds, await abstractFactsFor(tx, eventId, row.submission_id)), speakerIds };
 }
 
 export async function moveSession(
   eventId: EventId,
   rawInput: unknown,
+  actorUserId: UserId | null = null,
 ): Promise<{ session: ScheduledSessionDTO; conflicts: ConflictDTO[] }> {
   const input = moveSessionInputSchema.parse(rawInput);
-  const { session } = await withTx((tx) => moveSessionInTx(tx, eventId, input));
+  const { session } = await withTx((tx) => moveSessionInTx(tx, eventId, input, actorUserId));
 
   // Read-only and after the commit: the fresh conflict list is what the grid
   // repaints from, and holding a transaction open for it buys nothing.
