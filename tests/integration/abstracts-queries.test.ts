@@ -286,6 +286,24 @@ describe("abstracts queries", () => {
     expect(detail.answerPanel.answers).toHaveLength(1);
   });
 
+  // The Speakers column joins these names with ", ", so a contact who has no
+  // name yet used to turn the cell into "Ada Lovelace, ".
+  it("names a speaker by their address when the contact has no name yet", async () => {
+    const nameless = "a1000000-0000-4000-8000-000000000022";
+    await pglite.query("INSERT INTO contacts(id,event_id,email) VALUES($1,$2,'nameless@example.com')", [nameless, eventId]);
+    await pglite.query(
+      "INSERT INTO submission_participants(event_id,submission_id,contact_id,is_primary,sort_order) VALUES($1,$2,$3,false,1)",
+      [eventId, withdrawn, nameless],
+    );
+    try {
+      const [row] = (await listSubmissionsIn(db, eventId, filters({ search: "archived" }))).rows;
+      expect(row?.speakers.map((speakerRow) => speakerRow.name)).toEqual(["nameless@example.com"]);
+    } finally {
+      await pglite.query("DELETE FROM submission_participants WHERE contact_id = $1", [nameless]);
+      await pglite.query("DELETE FROM contacts WHERE id = $1", [nameless]);
+    }
+  });
+
   it("refuses a submission from another event", async () => {
     const error = await getSubmissionDetailIn(db, eventId, elsewhere).catch((thrown: unknown) => thrown);
     expect(isAppError(error) && error.code).toBe("NOT_FOUND");
