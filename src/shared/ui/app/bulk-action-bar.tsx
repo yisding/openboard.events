@@ -41,7 +41,7 @@ export function BulkActionBar({
   return (
     <div className="bulk-bar">
       {count > 0
-        ? <><span>{countLabel ?? `${count} selected`}</span>{actions}<button type="button" onClick={onClear}>Clear</button></>
+        ? <><span>{countLabel ?? `${count} selected`}</span>{actions}<button type="button" className="bulk-bar-clear" onClick={onClear}>Clear</button></>
         : emptyNote}
       {trailing}
     </div>

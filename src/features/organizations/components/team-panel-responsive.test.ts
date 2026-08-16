@@ -20,6 +20,11 @@ describe("TeamPanel responsive member rows", () => {
     expect(css).toContain(".organization-members-section .data-table tr{display:grid;grid-template-columns:minmax(0,1fr) 124px}");
     expect(css).toContain(".organization-members-section td.organization-member-name{grid-column:1;grid-row:1/3");
     expect(css).toContain(".organization-members-section td.organization-member-role{grid-column:2;grid-row:1;height:54px");
-    expect(css).toContain(".organization-members-section td.organization-member-actions{grid-column:2;grid-row:2;height:54px");
+    // The actions cell keeps the rail's column and row, but not a fixed height:
+    // its two buttons are 44px touch targets that wrap inside a 124px rail, so
+    // a pinned 54px (and then the 62px every `.data-table td` gets) cut Remove
+    // off. It grows instead, with 54px as the floor.
+    expect(css).toContain(".organization-members-section td.organization-member-actions{grid-column:2;grid-row:2;height:auto;min-height:54px");
+    expect(css).not.toContain(".organization-members-section td.organization-member-actions{grid-column:2;grid-row:2;height:54px");
   });
 });
