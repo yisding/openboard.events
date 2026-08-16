@@ -11,6 +11,7 @@ import { SpeakerDetailView } from "./speaker-detail-view";
 const harness = vi.hoisted(() => ({ toast: vi.fn() }));
 
 vi.mock("@/shared/ui/toast", () => ({ useToast: () => ({ toast: harness.toast }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
 vi.mock("@/shared/ui/app/file-upload", () => ({ FileUpload: () => null }));
 vi.mock("@/shared/ui/app/rich-text-editor-lazy", () => ({ RichTextEditor: () => null }));
 vi.mock("@/shared/ui/app/tz-time", () => ({ TzTime: () => null }));
