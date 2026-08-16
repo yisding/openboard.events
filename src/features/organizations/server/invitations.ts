@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, like, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, like, sql } from "drizzle-orm";
 import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
 import { rowsOf } from "@/db/query-result";
 import { adminAuthEmailOutbox, communicationLogs, eventMembers, events, organizationInvitations, organizations, users } from "@/db/schema";
@@ -314,6 +314,45 @@ export const revokeEventReviewerInvitation = (
   invitationId: OrganizationInvitationId,
   actorUserId: UserId,
 ) => withTx((tx) => revokeEventReviewerInvitationIn(tx, eventId, invitationId, actorUserId));
+
+/**
+ * Every *event-scoped* pending invitation in this organization.
+ *
+ * The workspace query below filters `event_id IS NULL`, which is right for the
+ * Team panel — but reviewer invitations live in the same table under the same
+ * organization with `event_id` set, and the organization export read only the
+ * workspace query. So a bundle whose stated purpose is the complete
+ * administrative record reported `pendingInvitations: []` while five reviewer
+ * invitations were outstanding, and contradicted its own audit log, which shows
+ * the `reviewer.invited` entries that sent them.
+ */
+export async function listPendingOrganizationEventInvitationsIn(dbOrTx: DbOrTx, organizationId: OrganizationId): Promise<OrganizationInvitationDTO[]> {
+  const rows = await dbOrTx.select({
+    id: organizationInvitations.id,
+    organizationId: organizationInvitations.organizationId,
+    email: organizationInvitations.email,
+    role: organizationInvitations.role,
+    invitedByUserId: organizationInvitations.invitedByUserId,
+    createdAt: organizationInvitations.createdAt,
+    expiresAt: organizationInvitations.expiresAt,
+    acceptedAt: organizationInvitations.acceptedAt,
+    revokedAt: organizationInvitations.revokedAt,
+  }).from(organizationInvitations)
+    .where(and(
+      eq(organizationInvitations.organizationId, organizationId),
+      isNotNull(organizationInvitations.eventId),
+      sql`${organizationInvitations.acceptedAt} IS NULL`,
+      sql`${organizationInvitations.revokedAt} IS NULL`,
+      sql`${organizationInvitations.expiresAt} > now()`,
+    ))
+    .orderBy(asc(organizationInvitations.createdAt));
+  return rows.map((row) => organizationInvitationDtoSchema.parse({
+    id: row.id, organizationId: row.organizationId, email: row.email, role: row.role,
+    invitedByUserId: row.invitedByUserId, createdAt: row.createdAt.toISOString(), expiresAt: row.expiresAt.toISOString(),
+    acceptedAt: row.acceptedAt ? row.acceptedAt.toISOString() : null,
+    revokedAt: row.revokedAt ? row.revokedAt.toISOString() : null,
+  }));
+}
 
 export async function listPendingOrganizationInvitationsIn(dbOrTx: DbOrTx, organizationId: OrganizationId): Promise<OrganizationInvitationDTO[]> {
   const rows = await dbOrTx.select({

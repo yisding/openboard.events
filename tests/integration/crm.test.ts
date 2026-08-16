@@ -643,6 +643,43 @@ describe("organization-level speaker CRM (M55)", () => {
     expect(retry.matchedExisting).toBe(2);
   });
 
+  it("counts one event once after a merge, and clears the merge's own timeline entries on recovery", async () => {
+    // `organization_contact_links` is unique on (event_id, contact_id), not
+    // (event_id, organization_contact_id) — so a merge's plain UPDATE leaves two
+    // links to the *same* event on the primary. The directory column is headed
+    // "Events" and counted rows, inflating by one for every alias merged in that
+    // shared an event, while the metrics card counted DISTINCT event_id: two
+    // surfaces, same data, different numbers.
+    const primaryId = await createOrganizationContactIn(db, orgA, { email: "twin.primary@example.com", firstName: "Twin", lastName: "Primary" });
+    const loserId = await createOrganizationContactIn(db, orgA, { email: "twin.loser@example.com", firstName: "Twin", lastName: "Loser" });
+    await pushOrganizationContactToEventIn(db, orgA, primaryId, eventA1);
+    await pushOrganizationContactToEventIn(db, orgA, loserId, eventA1);
+
+    const audit = await mergeOrganizationContactsIn(
+      db as unknown as TxDb, orgA,
+      { primaryContactId: primaryId, mergedContactId: loserId, fieldResolutions: {} },
+      actorUserId,
+    );
+
+    const [merged] = (await listOrganizationContactsIn(db, orgA, { search: "twin.primary", limit: 10, offset: 0 })).rows;
+    expect(merged?.eventCount).toBe(1);
+    const metrics = await getCrmMetricsIn(db, orgA);
+    expect(metrics.eventsRepresented).toBeGreaterThanOrEqual(1);
+
+    // The merge writes `merged_from` on the primary and `merged_into` on the
+    // loser *after* the recovery snapshot was captured, so neither was in the
+    // snapshot and neither was ever undone. A fully un-merged contact's timeline
+    // still read "Merged into another contact", the primary's still read "Merged
+    // from another contact", and nothing recorded the reversal.
+    await recoverCrmMergeIn(db as unknown as TxDb, orgA, audit.id, actorUserId);
+
+    const leftovers = await pglite.query<{ kind: string }>(
+      "SELECT kind FROM organization_contact_activity WHERE organization_contact_id IN ($1,$2) AND kind IN ('merged_from','merged_into')",
+      [primaryId, loserId],
+    );
+    expect(leftovers.rows).toEqual([]);
+  });
+
   it("imports onto the survivor when a CSV carries a merged-away contact's old address", async () => {
     // A merge never rewrites the loser's email, and `UNIQUE (organization_id,
     // email)` means the loser holds a *different* address from its primary. So

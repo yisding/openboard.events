@@ -491,6 +491,35 @@ export async function recoverCrmMergeIn(tx: TxDb, organizationId: OrganizationId
     await tx.insert(organizationContactTagLinks).values({ organizationId, organizationContactId: merged.id, tagId: tag.tagId }).onConflictDoNothing();
   }
 
+  // The merge's own two activity rows go with it. They were written *after*
+  // `loadMergeRecoverySnapshotIn` captured the loser's ids, so neither is in
+  // `snapshot.references.activity` and neither was ever moved back — leaving a
+  // fully un-merged contact whose timeline still read "Merged into another
+  // contact" and a primary whose timeline still read "Merged from another
+  // contact", with nothing anywhere recording the reversal.
+  //
+  // It also compounded: a re-merge's snapshot picks up *all* of the loser's
+  // activity, including merge #1's stale `merged_into`, and relocates it to the
+  // primary — giving the primary a `merged_into` row whose `primaryContactId`
+  // is itself.
+  //
+  // Identified by the pair rather than by a timestamp: the two rows are written
+  // *after* the audit row, so a `created_at <= auditRow.createdAt` bound
+  // excludes them outright. A merge/recover/merge cycle cannot leave an older
+  // pair behind either, because the untombstone below only succeeds while this
+  // merge is the one currently in force — an earlier one was already recovered,
+  // and its rows deleted here.
+  await tx.delete(organizationContactActivity).where(and(
+    eq(organizationContactActivity.organizationId, organizationId),
+    inArray(organizationContactActivity.kind, ["merged_from", "merged_into"]),
+    sql`(
+      (${organizationContactActivity.organizationContactId} = ${primary.id}
+        AND ${organizationContactActivity.metadata} ->> 'mergedContactId' = ${merged.id})
+      OR (${organizationContactActivity.organizationContactId} = ${merged.id}
+        AND ${organizationContactActivity.metadata} ->> 'primaryContactId' = ${primary.id})
+    )`,
+  ));
+
   const [untombstoned] = await tx.update(organizationContacts).set({ mergedIntoId: null, updatedAt: new Date() }).where(and(
     eq(organizationContacts.organizationId, organizationId),
     eq(organizationContacts.id, merged.id),

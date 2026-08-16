@@ -137,7 +137,14 @@ export async function listOrganizationContactsIn(dbOrTx: DbOrTx, organizationId:
   const rowsResult = await dbOrTx.execute(sql`
     SELECT
       oc.*,
-      coalesce((SELECT count(*)::int FROM organization_contact_links l WHERE l.organization_contact_id = oc.id), 0) AS event_count,
+      -- DISTINCT, because the column is headed "Events". A merge re-points every
+      -- one of the loser's links at the primary with a plain UPDATE, and the
+      -- table's uniqueness is (event_id, contact_id) rather than
+      -- (event_id, organization_contact_id) -- so two links to the *same* event
+      -- survive on the primary and the count inflated by one for every alias
+      -- merged in that shared an event. The metrics card for the same data
+      -- already counts DISTINCT event_id, so the two surfaces disagreed.
+      coalesce((SELECT count(DISTINCT l.event_id)::int FROM organization_contact_links l WHERE l.organization_contact_id = oc.id), 0) AS event_count,
       (SELECT max(created_at) FROM organization_contact_activity a WHERE a.organization_contact_id = oc.id) AS last_activity_at,
       coalesce((
         SELECT jsonb_agg(jsonb_build_object('id', t.id, 'name', t.name, 'color', t.color) ORDER BY t.name)

@@ -95,6 +95,7 @@ export {
   issueOrganizationInvitationTokenIn,
   listPendingEventReviewerInvitations,
   listPendingEventReviewerInvitationsIn,
+  listPendingOrganizationEventInvitationsIn,
   listPendingOrganizationInvitations,
   listPendingOrganizationInvitationsIn,
   revokeOrganizationInvitation,

@@ -6,6 +6,7 @@ import {
   listOrganizationAuditLogIn,
   listOrganizationEventsIn,
   listOrganizationMembersIn,
+  listPendingOrganizationEventInvitationsIn,
   listPendingOrganizationInvitationsIn,
   type OrganizationEventRow,
 } from "@/features/organizations";
@@ -48,6 +49,14 @@ export type OrganizationDataExport = {
   organization: OrganizationDTO;
   members: OrganizationMemberDTO[];
   pendingInvitations: OrganizationInvitationDTO[];
+  /**
+   * Event-scoped reviewer invitations. They live in the same table under the
+   * same organization with `event_id` set, and the workspace query filters
+   * those out — so a bundle whose stated purpose is the complete administrative
+   * record reported no pending invitations while five were outstanding, and
+   * contradicted its own audit log's `reviewer.invited` entries.
+   */
+  pendingEventInvitations: OrganizationInvitationDTO[];
   auditLog: OrganizationAuditLogEntryDTO[];
   onboardingMilestones: OrganizationOnboardingMilestone[];
   events: OrganizationEventExportRow[];
@@ -56,9 +65,10 @@ export type OrganizationDataExport = {
 export async function exportOrganizationDataIn(dbOrTx: DbOrTx, organizationId: OrganizationId): Promise<OrganizationDataExport | null> {
   const organization = await getOrganizationIn(dbOrTx, organizationId);
   if (!organization) return null;
-  const [members, pendingInvitations, auditLog, onboardingMilestones, eventRows, demoFlags] = await Promise.all([
+  const [members, pendingInvitations, pendingEventInvitations, auditLog, onboardingMilestones, eventRows, demoFlags] = await Promise.all([
     listOrganizationMembersIn(dbOrTx, organizationId),
     listPendingOrganizationInvitationsIn(dbOrTx, organizationId),
+    listPendingOrganizationEventInvitationsIn(dbOrTx, organizationId),
     listOrganizationAuditLogIn(dbOrTx, organizationId, 1000),
     listOrganizationOnboardingMilestonesIn(dbOrTx, organizationId),
     listOrganizationEventsIn(dbOrTx, organizationId),
@@ -66,7 +76,7 @@ export async function exportOrganizationDataIn(dbOrTx: DbOrTx, organizationId: O
   ]);
   const isDemoById = new Map(demoFlags.map((row) => [row.id, row.isDemo]));
   const exportedEvents = eventRows.map((row) => ({ ...row, isDemo: isDemoById.get(row.id) ?? false }));
-  return { exportedAt: new Date().toISOString(), organization, members, pendingInvitations, auditLog, onboardingMilestones, events: exportedEvents };
+  return { exportedAt: new Date().toISOString(), organization, members, pendingInvitations, pendingEventInvitations, auditLog, onboardingMilestones, events: exportedEvents };
 }
 
 export function exportOrganizationData(organizationId: OrganizationId): Promise<OrganizationDataExport | null> {
