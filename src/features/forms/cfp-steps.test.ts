@@ -198,9 +198,20 @@ describe("CFP validation routing", () => {
   });
 
   it("uses the server fallback limit and ignores overlong hidden answers", () => {
+    // An *unmapped* field with no authored `maxChars` falls back to
+    // `LIMITS.SHORT_TEXT`. `company` used to stand in for this, but it maps to
+    // `contact.company` and is now clamped to the ceiling every writer of that
+    // column shares — see the case below.
+    expect(stepFieldErrors(GOLDEN_SNAPSHOT, ["abstract"], {
+      [fieldId("format")]: { t: "opt", v: "workshop" },
+      [fieldId("workshop_duration")]: { t: "s", v: "x".repeat(501) },
+    })[fieldId("workshop_duration")]).toBe("Keep this under 500 characters");
+
+    // A mapped contact field cannot advertise more than the profile form will
+    // accept, or a value entered here wedges every later profile save.
     expect(stepFieldErrors(GOLDEN_SNAPSHOT, ["participant"], {
-      [fieldId("company")]: { t: "s", v: "x".repeat(501) },
-    })[fieldId("company")]).toBe("Keep this under 500 characters");
+      [fieldId("company")]: { t: "s", v: "x".repeat(161) },
+    })[fieldId("company")]).toBe("Keep this under 160 characters");
 
     const conditional = structuredClone(GOLDEN_SNAPSHOT);
     const workshopDuration = conditional.sections.flatMap((section) => section.fields)

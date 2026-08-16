@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { SpeakerProfileDTO } from "@/features/portal";
 import { LIMITS, plainTextLength } from "@/shared/contracts";
+import { readFieldErrors } from "@/shared/lib/api-client";
 import { FileUpload } from "@/shared/ui/app/file-upload";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
@@ -73,7 +74,8 @@ export function profileTextChanged(draft: ProfileTextDraft, baseline: ProfileTex
   return textDraftChanged(draft, baseline);
 }
 
-async function patchProfile(eventId: string, payload: Payload): Promise<
+/** Exported for test: the envelope shape this reads is the whole defect it fixes. */
+export async function patchProfile(eventId: string, payload: Payload): Promise<
   { ok: true; profile: SpeakerProfileDTO } | { ok: false; message: string; fieldErrors?: Record<string, string> }
 > {
   let response: Response;
@@ -88,10 +90,20 @@ async function patchProfile(eventId: string, payload: Payload): Promise<
   }
   const body = await response.json().catch(() => null) as {
     data?: SpeakerProfileDTO;
-    error?: { message?: string; data?: { fieldErrors?: Record<string, string> } };
+    error?: { message?: string; fieldErrors?: Record<string, string>; data?: unknown };
   } | null;
   if (!response.ok || !body?.data) {
-    const fieldErrors = body?.error?.data?.fieldErrors;
+    // `readFieldErrors`, not `error.data.fieldErrors`. `errorEnvelope` puts a
+    // zod failure's `fieldErrors` at the *top level* of `error`, and `data` is
+    // `AppError.details` — a different constructor argument entirely. The
+    // headshot validations pass their map as `fieldErrors` with no `details`,
+    // so `error.data.fieldErrors` was always absent: `setFieldErrors` only ever
+    // received nothing, and all eight `error={fieldErrors.*}` slots plus the
+    // focus-first-invalid effect were dead code. A speaker whose company or job
+    // title exceeds its limit got a bare "Request validation failed" toast with
+    // no field highlighted and no focus moved, across twelve inputs. The CFP
+    // client reads both shapes; this one read only the wrong one.
+    const fieldErrors = readFieldErrors(body?.error);
     return { ok: false, message: body?.error?.message ?? "That did not go through", ...(fieldErrors ? { fieldErrors } : {}) };
   }
   return { ok: true, profile: body.data };
