@@ -56,8 +56,11 @@ export function SignOutButton({ kind, eventSlug, compact = false, redirectTo, la
   );
 
   return (
+    // Secondary, not ghost: this is the only way off the screens that render
+    // it, and a borderless control beside an avatar reads as a caption rather
+    // than as a button.
     <Button
-      variant="ghost"
+      variant="secondary"
       size="sm"
       disabled={busy}
       onClick={() => runGuarded(() => { void signOut(); })}

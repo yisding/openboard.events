@@ -178,6 +178,48 @@ describe("database-backed event mutations", () => {
     expect(isAppError(failure) && failure.message).toBe("That slug is taken");
   });
 
+  it("suffixes a slug it derived from the name rather than blaming a field nobody filled in", async () => {
+    // "Community AI Summit" is a name two organizations reach for
+    // independently, and `events_slug_key` is global — so the second one was
+    // told "That slug is taken" about a field they never opened, on a page
+    // whose slug input lives behind a collapsed disclosure, with nothing
+    // obvious to change. A slug we derived is ours to move.
+    const first = await createEventIn(database, actorUserId, baseInput({ name: "Community AI Summit" }));
+    expect(first.slug).toBe("community-ai-summit");
+
+    const second = await createEventIn(database, actorUserId, baseInput({ name: "Community AI Summit" }));
+    expect(second.slug).toBe("community-ai-summit-2");
+    expect(second.id).not.toBe(first.id);
+
+    const third = await createEventIn(database, actorUserId, baseInput({ name: "Community AI Summit" }));
+    expect(third.slug).toBe("community-ai-summit-3");
+  });
+
+  it("still refuses a slug the organizer typed themselves", async () => {
+    // The suffix is a courtesy for a value we invented. A typed one is an
+    // answer to a question we asked, and silently filing it under a different
+    // URL would break the link they were about to publish.
+    await createEventIn(database, actorUserId, baseInput({ name: "Chosen Conf", slug: "chosen-conf" }));
+    const failure = await createEventIn(database, actorUserId, baseInput({ name: "Chosen Conf Two", slug: "chosen-conf" }))
+      .catch((error: unknown) => error);
+    expect(isAppError(failure) && failure.message).toBe("That slug is taken");
+  });
+
+  it("recovers a derived-slug create whose response was lost after it had already suffixed", async () => {
+    // The wizard sends a stable `id` so a lost response can be retried. The
+    // committed row may carry `-2` while the retry's first candidate is the
+    // bare base, so correlating on an exact slug match would refuse to
+    // recognise the row it had itself just written.
+    await createEventIn(database, actorUserId, baseInput({ name: "Replay Summit" }));
+    const stableId = "a0000000-0000-4000-8000-0000000000f2" as EventId;
+    const committed = await createEventIn(database, actorUserId, baseInput({ id: stableId, name: "Replay Summit" }));
+    expect(committed.slug).toBe("replay-summit-2");
+
+    const replayed = await createEventIn(database, actorUserId, baseInput({ id: stableId, name: "Replay Summit" }));
+    expect(replayed.id).toBe(stableId);
+    expect(replayed.slug).toBe("replay-summit-2");
+  });
+
   it("heals a half-created orphan on retry instead of reporting the slug taken", async () => {
     // Simulate the failure window the work order describes: the event row
     // exists, but the process died before either seeding call ran.
