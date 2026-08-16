@@ -273,6 +273,43 @@ describe("communications outbox dispatcher", () => {
     expect(rows.rows).toEqual([{ status: "failed", secret_cleared: true }, { status: "failed", secret_cleared: true }]);
   });
 
+  it("mints a portal credential only for a body that asks for one", async () => {
+    await seedDefaultTemplates(tx, eventId);
+
+    // `schedule_assigned` and `schedule_changed` carry no `{{portal.magic_link}}`
+    // and are the highest-volume templates in the product — one per publish,
+    // drag, room swap and speaker add. Keying the mint on template *kind*
+    // issued a `purpose: "magic_link"`, `ttl: "P30D"` bearer credential for
+    // every one of them. Nothing sweeps those:
+    // `invalidatePriorPortalTokens` clears only rows carrying an `otp_hash`,
+    // and `logoutPortal` deletes the session row alone — so a speaker with a
+    // month of schedule mail held a month of independent, unexpired,
+    // un-revocable portal credentials.
+    await enqueueEmail(tx, { eventId, contactId, templateKey: "schedule_assigned", idempotencyKey: `${eventId}:mint:schedule`, refs: { sessionId } });
+    await expect(dispatchOutboxIn(tx, 50, { env: logEnv })).resolves.toMatchObject({ sent: 1 });
+    const afterSchedule = await pglite.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM portal_tokens WHERE contact_id=$1 AND purpose='magic_link'", [contactId],
+    );
+    expect(afterSchedule.rows[0]?.n).toBe(0);
+
+    // A template whose body does use the token still gets one.
+    await pglite.query(
+      "UPDATE email_templates SET body_html = body_html || '<p>{{portal.magic_link}}</p>' WHERE event_id=$1 AND key='submission_received'",
+      [eventId],
+    );
+    await enqueueEmail(tx, { eventId, contactId, templateKey: "submission_received", idempotencyKey: `${eventId}:mint:received`, refs: { submissionId: receivedId } });
+    await expect(dispatchOutboxIn(tx, 50, { env: logEnv })).resolves.toMatchObject({ sent: 1 });
+    const afterReceived = await pglite.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM portal_tokens WHERE contact_id=$1 AND purpose='magic_link'", [contactId],
+    );
+    expect(afterReceived.rows[0]?.n).toBe(1);
+
+    const body = await pglite.query<{ body: string }>(
+      "SELECT body_rendered_html AS body FROM communication_logs WHERE idempotency_key=$1", [`${eventId}:mint:received`],
+    );
+    expect(body.rows[0]?.body).toContain("/verify?token=");
+  });
+
   it("redacts a valid login credential from non-diagnostic audit storage", async () => {
     await seedDefaultTemplates(tx, eventId);
     const tokenId = tokenIdSchema.parse("c0000000-0000-4000-8000-000000000013");
