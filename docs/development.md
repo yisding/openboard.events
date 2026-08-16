@@ -8,8 +8,7 @@ what Openboard does and how to use it, start with the [README](../README.md).
 
 - **CI** (`.github/workflows/ci.yml`) runs the credential-free validation set on every PR:
   typecheck, lint, architecture and schema drift checks, invariant checks, the full Vitest suite
-  (2,638 cases across two native-Postgres shards as of 2026-08-14), the Next.js build, and the
-  Worker artifact gates.
+  across two native-Postgres shards, the Next.js build, and the Worker artifact gates.
 - **Deploys run through GitHub Actions** (`.github/workflows/deploy.yml`): a merge to `main`
   deploys the preview environment automatically once CI passes — migration → web → jobs → strict
   post-deploy smoke — and production deploys run through the same workflow behind a protected
@@ -22,9 +21,9 @@ what Openboard does and how to use it, start with the [README](../README.md).
 - The billing provider is a scaffold behind `BILLING_MODE=disabled`, which hides its link and
   returns 404 from the page, internal endpoints, and webhook. `BILLING_MODE=scaffold` is accepted
   only for local seam tests.
-- Snapshot counts (re-run the commands in **Testing** for current numbers): 44 migrations in
-  [`drizzle/`](../drizzle), 13 Playwright specs in [`e2e/`](../e2e), and a Worker bundle inside
-  the 3 MiB Cloudflare Workers Free ceiling, enforced by `pnpm worker:size`.
+- The migration journal lives in [`drizzle/`](../drizzle), the Playwright specs in
+  [`e2e/`](../e2e), and the Worker bundle stays inside the 3 MiB Cloudflare Workers Free
+  ceiling, enforced by `pnpm worker:size`.
 
 ## What's inside
 
@@ -39,6 +38,7 @@ what Openboard does and how to use it, start with the [README](../README.md).
 | Dashboards | Aggregated server endpoint over SQL reporting views, an attention-first queue, phase-aware ordering |
 | Commercial layer | Organizations/tenancy, user management + invitations + audit log, Better Auth (email/password + Google), self-serve onboarding, GDPR export/erasure/retention, a billing scaffold, org-level speaker CRM (directory, segments, pipeline, merge) |
 | Experience layer | Slide-over detail panels with keyboard next/prev, a shared bulk-action bar, a command palette, speaker "I'm speaking!" share moments, public schedule liveness |
+| Integrations | One-way Airtable sync per event (scheduled sweep plus manual "Sync now"), keyed on an `Openboard ID` merge field — see [`docs/airtable.md`](airtable.md) |
 
 ## Architecture
 
@@ -49,8 +49,9 @@ Two Cloudflare Workers, one Next.js repository:
   `JobsEntrypoint` used by the scheduler.
 - **`workers/jobs`** — a dumb cron dispatcher with no database or provider credentials. Its
   `WEB_JOBS` Service Binding invokes `sb-web` privately on a minute-modulo schedule (outbox drain,
-  reminders, cleanup). It has no application variables, secrets, public callback, or fallback
-  transport; deploy matching web and jobs versions as a pair.
+  reminders, Airtable sync, cleanup). Its only application variable is the `AIRTABLE_CRON` kill
+  switch; it has no secrets, public callback, or fallback transport. Deploy matching web and jobs
+  versions as a pair.
 
 Inside `src`:
 
@@ -77,6 +78,11 @@ Prerequisites: Node.js 22 (pinned in `.node-version`), pnpm (`packageManager` pi
 ```bash
 pnpm install
 cp .dev.vars.example .dev.vars     # fill in DATABASE_URL / DATABASE_URL_DIRECT and SESSION_SECRET
+
+# Export it: the CLI steps below run outside Next and do not read .dev.vars.
+# (pnpm dev reads it through Wrangler's platform proxy; tsx scripts see only process.env.)
+set -a; source .dev.vars; set +a
+
 pnpm db:migrate                    # applies drizzle/ to whatever DATABASE_URL_DIRECT points at
 pnpm seed                          # loads the sample event; pass --wipe to reset first
 pnpm dev                           # http://localhost:3000
@@ -150,8 +156,8 @@ temporary databases; never point it at a shared or production server. Each run t
 it creates with a run id and drops that set when the run ends, so two commands may share one
 server without reclaiming each other's databases.
 
-The 13 specs in [`e2e/`](../e2e) (`cfp-submit`, `abstracts-decide`, `admin-setup`,
-`agenda-schedule`, `portal-tasks`, `public-embeds`, `public-widgets-parity`,
+The 14 specs in [`e2e/`](../e2e) (`abstracts-decide`, `admin-setup`, `agenda-schedule`,
+`cfp-submit`, `demo-tour`, `portal-tasks`, `public-embeds`, `public-widgets-parity`,
 `rendered-ui-polish`, `responsive-action-groups`, `review-operations`, `self-service-onboarding`,
 `speaker-content-ops`, `typography-hierarchy`) are written to run against
 a deployed target plus the `sb-test` Neon branch, not against `localhost` fixtures — set

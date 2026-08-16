@@ -30,11 +30,8 @@ regressions have permanent checks there.
 | **A — local, database-backed** | `pnpm dev` against a Postgres/Neon branch you own, seeded with `pnpm seed` | Default for every plan. Everything except real email delivery and R2 CORS |
 | **C — deployed preview** | `https://sb-web-preview.yi-ding.workers.dev`, or your own deploy | Real email delivery, R2 presign/PUT under CORS, edge-cache headers, throttles behind a real IP |
 
-There used to be an **Env B — browser demo** (`/` → **Open demo**; localStorage fixtures, no
-credentials, no database), used for the design sweeps because it was fast and resettable. It was
-deleted from the codebase on 2026-08-12: the environment no longer exists, and every plan that
-named it now runs on Env A. `pnpm seed --wipe` replaces **Reset demo** — slower, but it resets the
-only state the app has left.
+Every plan runs on Env A unless a step says otherwise; `pnpm seed --wipe` is the reset between
+runs. (There is no credential-free browser-demo environment — nothing renders without Postgres.)
 
 ### 0.2 Setup A — local, database-backed (do this once)
 
@@ -57,8 +54,7 @@ pnpm dev                           # http://localhost:3000
 > Next, where `getCloudflareContext()` throws and `getEnv()` falls back to bare `process.env`.
 > In a clean shell they see nothing: `db:migrate` aborts with `DATABASE_URL_DIRECT is required
 > to migrate the database` and the seed fails with `DATABASE_URL is required`. Export the file,
-> or pass the two URLs inline on each command. (The same gap is in `docs/development.md`'s
-> quickstart.)
+> or pass the two URLs inline on each command.
 
 Then the admin accounts (`docs/development.md` *Getting started* has the full flow), in the same exported shell:
 
@@ -153,8 +149,7 @@ Resend — that log line is the artifact for local email assertions.
 | Event timezone | `America/Los_Angeles`; seeded times are local wall-clock in that zone |
 
 `pnpm seed` does **not** print the public CFP path — take it from this table, or from
-**Copy live link** on the admin Forms list. (`docs/demo-script.md` used to claim the seed printed
-it; corrected 2026-08-12.)
+**Copy live link** on the admin Forms list.
 
 ### 0.5 The submission status model (used heavily in MTP-06)
 
@@ -220,67 +215,40 @@ blocking.** Outside the core flow, zero S1.
 
 ### 0.8 Closed design defects — the regression baseline
 
-These three defects were fixed and their GitHub issues closed on 2026-08-12. Keep running the named
-checks: any recurrence is a regression, not a known exception to the release bar.
+Three fixed design defects keep their named checks. Any recurrence is a regression, not a known
+exception to the release bar.
 
----
+| Ref | The check that stays | Where |
+|---|---|---|
+| **DD-1** — dropdowns | Every dropdown uses the kit `Select` (designed chevron, no OS chrome) while keeping native keyboard type-ahead, Escape, and the touch picker. Compare admin vs public dropdowns at 390 px and by keyboard, not by counting tags | MTP-03 §4, MTP-08 §2 probe 1 |
+| **DD-2** — date entry | Admin instants all go through the shared `DateTimePicker` with the event timezone named at entry (`tests/unit/source-invariants.test.ts` guards new raw `date`/`datetime-local` controls). The public form's **Date** question is deliberately `CalendarDatePicker` — a calendar date, no zone conversion | MTP-05 §1, MTP-08 §2 probe 2 |
+| **DD-3** — invited-talk path | The Agenda session dialog's `SpeakerQuickAdd` creates and selects a speaker inline without restarting; **Add abstract** is named on the Agenda toolbar; both intake paths share the `SESS-n` allocator and manual creation sends no CFP receipt | MTP-03 §2, MTP-09 task 1 |
 
-**DD-1 — Native `<select>` everywhere. Resolved.**
-([#115](https://github.com/yisding/symmetrical-happiness/issues/115))
+### 0.8a Closed functional and security defects — the regression baseline
 
-`src/shared/ui/ui-kit.tsx` now exports `Select`. It keeps the native element's keyboard type-ahead,
-Escape behavior, and touch picker while `.select-control` supplies the designed chevron and removes
-OS chrome. Application call sites consume that primitive; a source scan should find no direct
-`<select>` outside the primitive. Regress by comparing the admin and public dropdowns at 390 px and
-by keyboard, not merely by counting tags.
+Seventeen defects found and fixed in a full manual pass are each covered by an automated test, but
+the named manual check is what caught each one and stays the regression script — a recurrence is a
+regression, not a known exception.
 
----
-
-**DD-2 — Two different date-entry idioms. Resolved.**
-([#116](https://github.com/yisding/symmetrical-happiness/issues/116))
-
-Admin scheduling, review windows, task deadlines, and speaker unavailability now use the shared
-`DateTimePicker`, with the event timezone named at entry. `tests/unit/source-invariants.test.ts`
-guards against new raw `date`/`datetime-local` controls on every surface. The public form renderer's
-deliberate **Date** question uses `CalendarDatePicker`; it represents a calendar date rather than an
-instant and therefore has no timezone conversion.
-
----
-
-**DD-3 — No single-surface path to schedule an invited talk. Resolved.**
-([#117](https://github.com/yisding/symmetrical-happiness/issues/117))
-
-The Agenda session dialog now contains `SpeakerQuickAdd`; on a fresh event its empty state points to
-that inline form, and the created speaker is selected without closing or restarting the session.
-The Agenda toolbar also names and links to **Add abstract**, whose drawer can select or create a
-speaker. Both paths use the shared collision-resistant `SESS-n` allocator, and manual creation sends no CFP receipt.
-MTP-03 §2 and MTP-09 task 1 are the permanent regression scripts.
-
-### 0.8a Closed functional and security defects — the 2026-08-16 regression baseline
-
-A full manual pass on 2026-08-16 (every plan MTP-01…MTP-18) found and fixed the defects below. Each
-is now covered by an automated test, but the named manual check is what caught it and stays the
-regression script — a recurrence is a regression, not a known exception.
-
-| Ref | Was | Now — the check that stays | Plan |
-|---|---|---|---|
-| CF-1 | A co-speaker's typed name was dropped and never reached their contact; they showed as a bare email everywhere | A co-speaker submitted with a brand-new email keeps their name in the Abstracts list, the drawer summary, and their own portal view | MTP-04 §1a |
-| CF-2 | A withdrawn speaker's published, scheduled session still read "Published" in admin while silently absent from the public schedule | Withdraw the abstract behind a **truly promoted** session (see 0.4a) → a danger divergence chip on the Agenda row and a dashboard attention entry | MTP-07 §1 |
-| CF-3 | Editing an accepted submission's title after promotion left the session title silently stale | A "Title differs from the abstract" chip appears on the linked session | MTP-07 §1 |
-| CF-4 | Evaluation round list did not refresh after an Assign/Edit save; locked scale/criteria fields looked editable and only failed on save | The round-list count updates without reload; a round with reviews shows scale/criteria/weight as visibly disabled | MTP-05 §1–2 |
-| CF-5 | Manual placement gave no capacity warning; the Conflicts tab named no subject; placement moves were never recorded | Under-capacity placement warns; conflict rows name the speaker/room/track; the session dialog's placement history logs each move with who/when | MTP-07 §2–3 |
-| CF-6 | Portal OTP lockout never armed — the attempts counter was rolled back by the failing transaction | Five wrong codes drive `portal_tokens.attempts` to 5 and the token is burned; the sixth is refused even if correct | MTP-10 §1, MTP-17 §2 |
-| CF-7 | The public portal login form created a permanent roster contact for any typed email | Requesting a code for an unknown email writes no contact row; the neutral screen is unchanged | MTP-10 §1 |
-| CF-8 | Actions taken while impersonating a speaker were attributed to no one | A task completed under impersonation records the organizer in `completed_by_user_id` | MTP-10 §1 |
-| CF-9 | Public API v1 leaked empty-string speaker names; the `/cal/<token>` feed silently dropped a removed session | Both v1 endpoints carry a `name` display field ("Unnamed speaker"); a removed session is emitted as `STATUS:CANCELLED` | MTP-11 |
-| CF-10 | Comms template editor rejected the shipped `{{portal.magic_link}}` token, permanently disabling Save on four templates | Every shipped template validates and previews; Save is enabled | MTP-08, MTP-12 |
-| CF-11 | The guided tour retired itself mid-chapter; Escape closing the command palette also paused the tour | The tour reaches the Curtain Call; Escape on the palette closes only the palette | MTP-18 §2 |
-| CF-12 | The sign-in throttle reported "Invalid email or password" for a 429 | A throttled sign-in names the throttle and its window | MTP-02, MTP-17 §4 |
-| CF-13 | The org audit log hid invite/revoke targets and offered no filter; the room-delete confirm showed track/format copy | Invite/revoke rows name the invitee; actor/action filters exist; room-delete copy is room-specific | MTP-13, MTP-16 §3 |
-| CF-14 | GDPR org export and contact erasure had working engines but no UI trigger | An owner can export org data; a contact can be erased behind a type-the-name confirm whose copy names exactly what is deleted | MTP-13 |
-| CF-15 | CRM tags, custom fields, and merge-recovery worked in the API but had no UI; segments could not filter by custom field | Each is reachable from the CRM; a tag created on a contact is attached to it; a tag+custom-field segment resolves correctly | MTP-13 |
-| CF-16 | `/api/uploads/<id>/download-url` distinguished a real file from a missing one by status **and** message | Signed-out requests for a real and a fake id return a byte-identical 401 | MTP-17 §1 |
-| CF-17 | A dangling/foreign room/track/format id on session create escaped as a raw 500 | It returns a named 400 VALIDATION identifying the bad reference; nothing is written | MTP-17 §1 |
+| Ref | The check that stays | Plan |
+|---|---|---|
+| CF-1 | A co-speaker submitted with a brand-new email keeps their typed name in the Abstracts list, the drawer summary, and their own portal view | MTP-04 §1a |
+| CF-2 | Withdraw the abstract behind a **truly promoted** session (see 0.4a) → a danger divergence chip on the Agenda row and a dashboard attention entry | MTP-07 §1 |
+| CF-3 | Retitle an accepted submission after promotion → a "Title differs from the abstract" chip on the linked session | MTP-07 §1 |
+| CF-4 | The round-list count updates after Assign/Edit without reload; a round with reviews shows scale/criteria/weight as visibly disabled | MTP-05 §1–2 |
+| CF-5 | Under-capacity placement warns; conflict rows name the speaker/room/track; the session dialog's placement history logs each move with who/when | MTP-07 §2–3 |
+| CF-6 | Five wrong portal codes drive `portal_tokens.attempts` to 5 and burn the token; the sixth is refused even if correct | MTP-10 §1, MTP-17 §2 |
+| CF-7 | Requesting a portal code for an unknown email writes no contact row; the neutral screen is unchanged | MTP-10 §1 |
+| CF-8 | A task completed under impersonation records the organizer in `completed_by_user_id` | MTP-10 §1 |
+| CF-9 | Both public v1 endpoints carry a `name` display field ("Unnamed speaker"); a removed session is emitted as `STATUS:CANCELLED` in `/cal/<token>` | MTP-11 |
+| CF-10 | Every shipped template (including `{{portal.magic_link}}`) validates and previews; Save is enabled | MTP-08, MTP-12 |
+| CF-11 | The tour reaches the Curtain Call; Escape on the command palette closes only the palette | MTP-18 §2 |
+| CF-12 | A throttled sign-in names the throttle and its window, not "Invalid email or password" | MTP-02, MTP-17 §4 |
+| CF-13 | Audit-log invite/revoke rows name the invitee; actor/action filters exist; room-delete confirm copy is room-specific | MTP-13, MTP-16 §3 |
+| CF-14 | An owner can export org data; a contact can be erased behind a type-the-name confirm whose copy names exactly what is deleted | MTP-13 |
+| CF-15 | CRM tags, custom fields, and merge-recovery are reachable from the UI; a tag+custom-field segment resolves correctly | MTP-13 |
+| CF-16 | Signed-out requests to `/api/uploads/<id>/download-url` for a real and a fake id return a byte-identical 401 | MTP-17 §1 |
+| CF-17 | A dangling/foreign room/track/format id on session create returns a named 400 VALIDATION; nothing is written | MTP-17 §1 |
 
 ### 0.4a A promoted session is not a titled row that happens to match
 
@@ -795,8 +763,8 @@ S1/S2.
 # Part II — The design bar
 
 MTP-08 and MTP-09 are the plans that fail a product for being unfinished rather than broken. Run
-MTP-08 on Env A against a freshly seeded database (it used to run on the retired browser demo);
-run MTP-09 wherever the operator can be given a real task.
+MTP-08 on Env A against a freshly seeded database; run MTP-09 wherever the operator can be given a
+real task.
 
 ---
 
@@ -960,8 +928,8 @@ underneath all of them.
 
 | # | Action | Expected result |
 |---|---|---|
-| 1 | `pnpm install` on a clean clone | Completes; `pnpm@11.21.0` resolved |
-| 2 | `pnpm dev` with **no** `.dev.vars` | The dev server boots and `/` renders — the landing page needs no database. (Until 2026-08-12 this step continued into a credential-free browser demo; that mode is deleted) |
+| 1 | `pnpm install` on a clean clone | Completes with the `packageManager`-pinned pnpm |
+| 2 | `pnpm dev` with **no** `.dev.vars` | The dev server boots and `/` renders — the landing page needs no database |
 | 3 | With still no `.dev.vars`, open `/events` | Redirected to sign-in, or a database error — **never** a fixture-rendered screen. Nothing in the app renders without Postgres |
 | 4 | Stop the server | — |
 | 5 | Fill `.dev.vars` per §0.2; `pnpm db:migrate` | Applies through the journal; re-running is a no-op |
@@ -1055,8 +1023,9 @@ failure. See `docs/runbooks/sign-in-capacity.md` for budgets, log fields, and in
 **Design checks.** §0.7 on portal home, task list, task detail, profile, resources, and the share
 page — this is the surface a speaker sees, so S3s here cost more than elsewhere.
 
-**Known gaps.** Step 12 has a recorded defect (M52) in the portal upload's `attach()` POST: the file
-may land in R2 without the task flipping. Confirm before re-filing.
+**Known gaps.** Step 12 has an open defect ([#621](https://github.com/yisding/openboard.events/issues/621)):
+the upload's `attach()` POST is a separate request from the R2 finalize, so the file may land in R2
+without the task flipping. Confirm against that issue rather than re-filing.
 
 ---
 
@@ -1227,8 +1196,8 @@ creation separately from the first-event path in MTP-13 step 2.
 | 3 | Signed in with owner/organizer access to two workspaces, open `/events/new` | An explicit workspace chooser appears; reviewer-only memberships are absent; the selected workspace opens guided onboarding |
 | 4 | Signed in with reviewer-only memberships, open `/events/new` | No global event form appears; a permission recovery explains that organizer access is required and offers **View your workspaces** |
 
-**Known gaps.** M55 (CRM) landed partial; billing is a local-only scaffold by design. Steps 17–18
-test that it does not lie about what it does.
+**Known gaps.** Billing is a local-only scaffold by design. Steps 17–18 test that it does not lie
+about what it does.
 
 ---
 
@@ -1463,9 +1432,9 @@ useless if it can be dismissed by accident with no way back).
 **Known gaps.** Deleting a room advances the schedule revision of every published, timed session
 it strands but does not enqueue anything: the notification path belongs to the agenda's own save,
 which this statement does not go through. Until a session is saved again, its speakers hold a
-calendar item naming a deleted room. Steps 17 and 17a exist to keep that visible rather than to
-re-file it each release — confirm it still behaves this way, and treat a *missing warning before the
-delete* as the live finding.
+calendar item naming a deleted room. Tracked as
+[#622](https://github.com/yisding/openboard.events/issues/622); steps 17 and 17a keep it visible —
+confirm it still behaves this way rather than filing a duplicate.
 
 ### Exit criteria
 

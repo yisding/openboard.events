@@ -1,10 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
 /**
- * M10 step 1 — the CP1 skeleton. Six specs exist from the start with their
- * unlanded steps skipped, because a spec that first appears the day its feature
- * lands has never been debugged.
- *
  * Specs run against a real deployed target and the real Neon `sb-test` database
  * (resolutions #6/#7). PGlite stays vitest-only; there is no DB_DRIVER seam
  * behind a running Next server and building one is banned.

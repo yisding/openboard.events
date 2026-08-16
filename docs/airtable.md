@@ -1,4 +1,4 @@
-# Airtable sync (M39)
+# Airtable sync
 
 An event organizer connects their own Airtable account from the event's settings, and Openboard
 keeps a base in that account in step with the event's programme. This document is two things: a
@@ -208,7 +208,7 @@ UTC (`minute % 15 === 5`) — deliberately staggered off `reminders`' `:00/:15/:
 never colliding with `cleanup`'s 09:00 run — **and only when `AIRTABLE_CRON === "1"`**. The flag is
 read in the dispatcher itself, before the `WEB_JOBS` RPC is ever called:
 
-- With the flag unset or `"0"` (the default everywhere today): `"airtable"` never appears in the
+- With the flag unset or `"0"`: `"airtable"` never appears in the
   dispatched job list, `WEB_JOBS.runJob("airtable")` is never invoked, no heartbeat is written, and
   `/api/health`'s `jobs.airtableLastSuccessAgeSeconds` correctly stays `null` — a switched-off
   integration must never read as a fresh success.
