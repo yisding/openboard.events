@@ -290,6 +290,7 @@ export function TasksAdminView({
           task={matrixTask}
           timezone={timezone}
           onClose={() => { if (!reminderRecovery.blocked) setMatrixTaskId(null); }}
+          onCompletionReopened={refresh}
           reminderRecovery={reminderRecovery}
           reminderAcknowledgement={reminderAcknowledgement}
           nav={{

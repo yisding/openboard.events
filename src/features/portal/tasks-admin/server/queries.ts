@@ -169,10 +169,33 @@ export async function getTaskCompletionMatrixIn(dbOrTx: DbOrTx, eventId: EventId
     SELECT v.task_id, v.contact_id, v.submission_id, v.due_at, v.completed, v.completed_at, v.completed_via, v.overdue,
            nullif(btrim(c.first_name || ' ' || c.last_name), '') AS contact_name, c.email AS contact_email,
            s.code AS submission_code, s.title AS submission_title
-    FROM task_assignments_v v
+    FROM (
+      SELECT task_id, event_id, contact_id, submission_id, due_at, completed, completed_at, completed_via, overdue
+      FROM task_assignments_v
+      WHERE event_id = ${eventId} AND task_id = ${taskId}
+      UNION ALL
+      -- A completion whose assignment row no longer exists. The view resolves
+      -- one contact per accepted submission via ORDER BY is_primary DESC,
+      -- sort_order, id LIMIT 1, and its LEFT JOIN silently drops a completion
+      -- by a contact who is no longer that one — so marking someone else primary
+      -- made an existing completion vanish from this drawer while
+      -- recorded_count, a raw table count, still refused every shape change
+      -- with "This task has completions". Nothing in the UI could reach the row
+      -- doing the locking, and reopenCompletionIn is only reachable from here.
+      SELECT tc.task_id, tc.event_id, tc.contact_id, tc.submission_id,
+             NULL::timestamptz AS due_at, true AS completed, tc.completed_at, tc.completed_via,
+             false AS overdue
+      FROM task_completions tc
+      WHERE tc.event_id = ${eventId} AND tc.task_id = ${taskId}
+        AND NOT EXISTS (
+          SELECT 1 FROM task_assignments_v live
+          WHERE live.event_id = tc.event_id AND live.task_id = tc.task_id
+            AND live.contact_id = tc.contact_id
+            AND live.submission_id IS NOT DISTINCT FROM tc.submission_id
+        )
+    ) v
     JOIN contacts c ON c.id = v.contact_id AND c.event_id = v.event_id
     LEFT JOIN submissions s ON s.id = v.submission_id AND s.event_id = v.event_id
-    WHERE v.event_id = ${eventId} AND v.task_id = ${taskId}
     ORDER BY v.completed, s.code NULLS FIRST, contact_name NULLS LAST
   `);
   return (result.rows ?? []).map((row) => {
