@@ -19,18 +19,26 @@ describe("LoginForm", () => {
 
   it("turns an unknown Google identity into a clear signup recovery", () => {
     expect(googleSignInErrorMessage("signup_disabled"))
-      .toBe("We couldn’t find an Openboard account for that Google address.");
+      .toBe("No Openboard account uses that Google address yet.");
     expect(googleSignInErrorMessage("access_denied"))
       .toBe("Google sign-in did not finish. Try again or continue with email.");
     expect(googleSignInErrorMessage(null)).toBe("");
   });
 
-  it("renders the unknown-Google recovery without losing the intended destination", () => {
+  it("offers Google account creation to an address sign-in does not know", () => {
     navigation.searchParams = new URLSearchParams("error=signup_disabled&next=%2Forganizations");
     const html = renderToStaticMarkup(<LoginForm googleEnabled />);
 
-    expect(html).toContain("We couldn’t find an Openboard account for that Google address");
-    expect(html).toContain("Create your workspace</a> to continue");
+    expect(html).toContain("No Openboard account uses that Google address yet");
+    expect(html).toContain("Create your workspace with Google");
+    expect(html).toContain('href="/signup?next=%2Forganizations&amp;provider=google"');
+  });
+
+  it("keeps the ordinary signup link free of the Google handoff", () => {
+    navigation.searchParams = new URLSearchParams("error=access_denied&next=%2Forganizations");
+    const html = renderToStaticMarkup(<LoginForm googleEnabled />);
+
+    expect(html).not.toContain("Create your workspace with Google");
     expect(html).toContain('href="/signup?next=%2Forganizations"');
   });
 

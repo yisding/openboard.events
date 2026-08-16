@@ -71,6 +71,24 @@ describe("authentication destination continuity", () => {
     expect(html).not.toContain("Organization name");
   });
 
+  it("opens the Google step for an address sign-in handed over", () => {
+    navigation.searchParams = new URLSearchParams("provider=google&next=%2Forganizations");
+    const html = renderToStaticMarkup(<SignupForm googleEnabled />);
+
+    expect(html).toContain("Set up with Google");
+    expect(html).toContain("Sign-in didn’t find a workspace for that Google address");
+    expect(html).toContain("Organization name");
+    expect(html).not.toContain("Google could not create that account");
+  });
+
+  it("keeps the email form when Google is unavailable or unrequested", () => {
+    navigation.searchParams = new URLSearchParams("provider=google&next=%2Forganizations");
+    expect(renderToStaticMarkup(<SignupForm />)).toContain("Create account");
+
+    navigation.searchParams = new URLSearchParams("next=%2Forganizations");
+    expect(renderToStaticMarkup(<SignupForm googleEnabled />)).toContain("Create account");
+  });
+
   it("explains activation and lets email users verify the password they typed", () => {
     const html = renderToStaticMarkup(<SignupForm />);
 

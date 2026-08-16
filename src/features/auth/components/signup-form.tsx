@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { ArrowRight, Building2, Mail, User } from "lucide-react";
 import { Button } from "@/shared/ui/ui-kit";
-import { authPathWithNext, safeInternalPath } from "../safe-next";
+import { authPathWithNext, requestsGoogleSignup, safeInternalPath } from "../safe-next";
 import { invitationTokenFromNextPath } from "../signup-context";
 import { beginGoogleSignup, signupAndAwaitVerification } from "../signup-request";
 import type { SignupLegalConsent } from "../legal-consent";
@@ -55,7 +55,10 @@ export function SignupForm({ googleEnabled = false, legalConsent = null }: Signu
   const invitationToken = invitationTokenFromNextPath(next);
   const startsGuidedSetup = !invitationToken && next === "/organizations";
   const oauthReturnedWithError = googleEnabled && Boolean(searchParams.get("error"));
-  const [googleSetup, setGoogleSetup] = useState(oauthReturnedWithError);
+  // `/login` sends an unrecognised Google address here rather than refusing it,
+  // so open the step that turns it into a workspace instead of the email form.
+  const arrivedFromGoogleSignIn = googleEnabled && !oauthReturnedWithError && requestsGoogleSignup(searchParams);
+  const [googleSetup, setGoogleSetup] = useState(oauthReturnedWithError || arrivedFromGoogleSignIn);
   const [pending, setPending] = useState<"email" | "google" | null>(null);
   const [error, setError] = useState(oauthReturnedWithError
     ? "Google could not create that account. Check the workspace details or use email instead."
@@ -127,6 +130,7 @@ export function SignupForm({ googleEnabled = false, legalConsent = null }: Signu
       : startsGuidedSetup
         ? "Name your organization, then continue securely with your Google account."
         : "Name your organization, then continue securely with Google and return to the page you requested."}</p>
+    {arrivedFromGoogleSignIn && <p role="status">Sign-in didn’t find a workspace for that Google address — this is the one step that creates it.</p>}
     <aside className="auth-help auth-signup-path">
       <b>What happens next</b>
       <span>{invitationToken

@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { ArrowRight, LockKeyhole, Mail } from "lucide-react";
 import { Button } from "@/shared/ui/ui-kit";
-import { authPathWithNext, safeInternalPath } from "../safe-next";
+import { authPathWithNext, googleSignupPath, safeInternalPath } from "../safe-next";
 import { AuthPasswordField } from "./auth-password-field";
 import { GoogleMark } from "./google-mark";
 
@@ -16,7 +16,7 @@ type LoginFormProps = {
 export function googleSignInErrorMessage(code: string | null): string {
   if (!code) return "";
   return code === "signup_disabled"
-    ? "We couldn’t find an Openboard account for that Google address."
+    ? "No Openboard account uses that Google address yet."
     : "Google sign-in did not finish. Try again or continue with email.";
 }
 
@@ -25,6 +25,7 @@ export function LoginForm({ googleEnabled = false }: LoginFormProps) {
   const searchParams = useSearchParams();
   const requestedNext = searchParams.get("next");
   const signupHref = authPathWithNext("/signup", requestedNext);
+  const googleSignupHref = googleSignupPath(requestedNext);
   const forgotPasswordHref = authPathWithNext("/login/forgot", requestedNext);
   const [pending, setPending] = useState<"password" | "google" | null>(null);
   const [error, setError] = useState(() => googleSignInErrorMessage(searchParams.get("error")));
@@ -136,9 +137,20 @@ export function LoginForm({ googleEnabled = false }: LoginFormProps) {
     </>}
     <label className="field"><span>Email address</span><div className="input-icon"><Mail size={16} /><input name="email" autoComplete="email" required type="email" /></div></label>
     <AuthPasswordField id="login-password" name="password" label="Password" autoComplete="current-password" minLength={8} />
-    {error && <p className="field-error" role="alert">
-      {error}{googleSignupRequired && <> <Link href={signupHref}>Create your workspace</Link> to continue.</>}
-    </p>}
+    {error && <p className="field-error" role="alert">{error}</p>}
+    {/* Signing in never creates an account — the workspace has to be named
+        first. Rather than dead-ending a brand-new organizer on an error, hand
+        that same Google address straight to the signup step that can finish
+        the job. */}
+    {googleSignupRequired && <>
+      <aside className="auth-help auth-signup-path">
+        <b>Every Google account can start one</b>
+        <span>Name your organization and Google finishes creating the workspace — no password to invent.</span>
+      </aside>
+      <Link className="button button-secondary button-lg google-signin" href={googleSignupHref}>
+        <GoogleMark /> Create your workspace with Google
+      </Link>
+    </>}
     {unverifiedEmail && (verificationSent
       ? <p className="auth-inline-success" role="status">A fresh confirmation link is on its way.</p>
       : <Button variant="secondary" disabled={resending} onClick={resendVerification} type="button">{resending ? "Sending…" : "Resend confirmation email"}</Button>)}
