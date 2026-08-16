@@ -200,7 +200,11 @@ function cfpAuthoringRows(formId: FormId, trackRows: { id: string; name: string 
     form: { id: formId, context: "cfp", version: 1 },
     sections: [
       { id: abstractId, key: "abstract", title: "Tell us about your submission", pageHeading: "Submission", descriptionHtml: "", sortOrder: 0 },
-      { id: participantId, key: "participant", title: "Tell us about you", pageHeading: "Participant", descriptionHtml: "", sortOrder: 1 },
+      // "Participant" is the data model's word, not the submitter's. This
+      // step collects the people who would stand up and give the talk, and
+      // saying so is the difference between a heading and a label — an
+      // organizer reading a fresh form could not tell what the step was for.
+      { id: participantId, key: "participant", title: "Tell us about the speaker", pageHeading: "Speaker", descriptionHtml: "", sortOrder: 1 },
     ],
     fields: [
       authored(abstractId, "title", "Title", "text", 0, { required: true, locked: true, maxChars: 255, mapsTo: "submission.title" }),
