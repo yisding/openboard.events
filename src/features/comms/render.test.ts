@@ -80,6 +80,26 @@ describe("communications template renderer", () => {
     }
   });
 
+  it("previews every chip the picker offers, for every template", () => {
+    // The picker and the server allowlist are now walked off the same
+    // contract, but the *preview* has a third input: `SAMPLE_VARS`, a
+    // hand-written fixture. Its doc comment promises `renderTemplateContent`
+    // "never throws TEMPLATE_VAR_MISSING on a fresh page load", and nothing
+    // held it to that. Add a required field to a contract and the picker
+    // offers the new chip, the server accepts it, and the fixture alone is
+    // missing it — so `/api/internal/comms/[eventId]/preview` throws and the
+    // organizer gets an error where the live preview should be, which is the
+    // same dead panel the `portal.magic_link` regression produced from the
+    // other side.
+    //
+    // Rendering every offered chip at once also proves each one resolves to a
+    // real value, not just that the key type-checks.
+    for (const key of TEMPLATE_KEYS) {
+      const body = templateVariablePaths(key).map((path) => `<p>{{${path}}}</p>`).join("");
+      expect(() => renderTemplateContent(key, "Subject", body, SAMPLE_VARS[key]), `${key} preview`).not.toThrow();
+    }
+  });
+
   it("does not offer the unsubscribe token where it can only render a broken link", () => {
     // `buildContext` appends `?token=` only for non-transactional keys, so on a
     // transactional one `{{unsubscribe.url}}` renders tokenless and the
