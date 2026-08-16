@@ -234,8 +234,18 @@ export function AdminShell({ eventId, role, event: serverEvent, counts, user, ca
         first.focus();
       }
     }
+    // The nav is a plain overlay, not a <dialog>, so nothing blocks the document
+    // from scrolling underneath it: a drag anywhere over the scrim moved the page
+    // behind, and an organizer came back to a Submissions list scrolled somewhere
+    // else. `inert` on .app-main stops hit-testing, not scrolling. The nav list's
+    // own overscroll is contained in CSS; this is the page behind it.
+    const { overflow } = document.documentElement.style;
+    document.documentElement.style.overflow = "hidden";
     document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
+    return () => {
+      document.documentElement.style.overflow = overflow;
+      document.removeEventListener("keydown", onKeyDown);
+    };
   }, [closeMenu, isMobile, open]);
 
   /* --- the guided tour (First Fair, design §3.1, §3.6, §3.9) ------------- */

@@ -308,6 +308,27 @@ describe("shared UI spacing regressions", () => {
     expect(css).toContain(".comm-detail dl>div{display:flex;justify-content:space-between;");
   });
 
+  it("keeps short session cards, the bulk bar's Clear, and the mobile nav honest", () => {
+    const bulkBar = read("../shared/ui/app/bulk-action-bar.tsx");
+    const shell = read("./shell/admin-shell.tsx");
+
+    // A sub-22-minute session gets one 16px grid row, and the card clips its own
+    // overflow — so an absolutely positioned conflict badge was the thing cut.
+    expect(css).toContain(".dv-session-card--compact .dv-session-card-conflict-icon,.dv-session-card--single-line .dv-session-card-conflict-icon{position:static;");
+
+    // `trailing` renders after Clear whenever a decision is queued to notify, so
+    // :last-child dressed Send as the quiet button and Clear as the loud one.
+    expect(bulkBar).toContain('className="bulk-bar-clear"');
+    expect(css).toContain(".bulk-bar>.bulk-bar-clear{");
+    expect(css).not.toContain(".bulk-bar>button:last-child{");
+
+    // The nav is an overlay, not a <dialog>, so nothing stopped the page behind
+    // it from scrolling under a drag on the scrim.
+    expect(css).toMatch(/\.sidebar-nav \{[^}]*overscroll-behavior: contain;/u);
+    expect(shell).toContain('document.documentElement.style.overflow = "hidden"');
+    expect(shell).toContain("document.documentElement.style.overflow = overflow;");
+  });
+
   it("gives discrete public session and gallery actions full pointer targets", () => {
     expect(css).toContain(
       ".public-session-main h3 button{width:100%;min-height:32px;",
