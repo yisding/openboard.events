@@ -548,6 +548,51 @@ describe("M52: the central Files view's deliverable list", () => {
       }
     });
 
+    it("refuses a file the ZIP writer cannot hold, instead of a job that hangs forever", async () => {
+      // A step materialises the whole object and the writer concats it twice
+      // more — about three copies against a 128 MB isolate. Uploads are allowed
+      // to 100 MB, so one large deck killed the isolate outright. That kills the
+      // `catch` too, so the job was never marked `failed`: the lease expired,
+      // the next poll re-claimed, and the banner read "Preparing export…" until
+      // the row was pruned a day later, with no error ever shown.
+      const hugeRequest = fileRequestIdSchema.parse("e5000000-0000-4000-8000-0000000000c0");
+      const hugeTask = taskIdSchema.parse("e5000000-0000-4000-8000-0000000000c1");
+      const hugeAsset = "e5000000-0000-4000-8000-0000000000c2";
+      await pglite.query(
+        "INSERT INTO file_requests(id,event_id,title,target_type,accepted_extensions,max_size_mb) VALUES($1,$2,'Huge deck','contact',ARRAY['pdf'],100)",
+        [hugeRequest, eventId],
+      );
+      await pglite.query(
+        "INSERT INTO portal_tasks(id,event_id,name,target_type,completion_mode,file_request_id) VALUES($1,$2,'Huge deck','contact','file_request',$3)",
+        [hugeTask, eventId, hugeRequest],
+      );
+      await pglite.query(
+        "INSERT INTO file_assets(id,event_id,kind,r2_key,filename,mime,size_bytes) VALUES($1,$2,'upload','huge/deck.bin','keynote.pdf','application/pdf',$3)",
+        [hugeAsset, eventId, 60 * 1024 * 1024],
+      );
+      await pglite.query(
+        "INSERT INTO file_uploads(event_id,file_request_id,contact_id,file_asset_id,version,is_latest) VALUES($1,$2,$3,$4,1,true)",
+        [eventId, hugeRequest, ada, hugeAsset],
+      );
+
+      const { createFileExportJobIn } = await import("@/features/portal/deliverables/server/export");
+      const jobsBefore = (await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM file_export_jobs WHERE event_id=$1", [eventId])).rows[0]?.n ?? 0;
+      const refused = await createFileExportJobIn(
+        db, eventId, null, [{ taskId: hugeTask, contactId: ada, submissionId: null }], "none",
+      ).catch((thrown: unknown) => thrown);
+      expect(isAppError(refused) && refused.code).toBe("VALIDATION");
+      // Named, so the organizer knows which file to download on its own.
+      expect(isAppError(refused) && refused.message).toContain("keynote.pdf");
+      // And no job row was left behind to be polled.
+      const jobsAfter = (await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM file_export_jobs WHERE event_id=$1", [eventId])).rows[0]?.n ?? 0;
+      expect(jobsAfter).toBe(jobsBefore);
+
+      await pglite.query("DELETE FROM file_uploads WHERE file_asset_id=$1", [hugeAsset]);
+      await pglite.query("DELETE FROM file_assets WHERE id=$1", [hugeAsset]);
+      await pglite.query("DELETE FROM portal_tasks WHERE id=$1", [hugeTask]);
+      await pglite.query("DELETE FROM file_requests WHERE id=$1", [hugeRequest]);
+    });
+
     it("does not rewind progress a second worker made after stealing this step's lease", async () => {
       const { createFileExportJobIn, processFileExportJobIn } = await import("@/features/portal/deliverables/server/export");
       const job = await createFileExportJobIn(
