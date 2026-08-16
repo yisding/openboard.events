@@ -187,6 +187,16 @@ export function AbstractsTable({
       id: "title",
       header: "Title",
       accessorKey: "title",
+      // `.data-table` is `table-layout:auto` and every other column is
+      // `white-space:nowrap`, so auto layout satisfies them first and hands the
+      // whole deficit to the one column that can wrap — this one, which also
+      // carries the description. Without a width of its own it collapsed to
+      // roughly its longest word (measured: 111px, in a 192px-tall row). The
+      // class is the seam the stylesheet needs to give the column a floor. It is
+      // deliberately outside the `abstracts-col-*` namespace: that one belongs
+      // to the T5 responsive disclosure ladder, whose members are the columns
+      // mobile hides, and Title is never one of them.
+      meta: { className: "abstracts-title-column" },
       cell: ({ row }) => (
         // First Fair: the tour needs to point at the first proposal. The `<tr>`
         // belongs to the shared DataTable and the whole table sits behind a
