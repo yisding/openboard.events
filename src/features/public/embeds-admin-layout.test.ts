@@ -28,8 +28,12 @@ describe("embeds admin layout", () => {
     // nothing to scroll — a third of the preview pane and the edge of Done.
     expect(css).toContain(".embed-cards{display:grid;grid-template-columns:minmax(0,1fr);gap:10px}");
     expect(css).not.toContain(".embed-cards{display:grid;gap:10px}");
-    // Same reason one level down, in the collapsed single-column breakpoints:
-    // a bare `1fr` is `minmax(auto,1fr)`, floored at the content's min-content.
+    // The collapsed single-column breakpoints are belt-and-braces rather than
+    // part of the defect: measured at 768 their geometry is identical with a
+    // bare `1fr`, because everything inside them already shrinks. They are
+    // pinned anyway because `1fr` is `minmax(auto,1fr)` — floored at the
+    // content's min-content — so the day a child stops shrinking, the track
+    // does not quietly start overflowing the way `.embed-cards` did.
     expect(css).toContain(".embed-editor-layout{grid-template-columns:minmax(0,1fr)}");
     expect(css).toContain(".embed-settings-grid{grid-template-columns:minmax(0,1fr)}");
   });

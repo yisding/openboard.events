@@ -139,20 +139,27 @@ export function activeAdminSection(pathname: string, base: string): string | und
 }
 
 /**
+ * The sidebar footer's own wording for the settings door, shared with the
+ * breadcrumb below so the two cannot drift: the breadcrumb should echo the link
+ * the organizer walked through, not invent a synonym for it.
+ */
+const EVENT_SETTINGS_LABEL = "Event settings";
+
+/**
  * Admin surfaces the sidebar's nav groups do not list, and therefore the only
  * ones the breadcrumb could not name. Event settings is reached from the
  * sidebar *footer* and API keys from inside settings, so both used to render
  * the same placeholder "Event" the topbar shows for a route it has never heard
  * of — a breadcrumb that told an organizer nothing about where they were.
  *
- * Keyed by the event-relative path, longest first, and read as a prefix so a
- * future child route inherits its parent's trail rather than the placeholder.
+ * Keyed by the event-relative path and read as a prefix so a future child route
+ * inherits its parent's trail rather than the placeholder. The lookup picks the
+ * longest matching path, so entries can be added in any order — `settings` and
+ * `settings/api-keys` resolve correctly whichever way round they are written.
  */
 const OFF_NAV_BREADCRUMBS: ReadonlyArray<{ path: string; trail: readonly string[] }> = [
-  // "Event settings" is the sidebar link's own wording; the breadcrumb should
-  // echo the door the organizer walked through, not invent a synonym.
-  { path: "settings/api-keys", trail: ["Event settings", "API keys"] },
-  { path: "settings", trail: ["Event settings"] },
+  { path: "settings/api-keys", trail: [EVENT_SETTINGS_LABEL, "API keys"] },
+  { path: "settings", trail: [EVENT_SETTINGS_LABEL] },
   // Organizers can open the review queue even though only a reviewer's sidebar
   // links it, so its label cannot live in the nav data alone.
   { path: "review", trail: ["Review queue"] },
@@ -172,7 +179,9 @@ export function adminBreadcrumbTrail(pathname: string, base: string, role: Membe
   const navLabel = groups.flatMap((group) => group.items).find((item) => item.href === section)?.label;
   if (navLabel) return [navLabel];
   const relative = pathname.startsWith(`${base}/`) ? pathname.slice(base.length + 1) : "";
-  const known = OFF_NAV_BREADCRUMBS.find(({ path }) => relative === path || relative.startsWith(`${path}/`));
+  const known = OFF_NAV_BREADCRUMBS
+    .filter(({ path }) => relative === path || relative.startsWith(`${path}/`))
+    .sort((left, right) => right.path.length - left.path.length)[0];
   return known?.trail ?? ["Event"];
 }
 
@@ -449,10 +458,10 @@ export function AdminShell({ eventId, role, event: serverEvent, counts, user, ca
       {/* `/agenda`, not `/schedule`: the latter is a redirect-only legacy
           route left over from the M53 split, so every "see what attendees see"
           used to cost a needless hop. */}
-      <div className="sidebar-bottom"><Hint id="shell:public-preview" title="See what attendees see" body="Opens your public event page in a new tab — a quick gut check after any change." placement="right" block className="hint-on-nav"><Link href={`/e/${event.slug}/agenda`} target="_blank"><ExternalLink size={17} /> View public event</Link></Hint>{role !== "reviewer" && <Hint id="shell:event-settings" title="Make it yours" body="Branding, dates, and the words your event uses — tracks, stages, whatever fits — all live in Event settings." placement="right" block className="hint-on-nav"><Link href={`${base}/settings`}><Settings size={17} /> Event settings</Link></Hint>}<div className="sidebar-user"><span>{accountInitials}</span><div><b>{accountName}</b><small>{role === "reviewer" ? "Reviewer" : "Organizer"}</small></div>{user && <SignOutButton kind="admin" compact />}</div></div>
+      <div className="sidebar-bottom"><Hint id="shell:public-preview" title="See what attendees see" body="Opens your public event page in a new tab — a quick gut check after any change." placement="right" block className="hint-on-nav"><Link href={`/e/${event.slug}/agenda`} target="_blank"><ExternalLink size={17} /> View public event</Link></Hint>{role !== "reviewer" && <Hint id="shell:event-settings" title="Make it yours" body="Branding, dates, and the words your event uses — tracks, stages, whatever fits — all live in Event settings." placement="right" block className="hint-on-nav"><Link href={`${base}/settings`}><Settings size={17} /> {EVENT_SETTINGS_LABEL}</Link></Hint>}<div className="sidebar-user"><span>{accountInitials}</span><div><b>{accountName}</b><small>{role === "reviewer" ? "Reviewer" : "Organizer"}</small></div>{user && <SignOutButton kind="admin" compact />}</div></div>
     </aside>
     {open && <button type="button" tabIndex={-1} aria-label="Close navigation" className="mobile-overlay" onClick={closeMenu} />}
-    <main className="app-main" inert={mobileNavigation.backgroundInert || undefined} aria-hidden={mobileNavigation.backgroundInert || undefined}><header className="topbar"><div className="breadcrumbs"><span>{event.shortName}</span>{event.isDemo && <StatusBadge value="demo" />}{breadcrumbTrail.map((crumb, index) => <Fragment key={crumb}><i>/</i>{index === breadcrumbTrail.length - 1 ? <b>{crumb}</b> : <span>{crumb}</span>}</Fragment>)}</div><div className="topbar-actions"><Hint id={role === "reviewer" ? "shell:reviewer-palette" : "shell:command-palette"} title="Jump anywhere" body={role === "reviewer" ? "Press ⌘K from any page to jump straight back to your review queue." : "Press ⌘K to search speakers, submissions and sessions, or run quick actions like assigning reviewers."} placement="bottom-end"><CommandPalette eventId={event.id} base={base} role={role} actions={paletteActions} /></Hint></div></header><div id="admin-content" className="app-content" tabIndex={-1}>{children}</div></main>
+    <main className="app-main" inert={mobileNavigation.backgroundInert || undefined} aria-hidden={mobileNavigation.backgroundInert || undefined}><header className="topbar"><div className="breadcrumbs"><span>{event.shortName}</span>{event.isDemo && <StatusBadge value="demo" />}{breadcrumbTrail.map((crumb, index) => <Fragment key={`${index}-${crumb}`}><i>/</i>{index === breadcrumbTrail.length - 1 ? <b>{crumb}</b> : <span>{crumb}</span>}</Fragment>)}</div><div className="topbar-actions"><Hint id={role === "reviewer" ? "shell:reviewer-palette" : "shell:command-palette"} title="Jump anywhere" body={role === "reviewer" ? "Press ⌘K from any page to jump straight back to your review queue." : "Press ⌘K to search speakers, submissions and sessions, or run quick actions like assigning reviewers."} placement="bottom-end"><CommandPalette eventId={event.id} base={base} role={role} actions={paletteActions} /></Hint></div></header><div id="admin-content" className="app-content" tabIndex={-1}>{children}</div></main>
   </div></FirstRunHints>;
   // The mount sits *inside* `UnsavedWorkGuardProvider`, which is mandatory:
   // the tour navigates through `useGuardedAction()`, and that context is null

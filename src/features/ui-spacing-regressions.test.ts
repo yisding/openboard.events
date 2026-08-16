@@ -317,7 +317,17 @@ describe("shared UI spacing regressions", () => {
     // three 1106px-wide stacked lines. `.compact-select` is the idiom the rest
     // of the app's list toolbars already use.
     expect(speakersAdmin).toContain('className="compact-select"');
-    expect(filesAdmin.match(/<Select className="compact-select"/gu)).toHaveLength(3);
+    // Every select inside the strip, rather than a fixed count of them: a
+    // fourth filter added the same way should keep this green, and one added
+    // without the class should not.
+    const toolbarStart = filesAdmin.indexOf('className="data-toolbar files-data-toolbar"');
+    const toolbarEnd = filesAdmin.indexOf('<span className="row-count">', toolbarStart);
+    expect(toolbarStart).toBeGreaterThan(-1);
+    expect(toolbarEnd).toBeGreaterThan(toolbarStart);
+    const toolbar = filesAdmin.slice(toolbarStart, toolbarEnd);
+    const filters = toolbar.match(/<Select\b/gu) ?? [];
+    expect(filters.length).toBeGreaterThanOrEqual(3);
+    expect(toolbar.match(/<Select className="compact-select"/gu)).toHaveLength(filters.length);
     expect(css).toContain(".compact-select{width:auto;");
     // Its options are event data, not a fixed vocabulary, so one long file
     // request title must not become the whole toolbar.
