@@ -35,6 +35,7 @@ import {
   assertStructuralAllowed,
   assertUniqueFieldKey,
   assertUniqueMapsTo,
+  assertVisibilityValuesResolve,
   fieldPatchIsStructural,
 } from "./guards";
 import { getFormForBuilderIn, hasNonDraftSubmissionsIn } from "./builder-queries";
@@ -767,6 +768,11 @@ export async function updateFieldIn(dbOrTx: DbOrTx, eventId: EventId, formId: Fo
     ...form,
     sections: form.sections.map((section) => ({ ...section, fields: section.fields.map((candidate) => candidate.id === field.id ? updated : candidate) })),
   };
+  // Only when the patch supplies a rule, so a form already carrying a dangling
+  // one stays editable rather than having every unrelated edit blocked.
+  if (patch.visibility !== undefined) {
+    assertVisibilityValuesResolve(allFields(hypothetical), updated);
+  }
   const snapshot = nextSnapshot(hypothetical);
   const now = new Date();
   await touchFormIn(dbOrTx, eventId, form, expectedUpdatedAt, now);
