@@ -6,6 +6,7 @@ import { useState } from "react";
 import type { SpeakerDetailDTO, SpeakerRosterExtras } from "@/features/portal";
 import { participantRoleLabel } from "../../lib/participant-role";
 import { LIMITS, plainTextLength, type ConfirmationStatus } from "@/shared/contracts";
+import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { FileUpload } from "@/shared/ui/app/file-upload";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
@@ -204,6 +205,7 @@ export function SpeakerDetailView({ eventId, timezone, initialDetail, initialExt
   const { toast } = useToast();
   const [detail, setDetail] = useState(initialDetail);
   const [savingConfirmation, setSavingConfirmation] = useState(false);
+  const [confirmingDecline, setConfirmingDecline] = useState(false);
   const { contact } = detail;
 
   async function applyConfirmation(status: ConfirmationStatus) {
@@ -218,6 +220,23 @@ export function SpeakerDetailView({ eventId, timezone, initialDetail, initialExt
     } finally {
       setSavingConfirmation(false);
     }
+  }
+
+  /**
+   * Declining a *confirmed* speaker is the one confirmation change that takes
+   * something away in public: `published_speakers_v` filters on
+   * `confirmation_status='confirmed'`, so the speaker leaves the gallery and
+   * the speaker list of every published session on the next read. Design bar
+   * D4 asks a destructive change to name what it costs before it happens, so
+   * that one transition confirms first. The other transitions publish or
+   * re-publish nothing an organizer can lose, and stay one click.
+   */
+  function requestConfirmation(status: ConfirmationStatus) {
+    if (status === "declined" && contact.confirmationStatus === "confirmed") {
+      setConfirmingDecline(true);
+      return;
+    }
+    void applyConfirmation(status);
   }
 
   return (
@@ -276,13 +295,25 @@ export function SpeakerDetailView({ eventId, timezone, initialDetail, initialExt
             options={CONFIRMATION_OPTIONS}
             value={contact.confirmationStatus}
             disabled={savingConfirmation}
-            onChange={(status) => void applyConfirmation(status)}
+            onChange={requestConfirmation}
           />
           {contact.confirmationStatus === "declined" && (
             <p className="long-copy">This speaker is hidden from the public speaker gallery while declined.</p>
           )}
         </div>
       </section>
+
+      <ConfirmDialog
+        open={confirmingDecline}
+        title={`Decline ${contact.name}?`}
+        body={`${contact.name} leaves the public speaker gallery, and their name comes off every published session they speak on. The sessions themselves stay on the schedule, and setting them back to confirmed restores all of it.`}
+        confirmLabel="Decline speaker"
+        onConfirm={async () => {
+          await applyConfirmation("declined");
+          setConfirmingDecline(false);
+        }}
+        onCancel={() => setConfirmingDecline(false)}
+      />
 
       <section className="panel">
         <header className="panel-header"><div><h2>Submissions</h2><p>{detail.submissions.length} on this event.</p></div></header>
