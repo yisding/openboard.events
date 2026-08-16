@@ -13,7 +13,7 @@ const runGuardedMock = vi.hoisted(() => vi.fn((action: () => void) => action()))
 
 vi.mock("@/shared/ui/toast", () => ({ useToast: () => ({ toast: toastMock }) }));
 vi.mock("@/shared/ui/app/unsaved-work-guard", () => ({
-  useUnsavedWorkGuard: () => undefined,
+  useUnsavedWorkGuard: () => () => undefined,
   useGuardedAction: () => ({ runGuarded: runGuardedMock }),
 }));
 vi.mock("@/shared/ui/app/rich-text-editor-lazy", () => ({
