@@ -48,6 +48,7 @@ function plan(suffix: string, name: string): PlanDTO {
       scored: 0,
     }],
     progress: { scored: 0, total: 1 },
+    hasReviews: false,
     updatedAt: "2026-08-13T12:00:00.000Z",
   };
 }
@@ -89,7 +90,7 @@ let fetchMock: ReturnType<typeof vi.fn<typeof fetch>>;
 
 async function renderDrawer(currentPlan: PlanDTO) {
   await act(async () => {
-    root.render(<AssignmentDrawer eventId={EVENT_ID} plan={currentPlan} onClose={vi.fn()} />);
+    root.render(<AssignmentDrawer eventId={EVENT_ID} plan={currentPlan} onSaved={vi.fn()} onClose={vi.fn()} />);
   });
   await settle();
 }

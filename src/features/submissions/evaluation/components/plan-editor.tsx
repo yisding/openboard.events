@@ -237,7 +237,7 @@ function TrackScope({
 }
 
 export type PlanReviewerSaveResult =
-  | { ok: true; planId: string }
+  | { ok: true; planId: string; plan: PlanDTO | null }
   | {
       ok: false;
       kind: "response" | "transport";
@@ -247,20 +247,25 @@ export type PlanReviewerSaveResult =
     };
 
 /** Two-stage round saves can be retried safely: once the round write succeeds,
- * its id is retained and later attempts run only the reviewer replacement. */
+ * its id is retained and later attempts run only the reviewer replacement.
+ *
+ * Both writes answer with the round they produced. The later one wins, and a
+ * retry that skips the round write still comes back whole through the reviewer
+ * response — so the caller always has the round as it now stands, or an honest
+ * null when neither write was in a position to say. */
 export async function completePlanAndReviewerSave(
   pendingReviewerPlanId: string | null,
-  savePlan: () => Promise<EvaluationRequestResult<{ planId: string }>>,
-  saveReviewers: (planId: string) => Promise<EvaluationRequestResult<unknown>>,
+  savePlan: () => Promise<EvaluationRequestResult<{ planId: string; plan?: PlanDTO }>>,
+  saveReviewers: (planId: string) => Promise<EvaluationRequestResult<{ plan?: PlanDTO }>>,
 ): Promise<PlanReviewerSaveResult> {
   const planResult = pendingReviewerPlanId
-    ? { ok: true as const, data: { planId: pendingReviewerPlanId } }
+    ? { ok: true as const, data: { planId: pendingReviewerPlanId, plan: undefined } }
     : await savePlan();
   if (!planResult.ok) return { ...planResult, pendingReviewerPlanId: null };
 
   const reviewerResult = await saveReviewers(planResult.data.planId);
   return reviewerResult.ok
-    ? { ok: true, planId: planResult.data.planId }
+    ? { ok: true, planId: planResult.data.planId, plan: reviewerResult.data.plan ?? planResult.data.plan ?? null }
     : { ...reviewerResult, pendingReviewerPlanId: planResult.data.planId };
 }
 
@@ -271,6 +276,7 @@ export function PlanEditor({
   members,
   nextRound,
   timezone,
+  onSaved,
   onClose,
 }: {
   eventId: string;
@@ -281,6 +287,8 @@ export function PlanEditor({
   nextRound: number;
   /** The event's zone. A round window is read and written in it, never in the organizer's. */
   timezone: string;
+  /** The round as the write left it, so the list behind this drawer agrees with the toast. */
+  onSaved: (plan: PlanDTO) => void;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -319,6 +327,16 @@ export function PlanEditor({
     && (reviewerLockConflict || assignmentLock !== null);
   const assignmentSaveBlocked = assignmentEditsChanged && assignmentLock !== null;
   const criteriaInvalid = draft.criteria.some((criterion) => criterionWeightError(criterion) !== undefined);
+  /**
+   * The round's arithmetic is frozen from the first review onwards — see
+   * `assertScoringShapeEditable`, which answers a 409 to any edit of the scale,
+   * the set of criteria, or a criterion's kind, weight, bounds or option
+   * scores. The organizer used to find that out only after filling the fields
+   * in and pressing Save. Labels and the required flag stay editable, because
+   * the server takes them: a criterion may be reworded without re-valuing a
+   * single stored verdict.
+   */
+  const scoringLocked = authoritativePlan?.hasReviews === true;
 
   useUnsavedWorkGuard(dirty);
 
@@ -457,13 +475,16 @@ export function PlanEditor({
       };
       const result = await completePlanAndReviewerSave(
         pendingReviewerPlanId,
-        () => evaluationRequest<{ planId: string }>(
+        () => evaluationRequest<{ planId: string; plan?: PlanDTO }>(
           persistedPlanId ? `/api/internal/evaluation/${eventId}/plans/${persistedPlanId}` : `/api/internal/evaluation/${eventId}/plans`,
           { method: persistedPlanId ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
           "That round did not save",
         ),
+        // The reviewer replacement answers with the whole round rather than a
+        // wrapper; naming it `plan` here is what lets either write be the one
+        // that reports the round back.
         (savedPlanId) => reviewerAssignmentsChanged
-          ? evaluationRequest<unknown>(`/api/internal/evaluation/${eventId}/plans/${savedPlanId}/reviewers`, {
+          ? evaluationRequest<PlanDTO>(`/api/internal/evaluation/${eventId}/plans/${savedPlanId}/reviewers`, {
               method: "PUT",
               headers: { "content-type": "application/json" },
               body: JSON.stringify({
@@ -473,6 +494,7 @@ export function PlanEditor({
                 })),
               }),
             }, "The round saved, but its reviewers did not")
+              .then((result) => result.ok ? { ok: true as const, data: { plan: result.data } } : result)
           : Promise.resolve({ ok: true as const, data: {} }),
       );
       if (!result.ok) {
@@ -482,6 +504,10 @@ export function PlanEditor({
         if (result.pendingReviewerPlanId) router.refresh();
         return;
       }
+      // Same bargain as the assignment drawer: the round the write produced
+      // reaches the list now, and the refresh below is free to overwrite it
+      // with the next server snapshot.
+      if (result.plan) onSaved(result.plan);
       toast(persistedPlanId ? `${draft.name} updated` : `${draft.name} created`);
       onClose();
       router.refresh();
@@ -531,12 +557,19 @@ export function PlanEditor({
             <input type="number" min={1} value={draft.round} onChange={(event) => patch({ round: Number(event.target.value) })} />
           </Field>
           <Field label="Scale low">
-            <input type="number" min={0} value={draft.scaleMin} onChange={(event) => patch({ scaleMin: Number(event.target.value) })} />
+            <input type="number" min={0} value={draft.scaleMin} disabled={scoringLocked} onChange={(event) => patch({ scaleMin: Number(event.target.value) })} />
           </Field>
           <Field label="Scale high">
-            <input type="number" min={1} value={draft.scaleMax} onChange={(event) => patch({ scaleMax: Number(event.target.value) })} />
+            <input type="number" min={1} value={draft.scaleMax} disabled={scoringLocked} onChange={(event) => patch({ scaleMax: Number(event.target.value) })} />
           </Field>
         </div>
+        {scoringLocked && (
+          <p className="portal-note" role="status">
+            <b>This round has been scored, so its scale and criteria are fixed.</b> Every stored score was worked out
+            with them and is never recalculated. Renaming a criterion or changing whether it is required still saves;
+            for a different scale or a different set of criteria, create the next round.
+          </p>
+        )}
 
         <TrackScope
           label="Track scope"
@@ -595,6 +628,11 @@ export function PlanEditor({
             With no criteria a reviewer gives one score. With criteria they answer each; numbers and scored choices make the
             weighted mean, written feedback never does, and a review counts as finished once every required criterion is answered.
           </p>
+          {scoringLocked && (
+            <p className="portal-note" role="status">
+              This round has been scored: labels and the required flag are still yours to change, the rest of a criterion is not.
+            </p>
+          )}
           {draft.criteria.map((criterion, index) => {
             const weightError = criterionWeightError(criterion);
             const weightErrorId = `evaluation-criterion-weight-error-${criterion.id ?? `new-${index}`}`;
@@ -611,6 +649,7 @@ export function PlanEditor({
                 <Field label="Type">
                   <Select
                     value={criterion.kind}
+                    disabled={scoringLocked}
                     onChange={(event) => patch({
                       criteria: draft.criteria.map((entry, position) => position === index ? { ...entry, kind: event.target.value as CriterionKind } : entry),
                     })}
@@ -632,7 +671,7 @@ export function PlanEditor({
                     // switched away from: a written-feedback row displaying 0
                     // while the payload carries the normalized 1 is the UI
                     // narrating a number the server never receives.
-                    type="number" min={1} max={100} step={1} value={outgoingCriterionWeight(criterion)} disabled={criterion.kind === "text"}
+                    type="number" min={1} max={100} step={1} value={outgoingCriterionWeight(criterion)} disabled={scoringLocked || criterion.kind === "text"}
                     aria-invalid={weightError ? true : undefined}
                     aria-describedby={weightError ? weightErrorId : undefined}
                     onChange={(event) => patch({
@@ -651,6 +690,7 @@ export function PlanEditor({
                 </Field>
                 <Button
                   variant="ghost"
+                  disabled={scoringLocked}
                   aria-label={`Remove ${criterion.label || "criterion"}`}
                   onClick={() => patch({ criteria: draft.criteria.filter((_, position) => position !== index) })}
                 >
@@ -660,6 +700,7 @@ export function PlanEditor({
                   <Field label="Choices" hint="One per line as “Label:score”. Leave the score off for a choice that is recorded but never averaged.">
                     <textarea
                       value={criterion.optionsText}
+                      disabled={scoringLocked}
                       onChange={(event) => patch({
                         criteria: draft.criteria.map((entry, position) => position === index ? { ...entry, optionsText: event.target.value } : entry),
                       })}
@@ -670,7 +711,7 @@ export function PlanEditor({
               </div>
             );
           })}
-          <Button variant="secondary" onClick={() => patch({ criteria: [...draft.criteria, { id: null, label: "", weight: 1, kind: "numeric", required: true, optionsText: "" }] })}>
+          <Button variant="secondary" disabled={scoringLocked} onClick={() => patch({ criteria: [...draft.criteria, { id: null, label: "", weight: 1, kind: "numeric", required: true, optionsText: "" }] })}>
             <Plus size={15} /> Add criterion
           </Button>
         </section>

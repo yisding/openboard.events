@@ -57,6 +57,7 @@ const PLAN: PlanDTO = {
   }],
   reviewers: [],
   progress: { scored: 0, total: 1 },
+  hasReviews: false,
   updatedAt: "2026-08-13T12:00:00.000Z",
 };
 
@@ -81,6 +82,7 @@ async function renderEditor() {
         members={[]}
         nextRound={2}
         timezone="America/Los_Angeles"
+        onSaved={vi.fn()}
         onClose={onClose}
       />,
     );
