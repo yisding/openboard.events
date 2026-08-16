@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, index, integer, pgTable, primaryKey, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { boolean, check, index, integer, pgTable, primaryKey, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 import { contacts } from "./contacts";
 import { events, rooms, sessionFormats, tracks, users } from "./core";
 import { participantRoleEnum, sessionStatusEnum } from "./enums";
@@ -11,6 +11,7 @@ export const sessions = pgTable("sessions", {
   formatId: uuid("format_id").references(() => sessionFormats.id, { onDelete: "set null" }), trackId: uuid("track_id").references(() => tracks.id, { onDelete: "set null" }), roomId: uuid("room_id").references(() => rooms.id, { onDelete: "set null" }),
   startsAt: timestamp("starts_at", { withTimezone: true }), endsAt: timestamp("ends_at", { withTimezone: true }), status: sessionStatusEnum("status").notNull().default("draft"),
   scheduleRevision: integer("schedule_revision").notNull().default(0), rowVersion: integer("row_version").notNull().default(1),
+  scheduleNoticeOwed: boolean("schedule_notice_owed").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [unique().on(table.eventId, table.slug), unique().on(table.id, table.eventId)]);
 

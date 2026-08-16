@@ -45,6 +45,15 @@ function actionLabel(action: string): string {
 }
 
 /**
+ * What the "Who" column shows for an entry. Shared by the cell and the actor
+ * filter so typing what is on screen — including "(deleted account)" for a row
+ * whose actor has no `users` row anymore — narrows to it.
+ */
+function actorLabel(entry: OrganizationAuditLogEntryDTO): string {
+  return entry.actorEmail ?? "(deleted account)";
+}
+
+/**
  * The invitee's email out of an entry's metadata, for the two actions whose
  * target is a person who has no `users` row yet. `member.invited` and
  * `invitation.revoked` write `{email}` (organizations/server/invitations.ts)
@@ -85,7 +94,7 @@ export function AuditLogPanel({ initialEntries }: { initialEntries: Organization
 
   const columns = useMemo<Array<ColumnDef<OrganizationAuditLogEntryDTO, unknown>>>(() => [
     { id: "createdAt", header: "When", cell: ({ row }) => <LocalTime instant={row.original.createdAt} /> },
-    { id: "actor", header: "Who", cell: ({ row }) => row.original.actorEmail ?? "(deleted account)" },
+    { id: "actor", header: "Who", cell: ({ row }) => actorLabel(row.original) },
     { id: "action", header: "Action", cell: ({ row }) => actionLabel(row.original.action) },
     { id: "target", header: "Affected", cell: ({ row }) => <AffectedCell entry={row.original} /> },
   ], []);
@@ -105,7 +114,7 @@ export function AuditLogPanel({ initialEntries }: { initialEntries: Organization
     const needle = actorQuery.trim().toLowerCase();
     return initialEntries.filter((entry) => {
       if (action !== ALL_ACTIONS && entry.action !== action) return false;
-      if (needle && !(entry.actorEmail ?? "").toLowerCase().includes(needle)) return false;
+      if (needle && !actorLabel(entry).toLowerCase().includes(needle)) return false;
       return true;
     });
   }, [initialEntries, actorQuery, action]);

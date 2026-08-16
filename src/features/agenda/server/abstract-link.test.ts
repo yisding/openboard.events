@@ -17,6 +17,7 @@ const migrationCalendarCancellationSnapshots = readFileSync(new URL("../../../..
 // same statement/transaction, so the table they record into has to exist here
 // even though nothing in this file reads it.
 const migrationPlacementRevisions = readFileSync(new URL("../../../../drizzle/0050_session_placement_revisions.sql", import.meta.url), "utf8");
+const migrationRoomDeletionNotice = readFileSync(new URL("../../../../drizzle/0051_room_deletion_notice.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("b1100000-0000-4000-8000-000000000001");
 const promoted = sessionIdSchema.parse("b1200000-0000-4000-8000-000000000001");
@@ -40,6 +41,7 @@ describe("a session's link to the abstract it was promoted from", () => {
     await pg.exec(migrationCreationReceipts);
     await pg.exec(migrationCalendarCancellationSnapshots);
     await pg.exec(migrationPlacementRevisions);
+    await pg.exec(migrationRoomDeletionNotice);
     database = drizzle(pg, { schema }) as unknown as DbOrTx;
     await pg.query(
       `INSERT INTO events(id,name,slug,timezone,starts_at,ends_at)

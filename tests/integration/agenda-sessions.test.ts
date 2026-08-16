@@ -33,6 +33,10 @@ const migrationEmailCompliance = readFileSync(new URL("../../drizzle/0007_email_
 const migrationAgendaCreationReceipts = readFileSync(new URL("../../drizzle/0031_agenda_session_creation_receipts.sql", import.meta.url), "utf8");
 const migrationCalendarCancellationSnapshots = readFileSync(new URL("../../drizzle/0043_calendar_cancellation_snapshots.sql", import.meta.url), "utf8");
 const migrationSessionPlacementRevisions = readFileSync(new URL("../../drizzle/0050_session_placement_revisions.sql", import.meta.url), "utf8");
+// MTP-16 §17a: the `schedule_notice_owed` flag the room-deletion cascade sets
+// and a resave delivers. saveSessionIn reads and clears it, so the reduced
+// fixture needs the column to exist.
+const migrationRoomDeletionNotice = readFileSync(new URL("../../drizzle/0051_room_deletion_notice.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("a8000000-0000-4000-8000-000000000001");
 const otherEventId = eventIdSchema.parse("a8000000-0000-4000-8000-000000000002");
@@ -114,6 +118,7 @@ describe("agenda sessions", () => {
     await pglite.exec(migrationAgendaCreationReceipts);
     await pglite.exec(migrationCalendarCancellationSnapshots);
     await pglite.exec(migrationSessionPlacementRevisions);
+    await pglite.exec(migrationRoomDeletionNotice);
     testDb = createTestDb(pglite);
 
     await pglite.query(
@@ -457,13 +462,15 @@ describe("agenda sessions", () => {
     expect(created.scheduleRevision).toBe(1);
 
     // The room-deletion cascade (events/server/vocab.ts) nulls the session's
-    // room and advances its schedule revision exactly once for a published,
-    // timed session — but enqueues nothing. Replay that statement's effect, then
-    // drain the assignment mail so only what the resave produces is left.
+    // room, advances its schedule revision exactly once for a published, timed
+    // session, and records the owed notice on the row — but enqueues nothing.
+    // Replay that statement's effect, then drain the assignment mail so only
+    // what the resave produces is left.
     await pglite.query(
       `UPDATE sessions
          SET room_id = NULL,
              schedule_revision = schedule_revision + 1,
+             schedule_notice_owed = true,
              updated_at = now()
        WHERE id = $1 AND event_id = $2 AND status = 'published' AND starts_at IS NOT NULL`,
       [created.id, eventId],
@@ -500,6 +507,46 @@ describe("agenda sessions", () => {
       speakerContactIds: [ada, grace], status: "published",
     });
     expect(await count("communication_logs")).toBe(2);
+  });
+
+  it("does not mail a schedule-neutral resave that follows a title-only revision bump", async () => {
+    // Regression for the room-deletion resave path. A title/description edit on
+    // a published, timed session advances `schedule_revision` but mails nobody
+    // (speaker policy) — leaving a bumped-but-undelivered revision that looks,
+    // to revision arithmetic, exactly like the room-deletion cascade's. The old
+    // guard fired on any such inherited revision, so the *next* schedule-neutral
+    // save shipped a spurious "schedule changed" for a schedule that never moved.
+    // Gating on `schedule_notice_owed` — a flag only the room cascade sets —
+    // keeps this path silent.
+    const created = await createSession({
+      title: "Roadmap panel", roomId: studio, speakerContactIds: [ada, grace], status: "published",
+      startsAt: at("2026-09-15T17:00:00Z"), endsAt: at("2026-09-15T17:30:00Z"),
+    });
+    expect(created.scheduleRevision).toBe(1);
+    // Drain the assignment mail from the create so only later sends remain.
+    await pglite.exec("TRUNCATE communication_logs CASCADE");
+
+    // 1) Title-only edit: room, time and speakers unchanged. The revision bumps
+    // to 2, and the speaker policy deliberately mails nobody.
+    const retitled = await saveSession(eventId, {
+      id: created.id, expectedVersion: created.rowVersion, title: "Roadmap panel — updated",
+      descriptionHtml: created.descriptionHtml, formatId: null, trackId: null, roomId: studio,
+      startsAt: at("2026-09-15T17:00:00Z"), endsAt: at("2026-09-15T17:30:00Z"),
+      speakerContactIds: [ada, grace], status: "published",
+    });
+    expect(retitled.scheduleRevision).toBe(2);
+    expect(await count("communication_logs")).toBe(0);
+
+    // 2) A schedule-neutral resave (nothing changes) must not mail either: no
+    // room was lost, so no notice is owed. The old revision-equality guard fired
+    // here and shipped a spurious schedule_changed to every continuing speaker.
+    await saveSession(eventId, {
+      id: retitled.id, expectedVersion: retitled.rowVersion, title: "Roadmap panel — updated",
+      descriptionHtml: retitled.descriptionHtml, formatId: null, trackId: null, roomId: studio,
+      startsAt: at("2026-09-15T17:00:00Z"), endsAt: at("2026-09-15T17:30:00Z"),
+      speakerContactIds: [ada, grace], status: "published",
+    });
+    expect(await count("communication_logs")).toBe(0);
   });
 
   it("does not mail a speaker added to a draft or an unscheduled session", async () => {

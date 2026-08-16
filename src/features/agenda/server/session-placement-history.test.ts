@@ -27,6 +27,7 @@ const migrations = [
   "0031_agenda_session_creation_receipts.sql",
   "0043_calendar_cancellation_snapshots.sql",
   "0050_session_placement_revisions.sql",
+  "0051_room_deletion_notice.sql",
 ].map((name) => readFileSync(new URL(`../../../../drizzle/${name}`, import.meta.url), "utf8"));
 
 const eventId = eventIdSchema.parse("b1000000-0000-4000-8000-000000000001");

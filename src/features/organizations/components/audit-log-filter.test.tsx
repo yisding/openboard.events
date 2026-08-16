@@ -102,6 +102,28 @@ describe("AuditLogPanel filters", () => {
     expect(text).not.toContain("Invited a teammate");
   });
 
+  it("finds a deleted-account row by the label it shows", async () => {
+    // The actor cell renders a null email as "(deleted account)". The filter
+    // shares that label, so typing what is on screen narrows to it.
+    await render([
+      entry({ actorEmail: null, action: "member.removed", targetEmail: "member@test.dev", metadata: {} }),
+      entry({ actorEmail: "owner@test.dev", action: "member.invited", metadata: { email: "newbie@test.dev" } }),
+    ]);
+    expect(bodyText()).toContain("(deleted account)");
+    expect(bodyText()).toContain("owner@test.dev");
+
+    const search = container.querySelector<HTMLInputElement>('input[aria-label="Filter by actor"]');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      setter?.call(search, "deleted");
+      search?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const text = bodyText();
+    expect(text).toContain("(deleted account)");
+    expect(text).not.toContain("owner@test.dev");
+  });
+
   it("explains an empty result as a filter, not an empty log", async () => {
     await render(ENTRIES);
     const search = container.querySelector<HTMLInputElement>('input[aria-label="Filter by actor"]');
