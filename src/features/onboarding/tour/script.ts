@@ -902,6 +902,15 @@ export function supportedTourSteps(
    */
   context: Readonly<Record<TourContextKey, string | null>>,
 ): readonly TourStep[] {
+  // Requiring the whole map makes the wrong context a type error; it cannot
+  // make an *empty* event id anything but a per-step drop, and every route in
+  // the script is anchored on `/events/:eventId`. Filtered one step at a time,
+  // that left seven orphans strung across five chapters and ending, with no
+  // successor, half-way through Mission Control — where the engine reads "no
+  // next step on the arc" as "the player finished" and retires the tutorial
+  // for good. There is no honest partial tour without an event id, so the
+  // answer is none of it, and the host mounts nothing.
+  if ((context.eventId ?? "") === "") return [];
   const stoppedAt = skippedAtPhase === null ? -1 : DEMO_PROVISION_PHASES.indexOf(skippedAtPhase);
   return TOUR_STEPS.filter((step) => {
     const phase = STEP_PHASE[step.id];

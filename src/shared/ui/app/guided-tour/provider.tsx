@@ -757,6 +757,14 @@ function GuidedTourLayer({ bootstrap, onComplete, onStatusChange }: {
     if (!running) return;
     function onKeyDown(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
+      // Somebody nearer the keystroke has already answered it. The check below
+      // is not enough on its own: the command palette closes itself on Escape
+      // — `preventDefault`, `stopPropagation`, `onClose` — and React flushes
+      // that discrete update synchronously, so by the time this
+      // document-level listener runs the `<dialog>` it should have deferred to
+      // is already shut. The tour then paused itself on a keystroke the player
+      // spent dismissing something else, and said nothing about it.
+      if (event.defaultPrevented) return;
       // A drawer, modal or palette owns Escape while it is open; the tour is
       // the outermost thing on screen and takes the key only when nothing else
       // has claimed it.
