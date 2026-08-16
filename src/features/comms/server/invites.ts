@@ -448,6 +448,10 @@ async function cancelledCalendarEntries(
       // holds, matching what `deleteSessionIn`'s CANCEL would have sent.
       const sequence = row.lastMethod === "cancel" ? row.sequence : row.sequence + 1;
       const snapshot = parseCalendarEventSnapshot(row.eventSnapshot);
+      // DTSTAMP is the invite row's `updatedAt`, which can predate the CONFIRMED
+      // copy the subscriber already holds. That's fine per RFC 5545: SEQUENCE,
+      // not DTSTAMP, is the authoritative revision counter, and it always steps
+      // forward here, so clients still treat the tombstone as the newer state.
       // The same PUBLISH-shaped event as its live neighbours — no METHOD, no
       // ATTENDEE — only cancelled.
       return {
