@@ -37,6 +37,7 @@ export function TaskMatrixDrawer({
   task,
   timezone,
   onClose,
+  onCompletionReopened,
   reminderRecovery,
   reminderAcknowledgement,
   nav,
@@ -48,6 +49,15 @@ export function TaskMatrixDrawer({
   reminderRecovery: BulkReminderRecoveryController;
   reminderAcknowledgement: number;
   nav?: { index: number; total: number; onPrev?: (() => void) | undefined; onNext?: (() => void) | undefined };
+  /**
+   * Reopening changes the parent's counts, and the parent's state is what draws
+   * the progress bar and decides `locked`. Without this the drawer said "0 of 1"
+   * while the row behind it still said "1/1 · 100%", and Edit still greyed the
+   * shape controls out with "This task has completions" even though the server
+   * would now allow the change — only a full browser reload fixed it. Every
+   * sibling mutation in this module already funnels through the same refresh.
+   */
+  onCompletionReopened?: () => void | Promise<void>;
 }) {
   const { toast } = useToast();
   const [rows, setRows] = useState<AdminTaskAssignmentDTO[] | null>(null);
@@ -101,6 +111,7 @@ export function TaskMatrixDrawer({
       if (!result.ok) { toast(result.message, { kind: "error" }); return; }
       toast(`${row.contactName}'s completion was reopened`);
       await load();
+      await onCompletionReopened?.();
     } finally {
       setBusyKey(null);
     }

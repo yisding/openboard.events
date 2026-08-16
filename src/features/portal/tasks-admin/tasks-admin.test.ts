@@ -256,6 +256,37 @@ describe("tasks admin: database CRUD, the assignment-view counting law, and REST
     expect(isAppError(untokened) && untokened.code).toBe("VALIDATION");
   });
 
+  it("keeps a completion visible in the matrix after its assignment moves to someone else", async () => {
+    const saved = await saveTaskIn(db, eventId, taskInput({ name: "Orphaned completion", targetType: "submission" }));
+    await pglite.query(
+      "INSERT INTO task_completions(event_id,task_id,contact_id,submission_id,completed_via) VALUES($1,$2,$3,$4,'manual')",
+      [eventId, saved.id, ada, talkOne],
+    );
+    expect(await getTaskCompletionMatrixIn(db, eventId, saved.id)).toContainEqual(
+      expect.objectContaining({ contactId: ada, completed: true }),
+    );
+
+    // `task_assignments_v` resolves one contact per accepted submission — the
+    // primary participant — so making someone else primary drops Ada's
+    // completion out of the view. `recorded` is a raw table count and still
+    // refuses every shape change with "This task has completions", so the row
+    // doing the locking became unreachable: the drawer never mentioned it, and
+    // `reopenCompletionIn` is only reachable from the drawer.
+    await pglite.query("UPDATE submission_participants SET is_primary=false WHERE submission_id=$1 AND contact_id=$2", [talkOne, ada]);
+    await pglite.query("UPDATE submission_participants SET is_primary=true WHERE submission_id=$1 AND contact_id=$2", [talkOne, grace]);
+    // The view now resolves Grace, so Ada's completion has no live assignment.
+    expect((await getTaskCompletionMatrixIn(db, eventId, saved.id)).map((row) => row.contactId)).toContain(grace);
+
+    const matrix = await getTaskCompletionMatrixIn(db, eventId, saved.id);
+    expect(matrix).toContainEqual(expect.objectContaining({ contactId: ada, completed: true }));
+    // And the count that locks the editor still counts it, so the two agree.
+    const [row] = await listTasksIn(db, eventId, { search: "Orphaned completion" });
+    expect(row?.counts.recorded).toBe(1);
+
+    await pglite.query("UPDATE submission_participants SET is_primary=false WHERE submission_id=$1 AND contact_id=$2", [talkOne, grace]);
+    await pglite.query("UPDATE submission_participants SET is_primary=true WHERE submission_id=$1 AND contact_id=$2", [talkOne, ada]);
+  });
+
   it("keeps the editor's shape lock true after a completed task is deactivated", async () => {
     const saved = await saveTaskIn(db, eventId, taskInput({ name: "Deactivated but completed" }));
     await pglite.query(
