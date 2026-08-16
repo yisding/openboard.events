@@ -335,10 +335,54 @@ describe("CFP submit, end to end through the server path", () => {
           },
         ],
       }).catch((thrown: unknown) => thrown);
-      expect(isAppError(disabled) && disabled.code).toBe("VALIDATION");
+      // FORM_VERSION_STALE rather than VALIDATION: `participant_roles` lives on
+      // the `forms` row and not in the compiled snapshot, so disabling a role
+      // produces a byte-identical snapshot that the version gate waves through.
+      // A wizard that rendered while the role was enabled therefore hit a plain
+      // VALIDATION, which it classifies as ordinary and retries forever with no
+      // stale-reload path. The rejection itself is unchanged — nothing is
+      // written either way — but the speaker now gets the recovery the wizard
+      // already knows how to perform.
+      expect(isAppError(disabled) && disabled.code).toBe("FORM_VERSION_STALE");
       expect((await pglite.query<{ count: number }>("SELECT count(*)::int AS count FROM submissions")).rows[0]?.count).toBe(0);
     } finally {
       await pglite.query("UPDATE forms SET participant_roles=$2::jsonb WHERE id=$1", [formId, JSON.stringify(DEFAULT_PARTICIPANT_ROLES)]);
+    }
+  });
+
+  it("refuses a submit whose co-speakers the form no longer collects, rather than dropping them", async () => {
+    // `collect_participants` is not in the snapshot either, and turning it off
+    // is allowed until the form has non-draft submissions — exactly the window
+    // the first submitter is in. `submittedParticipants` then collapsed to the
+    // submitter alone: every co-speaker the client sent was silently discarded,
+    // no participant answers were kept, `mapped.contact` was empty so first and
+    // last name were never written, and the speaker saw "Thank you — your
+    // submission is in".
+    await pglite.query("UPDATE forms SET collect_participants=false WHERE id=$1", [formId]);
+    try {
+      const stale = await submitCfpForm({
+        eventId,
+        formId,
+        contactId: speaker,
+        formVersion: 1,
+        answers: answers(),
+        participants: [
+          { clientId: "primary", email: "ada@example.com", role: "speaker", isPrimary: true, sortOrder: 0, answers: answers() },
+          { clientId: "co-1", email: "grace@example.com", role: "co_speaker", isPrimary: false, sortOrder: 1, answers: answers({ [field("email").id]: text("grace@example.com") }) },
+        ],
+      }).catch((thrown: unknown) => thrown);
+      expect(isAppError(stale) && stale.code).toBe("FORM_VERSION_STALE");
+      // Carrying the fresh snapshot, which is what the wizard re-renders from.
+      expect(isAppError(stale) && (stale.details as { version?: number } | undefined)?.version).toBe(1);
+      expect((await pglite.query<{ count: number }>("SELECT count(*)::int AS count FROM submissions")).rows[0]?.count).toBe(0);
+
+      // A submit that sends no participants is unaffected: that is what a form
+      // which does not collect them is supposed to receive.
+      const fine = await submitCfpForm({ eventId, formId, contactId: speaker, formVersion: 1, answers: answers() });
+      expect(fine.submissionId).toBeTruthy();
+      await pglite.query("DELETE FROM submissions");
+    } finally {
+      await pglite.query("UPDATE forms SET collect_participants=true WHERE id=$1", [formId]);
     }
   });
 

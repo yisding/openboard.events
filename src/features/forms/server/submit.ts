@@ -182,7 +182,40 @@ export async function submitCfpForm(
     ? input.participants.map((participant) => ({ ...participant, email: participant.email.trim().toLowerCase(), contactId: null }))
     : [{ clientId: input.contactId, email: null, contactId: input.contactId, role: "speaker", isPrimary: true, sortOrder: 0, answers: topLevelParticipantAnswers }];
 
+  // `collect_participants` and `participant_roles` live on the `forms` row, not
+  // in the compiled snapshot, so `isStructurallyCompatible` above cannot see a
+  // change to either: toggling one produces a byte-identical snapshot and the
+  // version gate passes. Both changes are allowed while a form has no non-draft
+  // submissions, which is exactly the window the first submitter is in.
+  //
+  // Turning participant collection off mid-session made `submittedParticipants`
+  // collapse to the submitter alone — every co-speaker the client sent silently
+  // discarded, no participant answers kept, and no name written — while the
+  // speaker saw "Thank you, your submission is in". Disabling a secondary role
+  // made `assertParticipantRolePolicy` reject every autosave as an ordinary
+  // VALIDATION, which the wizard retries forever with no stale-reload path.
+  //
+  // Both are the same fact — the form changed underneath this page — so both now
+  // raise the error the wizard already knows how to recover from, carrying the
+  // fresh snapshot. Detecting it here rather than versioning the two columns
+  // keeps the snapshot contract untouched; a speaker loses nothing either way,
+  // because the recovery path re-renders from what the form is now.
+  if (!form.collectParticipants && (input.participants?.length ?? 0) > 0) {
+    throw new AppError("FORM_VERSION_STALE", "This form changed while you were filling it in", {
+      snapshot: current,
+      version: current.version,
+    });
+  }
   const enabledSecondaryRoles = new Set(enabledSecondaryParticipantRoles(form.participantRoles));
+  const disabledRole = submittedParticipants.find((participant) => !participant.isPrimary
+    && participant.role !== "speaker"
+    && !enabledSecondaryRoles.has(participant.role as SecondaryParticipantRole));
+  if (disabledRole) {
+    throw new AppError("FORM_VERSION_STALE", "This form changed while you were filling it in", {
+      snapshot: current,
+      version: current.version,
+    });
+  }
   assertParticipantRolePolicy(submittedParticipants, enabledSecondaryRoles);
   if (new Set(submittedParticipants.map((participant) => participant.clientId)).size !== submittedParticipants.length) {
     throw new AppError("VALIDATION", "Participant client IDs must be unique");
