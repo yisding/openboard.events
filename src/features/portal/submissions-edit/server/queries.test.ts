@@ -313,6 +313,34 @@ describe("applySubmissionEdit", () => {
     expect(await readAnswer(submissionId, bioField)).toEqual({ t: "s", v: "<p>Co-speaker bio</p>" });
   });
 
+  it("keeps a draft's own participant answers, which carry no participant id", async () => {
+    // A draft stores the *primary* speaker's participant answers with
+    // `participant_id IS NULL` — `saveCfpDraft` runs the pipeline over the whole
+    // snapshot with `participantId: null`. The carry-forward inner-joined
+    // `submission_participants`, so it could never see those rows, while the
+    // replace deletes by field id alone. A speaker resuming a draft to fix a
+    // typo in the title therefore lost their entire "Tell us about you" step —
+    // including required locked fields — and the wizard does not re-seed it.
+    await seedSubmission({ id: submissionId, status: "draft", code: 1 });
+    await pglite.query(
+      "INSERT INTO submission_answers(event_id,submission_id,field_id,participant_id,value) VALUES($1,$2,$3,NULL,'{\"t\":\"s\",\"v\":\"<p>My own bio</p>\"}'::jsonb)",
+      [eventId, submissionId, bioField],
+    );
+
+    await applySubmissionEdit(eventId, speaker, submissionId, 1, {
+      [titleField]: { t: "s", v: "A resumed title" },
+    });
+
+    expect(await readAnswer(submissionId, titleField)).toEqual({ t: "s", v: "A resumed title" });
+    expect(await readAnswer(submissionId, bioField)).toEqual({ t: "s", v: "<p>My own bio</p>" });
+    // And it is still the speaker's own answer, not reattributed to anyone.
+    const stored = await pglite.query<{ participant_id: string | null }>(
+      "SELECT participant_id FROM submission_answers WHERE submission_id=$1 AND field_id=$2",
+      [submissionId, bioField],
+    );
+    expect(stored.rows[0]?.participant_id).toBeNull();
+  });
+
   it("routing-not-restamped: choosing the undecided option leaves the existing track_id alone rather than clearing it", async () => {
     await seedSubmission({ id: submissionId, status: "pending", code: 1 });
     expect((await readSubmission(submissionId))?.track_id).toBe(trackA);
