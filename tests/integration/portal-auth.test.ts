@@ -5,11 +5,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
 import { PORTAL_LOGIN_NEUTRAL_MESSAGE, consumeToken, issuePortalToken, requestPortalLoginIn, verifyPortalLoginIn } from "@/features/auth";
-import { createPortalSessionRowIn, findConcurrentPortalSignInIn } from "@/features/auth/server/portal";
+import { createPortalSessionRowIn, findConcurrentPortalSignInIn, publicCfpIsOpenIn } from "@/features/auth/server/portal";
 import { openPortalLoginPayload, sealPortalLoginPayload } from "@/features/auth/index.payloads";
 import { verifyPortalTokenIn } from "@/features/auth/server/tokens";
 import { getOrCreateContact, updateContactFields } from "@/features/event-contacts";
-import { contactIdSchema, eventIdSchema, tokenIdSchema } from "@/shared/contracts";
+import { contactIdSchema, eventIdSchema, formIdSchema, tokenIdSchema } from "@/shared/contracts";
 
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
@@ -262,6 +262,105 @@ describe("portal authentication", () => {
     const unknown = Uint8Array.from(envelope);
     unknown[0] = 2;
     await expect(openPortalLoginPayload(unknown, context, secret)).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+
+  /**
+   * The one door through the rule above, and the reason it has to exist.
+   *
+   * Every visitor to a public call for speakers starts on the account step; the
+   * draft endpoint requires a portal session; the only way to get one is this
+   * code. So "never issue a code to an address with no contact row" closed a
+   * published CFP to precisely the people it was published for — anyone not
+   * already on the organizer's roster, which is every first-time submitter.
+   */
+  describe("a first-time submitter to an open call for speakers", () => {
+    const newcomer = "first-time@example.com";
+
+    it("is issued a code and put on file, with the same sentence a known address gets", async () => {
+      const roster = async () => (await pglite.query<{ n: number }>(
+        "SELECT count(*)::int AS n FROM contacts WHERE event_id=$1 AND email=$2", [eventA, newcomer],
+      )).rows[0]?.n ?? 0;
+      expect(await roster()).toBe(0);
+
+      const opened = await requestPortalLoginIn(tx, {
+        eventId: eventA, eventSlug: "portal-a", email: newcomer,
+        appBaseUrl: "https://preview.example.com", sessionSecret: secret, fallback: true,
+        mayCreateContact: true,
+      });
+
+      // On file now, and holding a real credential rather than the neutral no-op.
+      expect(await roster()).toBe(1);
+      expect(opened.fallback?.otp).toMatch(/^\d{6}$/u);
+      // Still the same sentence, so the reply cannot be read as "this address
+      // was new" — the enumeration property survives the door.
+      expect(opened.message).toBe(PORTAL_LOGIN_NEUTRAL_MESSAGE);
+      const enqueued = await pglite.query<{ n: number }>(
+        "SELECT count(*)::int AS n FROM communication_logs WHERE event_id=$1 AND template_key='portal_login' AND contact_id=(SELECT id FROM contacts WHERE event_id=$1 AND email=$2)",
+        [eventA, newcomer],
+      );
+      expect(enqueued.rows[0]?.n).toBe(1);
+    });
+
+    it("is still refused when the caller does not say it is a call for speakers", async () => {
+      const other = "second-timer@example.com";
+      const result = await requestPortalLoginIn(tx, {
+        eventId: eventA, eventSlug: "portal-a", email: other,
+        appBaseUrl: "https://preview.example.com", sessionSecret: secret, fallback: true,
+      });
+      expect(result).toEqual({ message: PORTAL_LOGIN_NEUTRAL_MESSAGE });
+      const trace = await pglite.query<{ n: number }>(
+        "SELECT count(*)::int AS n FROM contacts WHERE event_id=$1 AND email=$2", [eventA, other],
+      );
+      expect(trace.rows[0]?.n).toBe(0);
+    });
+  });
+
+  /**
+   * `mayCreateContact` above is never taken from the request body — it is what
+   * this function answers. Each case here is a form id a caller could put in a
+   * payload, and every one of them has to read as "not an open public call".
+   */
+  describe("the open-CFP gate that decides whether an address may be created", () => {
+    const formOf = async (values: {
+      id: string; eventId: string; context: string; status: string;
+      opensAt?: string | null; closesAt?: string | null;
+    }) => {
+      await pglite.query(
+        `INSERT INTO forms(id,event_id,context,internal_name,status,opens_at,closes_at${values.context === "portal" ? ",target_type" : ""})
+         VALUES($1,$2,$3::form_context,$4,$5::form_status,$6,$7${values.context === "portal" ? ",'contact'" : ""})`,
+        [values.id, values.eventId, values.context, `fixture ${values.id}`, values.status, values.opensAt ?? null, values.closesAt ?? null],
+      );
+      return formIdSchema.parse(values.id);
+    };
+    const gateFor = "b0000000-0000-4000-8000-0000000001";
+
+    it("opens only for a cfp form, on this event, that is open right now", async () => {
+      const open = await formOf({ id: `${gateFor}01`, eventId: eventA, context: "cfp", status: "open" });
+      expect(await publicCfpIsOpenIn(tx, eventA, open)).toBe(true);
+
+      // Admin intent outranks the dates in the closing direction.
+      const draft = await formOf({ id: `${gateFor}02`, eventId: eventA, context: "cfp", status: "draft" });
+      expect(await publicCfpIsOpenIn(tx, eventA, draft)).toBe(false);
+
+      // A window that has not started, and one that has already ended: the
+      // deadline is the moment a stranger stops being able to mint a row.
+      const early = await formOf({ id: `${gateFor}03`, eventId: eventA, context: "cfp", status: "open", opensAt: "2099-01-01T00:00:00Z" });
+      expect(await publicCfpIsOpenIn(tx, eventA, early)).toBe(false);
+      const late = await formOf({ id: `${gateFor}04`, eventId: eventA, context: "cfp", status: "open", closesAt: "2020-01-01T00:00:00Z" });
+      expect(await publicCfpIsOpenIn(tx, eventA, late)).toBe(false);
+
+      // A portal form is an authenticated surface, not a public call.
+      const portal = await formOf({ id: `${gateFor}05`, eventId: eventA, context: "portal", status: "open" });
+      expect(await publicCfpIsOpenIn(tx, eventA, portal)).toBe(false);
+
+      // Another event's open CFP is not a door into this one.
+      const elsewhere = await formOf({ id: `${gateFor}06`, eventId: eventB, context: "cfp", status: "open" });
+      expect(await publicCfpIsOpenIn(tx, eventA, elsewhere)).toBe(false);
+      expect(await publicCfpIsOpenIn(tx, eventB, elsewhere)).toBe(true);
+
+      // And an id that names nothing at all.
+      expect(await publicCfpIsOpenIn(tx, eventA, formIdSchema.parse(`${gateFor}99`))).toBe(false);
+    });
   });
 
   it("keeps canonical contact writes scoped to their event", async () => {
