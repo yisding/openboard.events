@@ -1621,7 +1621,7 @@ tutorial, and write down every place you hesitated.
 
 | # | Action | Expected result |
 |---|---|---|
-| 26 | Open **Communications → Delivery log** on the demo | Every row is `Skipped`, reason *"demo event — mail is never delivered"*. Zero `queued`, zero `sent` |
+| 26 | Open **Communications → Delivery log** on the demo | Every row the *tour* caused is `Skipped`, reason *"demo event — mail is never delivered"*. The nine backdated rows provisioning wrote are history in three terminal states (six `sent`, one `failed`, two `skipped`) — dated before the demo existed, never dispatched, and there so the log is not a wall of one status. Nothing is left `queued` |
 | 27 | Queue decision emails in Chapter 5, then drain the outbox (§0.3) | The rows are rendered and logged, then skipped. **Nothing arrives in any inbox**, including yours |
 | 28 | Read every recipient address on the log | Every one ends `.demo.invalid` |
 | 29 | Check the **Reminders** tab and let the cron run | The overdue task genuinely produces reminder rows — the ladder is not filtered off — and every one of them drains to skipped |
