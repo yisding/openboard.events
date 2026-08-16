@@ -117,22 +117,23 @@ export function assertMayFinalize(
  * and the file routes are keyed by fileId, so they share this envelope instead. The
  * success and failure shapes are the same ones defineHandler produces.
  */
-export async function jsonRoute<T>(request: NextRequest, run: () => Promise<T>): Promise<Response> {
+export async function jsonRoute<T>(request: NextRequest, route: string, run: () => Promise<T>): Promise<Response> {
   const startedAt = Date.now();
   const requestId = request.headers.get("cf-ray") ?? crypto.randomUUID();
   try {
     const data = await run();
-    log({ level: "info", msg: "request.complete", requestId, feature: "uploads", durationMs: Date.now() - startedAt });
-    return NextResponse.json({ data });
+    log({ level: "info", msg: "request.complete", requestId, feature: "uploads", route, durationMs: Date.now() - startedAt });
+    return NextResponse.json({ data }, { headers: { "x-request-id": requestId } });
   } catch (error) {
     // Previously mapped everything that was not an `AppError` — a `ZodError`
     // included — to a 500, so a malformed upload request answered `INTERNAL`
     // where every other route answers `VALIDATION` with `fieldErrors`.
-    const { envelope, status } = errorEnvelope(error, {
+    const { envelope, status, headers } = errorEnvelope(error, {
       requestId,
       feature: "uploads",
+      route,
       durationMs: Date.now() - startedAt,
     });
-    return NextResponse.json(envelope, { status });
+    return NextResponse.json(envelope, { status, headers });
   }
 }

@@ -170,7 +170,7 @@ rendered subject or body. A rendered subject or body can itself carry a live mag
 | `VALIDATION` | 400 | Bad query param — e.g. `status=draft`, a non-numeric `cursor` |
 | `UNAUTHORIZED` | 401 | Missing/invalid/wrong-event bearer key on a keyed route |
 | `NOT_FOUND` | 404 | Unknown slug (unkeyed routes only — keyed routes 401 first) |
-| `RATE_LIMITED` | 429 | More than 300 requests in 5 minutes on one route bucket (per API key, or per IP on the unkeyed routes) |
+| `RATE_LIMITED` | 429 | More than 300 requests in 5 minutes on one route bucket (per API key, or per IP on the unkeyed routes). Carries `Retry-After` and `X-Request-Id` |
 | `INTERNAL` | 500 | Unexpected server error |
 
 ## CORS and caching
@@ -181,6 +181,10 @@ rendered subject or body. A rendered subject or body can itself carry a live mag
   own routes) never gets this CORS treatment. The framing/CSP headers are orthogonal and global:
   every path except `/embed/*` — `/api/v1` included — keeps `X-Frame-Options: DENY`
   (`src/shared/lib/security-headers.ts`).
+- `Access-Control-Expose-Headers: retry-after, x-request-id` on every `/api/v1/*` response. A
+  cross-origin `fetch` can only read the six CORS-safelisted response headers unless the server
+  says otherwise, so without this the two headers below would exist on the wire and be invisible to
+  the very callers they are for.
 - Unkeyed routes: successful responses are `Cache-Control: public, s-maxage=60, stale-while-revalidate=300`
   — cached at Cloudflare's edge, safe because the data is already public. Error responses
   (404/400/429/500) are `private, no-store` on every route, keyed or not, so a rejection never lands
@@ -196,6 +200,23 @@ rate-limited in the application: a fixed 300-request / 5-minute window per route
 (`v1RateLimit` / `checkV1RateLimit` in `src/app/api/v1/_lib.ts`), keyed on the API key id for keyed
 routes and on the caller's IP for the unkeyed ones. Exceeding it answers `429 RATE_LIMITED`. Each
 route has its own bucket, so a burst on one endpoint does not consume another's budget.
+
+A 429 carries `Retry-After`, in seconds, computed from the bucket's own window start — it is the
+real reset, not a suggestion, so honouring it is the shortest path back to a 200. Sleep for that
+many seconds rather than inventing a backoff. Every `/api/v1` 429 comes from the shared bucket
+above, which always knows when its window opened, so the header is always present on this surface.
+(Elsewhere in the app a limiter that cannot compute a reset sends no header rather than a guess.)
+
+## Correlating a failure
+
+Every `/api/v1` **error** response carries `X-Request-Id` — the Cloudflare `cf-ray` where one
+exists, and a minted UUID otherwise. It is the same id the server logs the failure under, so
+quoting it in a bug report is the difference between a matched log line and a search by wall-clock
+time.
+
+Successful responses do not carry it, and the public ones must not: they are
+`public, s-maxage=60` and a shared cache would hand one caller's request id to everyone who came
+after. Errors are `private, no-store` on every route, which is what makes the header safe there.
 
 ## API keys — issuing and revoking
 

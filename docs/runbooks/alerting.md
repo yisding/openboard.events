@@ -21,9 +21,13 @@ them:
    seam every unmapped `INTERNAL` error (`defineHandler` and the private job runner) flows through. Next's
    `instrumentation.ts` adds uncaught renders, Server Actions, middleware, and unwrapped route
    failures. Raw messages and stacks remain in structured Cloudflare Workers Logs; deployed
-   invocations use `ctx.waitUntil()` to aggregate only a SHA-256 fingerprint, feature, code,
-   minute, and count in `operational_error_buckets`. `/api/health` publishes only the last-hour
-   count. The scheduled uptime check fails on one or more unexpected errors, so this path is an
+   invocations use `ctx.waitUntil()` to aggregate only a SHA-256 fingerprint, feature, route,
+   code, minute, and count in `operational_error_buckets`. `feature` and `route` are derived from
+   the request path (`/api/internal/<feature>/…`), so a paged operator can name the endpoint that
+   broke without grepping Workers Logs by timestamp; `route` is always the *pattern*
+   (`/api/internal/forms/[formId]/fields`), never a concrete path, and is `''` for the callers with
+   no request to name (job sweeps, the R2 seam). `/api/health` publishes only the last-hour
+   count — the attribution columns stay server-side. The scheduled uptime check fails on one or more unexpected errors, so this path is an
    automated alert rather than a dashboard-reading procedure. Rows older than seven days are
    removed by the daily cleanup job.
 3. **Scheduled-dispatch status** — `workers/jobs/dispatch.ts` gives every RPC call a 120-second
@@ -48,7 +52,7 @@ them:
 | `errors` present | object | missing only during the additive one-deploy rollout | missing after the current release has passed strict post-deploy smoke | The strict smoke requires this field; the scheduled check warns rather than paging while an older artifact is still live. |
 | `errors.ok` | `true` | — | `false` | The aggregate query failed, so caught application errors cannot reach the automated alert. Raw Cloudflare logs remain available, but silent monitor failure is itself an incident. |
 | `errors.windowSeconds` | `3600` | — | missing or any other value | The polling threshold and the aggregation window have drifted; do not interpret `recentCount` until they agree. |
-| `errors.recentCount` | `0` | — | `> 0` | These are unexpected 500-class failures, not validation/auth/user errors. On this low-traffic application, one caught failure is actionable and must link back to `error.captured` logs by time/feature/code. Two background conditions also land here on purpose, because nothing else can retry them: a failed job sweep (`code` = `<job>.<sweep>`, e.g. `cleanup.retention`), and an R2 object left unreachable after its owning row was deleted (`code` = `R2_STRANDED_*`, one per originating sweep — `R2_STRANDED_CONTACT_ERASURE` is the compliance-relevant one). |
+| `errors.recentCount` | `0` | — | `> 0` | These are unexpected 500-class failures, not validation/auth/user errors. On this low-traffic application, one caught failure is actionable. Start from `operational_error_buckets`, which now names the `feature` and `route` behind the count; `error.captured` logs carry the same two fields plus the raw message, stack, and the `x-request-id` the caller was given. Two background conditions also land here on purpose, because nothing else can retry them: a failed job sweep (`code` = `<job>.<sweep>`, e.g. `cleanup.retention`), and an R2 object left unreachable after its owning row was deleted (`code` = `R2_STRANDED_*`, one per originating sweep — `R2_STRANDED_CONTACT_ERASURE` is the compliance-relevant one). |
 | `jobs` present | object | missing only during the additive one-deploy rollout | missing after the current release has passed strict post-deploy smoke | The strict smoke requires the field; a missing field is tolerated only while an older artifact remains live. |
 | `jobs.ok` | `true` | — | `false` | The heartbeat query failed, so Cron liveness cannot be monitored independently of queue depth. |
 | `jobs.outboxLastSuccessAgeSeconds` | `0`–`180` | `> 180` | missing/null or `> 300` | Outbox completes every minute even with no queued mail. Staleness therefore catches a stopped Cron, broken Service Binding/entrypoint, or private job failure when queue metrics remain empty. |

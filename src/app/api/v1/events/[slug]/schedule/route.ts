@@ -21,7 +21,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
   try {
     return await handleGet(request, params);
   } catch (error) {
-    return apiV1ErrorResponse(error, request);
+    return apiV1ErrorResponse(error, request, "/api/v1/events/[slug]/schedule");
   }
 }
 

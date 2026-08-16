@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@/db/client";
 import { apiErrorSchema, eventIdSchema, type EventId, type UserId } from "@/shared/contracts";
 import { captureError } from "@/shared/lib/error-tracking";
-import { AppError, isAppError, toHttp } from "@/shared/lib/errors";
+import { AppError, isAppError, retryAfterSeconds, toHttp } from "@/shared/lib/errors";
 import { log } from "@/shared/lib/log";
 import { assertSameOrigin } from "./csrf";
 import { checkRateLimit } from "./rate-limit";
@@ -45,6 +45,12 @@ export type ErrorEnvelopeContext = {
   requestId: string;
   /** Groups the log line and the captured error, e.g. `"api"`, `"uploads"`, `"api-v1"`. */
   feature: string;
+  /**
+   * The route *pattern* (`/api/internal/forms/[formId]/fields`), never the
+   * concrete path. `operational_error_buckets` keys on it, so a concrete path
+   * would mint one row per tenant and defeat the aggregation.
+   */
+  route?: string;
   eventId?: EventId | null;
   /** Log message, for routes that name their failure something other than a request. */
   msg?: string;
@@ -72,7 +78,7 @@ export type ErrorEnvelopeContext = {
 export function errorEnvelope(
   error: unknown,
   context: ErrorEnvelopeContext,
-): { envelope: z.infer<typeof apiErrorSchema>; status: number } {
+): { envelope: z.infer<typeof apiErrorSchema>; status: number; headers: Record<string, string> } {
   const appError = isAppError(error)
     ? error
     : error instanceof z.ZodError
@@ -96,6 +102,7 @@ export function errorEnvelope(
       requestId: context.requestId,
       feature: context.feature,
       code: appError.code,
+      ...(context.route ? { route: context.route } : {}),
       ...(context.eventId ? { eventId: context.eventId } : {}),
     });
   }
@@ -105,10 +112,82 @@ export function errorEnvelope(
     code: appError.code,
     requestId: context.requestId,
     feature: context.feature,
+    ...(context.route ? { route: context.route } : {}),
     ...(context.eventId ? { eventId: context.eventId } : {}),
     ...(context.durationMs === undefined ? {} : { durationMs: context.durationMs }),
   });
-  return { envelope, status: toHttp(appError.code) };
+  const retryAfter = retryAfterSeconds(appError);
+  return {
+    envelope,
+    status: toHttp(appError.code),
+    headers: {
+      // Support reports arrive as "it failed at about 2pm". The correlator has
+      // always existed server-side — `error.captured` logs it — but never
+      // reached the person who saw the failure, and off Cloudflare (the
+      // `crypto.randomUUID()` fallback) there was no `cf-ray` to fish out of
+      // the response either.
+      "x-request-id": context.requestId,
+      ...(retryAfter === undefined ? {} : { "retry-after": String(retryAfter) }),
+    },
+  };
+}
+
+/**
+ * The route *pattern* behind a concrete request path, plus the feature that
+ * owns it: `/api/internal/forms/9d2…/fields/7` becomes
+ * `/api/internal/forms/[formId]/fields/[fieldId]` and `forms`.
+ *
+ * Both are derived rather than declared. `defineHandler` labelled every one of
+ * its ~158 routes `feature: "api"` and dropped `route` entirely, so a paged
+ * operator reading `operational_error_buckets` could not name the endpoint
+ * that broke; declaring the name at each of those 158 call sites would be a
+ * name repeated 158 times, which is a name that drifts. The path already
+ * states it — `/api/internal/<feature>/…` is the layout of the whole tree.
+ *
+ * The *pattern* is what makes the bucket groupable: bucketing on the concrete
+ * path would mint one row per tenant and defeat the aggregation the table
+ * exists for.
+ */
+export function routeIdentity(pathname: string, params: RouteParams): { route: string; feature: string } {
+  // Each param is consumed the first time its value is matched, left to right.
+  // Keying a map on the value alone loses one of any two params that happen to
+  // share it — `{ formId: "42", fieldId: "42" }` would render
+  // `/forms/[fieldId]/fields/[fieldId]` — and while that string is still stable
+  // and low-cardinality, it names the wrong parameter to whoever is reading it.
+  const pending = Object.entries(params).flatMap(([key, value]) =>
+    typeof value === "string"
+      ? [{ key, value, placeholder: `[${key}]` }]
+      : Array.isArray(value) ? value.map((segment) => ({ key, value: segment, placeholder: `[...${key}]` })) : []);
+  const segments: string[] = [];
+  for (const segment of pathname.split("/")) {
+    const index = pending.findIndex((candidate) => candidate.value === segment);
+    const normalized = index === -1 ? segment : pending.splice(index, 1)[0]?.placeholder ?? segment;
+    // A catch-all spreads across as many segments as the caller sent
+    // (`/api/auth/reset-password/abc`); collapse them back into the single
+    // `[...action]` the file-system route actually declares.
+    if (normalized.startsWith("[...") && segments.at(-1) === normalized) continue;
+    segments.push(normalized);
+  }
+  return { route: segments.join("/").slice(0, 200), feature: featureOf(pathname) };
+}
+
+/**
+ * Safe to call on a raw, un-normalized path: it only ever reads the scope and
+ * area segments, and every route in the tree spells both as literals. No id
+ * can reach a feature name this way, which is what lets `defineHandler` label
+ * a failure before `route.params` has resolved.
+ */
+export function featureOf(pathname: string): string {
+  // `/api/internal/forms/…` -> scope `internal`, area `forms`.
+  const [scope, area] = pathname.split("/").filter(Boolean).slice(1);
+  if (!scope) return "api";
+  // `/api/v1` keeps the name its hand-rolled routes already log under, so the
+  // public API's failures stay one searchable group across both styles.
+  if (scope === "v1") return "api-v1";
+  if (scope !== "internal") return scope;
+  // A parameterized first segment would be a per-tenant "feature" name; there
+  // is no such route today, and `api` is the honest answer if one appears.
+  return area && !area.startsWith("[") ? area : "api";
 }
 
 function queryInput(searchParams: URLSearchParams): Record<string, string | string[]> {
@@ -156,8 +235,17 @@ export function defineHandler<Input, Output>(options: {
     const startedAt = Date.now();
     const requestId = request.headers.get("cf-ray") ?? crypto.randomUUID();
     let eventId: EventId | null = null;
+    // Params are what turn ids back into placeholders, so there is no route
+    // pattern to state until they resolve — and the concrete path must not
+    // stand in for one, or a throw from `route.params` itself would write a
+    // per-tenant row into a table keyed for aggregation. The feature name is
+    // safe to read straight off the path (see `featureOf`), so a failure that
+    // early is still attributable to an area, with `""` for the route: the
+    // same "no request to name" value the job sweeps use.
+    let identity = { route: "", feature: featureOf(request.nextUrl.pathname) };
     try {
       const params = await route?.params ?? {};
+      identity = routeIdentity(request.nextUrl.pathname, params);
       const rawEventId = params?.eventId;
       if (typeof rawEventId === "string") eventId = eventIdSchema.parse(rawEventId);
       if (MUTATING_METHODS.has(request.method) && !options.auth.csrfExempt) assertSameOrigin(request);
@@ -180,8 +268,8 @@ export function defineHandler<Input, Output>(options: {
           // caller would make an abuse guard a bigger outage risk than the
           // abuse it guards against.
           if (isAppError(error) && error.code === "RATE_LIMITED") throw error;
-          captureError(error, { requestId, feature: "api", code: "RATE_LIMIT_DEGRADED", ...(eventId ? { eventId } : {}) });
-          log({ level: "warn", msg: "rate_limit.degraded", requestId, feature: "api", ...(eventId ? { eventId } : {}) });
+          captureError(error, { requestId, feature: identity.feature, route: identity.route, code: "RATE_LIMIT_DEGRADED", ...(eventId ? { eventId } : {}) });
+          log({ level: "warn", msg: "rate_limit.degraded", requestId, feature: identity.feature, route: identity.route, ...(eventId ? { eventId } : {}) });
         }
       }
       const rawInput: unknown = request.method === "GET"
@@ -189,16 +277,17 @@ export function defineHandler<Input, Output>(options: {
         : await bodyInput(request);
       const input = options.input.parse(rawInput);
       const data = await options.handler({ eventId, session, input, params, req: request, requestId });
-      log({ level: "info", msg: "request.complete", requestId, feature: "api", ...(eventId ? { eventId } : {}), durationMs: Date.now() - startedAt });
-      return NextResponse.json({ data });
+      log({ level: "info", msg: "request.complete", requestId, feature: identity.feature, route: identity.route, ...(eventId ? { eventId } : {}), durationMs: Date.now() - startedAt });
+      return NextResponse.json({ data }, { headers: { "x-request-id": requestId } });
     } catch (error) {
-      const { envelope, status } = errorEnvelope(error, {
+      const { envelope, status, headers } = errorEnvelope(error, {
         requestId,
-        feature: "api",
+        feature: identity.feature,
+        route: identity.route,
         eventId,
         durationMs: Date.now() - startedAt,
       });
-      return NextResponse.json(envelope, { status });
+      return NextResponse.json(envelope, { status, headers });
     }
   };
 }

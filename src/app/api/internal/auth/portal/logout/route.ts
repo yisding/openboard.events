@@ -17,11 +17,12 @@ export async function POST(request: NextRequest) {
     // Every unrecognized throw used to answer 400 VALIDATION, so a genuine
     // internal failure here was reported to the caller — and to anyone reading
     // the logs — as a bad request.
-    const { envelope, status } = errorEnvelope(error, {
+    const { envelope, status, headers } = errorEnvelope(error, {
       requestId,
       feature: "portal-auth",
+      route: "/api/internal/auth/portal/logout",
       fallbackMessages: { validation: "Invalid portal logout" },
     });
-    return NextResponse.json(envelope, { status });
+    return NextResponse.json(envelope, { status, headers });
   }
 }

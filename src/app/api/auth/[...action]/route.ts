@@ -8,7 +8,7 @@ import {
   throttleAdminLogin,
   withCredentialVerificationBudget,
 } from "@/features/auth";
-import { isAppError, toHttp } from "@/shared/lib/errors";
+import { isAppError, retryAfterSeconds, toHttp } from "@/shared/lib/errors";
 import { getEnv } from "@/shared/lib/env";
 import { log } from "@/shared/lib/log";
 import { assertSameOrigin } from "@/shared/server/csrf";
@@ -29,9 +29,20 @@ import { beginGoogleSignup, confirmAdminEmail, handleAdminAuthGet, handleSocialS
 const signInSchema = z.object({ email: z.email(), password: z.string().min(8).max(256) });
 const unauthorized = () => NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Invalid email or password" } }, { status: 401 });
 const CREDENTIAL_BURST_WINDOW_MS = 1_000;
-const credentialRateLimited = () => NextResponse.json({
+/**
+ * `Retry-After` only when the refusal came from our own bucket, which knows
+ * when its window opened. Better Auth's in-memory limiter (the other source of
+ * a 429 here) reports no reset, and a fabricated number is worse than none —
+ * it either sends the caller back early or holds them out longer than the real
+ * block lasts.
+ */
+function retryAfterHeaders(error?: unknown): Record<string, string> {
+  const seconds = retryAfterSeconds(error);
+  return seconds === undefined ? {} : { "retry-after": String(seconds) };
+}
+const credentialRateLimited = (error?: unknown) => NextResponse.json({
   error: { code: "RATE_LIMITED", message: "Too many sign-in attempts. Try again shortly." },
-}, { status: 429 });
+}, { status: 429, headers: retryAfterHeaders(error) });
 
 /**
  * Better Auth's *own* credential endpoints, reachable through the catch-all
@@ -108,7 +119,7 @@ async function betterAuthSignOut(request: NextRequest): Promise<NextResponse> {
 
 function rateLimited(error: unknown): NextResponse | null {
   if (isAppError(error) && error.code === "RATE_LIMITED") {
-    return NextResponse.json({ error: { code: error.code, message: error.message } }, { status: 429 });
+    return NextResponse.json({ error: { code: error.code, message: error.message } }, { status: 429, headers: retryAfterHeaders(error) });
   }
   return null;
 }
@@ -221,7 +232,7 @@ async function credentialAttempt(
     if (accepted && attemptKey) await clearAdminLoginThrottle(attemptKey);
     return response;
   } catch (error) {
-    if (isAppError(error) && error.code === "RATE_LIMITED") return credentialRateLimited();
+    if (isAppError(error) && error.code === "RATE_LIMITED") return credentialRateLimited(error);
     log({
       level: "error",
       msg: "auth.credential_request",

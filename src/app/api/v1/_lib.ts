@@ -9,11 +9,18 @@ import { errorEnvelope, type AuthSession } from "@/shared/server/handler";
 // never enter a shared cache. Both carry permissive CORS — `/api/v1/*` is the
 // one surface in this app meant to be called from another origin (embeds,
 // judge scripts); `/api/internal/*` never gets this treatment.
-const publicHeaders = { "access-control-allow-origin": "*", "cache-control": "public, s-maxage=60, stale-while-revalidate=300" };
-const privateHeaders = { "access-control-allow-origin": "*", "cache-control": "private, no-store" };
+//
+// `access-control-expose-headers` is what makes the two diagnostic headers
+// usable from another origin at all: cross-origin `fetch` hides every response
+// header outside the CORS-safelisted six, so without this a judge script sees
+// a 429 with no `Retry-After` to honour and a 500 with no `x-request-id` to
+// quote in a support report.
+const exposedHeaders = "retry-after, x-request-id";
+const publicHeaders = { "access-control-allow-origin": "*", "access-control-expose-headers": exposedHeaders, "cache-control": "public, s-maxage=60, stale-while-revalidate=300" };
+const privateHeaders = { "access-control-allow-origin": "*", "access-control-expose-headers": exposedHeaders, "cache-control": "private, no-store" };
 
 export function corsPreflight() {
-  return new Response(null, { status: 204, headers: { "access-control-allow-origin": "*", "access-control-allow-methods": "GET, OPTIONS", "access-control-allow-headers": "authorization, content-type", "access-control-max-age": "86400" } });
+  return new Response(null, { status: 204, headers: { "access-control-allow-origin": "*", "access-control-allow-methods": "GET, OPTIONS", "access-control-allow-headers": "authorization, content-type", "access-control-expose-headers": exposedHeaders, "access-control-max-age": "86400" } });
 }
 
 /**
@@ -69,12 +76,13 @@ export function withV1PrivateHeaders(response: Response): Response {
  * failures through `defineHandler`'s own `errorEnvelope`, so a 500 on the
  * public API is captured and alertable rather than logged nowhere.
  */
-export function apiV1ErrorResponse(error: unknown, request?: Request): Response {
-  const { envelope, status } = errorEnvelope(error, {
+export function apiV1ErrorResponse(error: unknown, request?: Request, route?: string): Response {
+  const { envelope, status, headers } = errorEnvelope(error, {
     requestId: request?.headers.get("cf-ray") ?? crypto.randomUUID(),
     feature: "api-v1",
+    ...(route ? { route } : {}),
   });
-  return Response.json(envelope, { status, headers: privateHeaders });
+  return Response.json(envelope, { status, headers: { ...privateHeaders, ...headers } });
 }
 
 export type PublicEvent = {
