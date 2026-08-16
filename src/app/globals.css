@@ -1059,14 +1059,51 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .public-empty .button{margin-top:16px}
 
 /* M60 — the ready-to-announce bundle */
-.announce-bundle{display:grid;gap:24px}
+/* Every value in here is a URL a JWT long, and `.announce-copy-row code` is
+   `white-space:nowrap`. A grid item's default `min-width:auto` is its
+   min-content width, so without these floors the section grew to the width of
+   the longest share link (measured: 2965px inside a 760px modal), carrying the
+   row — and its Copy button — clean outside the dialog. Same shape as the
+   `.event-switcher` overflow in #545: the ellipsis was always there, the box
+   was just never allowed to be narrower than its text. */
+.announce-bundle{display:grid;gap:24px;min-width:0}
+.announce-bundle>section{min-width:0}
 .announce-bundle section h3{font-size:var(--text-sm);margin:0 0 12px;display:flex;align-items:center;gap:6px}
 .announce-bundle-note{font-size:var(--text-xs);color:var(--muted);margin:-6px 0 12px}
 .announce-copy-row{display:flex;align-items:center;gap:12px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px}
 .announce-copy-row>div{flex:1;min-width:0}
 .announce-copy-row b{display:block;font-size:var(--text-xs);color:var(--muted);margin-bottom:4px}
 .announce-copy-row code{display:block;font-size:var(--text-xs);color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.announce-speaker-links{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.announce-speaker-links{list-style:none;margin:0;padding:0;display:grid;gap:2px;min-width:0}
+.announce-speaker-links>li{min-width:0}
+
+/* The submissions table's Title column carries the title *and* the
+   description, and it is the only column that wraps — every other one is
+   `white-space:nowrap` from `.data-table`. Under `table-layout:auto` the
+   nowrap columns are satisfied first and the whole deficit lands here, so a
+   ceiling (`max-width:340px`) without a floor collapsed the column to roughly
+   its longest word: 111px, in a 192px row against a 62px design height.
+   The width is a preference auto layout honours; the clamp keeps a long
+   description from setting the row height. */
+.submission-title-cell span{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+
+.data-table th.abstracts-title-column,.data-table td.abstracts-title-column{width:340px;min-width:280px}
+
+/* `.data-toolbar` is a flex row, so `.table-search{width:280px}` was only a
+   starting point: the two filter selects size to their widest option, take the
+   space first, and the search absorbed the deficit — 77px on the delivery log,
+   narrower than its own "Search recipients" placeholder. */
+.data-toolbar>.table-search{flex:0 0 280px}
+.data-toolbar>.filter-button{min-width:0}
+
+/* Both floors above are desktop shapes. T5 allows max-width breakpoints only,
+   so the phone variants are stated here rather than as a min-width band: the
+   title column goes back to auto (its own `.submission-title-cell` minimum
+   already applies) and the search returns to the full-width row. */
+@media(max-width:768px){
+  .data-table th.abstracts-title-column,.data-table td.abstracts-title-column{width:auto;min-width:0}
+  .data-toolbar>.table-search{flex:1 1 100%}
+}
 .announce-speaker-links .announce-copy-row{margin-bottom:0}
 .announce-speaker-unavailable{display:flex;align-items:center;gap:8px;padding:8px 12px;font-size:var(--text-xs);color:var(--muted)}
 .announce-speaker-unavailable small{color:var(--muted);font-size:var(--text-xs)}

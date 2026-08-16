@@ -329,6 +329,44 @@ describe("shared UI spacing regressions", () => {
     expect(shell).toContain("document.documentElement.style.overflow = overflow;");
   });
 
+  it("lets the announce bundle's copy rows shrink to the dialog they sit in", () => {
+    // Every value is a URL, `.announce-copy-row code` is nowrap, and a grid
+    // item's default min-width is its min-content — so the section grew to the
+    // longest per-speaker share link and carried its Copy button outside the
+    // modal. The floors are what let the existing ellipsis fire.
+    expect(css).toContain(".announce-bundle{display:grid;gap:24px;min-width:0}");
+    expect(css).toContain(".announce-bundle>section{min-width:0}");
+    expect(css).toContain(".announce-speaker-links>li{min-width:0}");
+    expect(css).toContain(".announce-copy-row>div{flex:1;min-width:0}");
+  });
+
+  it("gives the submissions title column a floor, not just a ceiling", () => {
+    const table = read("./submissions/components/abstracts-table.tsx");
+
+    // Auto table layout satisfies every nowrap column first and hands the
+    // deficit to the only column that wraps; a max-width alone collapsed it to
+    // its longest word.
+    expect(table).toContain('meta: { className: "abstracts-title-column" }');
+    // Not `abstracts-col-*`: that namespace is the responsive disclosure
+    // ladder, and abstracts-table.test.ts pins Title out of it.
+    expect(table).not.toContain("abstracts-col-title");
+    expect(css).toContain(
+      ".data-table th.abstracts-title-column,.data-table td.abstracts-title-column{width:340px;min-width:280px}",
+    );
+    expect(css).toContain(
+      ".submission-title-cell span{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}",
+    );
+  });
+
+  it("keeps a table toolbar's search from being squeezed by its filters", () => {
+    expect(css).toContain(".data-toolbar>.table-search{flex:0 0 280px}");
+    expect(css).toContain(".data-toolbar>.filter-button{min-width:0}");
+    // T5 allows max-width breakpoints only, so the phone shape is an override
+    // rather than a min-width band.
+    expect(css).toContain(".data-toolbar>.table-search{flex:1 1 100%}");
+    expect(css).not.toMatch(/@media\(min-width/u);
+  });
+
   it("gives discrete public session and gallery actions full pointer targets", () => {
     expect(css).toContain(
       ".public-session-main h3 button{width:100%;min-height:32px;",
