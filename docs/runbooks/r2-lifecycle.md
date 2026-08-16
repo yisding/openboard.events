@@ -26,6 +26,12 @@ object behind unless something reclaims it. The application has two cleanup path
 - **`sweepOrphanStagingObjectsIn`** lists only the bucket-root `staging/` prefix via the S3 API,
   parses the current layout, keeps old keys with no owning `file_assets` row, and deletes them.
 
+The speaker portal's file-request task depends on this deliberately (#621): its POST finalizes the
+staged object and completes the task in one request, so a speaker who loses the network after the
+PUT leaves a staging object and an outstanding task rather than a published file attached to
+nothing. If both sweeps stop running, that path accumulates staged bytes — it does not corrupt
+anything.
+
 Both run daily via `cleanupOrphans`, wired to the `cleanup` job at 09:00 UTC
 (`workers/jobs/dispatch.ts`). **This is the durable app-level mitigation** — an R2-native lifecycle
 rule is additional defense in depth (it survives even if the cron stops ticking, or a future code
