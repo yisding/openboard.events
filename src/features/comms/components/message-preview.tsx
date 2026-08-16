@@ -2,6 +2,7 @@
 
 import { useId, useState } from "react";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
+import { MessageFormatToggle } from "./message-format-toggle";
 
 type MessagePreviewProps = {
   label: string;
@@ -38,24 +39,12 @@ export function MessagePreview({ label, hint, message, status }: MessagePreviewP
               <b>{message.subject || "(empty subject)"}</b>
             </div>
             {hasPlainText && (
-              <div className="template-preview-format" role="group" aria-label="Preview format">
-                <button
-                  type="button"
-                  aria-pressed={activeFormat === "html"}
-                  aria-controls={`${id}-html`}
-                  onClick={() => setFormat("html")}
-                >
-                  HTML
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={activeFormat === "text"}
-                  aria-controls={`${id}-text`}
-                  onClick={() => setFormat("text")}
-                >
-                  Plain text
-                </button>
-              </div>
+              <MessageFormatToggle
+                format={activeFormat}
+                htmlPanelId={`${id}-html`}
+                textPanelId={`${id}-text`}
+                onChange={setFormat}
+              />
             )}
           </header>
           <div id={`${id}-html`} className="template-preview-body" hidden={activeFormat !== "html"}>
