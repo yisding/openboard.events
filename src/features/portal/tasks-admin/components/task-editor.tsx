@@ -113,7 +113,7 @@ export function TaskEditor({
   const createRequestId = useRef(createStableCreateRequestId());
   const { runGuarded } = useGuardedAction();
   const dirty = open && editorDraftChanged(draft, baseline);
-  useUnsavedWorkGuard(dirty);
+  const releaseUnsavedWork = useUnsavedWorkGuard(dirty);
 
   useEffect(() => {
     if (!open) {
@@ -222,6 +222,12 @@ export function TaskEditor({
       toast(draft.id ? "Task updated" : duplicating ? "Inactive task copy created" : "Task created");
       setBaseline(draft);
       setExpectedUpdatedAt(saved.data.updatedAt);
+      // The write committed, so this editor is holding nothing that could be
+      // lost. Say so *before* handing the task back: `onSaved` refreshes the
+      // page, and a baseline reset that only lands on the next render left the
+      // guard armed long enough to meet the app's own refresh with "Discard
+      // unsaved work?".
+      releaseUnsavedWork();
       await onSaved(saved.data);
       createRequestId.current.reset();
     } catch {
