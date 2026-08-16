@@ -73,7 +73,7 @@ describe("audited mutation failure toasts", () => {
       ["./dashboard/components/ApiKeysPanel.tsx", 7],
       ["./forms/components/builder/routing-rules-panel.tsx", 4],
       ["./organizations/components/team-panel.tsx", 12],
-      ["./portal/resources/components/resource-page-editor.tsx", 4],
+      ["./portal/resources/components/resource-page-editor.tsx", 3],
       ["./billing/components/billing-panel.tsx", 1],
       ["./events/components/branding-panel.tsx", 1],
       ["./portal/components/home/add-to-calendar-button.tsx", 1],
