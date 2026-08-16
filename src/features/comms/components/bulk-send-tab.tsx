@@ -637,7 +637,10 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
       <section className="panel bulk-send-filters">
         <header className="panel-header"><div><h2>1. Choose a segment</h2><p>Leave a group empty to match every value for it.</p></div></header>
         <div className="form-stack bulk-send-body">
-          <Field label="Roster status">
+          {/* `group`: both filters are sets of checkboxes that each own a
+              <label>, so a <label> around them is invalid HTML and hands the
+              caption to the first checkbox. */}
+          <Field label="Roster status" group>
             <div className="bulk-send-checkboxes">
               {SPEAKER_WORKFLOW_STATUSES.map((status) => (
                 <label key={status} className="checkbox-row">
@@ -647,7 +650,7 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
               ))}
             </div>
           </Field>
-          <Field label="Confirmation status">
+          <Field label="Confirmation status" group>
             <div className="bulk-send-checkboxes">
               {CONFIRMATION_STATUSES.map((status) => (
                 <label key={status} className="checkbox-row">

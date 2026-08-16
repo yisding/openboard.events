@@ -2,7 +2,7 @@
 
 import { UserRound, X } from "lucide-react";
 import Image from "next/image";
-import React, { Children, useEffect, useRef, type ButtonHTMLAttributes, type CSSProperties, type ReactNode, type RefObject, type SelectHTMLAttributes } from "react";
+import React, { Children, useEffect, useRef, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type ReactNode, type RefObject, type SelectHTMLAttributes } from "react";
 import { cn } from "@/shared/lib/cn";
 import { STATUS_BADGES, type StatusBadgeValue } from "@/shared/ui/status-badge";
 import { raiseTopLayerStack } from "@/shared/ui/top-layer";
@@ -36,6 +36,26 @@ export function Switch({ checked, label, className, ...props }: Omit<ButtonHTMLA
  */
 export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
   return <select className={cn("select-control", className)} {...props} />;
+}
+
+/**
+ * The kit's colour well. Like `Select`, it *is* the native control — the OS
+ * colour dialog brings eyedroppers, recent swatches and system palettes that a
+ * hand-rolled popover has to re-earn, and DD-2 already keeps the platform
+ * picker for dates on exactly that reasoning.
+ *
+ * What the kit adds is the trigger. Left alone, `input[type=color]` paints a UA
+ * bevel with its own inset padding and square corners — the one control on an
+ * Appearance panel that looks borrowed from the operating system. `.color-well`
+ * replaces the UA chrome with the kit's own: the swatch fills the control, the
+ * border and radius are the same tokens every other field uses, and focus draws
+ * the kit's ring rather than the platform outline.
+ *
+ * A well only emits `#rrggbb`. Anywhere a shorthand or alpha hex has to survive
+ * (the embed accent), pair it with a text field — see `embeds-admin-page.tsx`.
+ */
+export function ColorWell({ className, ...props }: Omit<InputHTMLAttributes<HTMLInputElement>, "type">) {
+  return <input type="color" className={cn("color-well", className)} {...props} />;
 }
 
 export function StatusBadge({ value }: { value: StatusBadgeValue }) {
@@ -210,7 +230,23 @@ export function EmptyState({ icon, title, description, action }: { icon: ReactNo
 // and the only one `react/no-children-prop` allows. A required `children` in the
 // prop type makes that call fail to typecheck, because `createElement` does not
 // fold its rest arguments into the props type.
-export function Field({ label, hint, hintId, required, error, errorId, group, radioGroup, children }: { label: string; hint?: string; hintId?: string; required?: boolean; error?: string | undefined; errorId?: string; group?: boolean; radioGroup?: boolean; children?: ReactNode }) {
+/**
+ * `htmlFor` names the control this label belongs to instead of leaving the
+ * browser to guess it.
+ *
+ * A `<label>` with no `for` labels its *first labelable descendant*, which is
+ * the right element only when the field holds exactly one input. It is the
+ * wrong one when something labelable is written *ahead* of the real control:
+ * the rich text editor leads with a toolbar, so a wrapping label lands on its
+ * Bold button. And it is silently nothing at all when the control is a
+ * `contenteditable`, which no label can be associated with — that editor is
+ * both cases at once, which is why its field uses `group` instead. (The date
+ * picker is not one of them: its `<input>` is written before the calendar
+ * button, so nesting already resolves to the input there.) Pointing the label
+ * at an explicit `id` also gives the field the `id`/`name` pair that autofill
+ * and form tooling look for, which a wrapping label never provided.
+ */
+export function Field({ label, hint, hintId, htmlFor, required, error, errorId, group, radioGroup, children }: { label: string; hint?: string; hintId?: string; htmlFor?: string; required?: boolean; error?: string | undefined; errorId?: string; group?: boolean; radioGroup?: boolean; children?: ReactNode }) {
   const inner = <>
     <span>{label}{required && <b className="required"> *</b>}</span>
     {children}
@@ -226,7 +262,7 @@ export function Field({ label, hint, hintId, required, error, errorId, group, ra
   // query both need. Same class name, so the styling is untouched.
   return group
     ? <div role={radioGroup ? "radiogroup" : "group"} aria-label={label} aria-invalid={radioGroup && error ? true : undefined} aria-describedby={error ? errorId : undefined} tabIndex={error ? -1 : undefined} className={error ? "field field-invalid" : "field"}>{inner}</div>
-    : <label className={error ? "field field-invalid" : "field"}>{inner}</label>;
+    : <label htmlFor={htmlFor} className={error ? "field field-invalid" : "field"}>{inner}</label>;
 }
 
 export function Segmented<T extends string>({ label, value, onChange, items }: { label: string; value: T; onChange: (value: T) => void; items: Array<{ value: T; label: string }> }) {

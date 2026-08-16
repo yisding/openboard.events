@@ -187,13 +187,23 @@ export function AbstractsTable({
       id: "title",
       header: "Title",
       accessorKey: "title",
+      // `.data-table` is `table-layout:auto` and every other column is
+      // `white-space:nowrap`, so auto layout satisfies them first and hands the
+      // whole deficit to the one column that can wrap — this one, which also
+      // carries the description. Without a width of its own it collapsed to
+      // roughly its longest word (measured: 111px, in a 192px-tall row). The
+      // class is the seam the stylesheet needs to give the column a floor. It is
+      // deliberately outside the `abstracts-col-*` namespace: that one belongs
+      // to the T5 responsive disclosure ladder, whose members are the columns
+      // mobile hides, and Title is never one of them.
+      meta: { className: "abstracts-title-column" },
       cell: ({ row }) => (
         // First Fair: the tour needs to point at the first proposal. The `<tr>`
         // belongs to the shared DataTable and the whole table sits behind a
         // QueryBoundary, so the lead row's title cell carries the anchor —
         // which is also the part of the row a spotlight should frame.
         <div className="submission-title-cell" {...(row.index === 0 ? { "data-tour": "abstracts.row" } : {})}>
-          <b>{row.original.title}</b>
+          <b title={row.original.title}>{row.original.title}</b>
           <Dash value={row.original.descriptionPlain}>
             <span>{row.original.descriptionPlain?.slice(0, 120)}</span>
           </Dash>
@@ -321,6 +331,10 @@ export function AbstractsTable({
             onSubmit={(event) => { event.preventDefault(); onFilter({ search: draftSearch }); }}
           >
             <input
+              // The one field on this screen inside a real `<form>`: without a
+              // name it is the unidentifiable control browser form tooling
+              // complains about, even though `aria-label` names it for people.
+              name="search"
               value={draftSearch}
               onChange={(event) => setDraftSearch(event.target.value)}
               placeholder="Search code, title or speaker"

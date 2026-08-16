@@ -440,6 +440,37 @@ describe("leaving", () => {
     expect(server.patches.some((patch) => patch.status === "paused")).toBe(false);
   });
 
+  it("leaves Escape alone when the thing that owned it closed itself on the way past", async () => {
+    // The command palette, found live. Its own handler answers Escape with
+    // `preventDefault` + `stopPropagation` + `onClose`, and React flushes that
+    // discrete update synchronously — so this document-level listener runs
+    // *after* the `<dialog>` has already gone, the "is a dialog open" guard
+    // sees an empty top layer, and the tour quietly paused itself on a
+    // keystroke the player spent dismissing something else.
+    document.body.insertAdjacentHTML("beforeend", '<dialog open class="palette"><input /></dialog>');
+    const palette = document.querySelector<HTMLDialogElement>("dialog.palette");
+    const input = palette?.querySelector("input");
+    if (!palette || !input) throw new Error("fixture did not mount");
+    palette.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      palette.removeAttribute("open");
+    });
+
+    const server = makeServer();
+    await render(makeBootstrap(server));
+    await tick();
+
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    });
+    await tick();
+
+    expect(document.querySelector("dialog[open]")).toBe(null);
+    expect(server.patches.some((patch) => patch.status === "paused")).toBe(false);
+    expect(coach()).not.toBe(null);
+  });
+
   it("records a skipped step without celebrating it", async () => {
     document.body.insertAdjacentHTML("beforeend", '<nav class="dashboard-tabs">Today</nav>');
     const server = makeServer({ chapter: "grid", stepId: "grid.resolve" });
@@ -548,6 +579,24 @@ describe("anchoring", () => {
     expect(coach()?.textContent).toContain("That control isn't on this screen right now");
     await act(async () => control("Take me there").click());
     expect(harness.push).toHaveBeenCalledWith("/events/evt-1/abstracts");
+  });
+
+  it("counts a filter the organizer added as still being on the step's page", async () => {
+    // `trip.find-gap` routes to a bare `/speakers` and asks the organizer to
+    // filter it down to `?missing=either`. Exact-set equality then read the
+    // filtered roster as a *different* page: the next step said the control
+    // "isn't on this screen right now" and offered a trip whose only effect
+    // would have been to throw the filter away again.
+    harness.pathname = "/events/evt-1/agenda";
+    harness.search = "view=conflicts&room=main-stage";
+    const server = makeServer();
+    await render(makeBootstrap(server, {
+      steps: [{ ...STEPS[0], anchor: MISSING_ANCHOR, route: { path: "/events/:eventId/agenda" } } as TourStep, ...STEPS.slice(1)],
+    }));
+    await tick(6_500);
+
+    expect(coach()?.textContent).not.toContain("Take me there");
+    expect(coach()?.textContent).toContain("Nothing to point at yet");
   });
 
   it("portals into an open dialog and suppresses its own scrim there", async () => {
@@ -883,6 +932,46 @@ describe("the curtain call", () => {
     // And the host hears about it, so its own resume surfaces stop describing
     // a tour that ended.
     expect(reported.at(-1)).toEqual({ status: "active", stepId: "deck.look" });
+  });
+
+  it("ignores a render that is older than what it has already applied", async () => {
+    document.body.insertAdjacentHTML("beforeend", '<nav class="dashboard-tabs">Today</nav>');
+    const server = makeServer({ chapter: "deck", stepId: "deck.look", status: "active", updatedAt: "2026-08-16T19:00:00.000Z" });
+
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const mount = (bootstrap: TourBootstrap) => act(async () => root.render(<GuidedTourMount bootstrap={bootstrap} />));
+    await mount(makeBootstrap(server, { updatedAt: server.state.updatedAt }));
+    cleanup.push(async () => { await act(async () => root.unmount()); container.remove(); });
+    await tick();
+
+    // The player finishes the beat: the layer advances and the row moves with
+    // it, one second later by the clock the server keeps.
+    await act(async () => control("Continue").click());
+    await tick();
+    server.state = { ...server.state, updatedAt: "2026-08-16T19:00:01.000Z" };
+    expect(coach()?.textContent).toContain("Fix it.");
+
+    // Now a render that started before that write finally arrives — a
+    // `router.refresh()` some unrelated mutation fired. It describes the row as
+    // it was, and adopting it would walk the player back to a card they have
+    // already read and then collide with the server on the way forward.
+    await mount(makeBootstrap(server, {
+      cursor: { chapter: "deck", stepId: "deck.look", status: "active" },
+      updatedAt: "2026-08-16T19:00:00.000Z",
+    }));
+    await tick();
+    expect(coach()?.textContent).toContain("Fix it.");
+
+    // A *newer* render is still adopted without argument: that is the restart,
+    // the reset and the second tab, and all three write the row first.
+    await mount(makeBootstrap(server, {
+      cursor: { chapter: "deck", stepId: "deck.look", status: "active" },
+      updatedAt: "2026-08-16T19:00:02.000Z",
+    }));
+    await tick();
+    expect(coach()?.textContent).toContain("Everything that needs you, ranked.");
   });
 
   it("stands on the next unfinished objective when the cursor names a step this build lost", async () => {

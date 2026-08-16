@@ -190,7 +190,7 @@ describe("shared UI spacing regressions", () => {
     expect(css).toContain(".landing-links .button-primary svg { display: none; }");
     expect(css).toContain(".landing-mobile-nav { display: block; }");
     expect(home).toContain("<LandingMobileNav");
-    for (const label of ["Platform", "Why Openboard", "View sample CFP", "Sign in"]) {
+    for (const label of ["Platform", "Why Openboard", "Sample call for speakers", "Sign in"]) {
       expect(mobileNav).toContain(label);
     }
     expect(mobileNav).toContain('event.key !== "Escape"');
@@ -308,6 +308,32 @@ describe("shared UI spacing regressions", () => {
     expect(css).toContain(".comm-detail dl>div{display:flex;justify-content:space-between;");
   });
 
+  it("keeps the Files filter strip on one row like every other list toolbar", () => {
+    const filesAdmin = read("./portal/deliverables/components/files-admin-view.tsx");
+    const speakersAdmin = read("./portal/components/speakers-admin/speakers-admin-view.tsx");
+
+    // The base rule is `select{width:100%}`, so an unclassed filter in the one
+    // toolbar that wraps takes a flex basis of the whole row: three filters,
+    // three 1106px-wide stacked lines. `.compact-select` is the idiom the rest
+    // of the app's list toolbars already use.
+    expect(speakersAdmin).toContain('className="compact-select"');
+    // Every select inside the strip, rather than a fixed count of them: a
+    // fourth filter added the same way should keep this green, and one added
+    // without the class should not.
+    const toolbarStart = filesAdmin.indexOf('className="data-toolbar files-data-toolbar"');
+    const toolbarEnd = filesAdmin.indexOf('<span className="row-count">', toolbarStart);
+    expect(toolbarStart).toBeGreaterThan(-1);
+    expect(toolbarEnd).toBeGreaterThan(toolbarStart);
+    const toolbar = filesAdmin.slice(toolbarStart, toolbarEnd);
+    const filters = toolbar.match(/<Select\b/gu) ?? [];
+    expect(filters.length).toBeGreaterThanOrEqual(3);
+    expect(toolbar.match(/<Select className="compact-select"/gu)).toHaveLength(filters.length);
+    expect(css).toContain(".compact-select{width:auto;");
+    // Its options are event data, not a fixed vocabulary, so one long file
+    // request title must not become the whole toolbar.
+    expect(css).toContain(".files-data-toolbar .compact-select{max-width:190px}");
+  });
+
   it("keeps short session cards, the bulk bar's Clear, and the mobile nav honest", () => {
     const bulkBar = read("../shared/ui/app/bulk-action-bar.tsx");
     const shell = read("./shell/admin-shell.tsx");
@@ -327,6 +353,73 @@ describe("shared UI spacing regressions", () => {
     expect(css).toMatch(/\.sidebar-nav \{[^}]*overscroll-behavior: contain;/u);
     expect(shell).toContain('document.documentElement.style.overflow = "hidden"');
     expect(shell).toContain("document.documentElement.style.overflow = overflow;");
+  });
+
+  it("lets the announce bundle's copy rows shrink to the dialog they sit in", () => {
+    // Every value is a URL, `.announce-copy-row code` is nowrap, and a grid
+    // item's default min-width is its min-content — so the section grew to the
+    // longest per-speaker share link and carried its Copy button outside the
+    // modal. The floors are what let the existing ellipsis fire.
+    expect(css).toContain(".announce-bundle{display:grid;gap:24px;min-width:0}");
+    expect(css).toContain(".announce-bundle>section{min-width:0}");
+    expect(css).toContain(".announce-speaker-links>li{min-width:0}");
+    expect(css).toContain(".announce-copy-row>div{flex:1;min-width:0}");
+  });
+
+  it("gives the submissions title column a floor, not just a ceiling", () => {
+    const table = read("./submissions/components/abstracts-table.tsx");
+
+    // Auto table layout satisfies every nowrap column first and hands the
+    // deficit to the only column that wraps; a max-width alone collapsed it to
+    // its longest word.
+    expect(table).toContain('meta: { className: "abstracts-title-column" }');
+    // Not `abstracts-col-*`: that namespace is the responsive disclosure
+    // ladder, and abstracts-table.test.ts pins Title out of it.
+    expect(table).not.toContain("abstracts-col-title");
+    expect(css).toContain(
+      ".data-table th.abstracts-title-column,.data-table td.abstracts-title-column{width:340px;min-width:280px}",
+    );
+    // Title and description share the clamp: one 300-character probe title
+    // wrapped to twelve lines and set the row height on its own. The title half
+    // is scoped to this column — `.submission-title-cell` is also the comms log
+    // recipient, suppressions and the agenda list view, and the ≤768px comms
+    // override below depends on that `b` staying a block box for its ellipsis.
+    expect(css).toContain(
+      ".abstracts-title-column .submission-title-cell b,.submission-title-cell span{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere}",
+    );
+    // …and the clamp never reaches a bare `.submission-title-cell b`, which is
+    // how it would find the other four tables again.
+    expect(css).not.toMatch(/(?<!\.abstracts-title-column )\.submission-title-cell b[,{][^{}]*display:-webkit-box/u);
+  });
+
+  it("keeps a table toolbar's search from being squeezed by its filters", () => {
+    expect(css).toContain(".data-toolbar>.table-search{flex:0 0 280px}");
+    expect(css).toContain(".data-toolbar>.filter-button{min-width:0}");
+    // T5 allows max-width breakpoints only, so the phone shape is an override
+    // rather than a min-width band.
+    expect(css).toContain(".data-toolbar>.table-search{flex:1 1 100%}");
+    expect(css).not.toMatch(/@media\(min-width/u);
+  });
+
+  // MTP-07 §1.5 — both unscheduled trays style every descendant span of their
+  // row at (0,1,1), which outranks the chip's own (0,1,0) rules: without a
+  // scoped restatement the danger chip renders as a full-width muted-grey block
+  // on its red background, in the two surfaces the mark matters most.
+  it("keeps the abstract-divergence chip's tone and shape inside both unscheduled trays", () => {
+    const tray = read("./agenda/components/unscheduled-tray.tsx");
+    const panel = read("./agenda/components/day-view/unscheduled-panel.tsx");
+    expect(tray).toContain("<AbstractDivergenceChip session={session} />");
+    expect(panel).toContain("<AbstractDivergenceChip session={session} />");
+    // The tone rides on a custom property, so the scoped rules re-assert one
+    // declaration instead of duplicating the red/amber pair.
+    expect(css).toContain(".agenda-divergence-chip--danger{--divergence-ink:var(--red);background:var(--red-soft)}");
+    expect(css).toContain(".agenda-divergence-chip--warning{--divergence-ink:var(--amber);background:var(--amber-soft)}");
+    expect(css).toContain(
+      ".unscheduled-tray>button .agenda-divergence-chip,.dv-unscheduled-card .agenda-divergence-chip{display:inline-flex;margin-top:4px;color:var(--divergence-ink)}",
+    );
+    expect(css).toContain(
+      ".unscheduled-tray>button .agenda-divergence-chip>span,.dv-unscheduled-card .agenda-divergence-chip>span{display:inline;margin-top:0;color:inherit}",
+    );
   });
 
   it("gives discrete public session and gallery actions full pointer targets", () => {

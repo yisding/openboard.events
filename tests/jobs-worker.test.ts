@@ -56,7 +56,7 @@ describe("scheduled jobs Worker", () => {
     expect(dispatchSource).not.toContain("public-compat");
     expect(configSource).not.toContain("global_fetch_strictly_public");
     expect(configSource).not.toContain("JOB_TRANSPORT");
-    for (const job of ["outbox", "reminders", "cleanup", "r2-migration"]) {
+    for (const job of ["outbox", "reminders", "cleanup", "airtable", "r2-migration"]) {
       expect(existsSync(new URL(`../src/app/api/jobs/${job}/route.ts`, import.meta.url))).toBe(false);
     }
     expect(existsSync(new URL("../src/app/worker-jobs/r2-migration/route.ts", import.meta.url))).toBe(false);
@@ -127,10 +127,32 @@ describe("scheduled jobs Worker", () => {
     expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 1))).toEqual(["outbox"]);
   });
 
+  it("never dispatches airtable without an explicit cron flag, cadence stagger otherwise", () => {
+    // No options at all — the shape every existing caller and test used before
+    // this job existed — must keep behaving exactly as before: no airtable, ever.
+    expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 5))).toEqual(["outbox"]);
+    // The flag off is explicitly the same as the flag absent.
+    expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 5), { airtableCron: "0" })).toEqual(["outbox"]);
+    expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 5), { airtableCron: "1" }))
+      .toEqual(["outbox", "airtable"]);
+    expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 20), { airtableCron: "1" }))
+      .toEqual(["outbox", "airtable"]);
+    expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 35), { airtableCron: "1" }))
+      .toEqual(["outbox", "airtable"]);
+    expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 50), { airtableCron: "1" }))
+      .toEqual(["outbox", "airtable"]);
+    // Never on reminders' own tick, and never off the :05/:20/:35/:50 stagger.
+    expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 0), { airtableCron: "1" }))
+      .toEqual(["outbox", "reminders", "cleanup"]);
+    expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 15), { airtableCron: "1" }))
+      .toEqual(["outbox", "reminders"]);
+    expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 9), { airtableCron: "1" }))
+      .toEqual(["outbox"]);
+  });
+
   it("exposes only the closed scheduled-job contract to the RPC entrypoint", () => {
-    expect(["outbox", "reminders", "cleanup"].every(isJobName)).toBe(true);
+    expect(["outbox", "reminders", "cleanup", "airtable"].every(isJobName)).toBe(true);
     expect(isJobName("r2-migration")).toBe(false);
-    expect(isJobName("airtable")).toBe(false);
     expect(isJobName("billing")).toBe(false);
   });
 

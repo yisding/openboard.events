@@ -1,5 +1,9 @@
 export type { CommLogFilters } from "./server/queries";
 export { listLog } from "./server/queries";
+// The one sentence a demo event's delivery log is allowed to give as a reason.
+// Exported so demo provisioning stamps the same string the live dispatcher
+// stamps, instead of a fourth paraphrase of the same barrier.
+export { DEMO_MAIL_SKIP_REASON } from "./server/context";
 export { commsKeys } from "./hooks/keys";
 export { dispatchOutbox } from "./server/dispatcher";
 export { renderTemplate, renderTemplateContent, validateTemplateBody } from "./server/render";

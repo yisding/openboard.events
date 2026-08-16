@@ -18,6 +18,12 @@ type DecisionTransitionRequest = (url: string, init: RequestInit) => Promise<Res
 
 export type BulkDecisionOutcome = {
   moved: number;
+  /**
+   * The ids the server confirmed it moved, so the list on screen can show the
+   * new status without waiting for a reload. `moved` is their count; the ids
+   * themselves are what the table folds.
+   */
+  changedIds: string[];
   unchanged: number;
   /** Published sessions these moves removed from the public schedule. */
   unpublished: number;
@@ -91,6 +97,7 @@ export async function completeBulkDecision({
 
   const outcome: BulkDecisionOutcome = {
     moved: 0,
+    changedIds: [],
     unchanged: selected.filter((row) => row.status === to).length,
     unpublished: 0,
     rejected: 0,
@@ -135,6 +142,7 @@ export async function completeBulkDecision({
         continue;
       }
       outcome.moved += changed.length;
+      outcome.changedIds.push(...changed.filter((id): id is string => typeof id === "string"));
       outcome.unchanged += stale.length;
       outcome.unpublished += typeof unpublished === "number" ? unpublished : 0;
       outcome.confirmedGroups += 1;
@@ -221,6 +229,7 @@ export function DecisionBar({
   countLabel,
   allMatching = false,
   selectAllMatching,
+  onMoved,
   onDone,
 }: {
   eventId: string;
@@ -229,6 +238,12 @@ export function DecisionBar({
   countLabel?: ReactNode;
   allMatching?: boolean;
   selectAllMatching?: { count: number; busy: boolean; request: () => void };
+  /**
+   * The ids the server confirmed it moved. The list folds them so the rows and
+   * the workflow counts agree with the toast immediately, instead of repeating
+   * pre-decision statuses until the organizer reloads.
+   */
+  onMoved?: (changedIds: string[], to: SubmissionStatus) => void;
   onDone: () => void;
 }) {
   const router = useRouter();
@@ -263,12 +278,15 @@ export function DecisionBar({
   async function move(to: SubmissionStatus) {
     setBusy(true);
     try {
-      await completeBulkDecision({
+      const outcome = await completeBulkDecision({
         eventId,
         selected,
         to,
         effects: { toast, onDone, refresh: () => router.refresh() },
       });
+      // Before the next server snapshot arrives, and whether or not it ever
+      // does: the rows the server said it moved read as moved now.
+      onMoved?.(outcome.changedIds, to);
     } finally {
       setBusy(false);
     }

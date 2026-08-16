@@ -79,28 +79,46 @@ export const SAMPLE_VARS: Record<TemplateKey, TemplateVars> = {
  * picker cannot drift from what `validateTemplateBody` actually allows,
  * because they read the same contract.
  */
-function collectPaths(schema: z.ZodType, prefix: string[]): string[] {
-  // Unwrap first. `portal` became `.optional()` when the magic link stopped
-  // being minted for every template, and a `ZodOptional` is not a `ZodObject` —
-  // so the walk stopped one level short and yielded the bare `portal`. That
-  // broke the picker in both directions at once: the chip inserted
-  // `{{portal}}`, which `TOKENS_BY_KEY` rejects at save or send time, and
-  // `{{portal.magic_link}}` was no longer in the allowed list, so
+export function collectVariablePaths(schema: z.ZodType, prefix: string[] = []): string[] {
+  // Unwrap first, and keep unwrapping. `portal` became `.optional()` when the
+  // magic link stopped being minted for every template, and a `ZodOptional` is
+  // not a `ZodObject` — so the walk stopped one level short and yielded the
+  // bare `portal`. That broke the picker in both directions at once: the chip
+  // inserted `{{portal}}`, which `TOKENS_BY_KEY` rejects at save or send time,
+  // and `{{portal.magic_link}}` was no longer in the allowed list, so
   // `unknownTokensClientSide` flagged it — disabling Save on the five shipped
   // default templates that use it. The doc comment above promises the picker
   // "cannot drift from what `validateTemplateBody` actually allows"; unwrapping
   // is what keeps that true for any wrapper a contract picks up later.
-  const unwrapped = schema instanceof z.ZodOptional || schema instanceof z.ZodNullable || schema instanceof z.ZodDefault
-    ? (schema.def.innerType as z.ZodType)
-    : schema;
+  //
+  // A loop rather than one unwrap because wrappers nest: `.nullish()` is
+  // `ZodOptional(ZodNullable(...))` and `.optional().default({})` is
+  // `ZodDefault(ZodOptional(...))`, either of which would put the bare-prefix
+  // bug straight back if we peeled exactly one layer.
+  let unwrapped = schema;
+  while (unwrapped instanceof z.ZodOptional || unwrapped instanceof z.ZodNullable || unwrapped instanceof z.ZodDefault) {
+    unwrapped = unwrapped.def.innerType as z.ZodType;
+  }
   if (unwrapped instanceof z.ZodObject) {
-    return Object.entries(unwrapped.shape).flatMap(([key, value]) => collectPaths(value as z.ZodType, [...prefix, key]));
+    return Object.entries(unwrapped.shape).flatMap(([key, value]) => collectVariablePaths(value as z.ZodType, [...prefix, key]));
   }
   return [prefix.join(".")];
 }
 
+/**
+ * The allowlist half of the picker: every token the contract defines for a
+ * key, deliberately *unfiltered*. This is what `unknownTokensClientSide`
+ * checks a body against, so it mirrors the server's `TOKENS_BY_KEY` exactly —
+ * the editor must never reject a body that `validateTemplateBody` accepts.
+ * `templateVariablePaths` narrows this for the chip list; the two differ on
+ * purpose (see below).
+ */
+export function templateVariableTokens(key: TemplateKey): string[] {
+  return collectVariablePaths(TEMPLATE_VAR_SCHEMAS[key]);
+}
+
 export function templateVariablePaths(key: TemplateKey): string[] {
-  const paths = collectPaths(TEMPLATE_VAR_SCHEMAS[key], []);
+  const paths = templateVariableTokens(key);
   // `unsubscribe.url` renders without a token on a transactional key —
   // `buildContext` appends `?token=` only when `!isTransactionalTemplate` —
   // and the unsubscribe page rejects a tokenless link as invalid or expired.
@@ -112,6 +130,10 @@ export function templateVariablePaths(key: TemplateKey): string[] {
   // Filtered here rather than removed from `TOKENS_BY_KEY`, so a template
   // already saved with the token keeps validating and stays editable — an
   // organizer must not discover a body they saved months ago has become
-  // unsaveable.
+  // unsaveable. That promise is only kept because the *chip list* is filtered
+  // and the *allowlist* (`templateVariableTokens`) is not: routing the editor's
+  // unknown-token check through this filtered list instead would flag such a
+  // body as an unknown variable and disable Save, which is precisely the
+  // failure the sentence above rules out.
   return isTransactionalTemplate(key) ? paths.filter((path) => path !== "unsubscribe.url") : paths;
 }

@@ -51,9 +51,12 @@ export const FIXTURE_OVERVIEW: DashboardOverview = {
     missingAssets: { speakers: 2, bios: 2, headshots: 1 },
   },
   attention: [
-    { code: "unscheduled_accepted", count: 3, href: `/events/${EVENT_ID}/agenda?view=day` },
-    { code: "awaiting_decision", count: 7, href: `/events/${EVENT_ID}/abstracts?status=pending` },
-    { code: "missing_assets", count: 2, href: `/events/${EVENT_ID}/speakers?missing=either` },
+    // Rank 0 with the smallest count of the four: the row that only leads if
+    // the queue honours rank before count.
+    { rank: 0, code: "hidden_published", count: 1, href: `/events/${EVENT_ID}/agenda?view=list` },
+    { rank: 1, code: "unscheduled_accepted", count: 3, href: `/events/${EVENT_ID}/agenda?view=day` },
+    { rank: 2, code: "awaiting_decision", count: 7, href: `/events/${EVENT_ID}/abstracts?status=pending` },
+    { rank: 3, code: "missing_assets", count: 2, href: `/events/${EVENT_ID}/speakers?missing=either` },
   ],
   forms: [{
     formId: "a0000000-0000-4000-8000-000000000003",

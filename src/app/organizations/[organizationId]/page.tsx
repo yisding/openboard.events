@@ -9,6 +9,7 @@ import { isBillingSurfaceEnabled } from "@/features/billing";
 import { getEvent } from "@/features/events";
 import { EventCard } from "@/features/events/components/event-card";
 import { getOrganization, listOrganizationEventsForUser } from "@/features/organizations";
+import { ExportOrganizationButton } from "@/features/organizations/components/export-organization-button";
 import { organizationHomeDestination } from "@/features/organizations/event-creation";
 import { getActiveOrganizationOnboardingForUser } from "@/features/onboarding";
 import { EmptyState, PageHeader } from "@/shared/ui/ui-kit";
@@ -42,11 +43,13 @@ export default async function Page({ params, searchParams }: {
   const skipRequested = (await searchParams).skip === "1";
 
   let canManageEvents = false;
+  let isOwner = false;
   let actorUserId: UserId | null = null;
   try {
     const session = await requireOrganizationAdmin(organizationId);
     actorUserId = session.userId;
     canManageEvents = roleSatisfies(session.role, "organizer");
+    isOwner = roleSatisfies(session.role, "owner");
   } catch (error) {
     if (!isAppError(error)) throw error;
     if (error.code === "UNAUTHORIZED") {
@@ -99,6 +102,10 @@ export default async function Page({ params, searchParams }: {
         {billingEnabled && <Link href={`/organizations/${organizationId}/billing`} className="button button-secondary"><CreditCard size={16} /> Billing</Link>}
         <Link href={`/organizations/${organizationId}/audit`} className="button button-secondary"><ScrollText size={16} /> Audit log</Link>
         <Link href={`/organizations/${organizationId}/team`} className="button button-secondary"><UsersIcon size={16} /> Team</Link>
+        {/* M47 — the organization data export (GDPR). Owner-only: the bundle
+            carries the member list, pending invitations and full audit trail,
+            so it sits one step above the organizer bar its endpoint enforces. */}
+        {isOwner && <ExportOrganizationButton organizationId={organizationId} organizationName={organization.name} />}
         {/* First Fair (design §1.3): one of the four pull-based entrances into
             the demo, offered only while this organization has none. It is a
             secondary action beside a primary "Create event" — a tutorial

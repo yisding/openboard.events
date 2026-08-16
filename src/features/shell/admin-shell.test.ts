@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { activeAdminSection, adminMobileNavigationState, shellHintIds } from "./admin-shell";
+import { activeAdminSection, adminBreadcrumbTrail, adminMobileNavigationState, shellHintIds } from "./admin-shell";
 
 describe("admin shell route matching", () => {
   const base = "/events/00000000-0000-4000-8000-000000000001";
@@ -11,6 +11,37 @@ describe("admin shell route matching", () => {
 
   it("does not activate an event nav item outside the event", () => {
     expect(activeAdminSection("/events", base)).toBeUndefined();
+  });
+});
+
+describe("the topbar breadcrumb", () => {
+  const base = "/events/00000000-0000-4000-8000-000000000001";
+
+  it("names the surfaces the sidebar nav does not list", () => {
+    // Both are reached from outside the nav groups — settings from the sidebar
+    // footer, API keys from inside settings — so both used to read "Event".
+    expect(adminBreadcrumbTrail(`${base}/settings`, base, "organizer")).toEqual(["Event settings"]);
+    expect(adminBreadcrumbTrail(`${base}/settings/api-keys`, base, "organizer")).toEqual(["Event settings", "API keys"]);
+    // Only a reviewer's sidebar links the queue; an organizer opening it is
+    // still somewhere with a name.
+    expect(adminBreadcrumbTrail(`${base}/review`, base, "organizer")).toEqual(["Review queue"]);
+  });
+
+  it("prefers the sidebar's own label, including on a nested detail route", () => {
+    expect(adminBreadcrumbTrail(`${base}/abstracts`, base, "organizer")).toEqual(["Submissions"]);
+    expect(adminBreadcrumbTrail(`${base}/tasks/forms/00000000-0000-4000-8000-000000000099`, base, "organizer")).toEqual(["Tasks"]);
+    expect(adminBreadcrumbTrail(`${base}/review`, base, "reviewer")).toEqual(["Review queue"]);
+  });
+
+  it("falls back only for a route nothing knows about", () => {
+    expect(adminBreadcrumbTrail(`${base}/not-a-surface`, base, "organizer")).toEqual(["Event"]);
+  });
+
+  it("renders the whole trail, with only the last crumb as the current surface", () => {
+    const source = readFileSync(new URL("./admin-shell.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain("const breadcrumbTrail = adminBreadcrumbTrail(pathname, base, role);");
+    expect(source).toContain("index === breadcrumbTrail.length - 1 ? <b>{crumb}</b> : <span>{crumb}</span>");
   });
 });
 

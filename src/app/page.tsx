@@ -26,7 +26,7 @@ export default async function HomePage() {
   const workspaceHeroLabel = signedIn ? "Open your workspace" : "Create your workspace";
   const workspaceProof = signedIn
     ? "Continue your event setup or pick up where your team left off"
-    : "Go from signup to a live CFP in one guided setup";
+    : "Go from signup to a live call for speakers in one guided setup";
   return (
     <main className="landing">
       <nav className="landing-nav container">
@@ -34,7 +34,7 @@ export default async function HomePage() {
         <div className="landing-links">
           <a href="#features">Platform</a>
           <a href="#story">Why Openboard</a>
-          <Link href={CFP_HREF}>View sample CFP</Link>
+          <Link href={CFP_HREF}>Sample call for speakers</Link>
           <LandingMobileNav cfpHref={CFP_HREF} showSignIn={!signedIn} />
           {!signedIn && <Link className="button button-secondary" href="/login">Sign in</Link>}
           <Link className="button button-primary" href={workspaceHref}>{workspaceNavLabel} <ArrowRight size={16} /></Link>
@@ -48,7 +48,7 @@ export default async function HomePage() {
           <p>Openboard brings submissions, speaker onboarding, communications, and scheduling into one beautifully focused workspace.</p>
           <div className="hero-actions">
             <Link className="button button-primary button-lg" href={workspaceHref}>{workspaceHeroLabel} <ArrowRight size={18} /></Link>
-            <Link className="button button-secondary button-lg" href={CFP_HREF}>View a sample CFP</Link>
+            <Link className="button button-secondary button-lg" href={CFP_HREF}>View a sample call for speakers</Link>
             <Link className="button button-ghost button-lg" href={AGENDA_HREF}>See the public agenda</Link>
           </div>
           <div className="hero-proof"><CheckCircle2 size={17} /> {workspaceProof}</div>

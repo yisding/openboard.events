@@ -698,6 +698,9 @@ function inspectFile(absolutePath: string): Violation[] {
       if (inputTypes.includes("date") || inputTypes.includes("datetime-local")) {
         report(node, "native-date", "use the shared date or date-time picker");
       }
+      if (inputTypes.includes("color") && path !== "src/shared/ui/ui-kit.tsx") {
+        report(node, "raw-color-input", "use the shared ColorWell instead of a raw color input");
+      }
       if (inputTypes.includes("file") && path !== "src/shared/ui/app/file-upload.tsx") {
         report(node, "raw-file-input", "use FileUpload or LocalFilePicker instead of a raw file input");
       }

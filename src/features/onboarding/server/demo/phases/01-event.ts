@@ -103,7 +103,12 @@ async function seedDisabledEmbedsIn({ dbOrTx, eventId }: PhaseCtx): Promise<void
     contentType,
     name: EMBED_NAMES[contentType],
     enabled: false,
-  }))).onConflictDoNothing({ target: embeds.id });
+    // Untargeted: `drizzle/0049` added a second unique on
+    // (event_id, content_type), and a replay of this phase can meet either —
+    // the id when it is re-seeding its own rows, the pair if an organizer
+    // opened the embeds page in between and `getOrCreateEmbedConfigIn` wrote
+    // one first. A targeted DO NOTHING only swallows the conflict it names.
+  }))).onConflictDoNothing();
 }
 
 /**

@@ -104,8 +104,13 @@ export default async function Page({ params, searchParams }: {
         eyebrow="ORGANIZATION"
         title={demo ? "Your demo conference is waiting" : `Welcome to ${organization.name}`}
         description={demo
-          ? "Pick it back up, or start the real thing — the demo stays where it is either way."
-          : "Two ways in. One of them takes ten minutes and cannot break anything."}
+          ? "Pick it back up, or set up your own event — the demo stays where it is either way."
+          // Names both doors and what each one costs. "One of them takes ten
+          // minutes and cannot break anything" described the demo without
+          // saying it was the demo, so the sentence read as a riddle and its
+          // reassurance — nothing here is load-bearing — landed as a warning
+          // that something might be.
+          : "Explore a finished conference in about ten minutes, or start setting up your own."}
       />
       <StartFork organizationId={organizationId} demo={demo} />
     </>;

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, GitMerge, Search, Send, StickyNote } from "lucide-react";
+import { ArrowLeft, GitMerge, Plus, Search, Send, StickyNote } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
@@ -29,6 +29,8 @@ import { isAppError } from "@/shared/lib/errors";
 import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
 import { LocalTime } from "@/shared/ui/app/local-time";
 import { CrmNav } from "./crm-nav";
+import { CrmCustomFieldCreateDialog } from "./crm-custom-field-create-dialog";
+import { CrmTagCreateControl } from "./crm-tag-create";
 import { MergeWizardDialog } from "./merge-wizard-dialog";
 
 const ACTIVITY_LABEL: Record<string, string> = {
@@ -161,6 +163,9 @@ export function ContactDetailView({
   const [history, setHistory] = useState(initialHistory);
   const [tab, setTab] = useState<Tab>("overview");
   const { contact } = history;
+  const [orgTags, setOrgTags] = useState(allTags);
+  const [fieldDefs, setFieldDefs] = useState(customFields);
+  const [customFieldOpen, setCustomFieldOpen] = useState(false);
 
   const originalFields = {
     firstName: contact.firstName, lastName: contact.lastName, company: contact.company ?? "", jobTitle: contact.jobTitle ?? "",
@@ -181,7 +186,7 @@ export function ContactDetailView({
 
   const fieldKeys = Object.keys(originalFields) as (keyof typeof originalFields)[];
   const fieldsDirty = fieldKeys.some((key) => fields[key] !== originalFields[key]);
-  const customDirty = customFields.some((field) => customValues[field.key] !== (contact.customFields[field.key] ?? ""));
+  const customDirty = fieldDefs.some((field) => customValues[field.key] !== (contact.customFields[field.key] ?? ""));
   useUnsavedWorkGuard(fieldsDirty || customDirty || noteBody.trim().length > 0);
 
   async function refresh() {
@@ -222,7 +227,7 @@ export function ContactDetailView({
   async function saveCustomFields() {
     setSavingCustom(true);
     try {
-      const patch = Object.fromEntries(customFields.filter((field) => customValues[field.key] !== (contact.customFields[field.key] ?? "")).map((field) => [field.key, customValues[field.key] ?? ""]));
+      const patch = Object.fromEntries(fieldDefs.filter((field) => customValues[field.key] !== (contact.customFields[field.key] ?? "")).map((field) => [field.key, customValues[field.key] ?? ""]));
       await api(`organizations/${organizationId}/crm/contacts/${contact.id}`, updatedSchema, { method: "PATCH", body: { customFields: patch } });
       setHistory((current) => ({
         ...current,
@@ -243,10 +248,40 @@ export function ContactDetailView({
     setTagBusy(true);
     try {
       await api(`organizations/${organizationId}/crm/contacts/${contact.id}/tags`, updatedSchema, { method: "PUT", body: { tagIds: nextIds } });
-      setHistory((current) => ({ ...current, tags: allTags.filter((tag) => nextIds.includes(tag.id)) }));
+      setHistory((current) => ({ ...current, tags: orgTags.filter((tag) => nextIds.includes(tag.id)) }));
       await finishCommittedWrite("Tags saved");
     } catch (caught) {
       toast(isAppError(caught) ? caught.message : "That tag change failed", { kind: "error" });
+    } finally {
+      setTagBusy(false);
+    }
+  }
+
+  /**
+   * Creating a tag from *this contact's* Tags panel must both create it and
+   * turn it on for the open contact in one action — the chip renders applied
+   * the instant it appears, so it has to actually be applied, not wait for a
+   * confirming second click. This fires the same PUT `toggleTag` would, right
+   * after the tag POST returns. (The directory-filter create has no contact in
+   * context, so it stays create-only.) The create control raises its own
+   * "Tag created" toast once this resolves, so success here reconciles quietly
+   * rather than stacking a second toast; only failures speak up.
+   */
+  async function attachCreatedTag(tag: CrmTagDTO) {
+    setOrgTags((current) => (current.some((existing) => existing.id === tag.id) ? current : [...current, tag]));
+    if (history.tags.some((existing) => existing.id === tag.id)) return;
+    const nextIds = [...history.tags.map((existing) => existing.id), tag.id];
+    setTagBusy(true);
+    try {
+      await api(`organizations/${organizationId}/crm/contacts/${contact.id}/tags`, updatedSchema, { method: "PUT", body: { tagIds: nextIds } });
+      setHistory((current) => ({ ...current, tags: [...current.tags, tag] }));
+      if (await reconcileCommittedCrmWrite(refresh)) {
+        router.refresh();
+      } else {
+        toast("Tag applied, but the latest contact history could not be reloaded. Refresh before making another change.", { kind: "error" });
+      }
+    } catch (caught) {
+      toast(isAppError(caught) ? caught.message : "The tag was created but could not be applied", { kind: "error" });
     } finally {
       setTagBusy(false);
     }
@@ -360,8 +395,8 @@ export function ContactDetailView({
               <section className="panel settings-section">
                 <header className="panel-header"><h2>Tags</h2></header>
                 <div style={{ padding: "0 24px 24px" }} className="chip-picker">
-                  {allTags.length === 0 && <p className="long-copy">No tags yet — create one from a note or the directory filters.</p>}
-                  {allTags.map((tag) => {
+                  {orgTags.length === 0 && <p className="long-copy">No tags yet — create the first one below, or from the directory filters.</p>}
+                  {orgTags.map((tag) => {
                     const active = history.tags.some((row) => row.id === tag.id);
                     return (
                       <button key={tag.id} type="button" disabled={tagBusy} className={active ? "chip chip--selected" : "chip"} onClick={() => void toggleTag(tag.id)}>
@@ -369,29 +404,34 @@ export function ContactDetailView({
                       </button>
                     );
                   })}
+                  <CrmTagCreateControl organizationId={organizationId} onCreated={attachCreatedTag} />
                 </div>
               </section>
 
-              {customFields.length > 0 && (
-                <section className="panel settings-section">
-                  <header className="panel-header"><h2>Custom fields</h2></header>
-                  <div style={{ padding: "0 24px 24px" }} className="form-stack">
-                    {customFields.map((field) => (
-                      <Field key={field.id} label={field.label}>
-                        {field.fieldType === "select" ? (
-                          <Select value={customValues[field.key] ?? ""} onChange={(event) => setCustomValues((current) => ({ ...current, [field.key]: event.target.value }))}>
-                            <option value="">—</option>
-                            {field.options.map((option) => <option key={option} value={option}>{option}</option>)}
-                          </Select>
-                        ) : (
-                          <input value={customValues[field.key] ?? ""} onChange={(event) => setCustomValues((current) => ({ ...current, [field.key]: event.target.value }))} />
-                        )}
-                      </Field>
-                    ))}
+              <section className="panel settings-section">
+                <header className="panel-header crm-panel-header-actions">
+                  <h2>Custom fields</h2>
+                  <Button variant="secondary" size="sm" onClick={() => setCustomFieldOpen(true)}><Plus size={14} /> New field</Button>
+                </header>
+                <div style={{ padding: "0 24px 24px" }} className="form-stack">
+                  {fieldDefs.length === 0 && <p className="long-copy">No custom fields yet. Create one to capture organization-specific details on every contact.</p>}
+                  {fieldDefs.map((field) => (
+                    <Field key={field.id} label={field.label}>
+                      {field.fieldType === "select" ? (
+                        <Select value={customValues[field.key] ?? ""} onChange={(event) => setCustomValues((current) => ({ ...current, [field.key]: event.target.value }))}>
+                          <option value="">—</option>
+                          {field.options.map((option) => <option key={option} value={option}>{option}</option>)}
+                        </Select>
+                      ) : (
+                        <input value={customValues[field.key] ?? ""} onChange={(event) => setCustomValues((current) => ({ ...current, [field.key]: event.target.value }))} />
+                      )}
+                    </Field>
+                  ))}
+                  {fieldDefs.length > 0 && (
                     <Button size="sm" disabled={!customDirty || savingCustom} onClick={() => void saveCustomFields()}>{savingCustom ? "Saving…" : "Save custom fields"}</Button>
-                  </div>
-                </section>
-              )}
+                  )}
+                </div>
+              </section>
 
               <section className="panel settings-section">
                 <header className="panel-header"><h2>Push to event</h2><p>Reuses this identity&rsquo;s speaker record for another event — never a duplicate.</p></header>
@@ -469,6 +509,16 @@ export function ContactDetailView({
           </section>
         )}
       </div>
+
+      <CrmCustomFieldCreateDialog
+        organizationId={organizationId}
+        open={customFieldOpen}
+        onClose={() => setCustomFieldOpen(false)}
+        onCreated={(field) => {
+          setFieldDefs((current) => [...current, field]);
+          setCustomValues((current) => ({ ...current, [field.key]: current[field.key] ?? "" }));
+        }}
+      />
 
       {/* Mounted only while open so a failed search cannot greet the organizer
           again the next time they open it. */}

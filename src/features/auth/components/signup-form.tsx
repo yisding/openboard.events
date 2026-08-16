@@ -136,7 +136,7 @@ export function SignupForm({ googleEnabled = false, legalConsent = null }: Signu
       <span>{invitationToken
         ? "Google confirms your identity, then you’ll continue straight to the workspace that invited you."
         : startsGuidedSetup
-          ? "Google confirms your identity, then guided setup takes you from event details to a shareable CFP."
+          ? "Google confirms your identity, then guided setup takes you from event details to a shareable call for speakers."
           : "Google confirms your identity, creates your workspace, then returns you to the page you requested."}</span>
     </aside>
     {!invitationToken && <label className="field"><span>Organization name</span><div className="input-icon"><Building2 size={16} /><input name="organizationName" autoComplete="organization" required maxLength={160} type="text" placeholder="Acme Events" /></div></label>}
@@ -164,7 +164,7 @@ export function SignupForm({ googleEnabled = false, legalConsent = null }: Signu
       <span>{invitationToken
         ? "Confirm your email, then continue straight to the workspace that invited you."
         : startsGuidedSetup
-          ? "Confirm your email, add your event details, and leave with a ready-to-share CFP."
+          ? "Confirm your email, add your event details, and leave with a ready-to-share call for speakers."
           : "Confirm your email, sign in, and continue where you left off."}</span>
     </aside>
     {googleEnabled && <>

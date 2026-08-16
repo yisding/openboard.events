@@ -9,6 +9,7 @@ import { emojiRain } from "@/shared/ui/emoji-rain";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { Button } from "@/shared/ui/ui-kit";
 import type { NameLookup } from "../../store";
+import { AbstractDivergenceChip } from "../abstract-divergence-chip";
 
 /**
  * The Day view's own drag source for its Unscheduled and Needs a room trays.
@@ -57,6 +58,7 @@ function TrayCard({
               : null}
             {track?.name ?? "No track"}{speakers.length > 0 ? ` · ${speakers.join(", ")}` : ""}
           </span>
+          <AbstractDivergenceChip session={session} />
         </div>
       </div>
       {onEdit && (
@@ -114,13 +116,19 @@ export function UnscheduledPanel({
   }, [celebrationCount]);
 
   return (
-    <aside className="dv-unscheduled-panel">
+    // Named, because the Day view puts two complementary landmarks side by
+    // side and an unnamed one is announced as "complementary" and nothing
+    // else. The names are also what lets the tour tell the two apart.
+    <aside className="dv-unscheduled-panel" aria-label="Unscheduled sessions">
       <header>
         <div>
           <h3>Unscheduled</h3>
           <span>{sessions.length}</span>
         </div>
-        <Button variant="secondary" size="sm" disabled={sessions.length === 0} onClick={onAutoPlace}>
+        {/* `data-tour`: "Auto-place" is also the label of the workspace tray's
+            button in `unscheduled-tray.tsx`, and this is the one the Day view
+            actually renders. */}
+        <Button data-tour="agenda.auto-place-tray" variant="secondary" size="sm" disabled={sessions.length === 0} onClick={onAutoPlace}>
           <Wand2 size={14} aria-hidden /> Auto-place
         </Button>
       </header>
@@ -151,7 +159,7 @@ export function NeedsRoomPanel({
 }) {
   if (sessions.length === 0) return null;
   return (
-    <aside className="dv-unscheduled-panel dv-needs-room-panel">
+    <aside className="dv-unscheduled-panel dv-needs-room-panel" aria-label="Sessions that need a room">
       <header>
         <h3>Needs a room</h3>
         <span>{sessions.length}</span>

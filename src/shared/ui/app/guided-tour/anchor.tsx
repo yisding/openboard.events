@@ -42,6 +42,7 @@ export function TourAnchor({ id, children }: { id: string; children: ReactNode }
    plain `<button aria-label="…">` still answers `{ kind: "role", role: "button" }`. */
 const IMPLICIT_ROLES: Readonly<Record<string, string>> = {
   a: "link",
+  aside: "complementary",
   button: "button",
   dialog: "dialog",
   form: "form",
@@ -165,6 +166,16 @@ export function useTourAnchor(spec: TourAnchorSpec | undefined, active: boolean)
     }
     setStatus("resolving");
     foundRef.current = null;
+    // The *previous* step's element goes with it. Without this the held
+    // element outlived the step that asked for it: a new step whose anchor
+    // never mounts — a control one navigation away, a panel that only exists
+    // once the player has started — kept the last step's rect, so the
+    // spotlight went on framing a control the card was no longer talking
+    // about while the card itself said "that control isn't on this screen".
+    // Two answers on screen at once, and the wrong one was the loud one.
+    // `attempt()` below runs in this same effect, so a step whose anchor *is*
+    // already mounted re-fills this in the same commit and nothing flickers.
+    setElement(null);
     let timer = 0;
     // Re-armed on every drop back to `resolving`, not set once for the life of
     // the step. A one-shot timer expires while the anchor is still *found*, so

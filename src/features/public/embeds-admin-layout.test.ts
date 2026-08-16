@@ -21,6 +21,23 @@ describe("embeds admin layout", () => {
     expect(css).toContain(".embed-editor-sidebar{position:sticky");
   });
 
+  it("holds every card to the page column instead of to the open editor's max-content", () => {
+    // `.embed-cards` had no column track, so its single *implicit* `auto`
+    // column sized to the widest card: an open editor measured ~1300px inside
+    // a ~980px page and `.embed-card{overflow:clip}` cut the surplus off with
+    // nothing to scroll — a third of the preview pane and the edge of Done.
+    expect(css).toContain(".embed-cards{display:grid;grid-template-columns:minmax(0,1fr);gap:10px}");
+    expect(css).not.toContain(".embed-cards{display:grid;gap:10px}");
+    // The collapsed single-column breakpoints are belt-and-braces rather than
+    // part of the defect: measured at 768 their geometry is identical with a
+    // bare `1fr`, because everything inside them already shrinks. They are
+    // pinned anyway because `1fr` is `minmax(auto,1fr)` — floored at the
+    // content's min-content — so the day a child stops shrinking, the track
+    // does not quietly start overflowing the way `.embed-cards` did.
+    expect(css).toContain(".embed-editor-layout{grid-template-columns:minmax(0,1fr)}");
+    expect(css).toContain(".embed-settings-grid{grid-template-columns:minmax(0,1fr)}");
+  });
+
   it("clips card chrome without trapping sticky editor controls in a non-scrolling ancestor", () => {
     expect(css).toContain(".embed-cards>article.embed-card{display:block;padding:0;overflow:clip}");
     expect(css).not.toContain(".embed-cards>article.embed-card{display:block;padding:0;overflow:hidden}");

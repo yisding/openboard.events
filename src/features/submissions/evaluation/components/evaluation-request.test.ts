@@ -46,13 +46,15 @@ describe("round and reviewer save recovery", () => {
     const savePlan = vi.fn(async () => ({ ok: true as const, data: { planId: "plan-1" } }));
     const saveReviewers = vi.fn()
       .mockResolvedValueOnce({ ok: false as const, kind: "response" as const, message: "Reviewers unavailable" })
-      .mockResolvedValueOnce({ ok: true as const, data: {} });
+      .mockResolvedValueOnce({ ok: true as const, data: { plan: { id: "plan-1" } } });
 
     const first = await completePlanAndReviewerSave(null, savePlan, saveReviewers);
     expect(first).toEqual({ ok: false, kind: "response", message: "Reviewers unavailable", pendingReviewerPlanId: "plan-1" });
 
     const retry = await completePlanAndReviewerSave("plan-1", savePlan, saveReviewers);
-    expect(retry).toEqual({ ok: true, planId: "plan-1" });
+    // A retry skips the round write, so the reviewer response is the only one
+    // that can report the round back — and it does.
+    expect(retry).toEqual({ ok: true, planId: "plan-1", plan: { id: "plan-1" } });
     expect(savePlan).toHaveBeenCalledOnce();
     expect(saveReviewers).toHaveBeenCalledTimes(2);
     expect(saveReviewers).toHaveBeenLastCalledWith("plan-1");
@@ -84,7 +86,10 @@ describe("round and reviewer save recovery", () => {
     const saveReviewers = vi.fn(async () => ({ ok: true as const, data: {} }));
 
     await expect(completePlanAndReviewerSave(null, savePlan, saveReviewers)).resolves.toMatchObject({ ok: false, kind: "transport" });
-    await expect(completePlanAndReviewerSave(null, savePlan, saveReviewers)).resolves.toEqual({ ok: true, planId: stablePlanId });
+    // Neither write was in a position to report the round: the replayed create
+    // answered with an id alone, and reviewers were unchanged. Null says so
+    // rather than inventing one.
+    await expect(completePlanAndReviewerSave(null, savePlan, saveReviewers)).resolves.toEqual({ ok: true, planId: stablePlanId, plan: null });
     expect(savePlan).toHaveBeenCalledTimes(2);
     expect(saveReviewers).toHaveBeenCalledOnce();
     expect(saveReviewers).toHaveBeenCalledWith(stablePlanId);

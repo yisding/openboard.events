@@ -88,7 +88,11 @@ function authoringRows(ctx: SeedCtx, formKey: string): FormAuthoringRows {
       // question nobody classified, so it keeps the fail-closed default and a
       // blind DTO withholds it — the failure mode of unclassified metadata is
       // omission, not leakage.
-      { ...base, id: field("employer"), sectionId: participant, key: "employer", label: "Employer", fieldType: "text", sortOrder: 5 },
+      // The label is deliberately *not* a second "Company". The fixture only
+      // needs an ordinary custom question nobody classified; asking the same
+      // thing twice made the form the landing page invites every visitor to
+      // walk look like it had been assembled carelessly.
+      { ...base, id: field("employer"), sectionId: participant, key: "employer", label: "How did you hear about this event?", fieldType: "text", sortOrder: 5 },
     ],
   };
 }

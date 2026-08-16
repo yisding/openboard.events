@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
+import { TEMPLATE_KEYS } from "@/shared/contracts";
 import { arcSteps, type TourRoute, type TourStep } from "@/shared/ui/app/guided-tour";
 import {
   OVERDUE_HOLDOUT_SPEAKER_KEY,
+  RESOURCE_PAGES,
   ROOMS,
   SESSIONS,
   SET_PIECE_TARGET_SLOT,
   SET_PIECE_TRAY_SESSION_KEY,
   SPEAKERS,
+  SUBMISSIONS,
 } from "../server/demo/dataset";
-import { type DemoProvisionPhase } from "../tour-schemas";
+import { DEMO_PROVISION_PHASES, type DemoProvisionPhase } from "../tour-schemas";
 import { anchorIsDialogBound } from "./anchors";
 import {
   supportedTourSteps,
@@ -204,6 +207,57 @@ describe("guided tour script", () => {
     }
   });
 
+  it("counts the pile and the queue the way the provisioned world does", () => {
+    // The cold open is the tutorial's first verifiable claim and the dashboard
+    // is directly behind it, so a wrong number there spends the whole argument
+    // in one screen. It shipped saying "24 proposals waiting on a decision"
+    // against a world built with four pending — a figure the attention row,
+    // the Pending tile and the Submissions badge all print the moment the
+    // modal closes. Triage repeated the mistake from the other side, calling a
+    // four-row needs-decision view "two dozen proposals".
+    // Both cards spell the queue out in words, so the count is pinned here
+    // rather than interpolated: a dataset that stops building four pending
+    // proposals fails on this line, next to the two strings to change.
+    const pending = SUBMISSIONS.filter((submission) => submission.status === "pending").length;
+    expect(pending, "the cold open and triage both say 'four'").toBe(4);
+
+    const coldOpen = copyOf(tourStepById("coldopen.hello") as TourStep).join(" ");
+    expect(coldOpen).toContain(`${SUBMISSIONS.length} proposals`);
+    expect(coldOpen).toContain("four of them still waiting on you");
+    expect(coldOpen).toContain(`${SPEAKERS.length} speakers`);
+
+    const triage = copyOf(tourStepById("triage.rows") as TourStep).join(" ");
+    expect(triage).toContain("Four proposals still waiting on you");
+    expect(triage).toContain("Twenty-four arrived");
+    expect(triage).not.toContain("Two dozen");
+  });
+
+  it("names the resource page the world actually leaves in draft", () => {
+    // The quest asks for a publish, so it has to name a page that is not
+    // published. It shipped naming the speaker handbook, which provisioning
+    // publishes — the row it pointed at wore a Published badge, and the hint
+    // underneath it described a different row.
+    const drafts = RESOURCE_PAGES.filter((page) => !page.published);
+    expect(drafts, "the quest names one page, so the dataset must leave exactly one").toHaveLength(1);
+    const quest = tourStepById("quest.speaker-resources") as TourStep;
+    expect(quest.title.toLowerCase()).toContain(drafts[0]?.title.toLowerCase());
+    for (const published of RESOURCE_PAGES.filter((page) => page.published)) {
+      expect(quest.title.toLowerCase(), published.key).not.toContain(published.title.toLowerCase());
+    }
+  });
+
+  it("counts the templates an event actually owns", () => {
+    // `TEMPLATE_KEYS` has fourteen entries and the Templates tab renders
+    // eleven: password reset, address verification and the organization
+    // invitation are account mail, sent by no event and editable on no event's
+    // tab. The card said fourteen and the player could count.
+    const eventTemplates = TEMPLATE_KEYS.filter((key) => !key.startsWith("admin_") && key !== "organization_invited");
+    const copy = copyOf(tourStepById("mission.templates") as TourStep).join(" ");
+    expect(eventTemplates).toHaveLength(11);
+    expect(copy).toContain("Eleven templates");
+    expect(copy).not.toContain("Fourteen");
+  });
+
   it("names a talk the tray is actually holding, and a slot that is actually taken", () => {
     // Chapter 7 is the one chapter that names a specific row of provisioned
     // content and a specific minute of the grid. Both halves have to be true
@@ -322,6 +376,48 @@ describe("supportedTourSteps", () => {
       for (const step of kept) {
         const templates = [step.route?.path, step.objective?.via === "route" ? step.objective.path : undefined];
         for (const template of templates) expect(template ?? "", `${step.id} kept without ${key}`).not.toContain(`:${key}`);
+      }
+    }
+  });
+
+  it("hands back no tour at all rather than a mutilated one when the event id is missing", () => {
+    // Every route in the script is anchored on `/events/:eventId`. Dropped one
+    // step at a time, an empty id left seven orphans across five chapters and
+    // no curtain call — a five-chapter "tour" whose last step is a subject
+    // line in Mission Control. That is not a smaller tutorial, it is wreckage,
+    // and the engine reads a step with no successor as the player having
+    // finished, so it retires itself there permanently.
+    expect(supportedTourSteps(null, { ...FULL, eventId: "" })).toEqual([]);
+    expect(supportedTourSteps(null, { ...FULL, eventId: null })).toEqual([]);
+  });
+
+  it("always leaves the player a curtain call to reach, whatever this world is missing", () => {
+    // The property the failure above violated, checked across every shape a
+    // host can hand this: the golden path either does not exist or ends where
+    // the script ends. A configuration that stops the arc anywhere else ends
+    // the tour in silence, mid-chapter, with no way back in.
+    const contextKeys = TOUR_CONTEXT_KEYS;
+    const phases: Array<DemoProvisionPhase | null> = [null, ...DEMO_PROVISION_PHASES];
+    for (const phase of phases) {
+      // Every subset of the ids a real world can be missing, as a bitmask.
+      for (let mask = 0; mask < 2 ** contextKeys.length; mask += 1) {
+        const context = { ...FULL };
+        const missing: string[] = [];
+        contextKeys.forEach((key, index) => {
+          if ((mask & (1 << index)) === 0) return;
+          context[key] = "";
+          missing.push(key);
+        });
+        const unavailable = new Set(unavailableTourChapters(phase));
+        for (const mobile of [false, true]) {
+          const runnable = supportedTourSteps(phase, context)
+            .filter((step) => !unavailable.has(step.chapter))
+            .filter((step) => !(mobile && step.desktopOnly === true));
+          const last = arcSteps(runnable).at(-1);
+          const where = `phase=${phase ?? "none"} missing=[${missing.join(",")}] mobile=${mobile}`;
+          if (!last) continue;
+          expect(last.chapter, where).toBe("curtain-call");
+        }
       }
     }
   });

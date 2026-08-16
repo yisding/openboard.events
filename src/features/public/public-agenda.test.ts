@@ -30,13 +30,17 @@ describe("PublicAgenda", () => {
       eventSlug: "openboard-summit",
       schedule: PUBLISHED_SCHEDULE_FIXTURE,
     }));
+    // No zone abbreviation: the band holds one event on whole days, with no
+    // time beside it, so "PDT" qualifies nothing a reader is looking at.
     const range = formatDateRangeInZone(
       PUBLISHED_SCHEDULE_FIXTURE.event.startsAt,
       PUBLISHED_SCHEDULE_FIXTURE.event.endsAt,
       PUBLISHED_SCHEDULE_FIXTURE.event.timezone,
+      { showZone: false },
     ).toLowerCase();
 
     expect(html.toLowerCase().split(range)).toHaveLength(2);
+    expect(range).not.toMatch(/\b[A-Z]{2,5}$/iu);
   });
 
   it("places the hosted day selector directly below the compact hero", () => {

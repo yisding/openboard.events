@@ -38,9 +38,13 @@ export async function loginAsAdmin(target: Page | APIRequestContext, email: stri
  * maps any 429 to "Check your inbox, or try again in a few minutes". So neither
  * helper may name one of them as the cause.
  *
- *  - `requestPortalLoginIn` counts un-expired OTPs *per contact*: the fourth
- *    code for one address inside ten minutes is refused. This bucket drains on
- *    its own, so waiting is the fix.
+ *  - The request route counts code requests *per address* and
+ *    `requestPortalLoginIn` counts un-expired OTPs *per contact* — the same
+ *    3-per-10-minutes ceiling either way, so the fourth code for one address
+ *    inside ten minutes is refused. (Both, because the per-contact counter
+ *    cannot see an address with no contact row, and a throttle that only fires
+ *    for people who exist reports who exists.) These buckets drain on their
+ *    own, so waiting is the fix.
  *  - `POST /api/internal/auth/portal/request` additionally caps 20 requests per
  *    *client IP* per ten minutes (the address-cycling defence). A whole-suite
  *    run issues roughly nine code requests from one runner IP and a
@@ -48,8 +52,8 @@ export async function loginAsAdmin(target: Page | APIRequestContext, email: stri
  *    this bucket rather than clearing it.
  */
 export const PORTAL_CODE_REFUSAL_CAUSES =
-  "Both throttles on this route render the same sentence, so the message does not say which fired: "
-  + "three codes per contact per ten minutes (drains on its own — wait it out), and "
+  "Every throttle on this route renders the same sentence, so the message does not say which fired: "
+  + "three codes per address (and per contact) per ten minutes (drains on its own — wait it out), and "
   + "twenty code requests per client IP per ten minutes (a full re-run from the same runner spends it "
   + "rather than clearing it — narrow the run, or wait for the window to lapse).";
 
@@ -127,8 +131,11 @@ async function restorePortalSession(page: Page, eventSlug: string, email: string
  * Speaker sign-in through the *normal* portal challenge — no shortcut route
  * exists, and inventing one would stop testing the path a judge uses. On preview
  * (`EMAIL_FALLBACK_UI=1`, and independently of `EMAIL_MODE`/`EMAIL_ALLOWLIST`:
- * `requestPortalLogin` returns `fallback` for every address) the issued code is
- * rendered in the diagnostics panel; production never renders it.
+ * `requestPortalLogin` returns `fallback` for every address **that is on
+ * file**) the issued code is rendered in the diagnostics panel; production
+ * never renders it. An address with no contact row gets the same neutral
+ * screen and no code, because the sign-in form does not create speakers — so
+ * `email` here must name someone the seed actually created.
  */
 export async function loginAsSpeaker(page: Page, eventSlug: string, email: string): Promise<void> {
   const address = email.trim().toLowerCase();

@@ -320,6 +320,33 @@ describe("comms admin mutations", () => {
       expect(typeof detail.previewFallback).toBe("boolean");
     });
 
+    // The log stores only the HTML part, so the detail sheet's plain-text view
+    // is derived here — with the same `stripHtml(html, { keepLinkTargets })`
+    // that built the alternative the recipient was actually sent, so a link's
+    // destination survives instead of leaving a label pointing nowhere.
+    it("derives the text/plain alternative of the stored body, keeping link destinations", async () => {
+      const logId = "e0000000-0000-4000-8000-000000000051";
+      await pglite.query(
+        `INSERT INTO communication_logs(id,event_id,contact_id,template_key,idempotency_key,status,subject_rendered,body_rendered_html,attempts)
+         VALUES($1,$2,$3,'task_reminder','key-2','sent','Two tasks due','<p>Hi Ada</p><ul><li>Headshot</li><li>Bio</li></ul><p><a href="https://portal.example.com/x">Open your portal</a></p>',1)`,
+        [logId, eventId, speakerId],
+      );
+      const detail = await getLogDetailIn(tx, eventId, logId as CommLogId);
+      expect(detail.bodyRenderedText).toBe("Hi Ada\nHeadshot\nBio\n\nOpen your portal (https://portal.example.com/x)");
+    });
+
+    it("reports no text alternative for a row whose body was never captured", async () => {
+      const logId = "e0000000-0000-4000-8000-000000000052";
+      await pglite.query(
+        `INSERT INTO communication_logs(id,event_id,contact_id,template_key,idempotency_key,status,attempts)
+         VALUES($1,$2,$3,'task_reminder','key-3','failed',1)`,
+        [logId, eventId, speakerId],
+      );
+      const detail = await getLogDetailIn(tx, eventId, logId as CommLogId);
+      expect(detail.bodyRenderedHtml).toBeNull();
+      expect(detail.bodyRenderedText).toBeNull();
+    });
+
     it("404s for a real row belonging to another event, and for an id that exists nowhere", async () => {
       // A genuine cross-tenant read: the row EXISTS, is readable by its own
       // event, and is invisible to the neighbouring one. An id that never

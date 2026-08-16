@@ -172,6 +172,33 @@ export function zoneAbbreviation(utc: Date | string | number, timeZone: string):
   return formatInTimeZone(asDate(utc), timeZone, "zzz");
 }
 
+/** The zone a new event starts in when nothing better is known. */
+export const DEFAULT_TIME_ZONE = "America/Los_Angeles";
+
+const FALLBACK_TIME_ZONES = [
+  DEFAULT_TIME_ZONE, "America/New_York", "America/Chicago", "America/Denver",
+  "Europe/London", "Europe/Paris", "Asia/Tokyo", "UTC",
+];
+
+/**
+ * Every zone the *rendering runtime* knows, with `UTC` guaranteed present.
+ *
+ * The list is CLDR data read from whichever ICU build is executing, so it is
+ * only stable within one runtime — see `TimeZoneSelect`, which is why the
+ * picker does not server-render it. The hand-written fallback covers a runtime
+ * without `Intl.supportedValuesOf` (or one that answers with nothing), so a
+ * caller always has something to offer.
+ */
+export function browserTimeZones(): string[] {
+  try {
+    const zones = Intl.supportedValuesOf("timeZone");
+    if (zones.length === 0) return FALLBACK_TIME_ZONES;
+    return zones.includes("UTC") ? zones : ["UTC", ...zones];
+  } catch {
+    return FALLBACK_TIME_ZONES;
+  }
+}
+
 const timeZoneOptionLabelCache = new Map<string, string>();
 
 /**
@@ -233,22 +260,36 @@ function localDateParts(utc: Date | string | number, timeZone: string): LocalDat
  * event switcher all need the range-shaped version instead. A range crossing a
  * DST boundary keeps both labels because they genuinely differ.
  */
+/**
+ * `showZone: false` drops the trailing abbreviation.
+ *
+ * A zone qualifies a *time*. On a span of whole days it qualifies nothing —
+ * "Oct 19 – 21, 2026 PDT" tells a reader no more than "Oct 19 – 21, 2026" and
+ * asks them to parse three more characters to find that out. It stays on by
+ * default because a list of many events does use it to say which zone each one
+ * runs in; the public hero, which is one event and no times, does not.
+ *
+ * A range that *crosses* zones keeps both abbreviations either way: there the
+ * zone is the only thing explaining why the two dates are qualified at all.
+ */
 export function formatDateRangeInZone(
   startsAt: Date | string | number,
   endsAt: Date | string | number,
   timeZone: string,
+  { showZone = true }: { showZone?: boolean } = {},
 ): string {
   const start = localDateParts(startsAt, timeZone);
   const end = localDateParts(endsAt, timeZone);
   const startZone = zoneAbbreviation(startsAt, timeZone);
   const endZone = zoneAbbreviation(endsAt, timeZone);
   const full = (date: LocalDateParts) => `${date.month} ${date.day}, ${date.year}`;
+  const zone = showZone ? ` ${endZone}` : "";
 
   if (startZone !== endZone) return `${full(start)} ${startZone} – ${full(end)} ${endZone}`;
-  if (start.year === end.year && start.month === end.month && start.day === end.day) return `${full(start)} ${endZone}`;
-  if (start.year === end.year && start.month === end.month) return `${start.month} ${start.day} – ${end.day}, ${end.year} ${endZone}`;
-  if (start.year === end.year) return `${start.month} ${start.day} – ${end.month} ${end.day}, ${end.year} ${endZone}`;
-  return `${full(start)} – ${full(end)} ${endZone}`;
+  if (start.year === end.year && start.month === end.month && start.day === end.day) return `${full(start)}${zone}`;
+  if (start.year === end.year && start.month === end.month) return `${start.month} ${start.day} – ${end.day}, ${end.year}${zone}`;
+  if (start.year === end.year) return `${start.month} ${start.day} – ${end.month} ${end.day}, ${end.year}${zone}`;
+  return `${full(start)} – ${full(end)}${zone}`;
 }
 
 type LocalTimeParts = { hour: string; minute: string; dayPeriod: string };

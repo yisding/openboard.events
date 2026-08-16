@@ -36,6 +36,8 @@ export const tokenIdSchema = brandedUuid<"TokenId">();
 export const fileUploadIdSchema = brandedUuid<"FileUploadId">();
 export const fileCommentIdSchema = brandedUuid<"FileCommentId">();
 export const sessionContentRevisionIdSchema = brandedUuid<"SessionContentRevisionId">();
+// MTP-07 — the placement half of a session's history, beside the content half.
+export const sessionPlacementRevisionIdSchema = brandedUuid<"SessionPlacementRevisionId">();
 export const fileExportJobIdSchema = brandedUuid<"FileExportJobId">();
 // M51 — standalone speaker roster operations.
 export const logisticsFieldIdSchema = brandedUuid<"LogisticsFieldId">();
@@ -52,6 +54,9 @@ export const crmActivityIdSchema = brandedUuid<"CrmActivityId">();
 export const crmSegmentIdSchema = brandedUuid<"CrmSegmentId">();
 export const crmMergeIdSchema = brandedUuid<"CrmMergeId">();
 export const crmPipelineIdSchema = brandedUuid<"CrmPipelineId">();
+// M39 — per-event Airtable connection and its sync runs.
+export const airtableConnectionIdSchema = brandedUuid<"AirtableConnectionId">();
+export const airtableSyncRunIdSchema = brandedUuid<"AirtableSyncRunId">();
 
 export type OrganizationId = z.infer<typeof organizationIdSchema>;
 export type EventId = z.infer<typeof eventIdSchema>;
@@ -82,6 +87,7 @@ export type TokenId = z.infer<typeof tokenIdSchema>;
 export type FileUploadId = z.infer<typeof fileUploadIdSchema>;
 export type FileCommentId = z.infer<typeof fileCommentIdSchema>;
 export type SessionContentRevisionId = z.infer<typeof sessionContentRevisionIdSchema>;
+export type SessionPlacementRevisionId = z.infer<typeof sessionPlacementRevisionIdSchema>;
 export type FileExportJobId = z.infer<typeof fileExportJobIdSchema>;
 export type LogisticsFieldId = z.infer<typeof logisticsFieldIdSchema>;
 export type UnavailabilityId = z.infer<typeof unavailabilityIdSchema>;
@@ -95,3 +101,5 @@ export type CrmActivityId = z.infer<typeof crmActivityIdSchema>;
 export type CrmSegmentId = z.infer<typeof crmSegmentIdSchema>;
 export type CrmMergeId = z.infer<typeof crmMergeIdSchema>;
 export type CrmPipelineId = z.infer<typeof crmPipelineIdSchema>;
+export type AirtableConnectionId = z.infer<typeof airtableConnectionIdSchema>;
+export type AirtableSyncRunId = z.infer<typeof airtableSyncRunIdSchema>;

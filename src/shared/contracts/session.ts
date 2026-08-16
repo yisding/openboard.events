@@ -1,6 +1,28 @@
 import { z } from "zod";
-import { sessionStatusSchema } from "./enums";
+import { sessionStatusSchema, submissionStatusSchema } from "./enums";
 import { contactIdSchema, formatIdSchema, roomIdSchema, sessionIdSchema, submissionIdSchema, trackIdSchema } from "./ids";
+
+/**
+ * The abstract a session was promoted from, as that abstract stands *now*.
+ *
+ * `null` for a session created straight in the agenda — a keynote, a break, a
+ * sponsor slot — which owns its own title and can never diverge from anything.
+ *
+ * Two facts about a promoted session are otherwise unknowable in the admin,
+ * and both of them make a screen lie. `published_sessions_v` carries a promoted
+ * session only while its abstract is `accepted`, so an abstract that leaves
+ * that status takes the talk off the public schedule without touching
+ * `sessions.status`; and nothing propagates a later abstract title edit to the
+ * session row. Carrying the abstract's live status and title on the session is
+ * what lets the agenda say so instead of showing a confident "Published".
+ */
+export const linkedSubmissionSchema = z.object({
+  id: submissionIdSchema,
+  code: z.int().nonnegative(),
+  title: z.string(),
+  status: submissionStatusSchema,
+});
+export type LinkedSubmission = z.infer<typeof linkedSubmissionSchema>;
 
 export const scheduledSessionDtoSchema = z.object({
   id: sessionIdSchema,
@@ -16,6 +38,22 @@ export const scheduledSessionDtoSchema = z.object({
   scheduleRevision: z.int().nonnegative(),
   rowVersion: z.int().positive(),
   speakerIds: z.array(contactIdSchema),
+  linkedSubmission: linkedSubmissionSchema.nullable().default(null),
+  /**
+   * How many people the originating submission said it expects, `null` for a
+   * manually created session or one whose abstract never declared a number.
+   *
+   * It is the *only* audience figure the product stores, and it is what the
+   * Auto-place planner already weighs a room's `capacity` against — carrying it
+   * on the session is what lets a manual placement (dialog save, grid drop) be
+   * warned about the same mismatch instead of only the automatic one.
+   *
+   * A sibling of `linkedSubmission` rather than a field inside it: this is a
+   * number about the *session's* placement, read once and never redisplayed,
+   * while `linkedSubmission` is the abstract's own identity as it stands now.
+   * Both come off the same abstract row, and the server reads them together.
+   */
+  expectedAttendance: z.int().nonnegative().nullable().default(null),
 });
 export type ScheduledSessionDTO = z.infer<typeof scheduledSessionDtoSchema>;
 

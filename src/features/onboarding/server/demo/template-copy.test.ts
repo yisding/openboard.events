@@ -127,6 +127,15 @@ describe("copying a demo's scaffold onto a real event", () => {
     expect(conditions[0]?.sourceFieldId).toBe(formatField?.id);
     expect(conditions[0]?.value).toBe(workshopOption?.id);
 
+    // The copied form answers to the organizer's event, not to the demo
+    // conference. Carrying `Speak at AI Engineer World's Fair` onto a
+    // marketing event is how "a bunch of stuff from the AI Engineer events"
+    // gets reported: a name they never chose, for a conference they have never
+    // heard of, on their own call for speakers.
+    const copiedCfp = (await database.select().from(schema.forms).where(eq(schema.forms.eventId, realEventId)))
+      .find((form) => form.context === "cfp" && form.internalName.startsWith("Speak at "));
+    expect(copiedCfp?.internalName).toBe("Speak at template-copy-real-event real event");
+
     // The closed set, proven negatively: zero rows landed anywhere else.
     await Promise.all([
       expect(rowCount("contacts", realEventId)).resolves.toBe(0),

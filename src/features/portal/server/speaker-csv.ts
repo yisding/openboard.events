@@ -64,6 +64,38 @@ export function parseCsv(text: string): string[][] {
   return rows;
 }
 
+function quoteCsvCell(value: string): string {
+  return /[",\r\n]/u.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
+}
+
+/**
+ * Writes organizer corrections back into one column of the uploaded file,
+ * keyed by the `rowNumber` the import preview reports (1-based, header
+ * included — exactly what `readSpeakerCsvRows` emits and what the preview
+ * table shows).
+ *
+ * The import's own `csvText` stays the single source of truth: fixing a
+ * rejected email in the preview edits the *file*, and re-previewing then
+ * re-validates it through the same server path as the original upload, so a
+ * correction can never take a shortcut around validation. The header row is
+ * never a target, and a row shorter than the mapped column is padded rather
+ * than shifting its other cells.
+ */
+export function applyCsvCellEdits(csvText: string, columnIndex: number, edits: Record<number, string>): string {
+  const rows = parseCsv(csvText);
+  let changed = false;
+  for (const [key, value] of Object.entries(edits)) {
+    const rowIndex = Number(key) - 1;
+    const cells = rows[rowIndex];
+    if (rowIndex < 1 || !cells) continue;
+    while (cells.length <= columnIndex) cells.push("");
+    cells[columnIndex] = value;
+    changed = true;
+  }
+  if (!changed) return csvText;
+  return rows.map((cells) => cells.map(quoteCsvCell).join(",")).join("\r\n");
+}
+
 /** A row the file contains but that carries no data at all — a separator line. */
 function isBlankRow(cells: string[]): boolean {
   return cells.every((cell) => cell.trim() === "");

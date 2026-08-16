@@ -194,7 +194,12 @@ const COLD_OPEN: readonly TourStep[] = [
     kind: "beat",
     presentation: "modal",
     title: "AI Engineer World's Fair is 65 days out.",
-    body: "18 speakers. 24 proposals waiting on a decision. Two scheduling conflicts nobody has noticed yet. None of it is real, all of it works, and nothing in here can email a living person.",
+    // "24 proposals waiting on a decision" was false on the screen behind this
+    // very modal: the demo is built with four pending, and the dashboard's own
+    // attention row — visible the moment this card is dismissed — says so.
+    // Twenty-four is the size of the pile that arrived, not the size of the
+    // queue, and `script.test.ts` now holds both numbers against the dataset.
+    body: "18 speakers. 24 proposals, four of them still waiting on you. Two scheduling conflicts nobody has noticed yet. None of it is real, all of it works, and nothing in here can email a living person.",
     route: at("/dashboard"),
     continueLabel: "Let's go",
     declineLabel: "I'll poke around myself",
@@ -303,8 +308,12 @@ const TRIAGE: readonly TourStep[] = [
     id: "triage.rows",
     chapter: "triage",
     kind: "observe",
-    title: "Two dozen proposals, one queue.",
-    body: "Open any row on the way past. The drawer pins every answer to the form version that speaker actually filled in, not to today's.",
+    // Not "two dozen proposals, one queue": this step opens the
+    // *needs-decision* view, and that view holds four rows. The tab strip the
+    // next step is about prints both numbers side by side, so a card claiming
+    // twenty-four here was contradicted by the control it was standing on.
+    title: "Four proposals still waiting on you.",
+    body: "Twenty-four arrived and the rest are settled. Open any row on the way past: the drawer pins every answer to the form version that speaker actually filled in, not to today's.",
     route: at("/abstracts", { view: "needs_decision" }),
     anchor: tourIdAnchor("abstracts.row"),
     placement: "bottom",
@@ -350,6 +359,11 @@ const JUDGEMENT: readonly TourStep[] = [
     body: "Round 1 is open and yours. Round 2 anonymises the proposal and the reviewer, so nobody scores a name they recognise.",
     route: at("/evaluation"),
     anchor: css(".plan-window"),
+    // Right, not the default bottom. `.plan-window` resolves to the first
+    // round's cell, and a card dropped underneath it covers the second round's
+    // row — including the *Blind review* badge that is the entire evidence for
+    // the sentence above. Beside the table, both rows stay readable.
+    placement: "right",
   },
   {
     id: "judge.score",
@@ -413,7 +427,12 @@ const THE_DECISION: readonly TourStep[] = [
     chapter: "the-decision",
     kind: "observe",
     title: "Real outbox, real dispatcher, zero mail.",
-    body: "Every row reads skipped, reason: demo event — mail is never delivered. The rail is a line in the dispatcher, not a setting you can miss.",
+    // The sweeping claim, restored. It was hedged down to "the rows you just
+    // queued" because phase 10 backdated six `sent` rows and one `failed` one,
+    // which made the sweeping version falsifiable on the very screen this card
+    // points at. Phase 10 now seeds all nine as `skipped`, so the column the
+    // card names says what the card says, all the way down.
+    body: "Every row on this log reads skipped, reason: demo event — mail is never delivered. The nine older ones are backdated history the demo was built with; they were rendered and logged like the rest, and went exactly as far.",
     route: at("/communications", { tab: "log" }),
     anchor: css("#communications-tab-log"),
     placement: "bottom",
@@ -457,12 +476,24 @@ const FIELD_TRIP: readonly TourStep[] = [
     // has an empty portal — following this instruction with her name on it
     // dead-ends the chapter. Phase 8's `OVERDUE_HOLDOUT_KEY` names the same
     // person this copy does, and `script.test.ts` holds the two together.
-    title: "Open the speaker portal as Victor.",
-    body: "Real impersonation in a new tab, not a fixture switch. Finish one of his tasks over there — we will be watching from here.",
+    // Titled for the *objective*, not for the doorway.
+    //
+    // "Open the speaker portal as Victor" named the button the card
+    // spotlights, so pressing it read as finishing the step — and then the
+    // card went on pulsing "Waiting for you…" at a control the organizer had
+    // just used, with nothing to say about why. The objective is a task
+    // completed in the other tab; the button is how you get there.
+    title: "Finish one of Victor's portal tasks.",
+    body: "Real impersonation in a new tab, not a fixture switch. Opening the portal is only the door — this step finishes when a task of his does, and we will see it from here.",
     anchor: tourIdAnchor("speakers.impersonate"),
     placement: "bottom",
     objective: world("portalTaskCompletions", "increased"),
-    hint: "Open Victor Achebe from the roster, then press Open portal as Victor.",
+    // Three presses, named in order. The roster row opens a drawer, and the
+    // drawer has no impersonation control on it: that lives on the full
+    // profile behind it, which is where this anchor mounts. A hint that
+    // skipped the middle step sent the organizer looking for a button that
+    // was one page further on.
+    hint: "Open Victor Achebe from the roster, press Open full profile, then Open portal as Victor — and complete one of his tasks in the new tab.",
   },
   {
     id: "trip.return",
@@ -495,8 +526,17 @@ const THE_GRID: readonly TourStep[] = [
     title: "Three accepted talks with nowhere to be.",
     body: "Accepted is not scheduled. The tray holds everything the programme has said yes to and the grid has not found a room for yet.",
     route: at("/agenda", { view: "day" }),
-    anchor: css(".unscheduled-tray"),
-    placement: "left",
+    // Not `.unscheduled-tray`. That class belongs to the *workspace* tray,
+    // which the Day view does not render at all — on `?view=day` the only
+    // element carrying it is `ReadyToPromoteTray`, accepted abstracts that are
+    // not sessions yet. So the spotlight framed the promotion panel while the
+    // card described the column beside it, and the "three accepted talks" it
+    // counts were nowhere near the box it was pointing at.
+    anchor: named("complementary", "Unscheduled sessions"),
+    // Right, not left. Both trays live against the leading edge, so a card
+    // opening leftward can only ever be clamped to the 12px margin — on top of
+    // the navigation rail, and over the panel it is describing.
+    placement: "right",
   },
   {
     id: "grid.place",
@@ -600,7 +640,12 @@ const MISSION_CONTROL: readonly TourStep[] = [
     chapter: "mission-control",
     kind: "act",
     title: "Open the Templates tab.",
-    body: "Fourteen messages ship with every event, and the ladder on this tab is why Victor was nudged about that overdue travel form.",
+    // Eleven, not fourteen. Fourteen is the size of `TEMPLATE_KEYS`, three of
+    // which are account mail — password reset, address verification, the
+    // organization invitation — and none of those belong to an event or appear
+    // on this tab. A player who counts finds eleven. The reminder ladder moved
+    // to the step that actually opens it.
+    body: "Eleven templates ship with every event, and every word a speaker ever reads from you comes out of one of them.",
     route: at("/communications", { tab: "reminders" }),
     anchor: css("#communications-tab-templates"),
     placement: "bottom",
@@ -620,7 +665,10 @@ const MISSION_CONTROL: readonly TourStep[] = [
     chapter: "mission-control",
     kind: "act",
     title: "Open Reminders.",
-    body: "Four ladders, all enabled, all firing on this demo for real. Every message they produce lands in the log as skipped.",
+    // One ladder with four rungs, which is what the tab draws: a heading, then
+    // 7 days before, 1 day before, 1 day after, 7 days after. "Four ladders"
+    // had the player looking for three more.
+    body: "One ladder, four rungs, and it is why Victor was nudged about that overdue travel form. It runs on this demo for real, and every message it writes lands in the log as skipped.",
     anchor: css("#communications-tab-reminders"),
     placement: "bottom",
     objective: goneTo("/communications", { tab: "reminders" }),
@@ -657,8 +705,10 @@ const CURTAIN_CALL: readonly TourStep[] = [
 /* --- side quests -------------------------------------------------------- */
 
 /**
- * Reachable at any time from the coach card's tray, and from the demo
- * dashboard once the tour is over. Their ids carry the `quest.` prefix because
+ * Reachable at any time from the coach card's tray, for as long as the tour is
+ * running — a finished tour has no surface that offers them, so the only way
+ * back to an unfinished quest today is the ribbon's *Restart tour*. Their ids
+ * carry the `quest.` prefix because
  * that is how the server tells an objective from a side quest when it counts
  * the finale's "17 of 19 objectives · 2 side quests".
  *
@@ -672,7 +722,9 @@ const SIDE_QUESTS: readonly TourStep[] = [
     kind: "observe",
     optional: true,
     title: "Read the mail you did not send.",
-    body: "Nine seeded messages plus everything this tour queued, each one rendered in full, logged, and then skipped at the dispatcher.",
+    // Same restoration as `decide.outbox`: the nine seeded rows are backdated
+    // history, and they are nine skips.
+    body: "Nine backdated messages the world was built with, plus everything this tour queued — and every one of them was rendered in full, logged, and then skipped.",
     route: at("/communications", { tab: "log" }),
     anchor: css("#communications-tab-log"),
     placement: "bottom",
@@ -701,7 +753,13 @@ const SIDE_QUESTS: readonly TourStep[] = [
     chapter: "field-trip",
     kind: "act",
     optional: true,
-    title: "Publish the speaker handbook.",
+    // The handbook is not the draft — provisioning publishes it, along with
+    // travel & reimbursement, and leaves *Recording release* in draft. A quest
+    // titled "publish the speaker handbook" therefore named the one row on the
+    // page that already carried a Published badge, while its own hint sent the
+    // player to a different one. `script.test.ts` holds the title to whichever
+    // page the dataset leaves unpublished.
+    title: "Publish the recording release.",
     body: "Three resource pages exist and one of them is still a draft. Speakers see published pages in their portal and nothing else.",
     route: at("/resources"),
     objective: world("resourcePagesPublished", "increased"),
@@ -874,6 +932,24 @@ export function supportedTourSteps(
    */
   context: Readonly<Record<TourContextKey, string | null>>,
 ): readonly TourStep[] {
+  // Requiring the whole map makes the wrong context a type error; it cannot
+  // make an *empty* event id anything but a per-step drop, and every route in
+  // the script is anchored on `/events/:eventId`. Filtered one step at a time,
+  // that left seven orphans strung across five chapters and ending, with no
+  // successor, half-way through Mission Control — where the engine reads "no
+  // next step on the arc" as "the player finished" and retires the tutorial
+  // for good. There is no honest partial tour without an event id, so the
+  // answer is none of it.
+  //
+  // An empty list is a sentinel for the host, not a mount guard: the layout
+  // still builds a bootstrap around it, so the layer mounts, draws nothing —
+  // it has no step to render, which is the one case it renders `null` for —
+  // and its started-effect still records the cursor as `active`. Both call
+  // sites take the id from the `/events/:eventId` route segment, so an empty
+  // one cannot reach here today; this is defence against a caller handing
+  // over a context that has lost it, where a tour that shows nothing beats
+  // one that ends mid-chapter and marks itself finished.
+  if ((context.eventId ?? "") === "") return [];
   const stoppedAt = skippedAtPhase === null ? -1 : DEMO_PROVISION_PHASES.indexOf(skippedAtPhase);
   return TOUR_STEPS.filter((step) => {
     const phase = STEP_PHASE[step.id];

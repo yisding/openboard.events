@@ -1,3 +1,4 @@
+import { pruneAbandonedAirtableConnections, pruneAirtableSyncRuns } from "@/features/airtable";
 import { runDataRetentionSweep } from "@/features/data-lifecycle/server/retention";
 import {
   nudgeStalledFileExports,
@@ -26,4 +27,18 @@ export const { POST } = definePrivateJobRoute("cleanup", async (): Promise<JobSt
     run: async () => ({ deletedExpiredExports: (await pruneExpiredFileExports()).deleted }),
   },
   { name: "operationalErrors", run: async () => pruneOperationalErrors() },
+  {
+    name: "airtableRuns",
+    run: async () => ({ prunedAirtableRuns: (await pruneAirtableSyncRuns()).deleted }),
+  },
+  {
+    // A wizard someone abandoned before picking a base leaves a `pending` row
+    // holding a live, sealed PAT with nothing left to use it for. Runs once a
+    // day alongside the rest of this sweep; the 24h threshold lives in
+    // `pruneAbandonedAirtableConnectionsIn` itself.
+    name: "airtableAbandonedConnections",
+    run: async () => ({
+      prunedAirtableAbandonedConnections: (await pruneAbandonedAirtableConnections()).deleted,
+    }),
+  },
 ]));

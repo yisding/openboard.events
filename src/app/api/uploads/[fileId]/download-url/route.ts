@@ -1,8 +1,8 @@
 import type { NextRequest } from "next/server";
 import { fileIdSchema } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
-import { asRequester, jsonRoute, requireUploader } from "../../_lib";
-import { describeFile, getDownloadUrl } from "@/shared/server/r2";
+import { asRequester, jsonRoute, requireFileUploader } from "../../_lib";
+import { getDownloadUrl } from "@/shared/server/r2";
 
 export const dynamic = "force-dynamic";
 
@@ -15,9 +15,10 @@ export async function GET(request: NextRequest, route: { params: Promise<{ fileI
     const parsedFileId = fileIdSchema.safeParse(rawFileId);
     if (!parsedFileId.success) throw new AppError("VALIDATION", "Invalid file id");
     const fileId = parsedFileId.data;
-    const file = await describeFile(fileId);
-    if (!file) throw new AppError("NOT_FOUND", "File not found");
-    const uploader = await requireUploader(request, file.eventId);
+    // Existence and authorization resolve together: an unknown id and a real
+    // file the caller may not access answer identically, so the status can never
+    // confirm a file id exists (see requireFileUploader).
+    const { file, uploader } = await requireFileUploader(request, fileId);
     // getDownloadUrl re-checks (eventId, fileId, requester) together; passing the
     // event from the row is what keeps one event's session out of another's files.
     const url = await getDownloadUrl(file.eventId, fileId, asRequester(uploader));

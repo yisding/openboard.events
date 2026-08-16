@@ -646,7 +646,15 @@ export function CfpSteps({ data, signedInEmail }: { data: PublicForm; signedInEm
     }
     setBusy(true);
     showNotice("");
-    const sent = await cfpRequest("/api/internal/auth/portal/request", { eventSlug: event.slug, email: email.trim().toLowerCase() });
+    // The form id travels with the request so the server can tell this apart
+    // from the portal sign-in box: a first-time submitter to an open call has
+    // no contact row yet, and without that distinction there is no code, no
+    // session, and therefore no way for anyone new to answer a public CFP.
+    const sent = await cfpRequest("/api/internal/auth/portal/request", {
+      eventSlug: event.slug,
+      email: email.trim().toLowerCase(),
+      formId: form.id,
+    });
     setBusy(false);
     if (!sent.ok) {
       const recovery = cfpCodeRequestRecovery(sent);

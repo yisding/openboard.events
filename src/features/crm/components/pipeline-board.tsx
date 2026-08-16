@@ -494,7 +494,12 @@ export function PipelineBoard({
       )}
 
       {entries.length === 0 ? (
-        <EmptyState icon={<Kanban size={20} />} title="No prospects yet" description="Add a contact to start tracking them through open, won, and lost." />
+        <EmptyState
+          icon={<Kanban size={20} />}
+          title="No prospects yet"
+          description="Add your first prospect to track them through open, won, and lost."
+          action={<Button disabled={mutationsBlocked} onClick={() => { if (!mutationsBlockedRef.current) setAddOpen(true); }}><Plus size={15} /> Add prospect</Button>}
+        />
       ) : (
         <DndContext sensors={sensors} onDragEnd={onDragEnd}>
           <div className="crm-board">

@@ -103,6 +103,17 @@ describe("parseEnv", () => {
     expect(() => parseEnv({ ADMIN_AUTH_PROVIDER: "better-auth" })).toThrow(/ADMIN_AUTH_PROVIDER/);
   });
 
+  it("rejects the retired global Airtable base id rather than silently dropping it", () => {
+    // M39 replaced one global base with one sealed token per event. Left
+    // undeclared, `z.object` strips this key: the deployment parses clean and
+    // the operator's own configuration claims a base that nothing reads.
+    expect(() => parseEnv({ AIRTABLE_BASE_ID: "appABCD12345678" })).toThrow(/AIRTABLE_BASE_ID/);
+    // But a blank holding the retired name is not a configured base, and must
+    // not take the whole application down on boot.
+    expect(() => parseEnv({ AIRTABLE_BASE_ID: "" })).not.toThrow();
+    expect(() => parseEnv({ AIRTABLE_BASE_ID: "   " })).not.toThrow();
+  });
+
   it("requires Google credentials for every deployed admin auth environment", () => {
     const preview = {
       ...deployed,
@@ -114,9 +125,24 @@ describe("parseEnv", () => {
     expect(() => parseEnv({ ...preview, GOOGLE_CLIENT_SECRET: undefined })).toThrow(/GOOGLE_CLIENT_SECRET/);
   });
 
-  it("keeps the deferred Airtable cron disabled until a real adapter exists", () => {
+  it("gates the Airtable scheduled sweep behind an explicit flag, defaulting off", () => {
+    expect(parseEnv({}).AIRTABLE_CRON).toBe("0");
     expect(parseEnv({ AIRTABLE_CRON: "0" }).AIRTABLE_CRON).toBe("0");
-    expect(() => parseEnv({ AIRTABLE_CRON: "1" })).toThrow(/AIRTABLE_CRON/);
+    expect(parseEnv({ AIRTABLE_CRON: "1" }).AIRTABLE_CRON).toBe("1");
+    expect(() => parseEnv({ AIRTABLE_CRON: "2" })).toThrow(/AIRTABLE_CRON/);
+  });
+
+  it("keeps the global Airtable API key a local-only convenience", () => {
+    expect(parseEnv({ AIRTABLE_API_KEY: "pat-local-scratch" }).AIRTABLE_API_KEY)
+      .toBe("pat-local-scratch");
+    expect(() => parseEnv({ ...deployed, APP_ENV: "production", AIRTABLE_API_KEY: "pat-leaked" }))
+      .toThrow(/AIRTABLE_API_KEY/);
+    expect(() => parseEnv({
+      ...deployed,
+      APP_ENV: "preview",
+      R2_BUCKET_NAME: "sb-files-preview",
+      AIRTABLE_API_KEY: "pat-leaked",
+    })).toThrow(/AIRTABLE_API_KEY/);
   });
 
   it("keeps messaging secrets optional locally but requires the complete deployed inventory", () => {

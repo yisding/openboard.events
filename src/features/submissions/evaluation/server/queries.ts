@@ -1,7 +1,7 @@
 import { sql, type SQL } from "drizzle-orm";
 import { OUTSTANDING_REVIEW_WORK_SQL } from "@/db/review-work";
 import { db, type DbOrTx } from "@/db/client";
-import { criterionIdSchema, type CriterionSpec, type CriterionValue, type EventId, type PlanId, type SubmissionId, type UserId } from "@/shared/contracts";
+import { criterionIdSchema, type CriterionSpec, type CriterionValue, type EventId, type MemberRole, type PlanId, type SubmissionId, type UserId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { normalizeCriterionValues, reviewWindow } from "../scoring";
 import type {
@@ -58,7 +58,7 @@ type PlanRow = {
   status: PlanDTO["status"]; track_ids: string[] | null;
   opens_at: string | null; closes_at: string | null; anonymize_authors: boolean; show_peer_scores: boolean;
   criteria: Array<Record<string, unknown>> | null; reviewers: Array<Record<string, unknown>> | null;
-  scored: number; total: number; updated_at: string;
+  scored: number; total: number; has_reviews: boolean; updated_at: string;
 };
 
 function toCriterion(raw: Record<string, unknown>): CriterionDTO {
@@ -113,6 +113,7 @@ function toPlan(row: PlanRow): PlanDTO {
     criteria: (row.criteria ?? []).map(toCriterion),
     reviewers: (row.reviewers ?? []).map(toReviewer),
     progress: { scored: Number(row.scored), total: Number(row.total) },
+    hasReviews: row.has_reviews === true,
     updatedAt: new Date(row.updated_at).toISOString(),
   };
 }
@@ -156,7 +157,12 @@ async function selectPlans(dbOrTx: DbOrTx, eventId: EventId, only?: SQL): Promis
       (SELECT count(DISTINCT r.submission_id)::int FROM reviews r
        JOIN submissions s ON s.id = r.submission_id AND s.event_id = r.event_id
        WHERE r.plan_id = p.id AND r.event_id = p.event_id AND r.submitted_at IS NOT NULL
-         AND ${scopeClause(sql`p.track_ids`, sql`NULL::uuid[]`)}) AS scored
+         AND ${scopeClause(sql`p.track_ids`, sql`NULL::uuid[]`)}) AS scored,
+      -- Every review, not just the finished ones and not just the in-scope
+      -- ones: assertScoringShapeEditable freezes the round's arithmetic on
+      -- exactly this predicate, so the editor has to lock its fields on exactly
+      -- this predicate too, or it offers work the save will refuse.
+      EXISTS (SELECT 1 FROM reviews r WHERE r.plan_id = p.id AND r.event_id = p.event_id) AS has_reviews
     FROM evaluation_plans p
     WHERE p.event_id = ${eventId} ${only ? sql`AND ${only}` : sql``}
     ORDER BY p.round, lower(p.name)
@@ -179,9 +185,15 @@ export function listPlansIn(dbOrTx: DbOrTx, eventId: EventId): Promise<PlanDTO[]
  * travel further than it has to. Redaction happens here, while the DTO is being
  * built, for the same reason blindness does: a route cannot forget to do what it
  * was never handed.
+ *
+ * `hasReviews` goes the same way, and on the same principle rather than on any
+ * harm it would do: it exists so the organizer's editor can grey out what the
+ * save would refuse, no reviewer screen reads it, and this function is only
+ * honest as the single redaction point if everything organizer-shaped leaves
+ * here.
  */
 export function forReviewer(plan: PlanDTO): PlanDTO {
-  return { ...plan, reviewers: [] };
+  return { ...plan, reviewers: [], hasReviews: false };
 }
 
 /** The rounds a reviewer is on, as their own round-switcher lists them. */
@@ -402,7 +414,7 @@ export async function assertReviewerCanReadSubmissionIn(
 export async function listEventMembersIn(
   dbOrTx: DbOrTx,
   eventId: EventId,
-): Promise<Array<{ userId: UserId; name: string; email: string; role: string }>> {
+): Promise<Array<{ userId: UserId; name: string; email: string; role: MemberRole }>> {
   const result = await dbOrTx.execute<{ user_id: string; name: string; email: string; role: string }>(sql`
     SELECT m.user_id, u.name, u.email, m.role
     FROM event_members m JOIN users u ON u.id = m.user_id
@@ -413,7 +425,10 @@ export async function listEventMembersIn(
     userId: row.user_id as UserId,
     name: row.name,
     email: row.email,
-    role: row.role,
+    // `event_members.role` is the `member_role` Postgres enum, so the column
+    // cannot hold anything outside `MEMBER_ROLES`. Saying so here is what lets
+    // the picker render the *authored* label for a role instead of the raw key.
+    role: row.role as MemberRole,
   }));
 }
 

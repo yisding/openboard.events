@@ -36,6 +36,7 @@ function plan(suffix: string, name: string): PlanDTO {
     criteria: [],
     reviewers: [],
     progress: { scored: 0, total: 2 },
+    hasReviews: false,
     updatedAt: "2026-08-13T12:00:00.000Z",
   };
 }

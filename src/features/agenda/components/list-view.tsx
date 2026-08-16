@@ -15,6 +15,7 @@ import { Button, EmptyState, StatusBadge } from "@/shared/ui/ui-kit";
 import { useSessionMutations } from "../hooks/use-session-mutations";
 import type { AgendaViewProps } from "../index.client";
 import { conflictsForSession, nameLookup } from "../store";
+import { AbstractDivergenceChip } from "./abstract-divergence-chip";
 import { bulkPublishFailureMessage, bulkPublishPreflight, type BulkPublishPreflight } from "./bulk-publish-preflight";
 
 /**
@@ -120,7 +121,15 @@ export function ListView({
       header: "Status",
       accessorKey: "status",
       enableSorting: false,
-      cell: ({ row }) => <StatusBadge value={row.original.status} />,
+      // "Published" alone is a claim about the public schedule, and a promoted
+      // session drops out of it the moment its abstract stops being accepted.
+      // The chip is what keeps the badge from being the last word.
+      cell: ({ row }) => (
+        <div className="agenda-status-cell">
+          <StatusBadge value={row.original.status} />
+          <AbstractDivergenceChip session={row.original} />
+        </div>
+      ),
     },
   ], [conflicts, event.timezone, lookup]);
 
@@ -223,6 +232,11 @@ export function ListView({
         body={pendingPublish ? <>
           They will become visible on the public schedule. This will queue up to {pendingPublish.emailFanout} speaker schedule email{pendingPublish.emailFanout === 1 ? "" : "s"}.
           {pendingPublish.conflictCount > 0 && <> {pendingPublish.conflictCount} existing conflict{pendingPublish.conflictCount === 1 ? "" : "s"} will remain; publishing does not resolve them.</>}
+          {/* Publishing is still allowed — the organizer may be re-accepting the
+              abstract next — but the promise above is not true for these rows. */}
+          {pendingPublish.notPublic.length > 0 && <> {pendingPublish.notPublic.length === 1
+            ? "One of them was promoted from an abstract that is no longer accepted, so publishing will not put it on the public schedule."
+            : `${pendingPublish.notPublic.length} of them were promoted from abstracts that are no longer accepted, so publishing will not put those on the public schedule.`}</>}
         </> : ""}
         confirmLabel={pendingPublish && pendingPublish.emailFanout > 0
           ? `Publish and queue up to ${pendingPublish.emailFanout} email${pendingPublish.emailFanout === 1 ? "" : "s"}`

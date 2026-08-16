@@ -69,6 +69,7 @@ const tourStateSchema = z.object({
   chapter: z.string(),
   stepId: z.string(),
   status: z.enum(["not_started", "active", "paused", "complete"]),
+  updatedAt: z.string().nullish(),
   armedStepId: z.string().nullish(),
   armedBaseline: z.record(z.string(), tourWorldValueSchema).nullish(),
   completed: z.array(z.string()).default([]),
@@ -113,20 +114,25 @@ function union(current: readonly string[], incoming: readonly string[]): readonl
 }
 
 /**
- * Whether a step's own href is the URL the browser is already showing.
+ * Whether a step's href is somewhere the browser already is.
  *
- * Deliberately the same equality `navigate` applies — path plus the exact
- * query set — so a control offered on the strength of this answer cannot turn
- * out to be a no-op. Read from the router's reactive values rather than
- * `window.location`, which does not re-render anything when it changes.
+ * Extra parameters on the *current* URL are allowed, exactly as `routeMatches`
+ * allows them when judging an objective, and for the same reason: a filter the
+ * organizer put there is theirs. Under exact-set equality, a step whose route
+ * is a bare `/speakers` decided that `/speakers?missing=either` was somewhere
+ * else — so it labelled the page "That control isn't on this screen right now"
+ * and offered a trip whose only effect was to strip the filter the *previous*
+ * step had just asked them to apply.
+ *
+ * The predicate `navigate` bails on is still this one, so a control offered on
+ * the strength of it cannot turn out to be a no-op. Read from the router's
+ * reactive values rather than `window.location`, which does not re-render
+ * anything when it changes.
  */
 function isCurrentLocation(href: string, location: TourLocation): boolean {
   const [path = "", search = ""] = href.split("?");
   if (path !== location.pathname) return false;
-  const target = [...new URLSearchParams(search).entries()];
-  const current = Object.entries(location.query);
-  if (target.length !== current.length) return false;
-  return target.every(([key, value]) => location.query[key] === value);
+  return [...new URLSearchParams(search).entries()].every(([key, value]) => location.query[key] === value);
 }
 
 
@@ -227,6 +233,15 @@ function GuidedTourLayer({ bootstrap, onComplete, onStatusChange }: {
     stepId: bootstrap.cursor.stepId,
     status: bootstrap.cursor.status,
   });
+  /**
+   * The newest row version this layer has seen, from any source: the bootstrap
+   * it mounted with, every patch reply, every conflict re-read, every poll.
+   *
+   * It exists to answer one question the cursor alone cannot — *is this payload
+   * newer than what I already know?* A host that supplies no version leaves
+   * this `null` for the life of the session and the comparison stands down.
+   */
+  const appliedVersionRef = useRef<string | null>(bootstrap.updatedAt ?? null);
   /** Cursor writes still waiting for an answer. */
   const pendingWritesRef = useRef(0);
   /** Where the golden path was when the player stepped out into a side quest. */
@@ -307,6 +322,12 @@ function GuidedTourLayer({ bootstrap, onComplete, onStatusChange }: {
     // effect below tell "the route module has re-rendered with a cursor
     // somebody else moved" apart from "the route module has re-rendered".
     serverCursorRef.current = { chapter: state.chapter, stepId: state.stepId, status: state.status };
+    // Answers travel forward only. A poll that raced a patch can come back
+    // describing the row as it stood before the write, and remembering *its*
+    // version would re-open the door to every render older than the write.
+    if (state.updatedAt && (appliedVersionRef.current === null || state.updatedAt > appliedVersionRef.current)) {
+      appliedVersionRef.current = state.updatedAt;
+    }
   }, []);
 
   const patchCursor = useCallback(async (next: TourCursor, expectedStepId: string) => {
@@ -454,17 +475,34 @@ function GuidedTourLayer({ bootstrap, onComplete, onStatusChange }: {
    *
    * The prop's identity only changes when a new server payload arrives, and a
    * payload rendered while one of this layer's own writes was in flight is
-   * stale by construction — hence the two guards rather than a value compare
+   * stale by construction — hence the guards rather than a value compare
    * alone.
+   *
+   * The version guard is the one that matters most in the product. "Rendered
+   * while a write was in flight" is not the only way a render goes stale: the
+   * read happens on the server, the payload arrives whenever the navigation or
+   * `router.refresh()` that asked for it finishes, and any mutation on any
+   * screen can fire one of those. Publishing a form version, in the middle of
+   * Chapter 2, re-rendered the event layout with a cursor read a step and a
+   * half ago — so the coach jumped backwards to a card the player had already
+   * read, replayed it, and collided with the server (`409`) on the way forward
+   * again. Adopting only payloads newer than everything already applied leaves
+   * the deliberate moves — restart, reset, a second tab — working exactly as
+   * before, because those all write the row first and are therefore newer by
+   * construction.
    */
   const serverCursor = bootstrap.cursor;
+  const serverCursorVersion = bootstrap.updatedAt ?? null;
   useEffect(() => {
     if (pendingWritesRef.current > 0) return;
+    const applied = appliedVersionRef.current;
+    if (serverCursorVersion !== null && applied !== null && serverCursorVersion <= applied) return;
     const known = serverCursorRef.current;
     if (serverCursor.chapter === known.chapter
       && serverCursor.stepId === known.stepId
       && serverCursor.status === known.status) return;
     serverCursorRef.current = { chapter: serverCursor.chapter, stepId: serverCursor.stepId, status: serverCursor.status };
+    if (serverCursorVersion !== null) appliedVersionRef.current = serverCursorVersion;
     setCursor(serverCursor);
     setBaseline(serverCursor.armedBaseline ?? null);
     setRuntime(FRESH_RUNTIME);
@@ -475,7 +513,7 @@ function GuidedTourLayer({ bootstrap, onComplete, onStatusChange }: {
     // what would send the next load straight back to the abandoned step.
     writeTourMirror(bootstrap.scopeId, serverCursor);
     onStatusChange?.(serverCursor.status, serverCursor);
-  }, [bootstrap.scopeId, onStatusChange, serverCursor]);
+  }, [bootstrap.scopeId, onStatusChange, serverCursor, serverCursorVersion]);
 
   // Adopting the resolution above, once, and healing the server row *forwards*
   // with it. Without the write, the next advance would send the server the
@@ -752,6 +790,18 @@ function GuidedTourLayer({ bootstrap, onComplete, onStatusChange }: {
     if (!running) return;
     function onKeyDown(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
+      // Something that runs *before* this listener has already answered the
+      // key — which in practice means handlers in the React tree, since a peer
+      // on `document` registers when it opens, i.e. after this one was added
+      // at mount, and its `preventDefault` lands too late for this flag to
+      // see. The palette is the case that matters here, and the check below is
+      // not enough for it on its own: it closes itself on Escape —
+      // `preventDefault`, `stopPropagation`, `onClose` — and React flushes
+      // that discrete update synchronously, so by the time this
+      // document-level listener runs the `<dialog>` it should have deferred to
+      // is already shut. The tour then paused itself on a keystroke the player
+      // spent dismissing something else, and said nothing about it.
+      if (event.defaultPrevented) return;
       // A drawer, modal or palette owns Escape while it is open; the tour is
       // the outermost thing on screen and takes the key only when nothing else
       // has claimed it.
@@ -759,6 +809,10 @@ function GuidedTourLayer({ bootstrap, onComplete, onStatusChange }: {
       event.preventDefault();
       pause();
     }
+    // Bubble, deliberately: the two guards above are what defer to whoever
+    // owns the key, and they can only read a `preventDefault` that has already
+    // happened. Capturing would take Escape ahead of every popover that is not
+    // a `<dialog>` and pause the tour out from under it.
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [pause, running]);

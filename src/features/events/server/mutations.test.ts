@@ -48,6 +48,7 @@ const migrationAgendaCreationReceipts = readFileSync(new URL("../../../../drizzl
 // replace.
 const migrationOnboardingMilestones = readFileSync(new URL("../../../../drizzle/0023_onboarding_milestones.sql", import.meta.url), "utf8");
 const migrationDemoEvents = readFileSync(new URL("../../../../drizzle/0047_demo_events_and_tour.sql", import.meta.url), "utf8");
+const migrationRoomDeletionNotice = readFileSync(new URL("../../../../drizzle/0051_room_deletion_notice.sql", import.meta.url), "utf8");
 
 function baseInput(overrides: Partial<Parameters<typeof createEventIn>[2]> = {}) {
   return {
@@ -86,6 +87,7 @@ describe("database-backed event mutations", () => {
     await pglite.exec(migrationAgendaCreationReceipts);
     await pglite.exec(migrationOnboardingMilestones);
     await pglite.exec(migrationDemoEvents);
+    await pglite.exec(migrationRoomDeletionNotice);
     database = drizzle(pglite, { schema }) as unknown as DbOrTx;
     const [user] = await database.insert(schema.users).values({ email: "organizer@test.dev", name: "Test Organizer" }).returning();
     actorUserId = userIdSchema.parse(user?.id);

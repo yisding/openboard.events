@@ -16,12 +16,43 @@ describe("user-facing copy regressions", () => {
   it("uses actionable fallbacks instead of a generic failure", () => {
     const cfp = read("./forms/components/cfp-steps.tsx");
     const deliverables = read("./portal/deliverables/components/files-admin-view.tsx");
+    // The export-failure fallback now lives in the files-selection helper the
+    // view renders from, not inline in the view.
+    const deliverablesSelection = read("./portal/deliverables/components/files-selection.ts");
     const fileUpload = read("../shared/ui/app/file-upload.tsx");
 
-    expect(`${cfp}${deliverables}${fileUpload}`).not.toContain("Something went wrong");
+    expect(`${cfp}${deliverables}${deliverablesSelection}${fileUpload}`).not.toContain("Something went wrong");
     expect(cfp).toContain("We couldn’t complete that request. Try again.");
-    expect(deliverables).toContain("The export could not be prepared. Use the export menu to try again.");
+    expect(deliverablesSelection).toContain("The export could not be prepared. Use the export menu to try again.");
     expect(fileUpload).toContain("The upload could not be completed. Try again.");
+  });
+
+  it("keeps the Airtable panel free of raw run statuses, scope strings, and generic failures", () => {
+    const copy = read("./airtable/copy.ts");
+    const card = read("./airtable/components/SyncStatusCard.tsx");
+    const panel = read("./airtable/components/AirtableSettingsPanel.tsx");
+
+    // Four backend run statuses, four authored labels — the badge, never the
+    // enum. Matched loosely on whitespace so a formatter that wraps the
+    // attribute does not read as a copy regression.
+    expect(card).toMatch(/<StatusBadge\s+value=\{RUN_BADGES\[row\.original\.status\]\}\s*\/>/u);
+    expect(card).not.toContain("{row.original.status}");
+    expect(card).toContain("{AIRTABLE_COPY.trigger[row.original.trigger]}");
+
+    // Airtable's own scope identifiers are configuration, not language. They
+    // appear in `scopes.ts` as data and nowhere as rendered text.
+    expect(copy).not.toContain("data.records:");
+    expect(copy).not.toContain("schema.bases:");
+
+    const surfaces = `${copy}${card}${panel}`;
+    expect(surfaces).not.toMatch(/something went wrong/iu);
+    expect(surfaces).not.toMatch(/an error occurred/iu);
+    expect(surfaces).not.toMatch(/unexpected error/iu);
+
+    // Bounded work names its remainder rather than reading as truncation.
+    expect(copy).toContain("the next run picks up exactly where this one stopped");
+    // And a disconnect says what happens to the customer's own data.
+    expect(copy).toContain("stay exactly as they are — that base is yours");
   });
 
   it("keeps the guided tour's failure copy specific", () => {
@@ -42,6 +73,13 @@ describe("user-facing copy regressions", () => {
     // address gets nothing either.
     expect(script).not.toContain("the demo's speakers cannot receive a code");
     expect(script).toContain("the demo event suppresses every message");
+    // The delivery log is where the tour stakes its credibility, and it is
+    // also the one screen that can contradict it at a glance: phase 10
+    // backdates nine terminal rows — six `sent`, one `failed` — so the log a
+    // player opens is *not* nine skips. "Every row reads skipped" was
+    // falsifiable by reading the column the card was pointing at.
+    expect(script).not.toContain("Every row reads skipped");
+    expect(script).not.toContain("Nine seeded messages");
   });
 
   // These credentials belong to a real deployment whose mail is restricted, not
