@@ -15,6 +15,33 @@ export type PageQuery = Record<string, string | string[] | undefined>;
  * Page-filter schemas using this helper must accept an empty object so the
  * final fallback can produce their default view.
  */
+/**
+ * A 1-based page number from a page URL's `?page=`.
+ *
+ * Not `Number(value)` guarded by `Number.isFinite`: `1.5` and `1e30` are both
+ * finite and both positive, and a page number is only ever used as arithmetic
+ * on a SQL `OFFSET`, where a fraction is not a rounded page but a hard
+ * `invalid input syntax for type bigint` from the database, and an unsafe
+ * integer fails `z.number().int()` in the filter schemas that carry one.
+ *
+ * Schema-driven filters get this from `z.coerce.number().int().positive()` via
+ * `parsePageQuery` above. The pages that assemble their filters by hand read it
+ * here so both paths agree on what a page number is, and so a hand-edited
+ * address bar degrades to the first page like every other bad filter value
+ * rather than taking the surface down.
+ *
+ * The ceiling is what keeps the *offset* safe as well as the page: every caller
+ * multiplies by a page size, and a page of `Number.MAX_SAFE_INTEGER` would land
+ * an offset outside the safe range, failing `.int()` again one multiplication
+ * later. A million pages is past the end of any real dataset here.
+ */
+export const MAX_PAGE_NUMBER = 1_000_000;
+
+export function pageNumberFrom(value: string | undefined): number {
+  const page = Number(value ?? "1");
+  return Number.isSafeInteger(page) && page > 0 && page <= MAX_PAGE_NUMBER ? page : 1;
+}
+
 export function parsePageQuery<Schema extends z.ZodType>(schema: Schema, query: PageQuery): z.output<Schema> {
   const input: Record<string, string> = {};
   for (const [key, value] of Object.entries(query)) {

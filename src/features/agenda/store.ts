@@ -1,5 +1,5 @@
 import type { ConflictDTO, EventId, RoomDTO, ScheduledSessionDTO, SessionId, TrackDTO } from "@/shared/contracts";
-import { eventDayKey, hourMinuteInZone, shiftDayKey, zonedInputToUtc } from "@/shared/lib/time";
+import { eventDayKey, hourMinuteInZone, shiftDayKey, startOfDayInTz, wallTimeExistsInZone, zonedInputToUtc } from "@/shared/lib/time";
 import type { AgendaVocabulary, SpeakerOption } from "./server/queries";
 
 /**
@@ -87,10 +87,22 @@ export function defaultScheduledRange(
   let candidateStartMs = eventStartMs;
   let selectedDayStartMs = eventStartMs;
   if (selectedDay && validDays.includes(selectedDay)) {
+    // `startOfDayInTz`, not `T00:00:00` — the hazard `wallTimeExistsInZone`
+    // documents and f659e7ea fixed on the server's own day bounds. In a zone
+    // whose clock jumps forward at midnight that wall time does not exist and
+    // `zonedInputToUtc` resolves it *backwards* into the previous day, so this
+    // floor landed on the day before the one the organizer selected.
+    selectedDayStartMs = startOfDayInTz(selectedDay, event.timezone).getTime();
+    // The event's opening clock can be skipped on this particular day for the
+    // same reason — an event opening at 00:30 has no 00:30 on a day the clock
+    // jumps 00:00 to 01:00 — and resolving backwards would propose a session on
+    // the previous day. The first real instant of the selected day is the
+    // honest answer whenever that opening time does not occur on it.
     const { hour, minute } = hourMinuteInZone(event.startsAt, event.timezone);
     const localStart = `${selectedDay}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00`;
-    candidateStartMs = zonedInputToUtc(localStart, event.timezone).getTime();
-    selectedDayStartMs = zonedInputToUtc(`${selectedDay}T00:00:00`, event.timezone).getTime();
+    candidateStartMs = wallTimeExistsInZone(localStart, event.timezone)
+      ? zonedInputToUtc(localStart, event.timezone).getTime()
+      : selectedDayStartMs;
   }
 
   let startsAtMs = Math.max(candidateStartMs, eventStartMs);

@@ -345,10 +345,18 @@ export async function listTaskCompletionsIn(
       WHERE event_id = ${eventId} AND (form_id, version) IN (${sql.join(pairs, sql`, `)})
     `);
     for (const row of snapshots.rows ?? []) {
-      const snapshot = formSnapshotSchema.parse(row.snapshot);
+      // Same degradation the two answer reads in this module already use: a
+      // stored version that has drifted from the snapshot contract costs its
+      // own labels, not the organizer's whole view of who completed the task.
+      // A bare `parse` here took every row down for one unreadable version.
+      const snapshot = formSnapshotSchema.safeParse(row.snapshot);
+      if (!snapshot.success) {
+        log({ level: "warn", msg: "portal.task.snapshot_unreadable", requestId: row.form_id, feature: "portal", eventId });
+        continue;
+      }
       labels.set(
         `${row.form_id}:${row.version}`,
-        new Map(snapshot.sections.flatMap((section) => section.fields).map((field) => [field.id as string, field.label])),
+        new Map(snapshot.data.sections.flatMap((section) => section.fields).map((field) => [field.id as string, field.label])),
       );
     }
   }
