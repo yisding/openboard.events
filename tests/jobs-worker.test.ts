@@ -150,6 +150,22 @@ describe("scheduled jobs Worker", () => {
       .toEqual(["outbox"]);
   });
 
+  // Issue #630 — the incident remedy after a Neon PITR used to be a source
+  // edit. The polarity is the point: unlike `airtableCron`, an absent or
+  // misspelled value must leave the sweep running.
+  it("suspends cleanup only on the literal CLEANUP_CRON=0", () => {
+    const nineAm = Date.UTC(2026, 7, 11, 9, 0);
+    expect(jobsForScheduledTime(nineAm, { cleanupCron: "0" })).toEqual(["outbox", "reminders"]);
+    expect(jobsForScheduledTime(nineAm, { cleanupCron: "1" })).toEqual(["outbox", "reminders", "cleanup"]);
+    expect(jobsForScheduledTime(nineAm, {})).toEqual(["outbox", "reminders", "cleanup"]);
+    expect(jobsForScheduledTime(nineAm, { cleanupCron: undefined })).toEqual(["outbox", "reminders", "cleanup"]);
+    // A fat-fingered value is not an off switch for an irreversible sweep.
+    expect(jobsForScheduledTime(nineAm, { cleanupCron: "false" })).toEqual(["outbox", "reminders", "cleanup"]);
+    // Suspending cleanup leaves every other job's cadence untouched.
+    expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 5), { airtableCron: "1", cleanupCron: "0" }))
+      .toEqual(["outbox", "airtable"]);
+  });
+
   it("exposes only the closed scheduled-job contract to the RPC entrypoint", () => {
     expect(["outbox", "reminders", "cleanup", "airtable"].every(isJobName)).toBe(true);
     expect(isJobName("r2-migration")).toBe(false);

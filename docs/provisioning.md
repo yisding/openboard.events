@@ -127,8 +127,23 @@ bucket mix-up fails closed.
 
 - Create a least-privilege Cloudflare API token that can deploy Workers and use the required R2
   bindings in this account; save it as `CLOUDFLARE_API_TOKEN`. Do not use the global API key.
-  It belongs in both protected GitHub environments, not at repository scope (see
-  [#633](https://github.com/yisding/openboard.events/issues/633)).
+
+  **It belongs in both protected GitHub environments, not at repository scope, and today it is
+  still repository-scoped.** A repository secret is readable by any workflow run on any branch,
+  including one added by a pull request, which is exactly the reviewer gate the `production`
+  environment exists to impose. Moving it needs the token's plaintext, which only whoever created
+  it holds — so it is an operator step, not a code change:
+
+  ```bash
+  gh secret set CLOUDFLARE_API_TOKEN --env preview      # paste the token
+  gh secret set CLOUDFLARE_API_TOKEN --env production   # paste the token
+  gh secret delete CLOUDFLARE_API_TOKEN                 # remove the repository-scoped copy
+  ```
+
+  Run a `Deploy` preview after the first two commands and before the third: `secrets.X` resolves
+  to the environment copy when one exists and falls back to the repository copy otherwise, so a
+  green preview proves the environment copies work while the fallback is still in place.
+  `CLOUDFLARE_DMARC_API_TOKEN` is already environment-scoped and is the shape to match.
 - Save the account ID as `CLOUDFLARE_ACCOUNT_ID`.
 - Create a separate API token scoped only to the `openboard.events` zone with
   **Email Security DMARC Reports Read** and **Write**. Do not add Zone Read: the workflow uses an
@@ -195,9 +210,15 @@ while IFS= read -r line; do export "${line?}"; done < <(pnpm --silent smoke:fixt
 bash scripts/post-deploy-smoke.sh "$APP_BASE_URL" --strict
 ```
 
-Inspect Workers logs for successful scheduled-job ticks over RPC. If the retired `CRON_SECRET`
-remains in Cloudflare's remote secret inventory, delete it from both Workers in every
-provisioned environment ([#633](https://github.com/yisding/openboard.events/issues/633)):
+Inspect Workers logs for successful scheduled-job ticks over RPC.
+
+Retired secrets are no longer a checklist item. `pnpm deploy:preflight` — which every deploy runs
+before it builds — reads each Worker's remote inventory and refuses to continue while a retired
+name is still present, printing the exact `wrangler secret delete` command for that Worker and
+environment. `keep_vars: false` prunes plain vars but never encrypted secrets, so `CRON_SECRET`
+outlives the removal of its binding until somebody deletes it by name; the list lives in
+`RETIRED_DEPLOY_SECRET_NAMES` (`scripts/check-deploy-secrets.ts`) and is where a future retirement
+should be added at the same time its binding is removed. To clear all four at once:
 
 ```bash
 for target_env in preview production; do

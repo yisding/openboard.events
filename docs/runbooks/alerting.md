@@ -43,9 +43,21 @@ them:
 
 ## `/api/health` thresholds
 
+The route is public and unauthenticated by design — the poller that has to reach it when everything
+else is broken cannot depend on a credential — but it is not free. One successful probe is reused
+for ten seconds inside the serving isolate, and the endpoint sits behind the same per-IP bucket
+every other public surface uses (120 requests / 5 minutes), so the four Neon round trips it costs
+cannot be replayed at will. Two consequences for reading it:
+
+- `ageSeconds` says how old the answer is. `0` is a fresh probe; anything up to 10 is a reused one.
+  A *failing* probe is never reused, so a recovery shows on the very next request.
+- A 429 here is not a product signal. It means this origin is being polled far above the
+  every-15-minutes cadence; check who, rather than treating it as an outage.
+
 | Field | Healthy | Warn | Page / treat as incident | Why |
 |---|---|---|---|---|
-| HTTP status | `200` | — | non-`200`, or the request times out/errors | The route itself is unreachable — Worker down, DNS, or Cloudflare-side outage. |
+| HTTP status | `200` | — | non-`200`, or the request times out/errors | The route itself is unreachable — Worker down, DNS, or Cloudflare-side outage. A `429` is the exception: see above. |
+| `ageSeconds` | `0`–`10` | — | — | Age of the reused probe. Informational; it cannot exceed the ten-second reuse window. |
 | `ok` | `true` | — | `false` | The route's own outer catch fired — almost always `db.ok: false` below; see its body for the reason. |
 | `db.ok` | `true` | — | `false` | Neon is unreachable or the configured `DATABASE_URL` is invalid. Every write and read in the product depends on this. |
 | `db.version` present | non-empty string | — | missing/`"unknown"` while `db.ok: true` | Contradictory response — investigate rather than trust either half. |
