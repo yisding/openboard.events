@@ -260,7 +260,7 @@ export function TaskDetailView({
               errors={fieldErrors}
             />
           </FormUploadProvider>
-          <Button disabled={busy} onClick={() => complete({ answers })}>
+          <Button disabled={busy} onClick={() => complete({ answers, formVersion: form.snapshot.version })}>
             {busy ? "Saving…" : completed ? "Save changes" : "Submit & complete"}
           </Button>
         </div>

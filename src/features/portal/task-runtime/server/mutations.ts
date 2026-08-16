@@ -310,12 +310,27 @@ export async function completeTaskViaResponseIn(
   taskId: string,
   submissionId: string | null,
   answers: RawAnswers,
+  formVersion?: number,
 ): Promise<void> {
   await lockTaskAssignmentsIn(tx, eventId, taskId as TaskId);
   const assignment = await requireAssignment(tx, eventId, contactId, taskId, submissionId, "form");
   if (!assignment.formId) throw new AppError("VALIDATION", "This task has no form attached");
 
   const snapshot = await getCurrentSnapshotIn(tx, eventId, assignment.formId as FormId);
+  // Pinned like every other submit surface. Without this, an organizer who
+  // published a new required question mid-fill turned the speaker's submit into
+  // a 400 whose `fieldErrors` are keyed by a field id their snapshot does not
+  // contain: nothing renders it, the focus-first-invalid selector matches
+  // nothing, and the toast says "Some answers need fixing" with no visible
+  // error anywhere. Nothing on that page refetches on failure, so only a manual
+  // browser reload recovered. `FORM_VERSION_STALE` carries the fresh snapshot,
+  // which is what the client re-renders from.
+  if (formVersion !== undefined && formVersion !== snapshot.version) {
+    throw new AppError("FORM_VERSION_STALE", "This form changed while you were filling it in", {
+      snapshot,
+      version: snapshot.version,
+    });
+  }
   const pipeline = runSubmitPipeline(snapshot, answers, { participantId: null, requireRequired: true });
   if (!pipeline.ok) throw new AppError("VALIDATION", "Some answers need fixing", { fieldErrors: pipeline.fieldErrors });
   if (pipeline.discarded.length > 0) {
@@ -397,4 +412,5 @@ export const completeTaskViaUpload = (
 
 export const completeTaskViaResponse = (
   eventId: EventId, contactId: ContactId, taskId: string, submissionId: string | null, answers: RawAnswers,
-) => withTx((tx) => completeTaskViaResponseIn(tx, eventId, contactId, taskId, submissionId, answers));
+  formVersion?: number,
+) => withTx((tx) => completeTaskViaResponseIn(tx, eventId, contactId, taskId, submissionId, answers, formVersion));
