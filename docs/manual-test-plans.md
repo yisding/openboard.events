@@ -992,9 +992,9 @@ failure. See `docs/runbooks/sign-in-capacity.md` for budgets, log fields, and in
 |---|---|---|
 | 1 | Open the portal signed out | Redirect to that event's portal login |
 | 2 | Request a code for `ada@openboard.events` | Neutral copy. Env A shows the fallback OTP and magic link |
-| 3 | Six wrong codes | Rejected; the sixth is refused on attempt limits |
-| 4 | Request a code for an address not on file | Same neutral message — no enumeration |
-| 5 | Four code requests in a row | The fourth is throttled (3/10 min per contact) |
+| 3 | Six wrong codes | Rejected; the sixth is refused on attempt limits. Confirm in the database that `portal_tokens.attempts` climbed 1…5 — a refusal that rolls its own counter back is an unlimited guessing budget |
+| 4 | Request a code for an address not on file | Same neutral message — no enumeration. Then check Speakers: the address must **not** appear as a roster row. A public sign-in form does not create people |
+| 5 | Four code requests in a row | The fourth is throttled (3/10 min per address — on file or not, so the throttle does not answer the enumeration question either) |
 | 6 | Sign in with the correct code | Portal home: this speaker's tasks, submissions, outstanding items |
 | 7 | Use the magic link from another browser; then reuse it | Works once; replay refused |
 | 8 | Edit and save the profile | Persists across reload |
@@ -1009,7 +1009,7 @@ failure. See `docs/runbooks/sign-in-capacity.md` for budgets, log fields, and in
 | 17 | Open Submissions → detail | Status, code, and answers match the organizer's view |
 | 18 | Change data as organizer; return to the portal tab | Refreshes on focus rather than showing stale data |
 | 19 | Organizer → Speakers → Ada → **Open portal as Ada** | Portal opens with a persistent impersonation banner naming the admin |
-| 20 | Act while impersonating, then exit | The action is attributed to the admin; exiting restores the admin session |
+| 20 | Act while impersonating, then exit | The action is attributed to the admin — complete a task and check `task_completions.completed_by_user_id` names the organizer, not null; exiting restores the admin session |
 | 21 | Repeat 1–6 and 12 at 390×844 | No sideways scroll on home, list, or detail |
 | 22 | Sign in to two different events' portals in one browser | Both sessions coexist; neither leaks the other's tasks |
 | 23 | Follow an unsubscribe link and confirm | Recorded as a suppression (enforcement is MTP-12 step 8) |

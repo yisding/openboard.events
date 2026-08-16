@@ -258,6 +258,36 @@ describe("portal task runtime", () => {
     expect(slides.find((task) => task.submissionId === talkTwo)?.completed).toBe(false);
   });
 
+  /**
+   * "Open portal as Ada" is a real organizer power, and every action taken
+   * inside it used to be recorded as Ada's own — `completed_by_user_id` stayed
+   * null, so nothing anywhere said an admin had acted on her behalf. The
+   * speaker is still the owner of the work (`contact_id`); the organizer is now
+   * the actor of record beside it.
+   */
+  it("attributes an impersonated completion to the organizer, and an ordinary one to nobody", async () => {
+    const actorOf = async (task: string) => (await pglite.query<{ completed_by_user_id: string | null }>(
+      "SELECT completed_by_user_id FROM task_completions WHERE task_id=$1 AND contact_id=$2", [task, ada],
+    )).rows[0]?.completed_by_user_id ?? null;
+
+    await completeTaskManual(eventId, ada, headshotTask, null, organizerUserId);
+    expect(await actorOf(headshotTask)).toBe(organizerUserId);
+
+    await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, deck, organizerUserId);
+    expect(await actorOf(slidesTask)).toBe(organizerUserId);
+
+    await completeTaskViaResponse(eventId, ada, profileTask, null, validAnswers(), undefined, organizerUserId);
+    expect(await actorOf(profileTask)).toBe(organizerUserId);
+  });
+
+  it("leaves a speaker's own completion attributed to nobody but themselves", async () => {
+    await completeTaskManual(eventId, ada, headshotTask, null);
+    const row = await pglite.query<{ completed_by_user_id: string | null }>(
+      "SELECT completed_by_user_id FROM task_completions WHERE task_id=$1", [headshotTask],
+    );
+    expect(row.rows[0]?.completed_by_user_id).toBeNull();
+  });
+
   it("idempotent-complete: treats a double-click as one completion", async () => {
     await completeTaskManual(eventId, ada, headshotTask, null);
     await completeTaskManual(eventId, ada, headshotTask, null);

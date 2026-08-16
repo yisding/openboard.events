@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { portalAuth } from "@/features/auth";
-import { contactIdSchema, eventIdSchema, type ContactId } from "@/shared/contracts";
-import type { AuthGuard, RouteParams } from "@/shared/server/handler";
+import { contactIdSchema, eventIdSchema, type ContactId, type UserId } from "@/shared/contracts";
+import type { AuthGuard, AuthSession, RouteParams } from "@/shared/server/handler";
 
 /**
  * Portal routes are scoped by an event in the query string rather than in the
@@ -18,6 +18,16 @@ export const portalQueryAuth: AuthGuard = async (request: NextRequest, _eventId,
 /** The signed-in contact. Throws rather than returning a nullable id no caller can use. */
 export function sessionContactId(session: { actorId: string } | null): ContactId {
   return contactIdSchema.parse(session?.actorId);
+}
+
+/**
+ * The organizer whose "Open portal as …" session this is, or `null` for a
+ * speaker signed in as themselves. Nullable on purpose: the ordinary case has
+ * no admin behind it, and a route stores it as the completion's actor of record
+ * so an impersonated action is auditable rather than anonymous.
+ */
+export function sessionImpersonatedByUserId(session: AuthSession): UserId | null {
+  return session?.impersonatedByUserId ?? null;
 }
 
 /**

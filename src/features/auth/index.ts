@@ -4,8 +4,9 @@ export { clearAdminLoginThrottle, revokeAdminSessions, throttleAdminLogin } from
 export { hashAdminPassword, needsRehash, verifyAdminPassword } from "./server/admin-password";
 export { upsertAdminCredentialAccount } from "./server/credential-account";
 export { withCredentialVerificationBudget } from "./server/credential-capacity";
-export type { PortalSession } from "./server/portal";
-export { getPortalImpersonator, logoutPortal, portalCookieName, requestPortalLogin, requestPortalLoginIn, requirePortal, verifyPortalLogin } from "./server/portal";
+export type { PortalLoginVerification, PortalSession } from "./server/portal";
+export { PORTAL_LOGIN_NEUTRAL_MESSAGE, PORTAL_LOGIN_THROTTLE, PORTAL_LOGIN_THROTTLE_MESSAGE } from "./server/portal";
+export { getPortalImpersonator, logoutPortal, portalCookieName, requestPortalLogin, requestPortalLoginIn, requirePortal, verifyPortalLogin, verifyPortalLoginIn } from "./server/portal";
 export { consumeToken, issuePortalToken, verifyPortalToken } from "./server/tokens";
 export { openPortalLoginPayload, sealPortalLoginPayload } from "./server/secret-payload";
 export type { AdminLinkPayload } from "./server/secret-payload";
