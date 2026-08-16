@@ -466,15 +466,19 @@ export function FilesAdminView({
             <input aria-label="Search deliverables" value={draftSearch} onChange={(event) => onSearchChange(event.target.value)} placeholder="Search speaker, request, or session" />
             {draftSearch && <button type="button" aria-label="Clear search" onClick={clearSearch}><X size={14} /></button>}
           </label>
-          <Select value={fileRequestId} onChange={(event) => onFilter({ fileRequestId: event.target.value })} aria-label="Filter by file request">
+          {/* `compact-select` is the list-toolbar idiom (Speakers' confirmation
+              filter): the base `select` rule is `width:100%`, so an unclassed
+              filter takes a flex basis of the whole toolbar and this wrapping
+              row gives each one its own line instead of a filter strip. */}
+          <Select className="compact-select" value={fileRequestId} onChange={(event) => onFilter({ fileRequestId: event.target.value })} aria-label="Filter by file request">
             <option value="">All requests</option>
             {fileRequests.map((request) => <option key={request.id} value={request.id}>{request.title}</option>)}
           </Select>
-          <Select value={taskId} onChange={(event) => onFilter({ taskId: event.target.value })} aria-label="Filter by task">
+          <Select className="compact-select" value={taskId} onChange={(event) => onFilter({ taskId: event.target.value })} aria-label="Filter by task">
             <option value="">All tasks</option>
             {tasks.map((task) => <option key={task.id} value={task.id}>{task.name}</option>)}
           </Select>
-          <Select value={hasUpload} onChange={(event) => onFilter({ hasUpload: event.target.value as HasUpload })} aria-label="Filter by version">
+          <Select className="compact-select" value={hasUpload} onChange={(event) => onFilter({ hasUpload: event.target.value as HasUpload })} aria-label="Filter by version">
             <option value="">Any version state</option>
             <option value="yes">Has a file</option>
             <option value="no">Missing a file</option>

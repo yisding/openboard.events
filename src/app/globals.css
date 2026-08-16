@@ -2294,6 +2294,11 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
    and let filters wrap when the admin sidebar reduces the available width. */
 .files-data-toolbar{height:auto;min-height:57px;flex-wrap:wrap;padding-block:11px}
 .files-data-toolbar .table-search{flex:1 1 280px;min-width:260px}
+/* Its filters carry event data — a file request title, a task name — so unlike
+   Speakers' fixed vocabularies they need a ceiling as well as `.compact-select`'s
+   `width:auto`. Without the class the base `select{width:100%}` gave each one a
+   flex basis of the whole toolbar and this wrapping row stacked them. */
+.files-data-toolbar .compact-select{max-width:190px}
 
 /* The data toolbar is one nowrap flex row about 680px wide (search + two
    filter buttons + column picker + row count). With the sidebar still in
@@ -2695,7 +2700,15 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
 .embed-overview strong{display:block;font-size:var(--text-table)}
 .embed-overview p{margin:4px 0 0;color:var(--muted);font-size:var(--text-xs)}
 .embed-overview-hint{max-width:260px;color:var(--muted);font-size:var(--text-xs);line-height:1.45;text-align:right}
-.embed-cards{display:grid;gap:10px}
+/* The column track is not optional. A grid with no `grid-template-columns`
+   places its items in one *implicit* `auto` track, and an auto track that
+   cannot be stretched below its max-content size grows past the page column:
+   an open card sized itself to the editor's max-content (~1300px) inside a
+   ~980px page, and `overflow:clip` on the card below then hid the surplus
+   with no scrollbar — a third of the preview and the edge of Done were
+   simply gone. `minmax(0,1fr)` pins the track to the container instead, and
+   the editor's own `minmax(0,1fr)` columns take it from there. */
+.embed-cards{display:grid;grid-template-columns:minmax(0,1fr);gap:10px}
 .embed-cards>article.embed-card{display:block;padding:0;overflow:clip}
 .embed-card.is-open{border-color:var(--accent-border);box-shadow:0 8px 28px rgba(8,65,53,.08)}
 .embed-card.is-disabled{background:var(--surface-raised)}
@@ -2773,7 +2786,9 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
 .embed-manual-copy>div{display:flex;align-items:center;justify-content:space-between;gap:12px}.embed-manual-copy b{font-size:var(--text-xs)}.embed-manual-copy button{border:0;background:transparent;color:var(--ink);cursor:pointer;font-size:var(--text-xs);text-decoration:underline}.embed-manual-copy textarea{min-height:88px;padding:10px;background:var(--surface);font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:var(--text-xs);line-height:1.45}.embed-manual-copy small{color:var(--muted);font-size:var(--text-xs)}
 
 @media(max-width:1280px){
-  .embed-editor-layout{grid-template-columns:1fr}
+  /* `minmax(0,1fr)`, never a bare `1fr`: the latter floors the track at the
+     editor's min-content and hands the clipped card straight back. */
+  .embed-editor-layout{grid-template-columns:minmax(0,1fr)}
   .embed-editor-controls{border-right:0;border-bottom:1px solid var(--line)}
   .embed-editor-sidebar{position:static}
   .embed-preview-frame iframe{height:280px}
@@ -2790,7 +2805,7 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
   .embed-card-header{grid-template-columns:40px minmax(0,1fr);padding:16px}
   .embed-card-header-actions{grid-column:1/3;justify-content:space-between}
   .embed-editor-bar{padding:10px 16px}
-  .embed-settings-grid{grid-template-columns:1fr}
+  .embed-settings-grid{grid-template-columns:minmax(0,1fr)}
   .embed-settings-section{padding:20px 16px}
   .embed-settings-section+.embed-settings-section{border-left:0;border-top:1px solid var(--line)}
   .embed-filters-section{padding:18px 16px 20px}
