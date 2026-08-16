@@ -17,6 +17,7 @@ import {
   type SessionFormatDTO,
   type SessionId,
   type SessionStatus,
+  type SubmissionStatus,
   type TrackDTO,
 } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
@@ -75,6 +76,10 @@ type SessionRow = {
   schedule_revision: number;
   row_version: number;
   speaker_ids: string[] | null;
+  submission_id: string | null;
+  submission_code: number | null;
+  submission_title: string | null;
+  submission_status: SubmissionStatus | null;
 };
 
 /** Postgres hands timestamptz back as a string here and a Date there. */
@@ -83,14 +88,26 @@ function iso(value: string | Date | null): string | null {
   return (value instanceof Date ? value : new Date(value)).toISOString();
 }
 
+/**
+ * `sub` is the abstract this session was promoted from, joined on every read so
+ * the admin can see what the public firewall already acts on: a promoted
+ * session leaves `published_sessions_v` the moment its abstract stops being
+ * `accepted`, and an abstract title edit never reaches the session row.
+ */
 const SESSION_COLUMNS = sql`
   s.id, s.title, s.slug, s.description_html, s.starts_at, s.ends_at,
   s.track_id, s.room_id, s.format_id, s.status, s.schedule_revision, s.row_version,
+  s.submission_id, sub.code AS submission_code, sub.title AS submission_title, sub.status AS submission_status,
   (
     SELECT coalesce(array_agg(ss.contact_id ORDER BY ss.sort_order, ss.contact_id), '{}')
     FROM session_speakers ss
     WHERE ss.session_id = s.id AND ss.event_id = s.event_id
   ) AS speaker_ids
+`;
+
+const SESSION_SOURCE = sql`
+  sessions s
+  LEFT JOIN submissions sub ON sub.id = s.submission_id AND sub.event_id = s.event_id
 `;
 
 function toDto(row: SessionRow): ScheduledSessionDTO {
@@ -108,6 +125,12 @@ function toDto(row: SessionRow): ScheduledSessionDTO {
     scheduleRevision: Number(row.schedule_revision),
     rowVersion: Number(row.row_version),
     speakerIds: row.speaker_ids ?? [],
+    linkedSubmission: row.submission_id === null || row.submission_status === null ? null : {
+      id: row.submission_id,
+      code: Number(row.submission_code ?? 0),
+      title: row.submission_title ?? "",
+      status: row.submission_status,
+    },
   });
 }
 
@@ -156,7 +179,7 @@ export async function listSessionsIn(
 ): Promise<ScheduledSessionDTO[]> {
   const where = await whereClause(dbOrTx, eventId, filters);
   const result = await dbOrTx.execute<SessionRow>(sql`
-    SELECT ${SESSION_COLUMNS} FROM sessions s
+    SELECT ${SESSION_COLUMNS} FROM ${SESSION_SOURCE}
     WHERE ${where}
     ORDER BY s.starts_at ASC NULLS LAST, lower(s.title) ASC, s.id ASC
   `);
@@ -193,7 +216,7 @@ export async function getSessionIn(
   sessionId: SessionId,
 ): Promise<ScheduledSessionDTO | null> {
   const result = await dbOrTx.execute<SessionRow>(sql`
-    SELECT ${SESSION_COLUMNS} FROM sessions s WHERE s.id = ${sessionId} AND s.event_id = ${eventId}
+    SELECT ${SESSION_COLUMNS} FROM ${SESSION_SOURCE} WHERE s.id = ${sessionId} AND s.event_id = ${eventId}
   `);
   const row = (result.rows ?? [])[0];
   return row ? toDto(row) : null;

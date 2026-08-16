@@ -14,7 +14,7 @@ export type DashboardOverview = {
     confirmationMix: { confirmed: number; unconfirmed: number; declined: number };
     missingAssets: { speakers: number; bios: number; headshots: number };
   };
-  attention: { code: "unscheduled_accepted" | "awaiting_decision" | "missing_assets"; count: number; href: string }[];
+  attention: { code: "hidden_published" | "unscheduled_accepted" | "awaiting_decision" | "missing_assets"; count: number; href: string }[];
   forms: {
     formId: string;
     name: string;

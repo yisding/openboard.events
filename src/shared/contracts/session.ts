@@ -1,6 +1,28 @@
 import { z } from "zod";
-import { sessionStatusSchema } from "./enums";
+import { sessionStatusSchema, submissionStatusSchema } from "./enums";
 import { contactIdSchema, formatIdSchema, roomIdSchema, sessionIdSchema, submissionIdSchema, trackIdSchema } from "./ids";
+
+/**
+ * The abstract a session was promoted from, as that abstract stands *now*.
+ *
+ * `null` for a session created straight in the agenda — a keynote, a break, a
+ * sponsor slot — which owns its own title and can never diverge from anything.
+ *
+ * Two facts about a promoted session are otherwise unknowable in the admin,
+ * and both of them make a screen lie. `published_sessions_v` carries a promoted
+ * session only while its abstract is `accepted`, so an abstract that leaves
+ * that status takes the talk off the public schedule without touching
+ * `sessions.status`; and nothing propagates a later abstract title edit to the
+ * session row. Carrying the abstract's live status and title on the session is
+ * what lets the agenda say so instead of showing a confident "Published".
+ */
+export const linkedSubmissionSchema = z.object({
+  id: submissionIdSchema,
+  code: z.int().nonnegative(),
+  title: z.string(),
+  status: submissionStatusSchema,
+});
+export type LinkedSubmission = z.infer<typeof linkedSubmissionSchema>;
 
 export const scheduledSessionDtoSchema = z.object({
   id: sessionIdSchema,
@@ -16,6 +38,7 @@ export const scheduledSessionDtoSchema = z.object({
   scheduleRevision: z.int().nonnegative(),
   rowVersion: z.int().positive(),
   speakerIds: z.array(contactIdSchema),
+  linkedSubmission: linkedSubmissionSchema.nullable().default(null),
 });
 export type ScheduledSessionDTO = z.infer<typeof scheduledSessionDtoSchema>;
 

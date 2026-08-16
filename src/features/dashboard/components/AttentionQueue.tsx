@@ -1,17 +1,22 @@
 import Link from "next/link";
-import { ArrowRight, CalendarClock, ClipboardCheck, UserX } from "lucide-react";
+import { ArrowRight, CalendarClock, ClipboardCheck, EyeOff, UserX } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { DashboardOverview } from "../index";
 
 type AttentionCode = DashboardOverview["attention"][number]["code"];
 
 const MESSAGES: Record<AttentionCode, (count: number) => string> = {
+  // Not "needs scheduling" language: this row is about a session the agenda
+  // already calls published while the public schedule leaves it out, because
+  // its abstract was withdrawn or its decision reversed.
+  hidden_published: (count) => `${count} published ${count === 1 ? "session is" : "sessions are"} missing from the public schedule`,
   unscheduled_accepted: (count) => `${count} accepted ${count === 1 ? "session still needs" : "sessions still need"} a time slot`,
   awaiting_decision: (count) => `${count} session ${count === 1 ? "submission is" : "submissions are"} awaiting a decision`,
   missing_assets: (count) => `${count} accepted ${count === 1 ? "speaker is" : "speakers are"} missing a bio or headshot`,
 };
 
 const ICONS: Record<AttentionCode, LucideIcon> = {
+  hidden_published: EyeOff,
   unscheduled_accepted: CalendarClock,
   awaiting_decision: ClipboardCheck,
   missing_assets: UserX,
