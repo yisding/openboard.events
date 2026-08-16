@@ -228,6 +228,16 @@ type CandidateSqlRow = { record_pk: string; fields: Record<string, unknown>; con
 /**
  * The changed rows for one table, newest state applied, capped at `limit`.
  * `total` is the full changed count so the caller can report what it deferred.
+ *
+ * The hash is taken over `convert_to(p.fields::text, 'UTF8')` and must never go
+ * back to `p.fields::text::bytea`. That cast does not encode the bytes — it
+ * *parses* the string as bytea input syntax, in which a backslash introduces an
+ * escape. `jsonb::text` emits a backslash for every embedded quote, newline,
+ * tab and backslash, so a single session titled with a quoted phrase made this
+ * query fail outright with `invalid input syntax for type bytea`. Not a wrong
+ * hash: a failed query, classified `internal`, reaching the organizer as
+ * "something on our side stopped this sync" and paging an operator again every
+ * fifteen minutes until somebody edited the title.
  */
 export async function candidateRecordsIn(
   dbOrTx: DbOrTx,
@@ -242,7 +252,7 @@ export async function candidateRecordsIn(
       FROM airtable_sync_state WHERE event_id = ${eventId}
     ), projected AS (${projectedRowsSql(key, eventId, options)}
     ), diffed AS (
-      SELECT p.record_pk, p.fields, encode(sha256(p.fields::text::bytea), 'hex') AS content_hash FROM projected p
+      SELECT p.record_pk, p.fields, encode(sha256(convert_to(p.fields::text, 'UTF8')), 'hex') AS content_hash FROM projected p
     )
     SELECT d.record_pk, d.fields, d.content_hash, count(*) OVER () AS total
     FROM diffed d

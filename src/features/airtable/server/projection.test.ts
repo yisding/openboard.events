@@ -52,6 +52,44 @@ describe("Airtable projection (M39)", () => {
     }
   });
 
+  /**
+   * A title with a quote in it is ordinary — "The 'Why' Behind X", a talk whose
+   * name cites something — and it used to take the whole sync down.
+   *
+   * `jsonb::text` escapes every embedded quote, newline, tab and backslash with
+   * a backslash, and the hash used to be computed over `p.fields::text::bytea`.
+   * That cast does not encode bytes; it *parses* the string as bytea input
+   * syntax, where a backslash introduces an escape. So the projection failed
+   * with `invalid input syntax for type bytea` — not a wrong hash, a failed
+   * query — which classified as `internal`, told the organizer "something on
+   * our side stopped this sync", and paged an operator again every fifteen
+   * minutes until somebody edited the title.
+   *
+   * Every character that makes `jsonb::text` emit a backslash is in this
+   * fixture, because one of them is enough.
+   */
+  it("hashes a title carrying quotes, backslashes and newlines rather than failing the query", async () => {
+    const trickyId = "a17bc000-0000-4000-8000-0000000000f1";
+    await pglite.query(
+      "INSERT INTO sessions(id,event_id,title,slug,track_id) VALUES($1,$2,$3,'tricky',$4)",
+      [trickyId, eventId, 'The "Why" of C:\\Users\\ada\ttabbed\nand wrapped', trackId],
+    );
+
+    const sessions = await candidateRecordsIn(db, eventId, "sessions", OPTIONS, 50);
+    const tricky = sessions.rows.find((row) => row.recordPk === trickyId);
+    expect(tricky).toBeDefined();
+    expect(tricky?.contentHash).toMatch(/^[0-9a-f]{64}$/u);
+    // The value round-trips intact: the hash is over the real title, not over
+    // something sanitised on the way through.
+    expect(tricky?.fields.Title).toBe('The "Why" of C:\\Users\\ada\ttabbed\nand wrapped');
+
+    // And it is stable, which is what stops a re-push every run.
+    const again = await candidateRecordsIn(db, eventId, "sessions", OPTIONS, 50);
+    expect(again.rows.find((row) => row.recordPk === trickyId)?.contentHash).toBe(tricky?.contentHash);
+
+    await pglite.query("DELETE FROM sessions WHERE id = $1", [trickyId]);
+  });
+
   it("hashes identically twice and flips when a joined label changes", async () => {
     const first = await candidateRecordsIn(db, eventId, "sessions", OPTIONS, 50);
     const second = await candidateRecordsIn(db, eventId, "sessions", OPTIONS, 50);
