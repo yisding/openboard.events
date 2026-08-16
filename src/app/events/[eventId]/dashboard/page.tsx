@@ -10,7 +10,7 @@ import { computeEventPhase, defaultTabForPhase } from "@/features/dashboard/lib/
 import { getDemoProvisionState, getDemoTourBootstrap } from "@/features/onboarding";
 import { getEventOrganization } from "@/features/organizations";
 import { DemoRibbon } from "@/features/onboarding/components/demo-ribbon";
-import { TOUR_CHAPTERS, TOUR_STEPS, tourStepById } from "@/features/onboarding/tour/script";
+import { supportedTourSteps, TOUR_CHAPTERS, unavailableTourChapters } from "@/features/onboarding/tour/script";
 import { tourHref, tourProgress } from "@/shared/ui/app/guided-tour/objectives";
 import { eventIdSchema } from "@/shared/contracts";
 import { captureError } from "@/shared/lib/error-tracking";
@@ -68,7 +68,17 @@ export default async function Page({ params, searchParams }: { params: Promise<{
       editableFormId: demoTour.context.editableFormId ?? "",
       organizationId: demoTour.context.organizationId,
     };
-    const cursorStep = tourStepById(demoTour.stepId);
+    /**
+     * The same steps the engine will be given, for the same reasons — the card
+     * offers to resume *into* the tour, so picking a target the tour itself
+     * will not run is how the resume href and the coach end up disagreeing.
+     * Chapter availability is applied here too, which the engine does for
+     * itself on the other side of the bootstrap.
+     */
+    const unavailable = new Set(unavailableTourChapters(demoTour.skippedAtPhase));
+    const runnable = supportedTourSteps(demoTour.skippedAtPhase, demoTour.context)
+      .filter((step) => !unavailable.has(step.chapter));
+    const cursorStep = runnable.find((step) => step.id === demoTour.stepId) ?? null;
     /**
      * A cursor pointing at a step this build no longer has — renamed or
      * retired by a release, or belonging to a chapter that never got a world.
@@ -78,10 +88,10 @@ export default async function Page({ params, searchParams }: { params: Promise<{
      */
     const stranded = demoTour.status === "active" && cursorStep === null;
     const target = cursorStep
-      ?? TOUR_STEPS.find((candidate) => candidate.optional !== true && !demoTour.completed.includes(candidate.id))
-      ?? TOUR_STEPS[0]
+      ?? runnable.find((candidate) => candidate.optional !== true && !demoTour.completed.includes(candidate.id))
+      ?? runnable[0]
       ?? null;
-    const progress = tourProgress(TOUR_CHAPTERS, TOUR_STEPS, target?.id ?? demoTour.stepId);
+    const progress = tourProgress(TOUR_CHAPTERS, runnable, target?.id ?? demoTour.stepId);
     const resumeHref = target?.route ? tourHref(target.route, context) : `/events/${eventId}/dashboard`;
     tour = {
       isDemo: true,

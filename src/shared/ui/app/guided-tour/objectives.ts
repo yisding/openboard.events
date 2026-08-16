@@ -235,7 +235,14 @@ export function tourProgress(
   const arcChapters = chapters.filter((chapter) => arc.some((step) => step.chapter === chapter.id));
   const chapterIndex = current ? arcChapters.findIndex((chapter) => chapter.id === current.chapter) : -1;
   const stepCount = arc.length;
-  const resolvedIndex = stepIndex >= 0 ? stepIndex : 0;
+  // A side quest is not on the arc, so it has no arc index — and falling back
+  // to zero reported "Chapter 8 of 10" beside a bar at 0%, because the chapter
+  // a quest borrows *is* on the arc. Report the arc position its chapter ends
+  // at instead: opening a quest from the tray is a detour, not a restart.
+  const chapterEnd = current
+    ? arc.reduce((found, step, index) => (step.chapter === current.chapter ? index : found), -1)
+    : -1;
+  const resolvedIndex = stepIndex >= 0 ? stepIndex : Math.max(chapterEnd, 0);
   return {
     chapter: chapters.find((chapter) => chapter.id === current?.chapter) ?? null,
     chapterIndex: chapterIndex >= 0 ? chapterIndex + 1 : 0,

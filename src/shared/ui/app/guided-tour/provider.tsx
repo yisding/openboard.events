@@ -265,7 +265,16 @@ function GuidedTourLayer({ bootstrap, onComplete, onStatusChange }: {
     setCompleted((current) => union(current, state.completed));
     setQuestsDone((current) => union(current, state.questsDone));
     setWorld(state.world);
-    if (state.armedBaseline) setBaseline(state.armedBaseline);
+    // A baseline belongs to *one* step. Adopting whatever the row happens to
+    // hold would let a reply describing somebody else's armed step re-baseline
+    // the step on screen — a second tab arming step 20 makes this tab's next
+    // poll measure step 12 against W20, so work the organizer has already done
+    // becomes invisible and the objective can never fire. Same shape in one
+    // tab: the poll `enabled: armed` fires alongside the arming PATCH, and if
+    // it lands second it installs the *previous* step's baseline. Both writers
+    // that set an arm (the effect below, the CONFLICT re-read) already pair the
+    // two; this one is the outlier.
+    if (state.armedBaseline && state.armedStepId === cursorRef.current.armedStepId) setBaseline(state.armedBaseline);
     // Every answer the server gives — a patch reply, a conflict re-read, a
     // poll — restates where the row is. Remembering it is what lets the
     // effect below tell "the route module has re-rendered with a cursor
@@ -678,11 +687,17 @@ function GuidedTourLayer({ bootstrap, onComplete, onStatusChange }: {
     return onTourSignal(() => { void refetchState(); });
   }, [armed, refetchState]);
 
+  // The ten-minute escape hatch, for *every* act step and not only the polled
+  // ones. `armed` is false whenever the objective is `route`, `dom` or `self`,
+  // which is half the act steps in a real script — gated on it, `stalled` never
+  // arrives, `showAdvance` stays false, and an objective whose target never
+  // mounts leaves "Waiting for you…" on screen with "Skip this" as the only
+  // exit, recording a skip for work the player could not have done.
   useEffect(() => {
-    if (!armed) return;
+    if (!running || celebrating || step?.kind !== "act" || runtime.stalled) return;
     const timer = window.setTimeout(() => setRuntime((current) => ({ ...current, stalled: true })), POLL_HARD_STOP_MS);
     return () => window.clearTimeout(timer);
-  }, [armed, step?.id]);
+  }, [celebrating, running, runtime.stalled, step?.id, step?.kind]);
 
   useEffect(() => {
     if (!running || !step?.hint || runtime.hintVisible || satisfied) return;

@@ -466,6 +466,15 @@ export function OnboardingWizard({
         method: "POST",
         body: { eventId: newEventId },
       });
+      // The copy writes tracks server-side, and `tracks` was seeded once from
+      // `initialState` — which is empty on the create path. Without this
+      // re-read step 2 renders no track list at all (it is gated on
+      // `tracks.length > 0`) directly under a toast promising the tracks came
+      // over, and `addTrack`'s duplicate guard consults the stale empty list,
+      // so re-adding a name the demo already owns POSTs and comes back
+      // `refused` for a track the screen never showed. A failure to re-read is
+      // not a failed copy: the rows are there, so keep the success toast.
+      setTracks(await api(`events/${newEventId}/vocab/tracks`, tracksListSchema).catch(() => tracks));
       toast("Brought over your demo's tracks, rooms and call for speakers");
     } catch {
       toast("Could not copy your demo's setup — the event was created without it", { kind: "error" });

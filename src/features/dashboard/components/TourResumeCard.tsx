@@ -4,6 +4,7 @@ import { useState } from "react";
 import { PlayCircle } from "lucide-react";
 import { z } from "zod";
 import { api } from "@/shared/lib/api-client";
+import { forgetTourMirror } from "@/shared/ui/app/guided-tour/mirror";
 import { Button, ProgressBar } from "@/shared/ui/ui-kit";
 import type { EventId } from "@/shared/contracts";
 
@@ -70,6 +71,13 @@ export function TourResumeCard({ eventId, chapter, stepId, chapterLabel, percent
       // A refused write leaves the cursor exactly where it was; the navigation
       // below still puts the organizer on the step, where the pill is waiting.
     }
+    // This card moves the cursor deliberately, which is exactly the statement
+    // `forgetTourMirror` documents: the local record is no longer the furthest
+    // the player reached. Left behind, a mirror sitting ahead of the row (an
+    // earlier advance whose PATCH was lost) is adopted on the next mount, and
+    // the engine would describe a step the page this navigates to is not on.
+    // The palette's Resume/Restart already does this; the card was the outlier.
+    forgetTourMirror(eventId);
     // A full load, not a push: the cursor is server state the event layout
     // reads once, so the engine has to be handed a fresh bootstrap.
     window.location.assign(resumeHref);

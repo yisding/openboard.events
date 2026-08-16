@@ -147,6 +147,19 @@ export function useTourAnchor(spec: TourAnchorSpec | undefined, active: boolean)
     }
     setStatus("resolving");
     let current: HTMLElement | null = null;
+    let timer = 0;
+    // Re-armed on every drop back to `resolving`, not set once for the life of
+    // the step. A one-shot timer expires while the anchor is still *found*, so
+    // an element that later goes away — the `<dialog>` this step pointed into
+    // being closed, a tab switched — leaves the status stuck on `resolving`
+    // forever: no rect, so no spotlight, and `anchorless` is false, so no
+    // "Nothing to point at yet" notice and no "Take me there" either.
+    const armTimeout = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        if (current === null) setStatus("missing");
+      }, ANCHOR_TIMEOUT_MS);
+    };
     const attempt = () => {
       const next = resolveAnchorElement(spec, document);
       if (next === null) {
@@ -156,6 +169,7 @@ export function useTourAnchor(spec: TourAnchorSpec | undefined, active: boolean)
           current = null;
           setElement(null);
           setStatus("resolving");
+          armTimeout();
         }
         return;
       }
@@ -172,9 +186,7 @@ export function useTourAnchor(spec: TourAnchorSpec | undefined, active: boolean)
       attributes: true,
       attributeFilter: ["data-tour", "class", "aria-label", "role", "hidden", "aria-hidden"],
     });
-    const timer = window.setTimeout(() => {
-      if (current === null) setStatus("missing");
-    }, ANCHOR_TIMEOUT_MS);
+    armTimeout();
     return () => {
       observer?.disconnect();
       window.clearTimeout(timer);

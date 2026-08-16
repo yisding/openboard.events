@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { db, withTx, type DbOrTx } from "@/db/client";
+import { db, withAdvisoryLock, withTx, type DbOrTx } from "@/db/client";
 import { eventDemoTour } from "@/db/schema";
 import { recordOrganizationAuditEventIn } from "@/features/organizations";
 import { tryRecordOrganizationOnboardingMilestoneIn } from "@/features/product-signals";
@@ -282,10 +282,35 @@ export async function advanceDemoProvisioningIn(
   return stateOf({ ...existing, provisionPhase: next });
 }
 
+/**
+ * The compare-and-set above protects the *cursor*, not the phase's writes: the
+ * runner goes first so a failure retries instead of skipping a phase that never
+ * ran. Two requests parked on the same phase therefore both run it, and only
+ * then does one of them lose the CAS — which is harmless for the phases that
+ * write with deterministic ids, and is not harmless for `submissions_a` and
+ * `submissions_b`: `createSubmissionIn` mints a server-side id and its only
+ * replay guard is a pre-read inside each request's own transaction, so an
+ * overlap produces two of every proposal and both callers report success.
+ *
+ * A double-clicked "Explore", two tabs on the same organization, or the "retry
+ * racing a slow response" this module already documents are all enough. So the
+ * runtime entry serializes per organization, the same way `withAdvisoryLock`
+ * closes the identical check-then-act in the plan cap: a session lock on its
+ * own connection, because the phases underneath open their own transactions
+ * and cannot be nested inside one.
+ *
+ * The `…In` form stays lock-free: it is the seam the tests and the reset path
+ * drive, and PGlite runs one statement at a time anyway.
+ */
+const demoProvisionLockKey = (organizationId: OrganizationId): string => `demo:provision:${organizationId}`;
+
 export const advanceDemoProvisioning = (
   actorUserId: UserId,
   organizationId: OrganizationId,
-): Promise<DemoProvisionStateDTO> => advanceDemoProvisioningIn(db, actorUserId, organizationId);
+): Promise<DemoProvisionStateDTO> => withAdvisoryLock(
+  demoProvisionLockKey(organizationId),
+  () => advanceDemoProvisioningIn(db, actorUserId, organizationId),
+);
 
 /**
  * The server half of the provisioning screen's *"Continue without it"*
@@ -321,7 +346,10 @@ export async function skipDemoProvisioningIn(
 export const skipDemoProvisioning = (
   actorUserId: UserId,
   organizationId: OrganizationId,
-): Promise<DemoProvisionStateDTO> => skipDemoProvisioningIn(db, actorUserId, organizationId);
+): Promise<DemoProvisionStateDTO> => withAdvisoryLock(
+  demoProvisionLockKey(organizationId),
+  () => skipDemoProvisioningIn(db, actorUserId, organizationId),
+);
 
 /**
  * Reaching `ready` is the funnel event, and it is deliberately **not**
@@ -376,7 +404,12 @@ export async function resetDemoIn(
 export const resetDemo = (
   actorUserId: UserId,
   organizationId: OrganizationId,
-): Promise<DemoProvisionStateDTO> => resetDemoIn(db, actorUserId, organizationId);
+): Promise<DemoProvisionStateDTO> => withAdvisoryLock(
+  // A reset that overlaps an in-flight phase would delete the world out from
+  // under it and then rebuild against the survivor's half-committed writes.
+  demoProvisionLockKey(organizationId),
+  () => resetDemoIn(db, actorUserId, organizationId),
+);
 
 /**
  * Where this organization's demo stands without touching it — what the fork

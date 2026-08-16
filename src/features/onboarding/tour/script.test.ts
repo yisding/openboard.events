@@ -8,14 +8,17 @@ import {
   SET_PIECE_TRAY_SESSION_KEY,
   SPEAKERS,
 } from "../server/demo/dataset";
+import { type DemoProvisionPhase } from "../tour-schemas";
 import { anchorIsDialogBound } from "./anchors";
 import {
+  supportedTourSteps,
   TOUR_CHAPTERS,
   TOUR_CONTEXT_KEYS,
   TOUR_FIRST_CHAPTER_ID,
   TOUR_FIRST_STEP_ID,
   TOUR_STEPS,
   tourStepById,
+  unavailableTourChapters,
 } from "./script";
 
 /**
@@ -268,6 +271,58 @@ describe("guided tour script", () => {
     for (const step of TOUR_STEPS) {
       if (step.objective?.via !== "world") continue;
       expect(Boolean(step.hint) || Boolean(step.anchor), step.id).toBe(true);
+    }
+  });
+});
+
+describe("supportedTourSteps", () => {
+  const FULL = { cfpFormId: "f1", editableFormId: "f2", eventSlug: "s", organizationId: "o", eventId: "e" };
+  const idsFor = (skipped: DemoProvisionPhase | null, context = FULL) =>
+    new Set(supportedTourSteps(skipped, context).map((step) => step.id));
+
+  it("keeps the whole script for a world that built in full", () => {
+    expect(supportedTourSteps(null, FULL)).toHaveLength(TOUR_STEPS.length);
+  });
+
+  it("drops a side quest whose payload comes from a later phase than its chapter's", () => {
+    // The reason this needs a per-step rule at all: both quests sit in a
+    // chapter that `unavailableTourChapters` keeps, so the chapter rule alone
+    // leaves the tray offering a detour into a page nothing ever wrote.
+    const atResources = idsFor("resources");
+    expect(atResources.has("quest.speaker-resources")).toBe(false);
+    expect(unavailableTourChapters("resources")).not.toContain("field-trip");
+    // Its chapter-mate is written by `portal`, which did run.
+    expect(atResources.has("quest.chase-a-speaker")).toBe(true);
+
+    const atComms = idsFor("comms");
+    expect(atComms.has("quest.outbox")).toBe(false);
+    expect(unavailableTourChapters("comms")).not.toContain("the-decision");
+  });
+
+  it("keeps those quests when their own phase did run", () => {
+    // Skipping at `ready` skips nothing: every phase before it completed.
+    expect(idsFor("ready").has("quest.speaker-resources")).toBe(true);
+    expect(idsFor("ready").has("quest.outbox")).toBe(true);
+  });
+
+  it("drops a step whose route needs a context id this world does not have", () => {
+    // `editableFormId` goes null in ordinary free play, with no phase skipped
+    // at all, as soon as every form on the event carries an answer.
+    const withoutEditable = idsFor(null, { ...FULL, editableFormId: "" });
+    expect(withoutEditable.has("call.add-question")).toBe(false);
+    // Its chapter survives — the forms phase ran — so nothing else in `the-call` goes.
+    expect(withoutEditable.has("call.visibility")).toBe(true);
+  });
+
+  it("derives the requirement from the route template rather than a hand-kept list", () => {
+    // The guarantee that matters: any step interpolating a context id is
+    // dropped when that id is empty, including ones added after this test.
+    for (const key of ["cfpFormId", "editableFormId"] as const) {
+      const kept = supportedTourSteps(null, { ...FULL, [key]: "" });
+      for (const step of kept) {
+        const templates = [step.route?.path, step.objective?.via === "route" ? step.objective.path : undefined];
+        for (const template of templates) expect(template ?? "", `${step.id} kept without ${key}`).not.toContain(`:${key}`);
+      }
     }
   });
 });

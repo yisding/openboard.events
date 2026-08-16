@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import { GuidedTourMount, TourAnchor } from "@/shared/ui/app/guided-tour";
+import { forgetTourMirror, GuidedTourMount, TourAnchor } from "@/shared/ui/app/guided-tour";
 import type { TourBootstrap, TourChapter, TourStateWire, TourStep, TourTransport } from "@/shared/ui/app/guided-tour";
 import { Button, PageHeader, StatusBadge } from "@/shared/ui/ui-kit";
 
@@ -146,7 +146,9 @@ export function TourHarness() {
   }), [transport]);
 
   const reset = useCallback(() => {
-    window.localStorage.removeItem(`openboard:tour:${SCOPE_ID}`);
+    // The engine owns the key; a second copy of the prefix here is a silent
+    // no-op the day `mirror.ts` changes it.
+    forgetTourMirror(SCOPE_ID);
     stateRef.current = freshState();
     shippedRef.current = 0;
     setShipped(0);

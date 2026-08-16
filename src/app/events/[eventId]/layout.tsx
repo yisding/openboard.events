@@ -7,7 +7,7 @@ import { shortEventName } from "@/shared/lib/event-label";
 import { requireAdmin, requiredRoleForEventPath, type AdminSession } from "@/features/auth";
 import { getEvent } from "@/features/events";
 import { getDemoTourBootstrap } from "@/features/onboarding";
-import { TOUR_CHAPTERS, TOUR_STEPS, unavailableTourChapters } from "@/features/onboarding/tour/script";
+import { supportedTourSteps, TOUR_CHAPTERS, unavailableTourChapters } from "@/features/onboarding/tour/script";
 import { getEventOrganization, listOrganizationsForUser, manageableOrganizations } from "@/features/organizations";
 import { safeInternalPath } from "@/features/auth/safe-next";
 import { eventIdSchema } from "@/shared/contracts";
@@ -102,7 +102,11 @@ export default async function EventLayout({ children, params }: { children: Reac
     statePath: `events/${eventId}/tour`,
     stepsPath: `events/${eventId}/tour/steps`,
     chapters: TOUR_CHAPTERS,
-    steps: TOUR_STEPS,
+    // Not the whole script: the two side quests whose payload comes from a
+    // later phase than their chapter's, and any step whose route needs a
+    // context id this world does not have, cannot run here. Chapter-level
+    // availability stays below, where the engine can apologise for it.
+    steps: supportedTourSteps(demoTour.skippedAtPhase, demoTour.context),
     // Design §2.8. "Continue without it" reaches `ready` without the phase
     // that would not take, so the chapters that phase (and everything after
     // it) was going to fill are dropped with an honest line rather than
@@ -125,10 +129,13 @@ export default async function EventLayout({ children, params }: { children: Reac
       // Provisioning always writes the call for speakers, so this is only ever
       // empty on a demo whose forms phase was skipped — in which case
       // `unavailableChapters` above has already dropped the chapters that
-      // would have routed into it, so nothing navigates to `/forms//preview`.
+      // would have routed into it.
       cfpFormId: demoTour.context.cfpFormId ?? "",
-      // The one form the builder will still let an organizer restructure. Also
-      // only ever empty on a demo whose forms phase was skipped.
+      // The one form the builder will still let an organizer restructure —
+      // "the first form carrying no non-draft submission", which is a fact
+      // about the *world*, not about provisioning: it goes null in ordinary
+      // free play once every form has been answered. `supportedTourSteps`
+      // above is what keeps that from becoming a navigation to `/forms/`.
       editableFormId: demoTour.context.editableFormId ?? "",
       organizationId: demoTour.context.organizationId,
     },

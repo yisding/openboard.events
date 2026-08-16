@@ -89,7 +89,15 @@ export default async function Page({ params, searchParams }: {
    */
   const wantsCreate = query.mode === "create";
   const wantsDemo = query.mode === "demo";
-  const showFork = !wantsCreate && !progress && (eventRows.length === 0 || wantsDemo);
+  // Trap B, the same one the organization home's redirect matrix names: the
+  // moment the demo exists, an unfiltered `eventRows.length === 0` goes false
+  // and question 3 below starts treating a tutorial as "an organization that
+  // already runs events". An organization holding nothing but its demo, coming
+  // in on a bare `/onboarding` (a bookmark, a docs link, the post-signup
+  // landing), would drop straight into the create-event wizard rather than the
+  // "Your demo conference is waiting" fork this very block renders for it.
+  const realEventCount = eventRows.filter((row) => row.id !== demo?.eventId).length;
+  const showFork = !wantsCreate && !progress && (realEventCount === 0 || wantsDemo);
   if (showFork) {
     return <>
       <PageHeader

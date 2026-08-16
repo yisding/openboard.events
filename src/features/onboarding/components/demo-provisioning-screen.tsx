@@ -43,10 +43,16 @@ type ScreenPhase = { key: DemoRunnablePhase; label: string; state: "done" | "run
  */
 export function visibleProvisioningPhases(state: DemoProvisionStateDTO | null, failed: boolean): ScreenPhase[] {
   // `ready` is not a runnable phase, so it has no index — which is exactly the
-  // signal that every line is behind us.
+  // signal that every line is behind us. `failed` has no index either, and it
+  // means the opposite: a cursor an older build or an operator parked part-way
+  // through, which `advanceDemoProvisioningIn` refuses with a CONFLICT. Painting
+  // ten green ticks and "10 of 10" directly above the amber "that step did not
+  // take" panel is the one reading of the screen that is never true, so the
+  // finished list is claimed from `done` rather than from the missing index.
   const running = DEMO_RUNNABLE_PHASES.indexOf((state?.phase ?? "event") as DemoRunnablePhase);
   if (running < 0) {
-    return DEMO_RUNNABLE_PHASES.map((key) => ({ key, label: DEMO_PHASE_LABELS[key], state: "done" }));
+    const outcome: ScreenPhase["state"] = state?.done ? "done" : "failed";
+    return DEMO_RUNNABLE_PHASES.map((key) => ({ key, label: DEMO_PHASE_LABELS[key], state: outcome }));
   }
   return DEMO_RUNNABLE_PHASES.slice(0, running + 1).map((key, position) => ({
     key,
@@ -67,6 +73,7 @@ export function DemoProvisioningScreen({ organizationId, initialState, onReady }
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [skipping, setSkipping] = useState(false);
+  const [skipError, setSkipError] = useState<string | null>(null);
   const stateRef = useRef<DemoProvisionStateDTO | null>(initialState ?? null);
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
@@ -98,7 +105,14 @@ export function DemoProvisioningScreen({ organizationId, initialState, onReady }
         stateRef.current = current;
         setState(current);
       }
-      if (!cancelled && current?.done) finish(current);
+      if (cancelled) return;
+      if (current?.done) finish(current);
+      // The loop has a bound, and running out of it is the one exit that used
+      // to leave the screen with no state at all: a half-filled bar, no amber
+      // panel (both controls are gated on `failed`), and a reload as the only
+      // way forward. Reachable whenever a CAS keeps losing — two tabs on one
+      // organization, or a retry racing a slow response.
+      else setFailed(true);
     }
     void run();
     return () => { cancelled = true; };
@@ -107,6 +121,7 @@ export function DemoProvisioningScreen({ organizationId, initialState, onReady }
   async function skipPhase() {
     if (skipping) return;
     setSkipping(true);
+    setSkipError(null);
     try {
       const skipped = await api(`organizations/${organizationId}/demo`, demoProvisionStateSchema, {
         method: "POST",
@@ -117,6 +132,10 @@ export function DemoProvisioningScreen({ organizationId, initialState, onReady }
       setFailed(false);
       finish(skipped);
     } catch {
+      // Silently clearing the spinner made the escape hatch look like a button
+      // that does nothing — the worst possible behaviour for the control whose
+      // whole job is "never a dead end".
+      setSkipError("That did not go through. Try the step again, or reload this page.");
       setSkipping(false);
     }
   }
@@ -167,10 +186,17 @@ export function DemoProvisioningScreen({ organizationId, initialState, onReady }
           <Button size="sm" disabled={skipping} onClick={() => { setFailed(false); setAttempt((current) => current + 1); }}>
             Try that step again
           </Button>
-          <Button size="sm" variant="secondary" disabled={skipping} onClick={() => void skipPhase()}>
+          {/* There is no cursor to jump until phase one has landed, so before
+              that the server can only answer this with a 404. Retrying the
+              first phase is the only real way forward, and offering a second
+              button that cannot work is worse than offering one. */}
+          {state && <Button size="sm" variant="secondary" disabled={skipping} onClick={() => void skipPhase()}>
             {skipping ? "Continuing…" : "Continue without it"}
-          </Button>
+          </Button>}
         </div>
+        {skipError && <p role="alert" style={{ margin: "10px 0 0", color: "var(--amber)", fontSize: "var(--text-sm)" }}>
+          {skipError}
+        </p>}
       </div>}
     </section>
   );

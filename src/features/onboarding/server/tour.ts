@@ -1,4 +1,5 @@
 import { and, eq, sql, type SQL } from "drizzle-orm";
+import { cache } from "react";
 import { db, type DbOrTx } from "@/db/client";
 import { eventDemoTour, eventTourSteps } from "@/db/schema";
 import { tryRecordOrganizationOnboardingMilestoneIn } from "@/features/product-signals";
@@ -322,8 +323,18 @@ export async function getDemoTourBootstrapIn(
   });
 }
 
-export const getDemoTourBootstrap = (eventId: EventId, actorUserId: UserId): Promise<DemoTourBootstrap | null> =>
-  getDemoTourBootstrapIn(db, eventId, actorUserId);
+/**
+ * Memoized per request: the event layout reads this on every admin page of a
+ * demo event, and the dashboard reads it again for its ribbon and resume card.
+ * Two calls means two world snapshots, and the world snapshot carries
+ * `conflictCount` — a self-join of a UNION over every scheduled session, which
+ * is by some distance the most expensive thing on the page. A real event still
+ * pays one index lookup that finds nothing, either way.
+ */
+export const getDemoTourBootstrap = cache(
+  (eventId: EventId, actorUserId: UserId): Promise<DemoTourBootstrap | null> =>
+    getDemoTourBootstrapIn(db, eventId, actorUserId),
+);
 
 /**
  * Keeping an existing baseline for the same step is the entire mechanism: an

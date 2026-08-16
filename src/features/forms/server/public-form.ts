@@ -75,6 +75,7 @@ export async function getPublicFormIn(dbOrTx: DbOrTx, eventSlug: string, formId:
       backgroundFileId: events.backgroundFileId,
       submissionCapPerUser: events.submissionCapPerUser,
       organizationId: events.organizationId,
+      isDemo: events.isDemo,
     })
     .from(events)
     .where(eq(events.slug, eventSlug))
@@ -119,12 +120,19 @@ export async function getPublicFormIn(dbOrTx: DbOrTx, eventSlug: string, formId:
   const participantRoles = participantRoleSettingsSchema.parse(form.participantRoles)
     .map(({ role, enabled }) => ({ role, enabled }));
   const openState = decideOpenState(form, new Date());
-  // Unconditional on purpose: the write is first-occurrence-only via
+  // Unconditional except for the demo: the write is first-occurrence-only via
   // onConflictDoNothing and swallows its own failures, so a pre-read to skip
   // it buys nothing — and joining the milestones table into the event lookup
   // above turned a missing product-signals table into a 500 for every
   // submitter, the exact failure tryRecord… exists to prevent.
-  if (openState.open) {
+  //
+  // First Fair: the demo's own call for speakers is open, and the tour's
+  // `quest.submit-a-proposal` walks the organizer through it, so without the
+  // `isDemo` test every organization that takes the tutorial records the
+  // deepest step of the activation funnel without ever publishing a real CFP.
+  // The milestone is once-per-organization, so the real event could never
+  // record it afterwards — a tutorial must not look like a conversion.
+  if (openState.open && !event.isDemo) {
     await tryRecordOrganizationOnboardingMilestoneIn(
       dbOrTx,
       event.organizationId as OrganizationId,

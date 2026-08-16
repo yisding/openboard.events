@@ -144,8 +144,14 @@ export const demoTourContextSchema = z.object({
    * a question to a form somebody has already answered. That lock is a
    * feature, so the tour teaches it rather than fighting it — and the "add a
    * question" objective has to happen somewhere the product actually allows
-   * one, which is what this id is for. Null when every form on the event is
-   * locked; the step that needs it degrades to an anchorless card.
+   * one, which is what this id is for.
+   *
+   * Null when every form on the event is locked — which is not only a skipped
+   * forms phase: this is "the first form carrying no non-draft submission", so
+   * ordinary free play reaches it as soon as somebody answers the last empty
+   * form. `supportedTourSteps` drops the steps that interpolate it rather than
+   * routing to `/events/{id}/forms/` and arming an objective against a form
+   * that does not exist.
    */
   editableFormId: formIdSchema.nullable(),
   datasetVersion: z.number().int(),

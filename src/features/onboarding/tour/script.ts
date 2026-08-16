@@ -800,3 +800,75 @@ export function tourStepById(stepId: string): TourStep | null {
 export function tourChapterById(chapterId: string): TourChapter | null {
   return TOUR_CHAPTERS.find((chapter) => chapter.id === chapterId) ?? null;
 }
+
+/**
+ * Steps whose world comes out of a *later* phase than their own chapter's.
+ *
+ * `CHAPTER_PHASE` is keyed per chapter, which is right for the arc — a chapter
+ * is written by one phase and dropped whole. Side quests break that: a quest
+ * borrows an arc chapter for its place in the tray, not for its payload, and
+ * two of them read a world their chapter's phase never writes. Left to the
+ * chapter rule they survive a "Continue without it" that removed the very
+ * thing they point at — the tray goes on offering "Publish the speaker
+ * handbook" and routes to an empty `/resources`.
+ *
+ * Only overrides belong here; a step whose chapter already names the right
+ * phase is covered by `unavailableTourChapters`.
+ */
+const STEP_PHASE: Readonly<Record<string, DemoProvisionPhase>> = {
+  // `the-decision` is written by `submissions_a`; the delivery log is `comms`.
+  "quest.outbox": "comms",
+  // `field-trip` is written by `portal`; the handbook pages are `resources`.
+  "quest.speaker-resources": "resources",
+};
+
+/**
+ * The context ids a step interpolates into its route or its route objective.
+ *
+ * Derived from the templates rather than listed by hand: a `:cfpFormId` added
+ * to a new step's path is a new dependency the moment it is written, and a
+ * second list would only be the place someone forgets.
+ */
+function contextKeysUsedBy(step: TourStep): readonly TourContextKey[] {
+  const templates: string[] = [];
+  const collect = (route: { path: string; query?: Readonly<Record<string, string>> }) => {
+    templates.push(route.path, ...Object.values(route.query ?? {}));
+  };
+  if (step.route) collect(step.route);
+  if (step.objective?.via === "route") collect(step.objective);
+  return TOUR_CONTEXT_KEYS.filter((key) => templates.some((template) => template.includes(`:${key}`)));
+}
+
+/**
+ * The steps this particular demo world can actually run.
+ *
+ * Two reasons a step cannot, both of which used to route the player at a page
+ * with nothing on it:
+ *
+ * 1. Its payload came from a phase "Continue without it" skipped — the
+ *    per-step counterpart to `unavailableTourChapters`, for the quests whose
+ *    chapter cannot speak for them.
+ * 2. Its route needs a context id this world does not have.
+ *    `editableFormId` is the live one: it is "the first form with no non-draft
+ *    submission", so it goes null in ordinary free play as soon as every form
+ *    on the event has been answered — nothing to do with a skipped phase — and
+ *    `call.add-question` would then navigate to `/events/{id}/forms/` and arm
+ *    a `formFields` objective with no form to add a field to.
+ *
+ * Chapter-level availability deliberately stays out of this: the engine's
+ * `visibleTourSteps` drops those, and `skipNotices` needs to diff the full
+ * script against what survived so a dropped chapter gets its apology. These
+ * steps get none, which is right — an absent tray entry owes no explanation,
+ * and there is no honest line to write about a form that does not exist.
+ */
+export function supportedTourSteps(
+  skippedAtPhase: DemoProvisionPhase | null,
+  context: Readonly<Partial<Record<TourContextKey, string | null>>>,
+): readonly TourStep[] {
+  const stoppedAt = skippedAtPhase === null ? -1 : DEMO_PROVISION_PHASES.indexOf(skippedAtPhase);
+  return TOUR_STEPS.filter((step) => {
+    const phase = STEP_PHASE[step.id];
+    if (phase && stoppedAt >= 0 && DEMO_PROVISION_PHASES.indexOf(phase) >= stoppedAt) return false;
+    return contextKeysUsedBy(step).every((key) => (context[key] ?? "") !== "");
+  });
+}
