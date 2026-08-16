@@ -114,6 +114,16 @@ export const organizationAuditLogEntryDtoSchema = z.object({
   action: z.string(),
   targetUserId: userIdSchema.nullable(),
   targetEmail: z.string().nullable(),
+  /**
+   * The event an entry is about, when its metadata names one — reviewer
+   * invitations, invitation acceptances and every `demo.*` action all do.
+   * `targetEventName` is resolved at read time and is null once the event is
+   * gone (`demo.deleted` is exactly that case), so the id is carried
+   * separately: it outlives the row it points at, and it is the only handle an
+   * auditor has left on a deleted event.
+   */
+  targetEventId: eventIdSchema.nullable(),
+  targetEventName: z.string().nullable(),
   metadata: z.record(z.string(), z.unknown()),
   createdAt: iso,
 });

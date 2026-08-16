@@ -20,6 +20,23 @@ export function googleSignInErrorMessage(code: string | null): string {
     : "Google sign-in did not finish. Try again or continue with email.";
 }
 
+/**
+ * What a rejected `POST /api/auth/sign-in` actually means.
+ *
+ * The throttle in `api/auth/[...action]/route.ts` answers `429 RATE_LIMITED`
+ * *before* the password is ever verified, so calling that "Invalid email or
+ * password" tells the one person who typed the right password the one thing
+ * guaranteed to send them to the reset flow instead of waiting. Same for a
+ * 5xx: nothing was checked, so nothing about the credentials is known.
+ */
+export function signInErrorMessage(status: number, code?: string): string {
+  if (code === "RATE_LIMITED" || status === 429) {
+    return "Too many sign-in attempts. Your password was not checked — wait a few minutes, then try again.";
+  }
+  if (status >= 500) return "Sign-in is temporarily unavailable. Try again in a moment.";
+  return "Invalid email or password";
+}
+
 export function LoginForm({ googleEnabled = false }: LoginFormProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -85,7 +102,7 @@ export function LoginForm({ googleEnabled = false }: LoginFormProps) {
           setUnverifiedEmail(email);
           return;
         }
-        setError("Invalid email or password");
+        setError(signInErrorMessage(response.status, body?.error?.code));
         return;
       }
       router.replace(safeInternalPath(searchParams.get("next")));
