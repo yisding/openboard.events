@@ -2663,10 +2663,13 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
      explicitly is the only override the global rule cannot swallow. */
   .tour-coach-pulse::after{animation:none}
   .tour-coach{animation:none}
-  /* Matched to the gliding selector's specificity — a bare `.tour-scrim-hole`
-     here loses to `.tour-scrim-gliding .tour-scrim-hole` and the easing this
-     block exists to remove would survive it. */
-  .tour-scrim .tour-scrim-hole,.tour-scrim .tour-scrim-ring{transition:none}
+  /* Beats the gliding selector outright rather than tying with it. This block
+     sits earlier in the file than `.tour-scrim-gliding .tour-scrim-hole`, so
+     at equal specificity the later rule wins and the easing this block exists
+     to remove comes straight back — for the one reader who asked for it not
+     to. Naming both classes on the same element settles it by specificity
+     instead of by source order. */
+  .tour-scrim.tour-scrim-gliding .tour-scrim-hole,.tour-scrim.tour-scrim-gliding .tour-scrim-ring{transition:none}
 }
 
 /* ---------------------------------------------------------------------------
