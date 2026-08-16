@@ -513,6 +513,131 @@ describe("CFP submit, end to end through the server path", () => {
     expect(profile.rows[0]).toEqual({ first_name: "Existing", last_name: "Speaker", company: "Original Co" });
   });
 
+  // The other half of that rule. A brand-new co-speaker has no profile to
+  // protect, and withholding the name the submitter typed left them showing as
+  // a bare email address in the abstracts list, the drawer and their own portal
+  // — beside the very answers that spelled the name out.
+  it("gives a brand-new co-speaker the name the submitter typed", async () => {
+    await pglite.query("DELETE FROM contacts WHERE email='grace@example.com'");
+
+    await submitCfpForm({
+      eventId,
+      formId,
+      contactId: speaker,
+      formVersion: 1,
+      answers: answers(),
+      participants: [
+        { clientId: "primary", email: "ada@example.com", role: "speaker", isPrimary: true, sortOrder: 0, answers: answers() },
+        {
+          clientId: "co-1",
+          email: "grace@example.com",
+          role: "co_speaker",
+          isPrimary: false,
+          sortOrder: 1,
+          answers: answers({
+            [field("first_name").id]: text("Grace"),
+            [field("last_name").id]: text("Hopper"),
+            [field("email").id]: text("grace@example.com"),
+            [field("company").id]: text("Harvard"),
+          }),
+        },
+      ],
+    });
+
+    const profile = await pglite.query<{ first_name: string; last_name: string; company: string | null }>(
+      "SELECT first_name,last_name,company FROM contacts WHERE event_id=$1 AND email='grace@example.com'",
+      [eventId],
+    );
+    expect(profile.rows[0]).toEqual({ first_name: "Grace", last_name: "Hopper", company: "Harvard" });
+  });
+
+  // The shape the QA sweep actually hit: the wizard autosaves, so by the time
+  // submit runs, `saveDraftAnswers` has already created the co-speaker's
+  // contact from their email. A "was this row created just now?" test would
+  // have said no and left them nameless exactly as before.
+  it("names a co-speaker whose contact the draft autosave already created", async () => {
+    await pglite.query("DELETE FROM contacts WHERE email='grace@example.com'");
+    const draft = await upsertDraft(eventId, speaker, formId, 1);
+    const coSpeakerAnswers = answers({
+      [field("first_name").id]: text("Grace"),
+      [field("last_name").id]: text("Hopper"),
+      [field("email").id]: text("grace@example.com"),
+    });
+    await saveCfpDraft({
+      eventId,
+      formId,
+      contactId: speaker,
+      formVersion: 1,
+      answers: { [field("title").id]: text("Caching at the edge") },
+      participants: [{ clientId: "co-1", email: "grace@example.com", role: "co_speaker", isPrimary: false, sortOrder: 1, answers: coSpeakerAnswers }],
+    });
+
+    const autosaved = await pglite.query<{ first_name: string }>(
+      "SELECT first_name FROM contacts WHERE event_id=$1 AND email='grace@example.com'",
+      [eventId],
+    );
+    expect(autosaved.rows[0]?.first_name).toBe("");
+
+    await submitCfpForm({
+      eventId,
+      formId,
+      contactId: speaker,
+      formVersion: 1,
+      draftSubmissionId: draft.submissionId,
+      answers: answers(),
+      participants: [
+        { clientId: "primary", email: "ada@example.com", role: "speaker", isPrimary: true, sortOrder: 0, answers: answers() },
+        { clientId: "co-1", email: "grace@example.com", role: "co_speaker", isPrimary: false, sortOrder: 1, answers: coSpeakerAnswers },
+      ],
+    });
+
+    const profile = await pglite.query<{ first_name: string; last_name: string }>(
+      "SELECT first_name,last_name FROM contacts WHERE event_id=$1 AND email='grace@example.com'",
+      [eventId],
+    );
+    expect(profile.rows[0]).toEqual({ first_name: "Grace", last_name: "Hopper" });
+  });
+
+  it("fills only the gaps in a co-speaker profile that already has a name", async () => {
+    const partial = contactIdSchema.parse("f0000000-0000-4000-8000-000000000007");
+    await pglite.query(
+      `INSERT INTO contacts(id,event_id,email,first_name,last_name,company)
+       VALUES($1,$2,'partial@example.com','Known','Speaker',NULL)
+       ON CONFLICT (event_id,email) DO UPDATE SET first_name='Known',last_name='Speaker',company=NULL`,
+      [partial, eventId],
+    );
+
+    await submitCfpForm({
+      eventId,
+      formId,
+      contactId: speaker,
+      formVersion: 1,
+      answers: answers(),
+      participants: [
+        { clientId: "primary", email: "ada@example.com", role: "speaker", isPrimary: true, sortOrder: 0, answers: answers() },
+        {
+          clientId: "co-partial",
+          email: "partial@example.com",
+          role: "co_speaker",
+          isPrimary: false,
+          sortOrder: 1,
+          answers: answers({
+            [field("first_name").id]: text("Renamed"),
+            [field("last_name").id]: text("Bysomeone"),
+            [field("email").id]: text("partial@example.com"),
+            [field("company").id]: text("Newly Told Co"),
+          }),
+        },
+      ],
+    });
+
+    const profile = await pglite.query<{ first_name: string; last_name: string; company: string | null }>(
+      "SELECT first_name,last_name,company FROM contacts WHERE id=$1",
+      [partial],
+    );
+    expect(profile.rows[0]).toEqual({ first_name: "Known", last_name: "Speaker", company: "Newly Told Co" });
+  });
+
   it("rejects a primary mapped email that contradicts the authenticated identity", async () => {
     const error = await submitCfpForm({
       eventId,

@@ -51,6 +51,84 @@ export async function updateContactFields(dbOrTx: DbOrTx, eventId: EventId, cont
   if (!updated) throw new AppError("NOT_FOUND", "Contact not found");
 }
 
+/**
+ * Every column a `ContactPatch` can address, so a fill can read the current
+ * value of each one. `satisfies` is what keeps this list honest: adding a key
+ * to `ContactPatch` without adding it here stops compiling.
+ */
+const PATCHABLE_COLUMNS = {
+  email: contacts.email,
+  firstName: contacts.firstName,
+  lastName: contacts.lastName,
+  salutation: contacts.salutation,
+  honorific: contacts.honorific,
+  pronouns: contacts.pronouns,
+  gender: contacts.gender,
+  jobTitle: contacts.jobTitle,
+  company: contacts.company,
+  bioHtml: contacts.bioHtml,
+  headshotFileId: contacts.headshotFileId,
+  linkedinUrl: contacts.linkedinUrl,
+  twitterUrl: contacts.twitterUrl,
+  facebookUrl: contacts.facebookUrl,
+  websiteUrl: contacts.websiteUrl,
+  confirmationStatus: contacts.confirmationStatus,
+  workflowStatus: contacts.workflowStatus,
+  acceptanceSeenAt: contacts.acceptanceSeenAt,
+} satisfies Record<keyof ContactPatch, unknown>;
+
+/** Never had a value: NULL, or the empty string these text columns default to. */
+function isBlank(value: unknown): boolean {
+  return value === null || value === undefined || (typeof value === "string" && value.trim() === "");
+}
+
+/**
+ * Write only the fields this contact has never had a value for.
+ *
+ * The write-through rule for someone else's contact row is "fill the gaps,
+ * never overwrite". A CFP submitter who names a co-speaker is not authenticated
+ * as them, so their answers must not be able to rename, re-employ or re-bio an
+ * identity that already exists — but a co-speaker whose row is nothing but an
+ * email address has no identity to protect, and refusing to write there is what
+ * left them nameless in the abstracts list, the drawer and their own portal.
+ *
+ * Blankness, not a created-in-this-transaction flag, is the question worth
+ * asking: the CFP wizard autosaves drafts, and `saveDraftAnswers` already
+ * created the co-speaker's contact rows long before submit reaches this point.
+ *
+ * "Blank" is deliberately wider than "brand-new co-speaker": an organizer who
+ * seeded a contact from an address alone — a roster import, the invited keynote
+ * who has filled nothing in yet — leaves the same empty columns, and a
+ * submitter who names that person fills them. That is the intended trade, not
+ * an oversight. Nothing the contact wrote is destroyed, the bio arrives through
+ * the same sanitizing pipeline as the primary speaker's, and the moment the
+ * contact says anything for themselves that field stops being writable.
+ *
+ * The read is `FOR UPDATE`: the row is about to be written in this same
+ * transaction, and without the lock a co-speaker saving their own portal
+ * profile in the window between the two statements would have the submitter's
+ * typed value land on top of their authenticated one — precisely the direction
+ * this function exists to prevent.
+ */
+export async function fillBlankContactFields(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  contactId: ContactId,
+  patch: ContactPatch,
+): Promise<void> {
+  const offered = Object.entries(patch).filter(([, value]) => !isBlank(value));
+  if (offered.length === 0) return;
+  const [current] = await dbOrTx.select(PATCHABLE_COLUMNS)
+    .from(contacts)
+    .where(and(eq(contacts.eventId, eventId), eq(contacts.id, contactId)))
+    .limit(1)
+    .for("update");
+  if (!current) throw new AppError("NOT_FOUND", "Contact not found");
+  const gaps = Object.fromEntries(offered.filter(([key]) => isBlank(current[key as keyof typeof current]))) as ContactPatch;
+  if (Object.keys(gaps).length === 0) return;
+  await updateContactFields(dbOrTx, eventId, contactId, gaps);
+}
+
 
 /**
  * Confirm every participant of these newly accepted submissions.

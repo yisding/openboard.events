@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { db, withTx, type TxDb } from "@/db/client";
 import { contacts, forms, submissions } from "@/db/schema";
-import { getOrCreateContact, updateContactFields } from "@/features/event-contacts";
+import { fillBlankContactFields, getOrCreateContact, updateContactFields } from "@/features/event-contacts";
 import {
   cleanAnswersSchema,
   formatIdSchema,
@@ -377,11 +377,23 @@ export async function submitCfpForm(
       }
       delete safePatch.email;
       // A submitter may invite a co-speaker by email, but that does not grant
-      // permission to overwrite an existing contact's profile. Their supplied
-      // answers remain attached to this submission for later review; only the
-      // authenticated primary speaker can write through to their contact row.
-      if (participant.isPrimary && Object.keys(safePatch).length > 0) {
-        await updateContactFields(tx, input.eventId, contactId, safePatch);
+      // permission to overwrite an existing contact's profile: only the
+      // authenticated primary speaker replaces what a contact row already says.
+      //
+      // Skipping co-speakers entirely was the wrong reading of that rule. A
+      // brand-new co-speaker's contact is an email address and nothing else, so
+      // the name the submitter typed — shown back to them on the review step,
+      // and stored on the submission as an answer — reached no contact record
+      // at all. The organizer's abstracts list rendered "Ada Lovelace, ", the
+      // drawer's Speakers summary showed a bare email beside the answers that
+      // spelled the name out, and the co-speaker's own portal greeted nobody.
+      //
+      // Filling only the blanks satisfies both: an established contact keeps
+      // every field they have, and someone who has never been anything but an
+      // address finally gets their name.
+      if (Object.keys(safePatch).length > 0) {
+        if (participant.isPrimary) await updateContactFields(tx, input.eventId, contactId, safePatch);
+        else await fillBlankContactFields(tx, input.eventId, contactId, safePatch);
       }
     }
     const answers = cleanAnswersSchema.parse(clientAnswers.map((answer) => {
