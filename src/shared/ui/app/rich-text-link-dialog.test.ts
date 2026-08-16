@@ -36,7 +36,12 @@ describe("rich-text link dialog", () => {
     const uiKit = readFileSync(new URL("../ui-kit.tsx", import.meta.url), "utf8");
     const commandPalette = readFileSync(new URL("../../../features/shell/components/command-palette.tsx", import.meta.url), "utf8");
 
-    expect(uiKit.match(/returnFocus\.focus\(\)/gu)).toHaveLength(2);
+    // Both shared dialogs — modal and drawer — restore focus on unmount. They
+    // now do it through `focusAfterClose`, which keeps the opener when the
+    // opener survives and falls back to its nearest surviving ancestor when a
+    // destructive confirm unmounted it; see dialog-focus-return.test.ts.
+    expect(uiKit.match(/focusAfterClose\(returnFocus, returnFocusAncestors\)/gu)).toHaveLength(2);
+    expect(uiKit).toContain("if (opener?.isConnected) { opener.focus(); return opener; }");
     expect(commandPalette).toContain("returnFocus.focus()");
   });
 });

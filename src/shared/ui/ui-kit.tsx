@@ -85,6 +85,38 @@ export function PageHeader({ eyebrow, title, description, actions }: { eyebrow?:
   return <header className="page-header"><div>{eyebrow && <div className="page-eyebrow">{eyebrow}</div>}<h1>{title}</h1>{description && <p>{description}</p>}</div>{actions && <div className="page-actions">{actions}</div>}</header>;
 }
 
+/**
+ * Where focus goes when a dialog closes and the thing that opened it is gone.
+ *
+ * `returnFocus.isConnected` is false for exactly the case that matters most: a
+ * row-scoped Delete, confirmed, succeeding. The button that opened the dialog
+ * was inside the row the mutation removed, so restoring focus to it is a no-op
+ * and the browser drops focus to `<body>` — a keyboard or screen-reader user is
+ * returned to the top of the document, above the shell, several tab stops from
+ * the list they were working in.
+ *
+ * The opener's ancestors are recorded while it is still in the document, so the
+ * nearest one that survived the mutation (the list, the panel, the drawer body)
+ * can take focus instead. It is made focusable only for as long as it holds
+ * focus, so nothing gains a permanent tab stop.
+ */
+export function focusAfterClose(opener: HTMLElement | null, ancestors: readonly HTMLElement[]): HTMLElement | null {
+  if (opener?.isConnected) { opener.focus(); return opener; }
+  const survivor = ancestors.find((node) => node.isConnected);
+  if (!survivor) return null;
+  const owned = survivor.hasAttribute("tabindex");
+  if (!owned) survivor.setAttribute("tabindex", "-1");
+  survivor.focus();
+  if (!owned) survivor.addEventListener("blur", () => survivor.removeAttribute("tabindex"), { once: true });
+  return survivor;
+}
+
+function openerAncestors(element: HTMLElement | null): HTMLElement[] {
+  const chain: HTMLElement[] = [];
+  for (let node = element?.parentElement; node && node !== document.body; node = node.parentElement) chain.push(node);
+  return chain;
+}
+
 // Native <dialog> provides focus trapping and, when dismissible, Escape-to-close.
 // Because React unmounts the dialog, cleanup restores the opener explicitly.
 function ModalDialog({ onClose, title, className, children, initialFocusRef, dismissible }: { onClose: () => void; title: string; className: string; children: ReactNode; initialFocusRef?: RefObject<HTMLElement | null> | undefined; dismissible: boolean }) {
@@ -93,6 +125,9 @@ function ModalDialog({ onClose, title, className, children, initialFocusRef, dis
     const dialog = ref.current;
     if (!dialog) return;
     const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // Recorded now, while the opener is still in the document: a destructive
+    // confirm unmounts it before this cleanup runs.
+    const returnFocusAncestors = openerAncestors(returnFocus);
     dialog.showModal();
     // `showModal()` appends the dialog to the top layer, above anything already
     // there — including a standing error toast, which would then be behind the
@@ -101,7 +136,7 @@ function ModalDialog({ onClose, title, className, children, initialFocusRef, dis
     initialFocusRef?.current?.focus();
     return () => {
       if (dialog.open) dialog.close();
-      if (returnFocus?.isConnected) returnFocus.focus();
+      focusAfterClose(returnFocus, returnFocusAncestors);
     };
   }, [initialFocusRef]);
   return <dialog ref={ref} className="modal-shell" aria-label={title} onCancel={(event) => { event.preventDefault(); if (dismissible) onClose(); }} onMouseDown={(event) => { if (dismissible && event.currentTarget === event.target) onClose(); }}>
@@ -120,11 +155,14 @@ function DrawerDialog({ onClose, title, children }: { onClose: () => void; title
     const dialog = ref.current;
     if (!dialog) return;
     const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // Recorded now, while the opener is still in the document: a destructive
+    // confirm unmounts it before this cleanup runs.
+    const returnFocusAncestors = openerAncestors(returnFocus);
     dialog.showModal();
     raiseTopLayerStack();
     return () => {
       if (dialog.open) dialog.close();
-      if (returnFocus?.isConnected) returnFocus.focus();
+      focusAfterClose(returnFocus, returnFocusAncestors);
     };
   }, []);
   return (
