@@ -113,12 +113,42 @@ function nextSnapshot(form: BuilderForm) {
   return compileFormSnapshot(authoringRows(form, form.currentVersion + 1));
 }
 
+/**
+ * The builder's compare-and-swap: every field, section, settings and
+ * participant-step save goes through here, so this one predicate decides
+ * whether a form is editable at all.
+ *
+ * `updated_at` is compared millisecond-truncated on both sides. Postgres
+ * timestamps carry microseconds, but `expectedUpdatedAt` is the DTO's
+ * `Date#toISOString()` round trip and JS dates stop at milliseconds — so a
+ * token minted from a row whose `updated_at` has a non-zero microsecond
+ * remainder can never equal the column it was read from. Every write path in
+ * this file sets `updated_at` from a JS `Date`, which is why the raw equality
+ * held for years; the rows that do *not* come from this file are the ones it
+ * broke. `scripts/seed/forms.ts` inserts without `updated_at` and takes the
+ * column's `DEFAULT now()`, so every seeded form answered 409 STALE_WRITE to
+ * every builder edit, for the whole life of the row — a locally seeded form
+ * could not be edited at all, and re-running `pnpm seed` "fixed" it only
+ * because the conflict branch writes a JS `Date`. The same trap waits for any
+ * SQL-side writer: a backfill or repair migration that touches `updated_at`
+ * would otherwise lock organizers out of the forms it repaired.
+ *
+ * Truncating loses nothing this check relied on: it is the *token* that is
+ * millisecond-resolution, so two writes inside one millisecond were already
+ * indistinguishable before the truncation, whatever the column stored.
+ * `resource_pages` and `email_templates` compare the same way for the same
+ * reason.
+ */
 async function touchFormIn(dbOrTx: DbOrTx, eventId: EventId, form: BuilderForm, expectedUpdatedAt: string, now: Date): Promise<void> {
   const expected = new Date(expectedUpdatedAt);
   if (Number.isNaN(expected.getTime())) throw new AppError("VALIDATION", "expectedUpdatedAt must be an ISO timestamp");
   const [updated] = await dbOrTx.update(forms)
     .set({ updatedAt: now, rowVersion: sql`${forms.rowVersion} + 1` })
-    .where(and(eq(forms.id, form.id), eq(forms.eventId, eventId), eq(forms.updatedAt, expected)))
+    .where(and(
+      eq(forms.id, form.id),
+      eq(forms.eventId, eventId),
+      sql`date_trunc('milliseconds', ${forms.updatedAt}) = date_trunc('milliseconds', ${expected.toISOString()}::timestamptz)`,
+    ))
     .returning();
   if (!updated) throw new AppError("STALE_WRITE", "This form changed since you loaded it. Reload and try again.");
 }
