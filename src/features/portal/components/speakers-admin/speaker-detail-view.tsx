@@ -118,9 +118,18 @@ function EmailField({ eventId, contactId, email, onSaved }: { eventId: string; c
       }}
     >
       <input type="email" required value={draft} onChange={(event) => setDraft(event.target.value)} aria-label="Speaker email" autoFocus />
-      <Button type="submit" size="sm" disabled={saving}>Save</Button>
-      <button type="button" className="icon-button" aria-label="Cancel" onClick={() => setEditing(false)}>Cancel</button>
-      {error && <span className="field-error">{error}</span>}
+      <Button type="submit" size="sm" disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
+      {/* `.icon-button` is a fixed 36×36 grid cell with no padding — sized for
+          a 14px glyph, not a word, so "Cancel" overflowed its own box. It also
+          carried an `aria-label` that only repeated its visible text, which is
+          the one thing an accessible name must not do: a voice-control user
+          saying "Cancel" needs the label to match what they can read. */}
+      <Button type="button" variant="ghost" size="sm" disabled={saving} onClick={() => setEditing(false)}>Cancel</Button>
+      {/* The only one of the app's `.field-error` sites without `role="alert"`:
+          a rejected address (already taken, malformed) appeared silently to a
+          screen reader, leaving the organizer waiting on a save that had
+          already failed. */}
+      {error && <span className="field-error" role="alert">{error}</span>}
     </form>
   );
 }
