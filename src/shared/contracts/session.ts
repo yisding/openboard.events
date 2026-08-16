@@ -39,6 +39,21 @@ export const scheduledSessionDtoSchema = z.object({
   rowVersion: z.int().positive(),
   speakerIds: z.array(contactIdSchema),
   linkedSubmission: linkedSubmissionSchema.nullable().default(null),
+  /**
+   * How many people the originating submission said it expects, `null` for a
+   * manually created session or one whose abstract never declared a number.
+   *
+   * It is the *only* audience figure the product stores, and it is what the
+   * Auto-place planner already weighs a room's `capacity` against — carrying it
+   * on the session is what lets a manual placement (dialog save, grid drop) be
+   * warned about the same mismatch instead of only the automatic one.
+   *
+   * A sibling of `linkedSubmission` rather than a field inside it: this is a
+   * number about the *session's* placement, read once and never redisplayed,
+   * while `linkedSubmission` is the abstract's own identity as it stands now.
+   * Both come off the same abstract row, and the server reads them together.
+   */
+  expectedAttendance: z.int().nonnegative().nullable().default(null),
 });
 export type ScheduledSessionDTO = z.infer<typeof scheduledSessionDtoSchema>;
 

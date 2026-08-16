@@ -23,6 +23,7 @@ const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_opera
 // with ON CONFLICT — without it every `getOrCreate…` here raises "no unique or
 // exclusion constraint matching the ON CONFLICT specification".
 const migrationEmbedUnique = readFileSync(new URL("../../drizzle/0049_embeds_one_row_per_content_type.sql", import.meta.url), "utf8");
+const migrationSessionPlacementRevisions = readFileSync(new URL("../../drizzle/0050_session_placement_revisions.sql", import.meta.url), "utf8");
 
 const eventId = "b1000000-0000-4000-8000-000000000001" as EventId;
 const otherEventId = "b1000000-0000-4000-8000-000000000002" as EventId;
@@ -37,6 +38,7 @@ describe("embed config CRUD (M33/M53)", () => {
     await pglite.exec(migration1);
     await pglite.exec(migrationReviewOps);
     await pglite.exec(migrationEmbedUnique);
+    await pglite.exec(migrationSessionPlacementRevisions);
     db = drizzle(pglite, { schema }) as unknown as DbOrTx;
 
     await pglite.query(

@@ -32,6 +32,7 @@ const migrationEmailCompliance = readFileSync(new URL("../../drizzle/0007_email_
 // receipt, so this reduced fixture needs the receipt table as well.
 const migrationAgendaCreationReceipts = readFileSync(new URL("../../drizzle/0031_agenda_session_creation_receipts.sql", import.meta.url), "utf8");
 const migrationCalendarCancellationSnapshots = readFileSync(new URL("../../drizzle/0043_calendar_cancellation_snapshots.sql", import.meta.url), "utf8");
+const migrationSessionPlacementRevisions = readFileSync(new URL("../../drizzle/0050_session_placement_revisions.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("a8000000-0000-4000-8000-000000000001");
 const otherEventId = eventIdSchema.parse("a8000000-0000-4000-8000-000000000002");
@@ -112,6 +113,7 @@ describe("agenda sessions", () => {
     await pglite.exec(migrationEmailCompliance);
     await pglite.exec(migrationAgendaCreationReceipts);
     await pglite.exec(migrationCalendarCancellationSnapshots);
+    await pglite.exec(migrationSessionPlacementRevisions);
     testDb = createTestDb(pglite);
 
     await pglite.query(

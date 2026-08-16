@@ -109,6 +109,8 @@ beforeEach(() => {
       scheduleRevision: 0,
       rowVersion: 1,
       speakerIds: payload.speakerContactIds as ScheduledSessionDTO["speakerIds"],
+      linkedSubmission: null,
+      expectedAttendance: null,
     };
     sessions.publish([created]);
   });

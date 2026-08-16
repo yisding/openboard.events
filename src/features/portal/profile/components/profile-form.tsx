@@ -322,7 +322,16 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
  * Code points, not UTF-16 units, so a slice never lands mid-emoji.
  */
 function plainTextPreview(html: string): string {
-  const text = html.replace(/<[^>]*>/g, "");
+  // Strip to a fixpoint so nested fragments like `<scr<script>ipt>` cannot
+  // reassemble a tag. A regex loop rather than DOMParser: this render path
+  // also runs during SSR, where DOMParser does not exist, and the output must
+  // be identical on both sides to hydrate cleanly.
+  let text = html;
+  let before: string;
+  do {
+    before = text;
+    text = text.replace(/<[^>]*>/g, "");
+  } while (text !== before);
   const characters = [...text];
   return characters.length > 140 ? `${characters.slice(0, 140).join("")}…` : text;
 }

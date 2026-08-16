@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { agendaAuth, moveSession } from "@/features/agenda";
-import { eventIdSchema, roomIdSchema, sessionIdSchema } from "@/shared/contracts";
+import { eventIdSchema, roomIdSchema, sessionIdSchema, userIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
 import { revalidatePublicEvent } from "@/features/public/server/revalidate";
 import { nudgeAfterEnqueue } from "../../../nudge";
@@ -27,10 +27,13 @@ const move = defineHandler({
     endsAt: z.iso.datetime().nullable(),
     roomId: roomIdSchema.nullable(),
   }),
-  handler: async ({ eventId, input, params, requestId }) => {
+  handler: async ({ eventId, input, params, requestId, session: authSession }) => {
     const { sessionId } = paramsSchema.parse(params);
     const scopedEventId = eventIdSchema.parse(eventId);
-    const result = await moveSession(scopedEventId, { ...input, id: sessionId });
+    // Who moved it is half of what the placement history owes the organizer
+    // reading it back, so the actor travels with the write.
+    const actorUserId = authSession?.actorId ? userIdSchema.parse(authSession.actorId) : null;
+    const result = await moveSession(scopedEventId, { ...input, id: sessionId }, actorUserId);
     if (result.session.status === "published" && result.session.startsAt !== null) nudgeAfterEnqueue();
     // Moving a *published* session is a public change — a new time, a new room,
     // or (with a null time) its disappearance from the agenda — so the public

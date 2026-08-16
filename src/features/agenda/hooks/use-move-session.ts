@@ -7,6 +7,7 @@ import {
   scheduledSessionDtoSchema,
   type ConflictDTO,
   type EventId,
+  type RoomDTO,
   type RoomId,
   type ScheduledSessionDTO,
   type SessionId,
@@ -14,6 +15,7 @@ import {
 import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
 import { useToast } from "@/shared/ui/toast";
+import { roomCapacityWarning } from "../lib/room-capacity";
 import { agendaKeys } from "./keys";
 
 const moveResultSchema = z.object({ session: scheduledSessionDtoSchema, conflicts: z.array(conflictDtoSchema) });
@@ -67,7 +69,7 @@ export function undoVariablesForMove(
  * failure: a stale write also invalidates so the next render shows the other
  * admin's write, never a rolled-back guess masquerading as truth.
  */
-export function useMoveSession(eventId: EventId) {
+export function useMoveSession(eventId: EventId, rooms: readonly RoomDTO[] = []) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const key = agendaKeys.sessions(eventId);
@@ -123,7 +125,15 @@ export function useMoveSession(eventId: EventId) {
       acceptServerMove(result);
       const inverse = context?.previousSession ? undoVariablesForMove(context.previousSession, result.session) : null;
       if (!inverse) return;
-      toast(`“${result.session.title}” moved`, {
+      // MTP-07 step 12 — the drop's half of capacity awareness, on the toast
+      // that is already telling the organizer what happened and already
+      // offering to put it back. A separate warning toast would compete with
+      // that Undo for the same corner of the screen; a warning the organizer
+      // cannot act on is just noise, and this one comes with the action.
+      const capacityWarning = roomCapacityWarning(result.session, rooms);
+      toast(capacityWarning
+        ? `“${result.session.title}” moved — ${capacityWarning}`
+        : `“${result.session.title}” moved`, {
         durationMs: 8_000,
         action: { label: "Undo", onClick: () => undo.mutate(inverse) },
       });
