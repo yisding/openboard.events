@@ -33,10 +33,9 @@ as never having run rather than as a false "fresh" success. The hand-curled
 route below cannot undo that either: a tick whose stats say only
 `airtableSkippedDisabled` is not heartbeat-worthy, so `definePrivateJobRoute`
 returns it as a successful no-op without touching `scheduled_job_heartbeats`.
-Flipping
-`AIRTABLE_CRON` to `"1"` is a deliberate, separate deploy decision — see
-`docs/airtable.md`'s launch runbook — made once real connections exist and an
-acceptance transcript (`scripts/airtable-acceptance.ts`) has been captured.
+`AIRTABLE_CRON` ships `"1"` in every environment; it remains the kill switch
+for scheduled sync — set it back to `"0"` in both wrangler configs in the
+same deploy to pause cron pressure (see `docs/airtable.md`).
 The event settings panel's manual "Sync now" button is unaffected either way;
 it calls the sync engine directly and ignores this flag entirely.
 
@@ -67,8 +66,8 @@ curl 'http://localhost:8787/__scheduled?cron=*+*+*+*+*'
 ```
 
 That drives whatever the tick's own UTC clock says is due — the outbox always,
-reminders on a quarter hour, airtable five minutes off the quarter hour when
-`AIRTABLE_CRON=1` is set on `workers/jobs/wrangler.jsonc`'s dev config, cleanup
+reminders on a quarter hour, airtable five minutes off the quarter hour
+(`AIRTABLE_CRON` ships `"1"` on `workers/jobs/wrangler.jsonc`'s dev config), cleanup
 at 09:00 — so it is not a way to run one job in isolation. For that, run the
 web app with `pnpm dev` and call its private route directly; the entrypoint
 that hides these paths is the deployed Worker's, not the Next route:

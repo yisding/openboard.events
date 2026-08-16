@@ -13,8 +13,8 @@
   // it decides whether to dispatch the "airtable" job at all, so the flag
   // lives on this Worker too, not only on the web Worker it forwards to.
   // Mirrors the value in the top-level wrangler.jsonc's three env blocks;
-  // never flip to "1" here without flipping it there in the same deploy.
-  "vars": { "AIRTABLE_CRON": "0" },
+  // never change it here without changing it there in the same deploy.
+  "vars": { "AIRTABLE_CRON": "1" },
   "observability": { "enabled": true },
   "env": {
     "preview": {
@@ -23,7 +23,7 @@
       "services": [
         { "binding": "WEB_JOBS", "service": "sb-web-preview", "entrypoint": "JobsEntrypoint" }
       ],
-      "vars": { "AIRTABLE_CRON": "0" },
+      "vars": { "AIRTABLE_CRON": "1" },
       "observability": { "enabled": true }
     },
     "production": {
@@ -32,7 +32,7 @@
       "services": [
         { "binding": "WEB_JOBS", "service": "sb-web", "entrypoint": "JobsEntrypoint" }
       ],
-      "vars": { "AIRTABLE_CRON": "0" },
+      "vars": { "AIRTABLE_CRON": "1" },
       "observability": { "enabled": true }
     }
   }

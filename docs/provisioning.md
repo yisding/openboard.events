@@ -331,8 +331,8 @@ stores only the credentials and direct database URL needed by the deployment wor
   `EMAIL_ALLOWLIST`.
 - [ ] Create `sb-jobs` after `sb-web`, and confirm its declared `WEB_JOBS` binding resolves to
   `sb-web#JobsEntrypoint`, its application secret inventory is empty, and `AIRTABLE_CRON` is
-  `"0"` (the shipped default in `workers/jobs/wrangler.jsonc` — flipping it to `"1"` is a
-  separate, deliberate release gated on the acceptance transcript; see `docs/airtable.md`).
+  `"1"` (the shipped default in `workers/jobs/wrangler.jsonc`; it is the scheduled-sync kill
+  switch — see `docs/airtable.md`).
 - [ ] After preview has passed at least one scheduled 15-minute uptime cycle, manually run the
   `Deploy` workflow for `production` and approve its protected environment gate. The workflow
   first replays the exact commit through preview; production cannot be selected alone.
