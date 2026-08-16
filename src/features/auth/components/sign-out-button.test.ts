@@ -37,16 +37,18 @@ describe("sign-out destination", () => {
     expect(signOutDestination("portal", "community-ai", undefined)).toBe("/portal/community-ai/login");
   });
 
-  it("keeps the compact icon control specialized and uses the shared ghost button otherwise", async () => {
+  it("keeps the compact icon control specialized and uses a bordered shared button otherwise", async () => {
     vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)));
     const compact = await renderSignOut(true);
     const labeled = await renderSignOut(false);
     try {
       expect(compact.button.getAttribute("aria-label")).toBe("Sign out");
       expect(compact.button.classList.contains("icon-button")).toBe(true);
-      expect(compact.button.classList.contains("button-ghost")).toBe(false);
+      expect(compact.button.classList.contains("button-secondary")).toBe(false);
       expect(labeled.button.textContent).toContain("Sign out");
-      expect(labeled.button.classList.contains("button-ghost")).toBe(true);
+      // Secondary, not ghost: on `/events` this is the only way off the
+      // screen, and a borderless control beside an avatar reads as a caption.
+      expect(labeled.button.classList.contains("button-secondary")).toBe(true);
       expect(labeled.button.classList.contains("button-sm")).toBe(true);
 
       await act(async () => labeled.button.click());

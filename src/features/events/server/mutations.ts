@@ -142,8 +142,23 @@ export async function createEventIn(
    */
   options?: { isDemo?: boolean },
 ): Promise<EventDTO> {
-  const slugCandidate = slugify((input.slug ?? "").trim() || input.name);
-  assertValidSlug(slugCandidate);
+  /**
+   * A slug the organizer *typed* is theirs to fix; a slug we derived from the
+   * event name is ours.
+   *
+   * "Community AI Summit" is a name two organizations reach for independently,
+   * and `events_slug_key` is global — so the second one filled in a name,
+   * pressed Create event, and was told "That slug is taken" about a field they
+   * had never opened, on a page whose slug input lives behind a collapsed
+   * disclosure. There was nothing wrong with what they entered and no obvious
+   * thing to change. Derived slugs therefore step aside for a suffix, exactly
+   * like session and resource-page slugs already do; a typed one still fails
+   * loudly, because that one *is* an answer to a question we asked.
+   */
+  const requestedSlug = (input.slug ?? "").trim();
+  const slugBase = slugify(requestedSlug || input.name);
+  assertValidSlug(slugBase);
+  const derivedSlug = requestedSlug === "";
   assertValidTimezone(input.timezone);
   const startsAt = new Date(input.startsAt);
   const endsAt = new Date(input.endsAt);
@@ -152,88 +167,110 @@ export async function createEventIn(
   }
 
   const eventId = input.id ?? eventIdSchema.parse(crypto.randomUUID());
-  try {
-    await dbOrTx.insert(events).values({
-      id: eventId,
-      name: input.name.trim(),
-      slug: slugCandidate,
-      eventType: input.eventType,
-      websiteUrl: input.websiteUrl || null,
-      location: input.location || null,
-      physicalAddress: input.physicalAddress || null,
-      timezone: input.timezone,
-      startsAt,
-      endsAt,
-      theme: input.theme || null,
-      // Omitted when the caller has no organization to name, which is what
-      // leaves `events.organization_id`'s column DEFAULT in charge — the
-      // additive shape `drizzle/0010_organization_tenancy.sql` relies on for
-      // seeds and fixtures. Every *request-driven* caller now passes one: that
-      // default is the migration's compatibility hinge, not a tenancy policy,
-      // and letting it decide meant a self-serve organization's event landed in
-      // the shared default tenant.
-      ...(organizationId ? { organizationId } : {}),
-      // Spread rather than assigned so an omitted option leaves the column
-      // DEFAULT (`false`) in charge, exactly like `organizationId` above.
-      ...(options?.isDemo ? { isDemo: true } : {}),
-    });
-  } catch (error) {
-    if (input.id && isConstraintViolation(error, EVENTS_PRIMARY_KEY)) {
-      const [colliding] = await dbOrTx.select({
-        id: events.id,
-        slug: events.slug,
-        organizationId: events.organizationId,
-      }).from(events).where(eq(events.id, input.id)).limit(1);
-      const organizationMatches = organizationId === undefined || colliding?.organizationId === organizationId;
-      if (colliding?.slug === slugCandidate && organizationMatches) {
-        const [membership] = await dbOrTx.select({ userId: eventMembers.userId })
-          .from(eventMembers)
-          .where(and(eq(eventMembers.eventId, input.id), eq(eventMembers.userId, actorUserId)))
-          .limit(1);
-        const repairable = await isRepairableOrphanIn(dbOrTx, input.id, actorUserId);
-        if (membership || repairable) {
-          // Re-run the idempotent seeds only when the existing orphan heuristic
-          // says this create stopped before its defaults were complete.
-          if (repairable) {
-            await grantOwnerIn(dbOrTx, input.id, actorUserId);
-            await seedEventDefaultsIn(dbOrTx, input.id);
+  // Only ever more than one for a derived slug, and bounded: this is a
+  // courtesy suffix, not a search. Two organizations naming the same
+  // conference is ordinary; eight are not, and at that point the honest answer
+  // is to ask for a slug.
+  const slugCandidates = derivedSlug
+    ? [slugBase, ...[2, 3, 4, 5, 6, 7, 8].map((ordinal) => `${slugBase}-${ordinal}`)]
+    : [slugBase];
+  for (const [attempt, slugCandidate] of slugCandidates.entries()) {
+    const lastAttempt = attempt === slugCandidates.length - 1;
+    try {
+      await dbOrTx.insert(events).values({
+        id: eventId,
+        name: input.name.trim(),
+        slug: slugCandidate,
+        eventType: input.eventType,
+        websiteUrl: input.websiteUrl || null,
+        location: input.location || null,
+        physicalAddress: input.physicalAddress || null,
+        timezone: input.timezone,
+        startsAt,
+        endsAt,
+        theme: input.theme || null,
+        // Omitted when the caller has no organization to name, which is what
+        // leaves `events.organization_id`'s column DEFAULT in charge — the
+        // additive shape `drizzle/0010_organization_tenancy.sql` relies on for
+        // seeds and fixtures. Every *request-driven* caller now passes one: that
+        // default is the migration's compatibility hinge, not a tenancy policy,
+        // and letting it decide meant a self-serve organization's event landed in
+        // the shared default tenant.
+        ...(organizationId ? { organizationId } : {}),
+        // Spread rather than assigned so an omitted option leaves the column
+        // DEFAULT (`false`) in charge, exactly like `organizationId` above.
+        ...(options?.isDemo ? { isDemo: true } : {}),
+      });
+    } catch (error) {
+      if (input.id && isConstraintViolation(error, EVENTS_PRIMARY_KEY)) {
+        const [colliding] = await dbOrTx.select({
+          id: events.id,
+          slug: events.slug,
+          organizationId: events.organizationId,
+        }).from(events).where(eq(events.id, input.id)).limit(1);
+        const organizationMatches = organizationId === undefined || colliding?.organizationId === organizationId;
+        // The slug correlation is what tells a replay of *this* create apart
+        // from a stable id reused for a different event. A derived slug makes
+        // that a family rather than a single string: the attempt whose response
+        // was lost may already have settled on `-2`, and demanding an exact
+        // match would refuse to recover the very row it committed.
+        const slugCorrelates = colliding !== undefined
+          && (colliding.slug === slugCandidate || (derivedSlug && slugCandidates.includes(colliding.slug)));
+        if (slugCorrelates && organizationMatches) {
+          const [membership] = await dbOrTx.select({ userId: eventMembers.userId })
+            .from(eventMembers)
+            .where(and(eq(eventMembers.eventId, input.id), eq(eventMembers.userId, actorUserId)))
+            .limit(1);
+          const repairable = await isRepairableOrphanIn(dbOrTx, input.id, actorUserId);
+          if (membership || repairable) {
+            // Re-run the idempotent seeds only when the existing orphan heuristic
+            // says this create stopped before its defaults were complete.
+            if (repairable) {
+              await grantOwnerIn(dbOrTx, input.id, actorUserId);
+              await seedEventDefaultsIn(dbOrTx, input.id);
+            }
+            const recovered = await getEventIn(dbOrTx, input.id);
+            if (!recovered) throw new AppError("INTERNAL", "Could not load the recovered event");
+            return recovered;
           }
-          const recovered = await getEventIn(dbOrTx, input.id);
-          if (!recovered) throw new AppError("INTERNAL", "Could not load the recovered event");
-          return recovered;
         }
+        throw new AppError("VALIDATION", "That event creation request was already used");
       }
-      throw new AppError("VALIDATION", "That event creation request was already used");
+      if (!isConstraintViolation(error, EVENTS_SLUG_UNIQUE)) throw error;
+      // `organizationId` is checked here for the same reason the id branch above
+      // checks it: `events_slug_key` is global, so a colliding row can belong to
+      // a different tenant. If organization A's create crashed between the
+      // `events` INSERT and `grantOwnerIn`, it leaves a zero-member, unseeded row
+      // — repairable by this heuristic — and the next user in organization B
+      // whose event name slugifies the same way was granted `owner` on it. B's
+      // "new" event then lived under A's `organization_id`: wrong tenant for the
+      // org directory, for team access, and for billing, while A's own retry was
+      // told "That slug is taken".
+      const [colliding] = await dbOrTx.select({ id: events.id, organizationId: events.organizationId })
+        .from(events).where(eq(events.slug, slugCandidate)).limit(1);
+      const collidingOrganizationMatches = organizationId === undefined || colliding?.organizationId === organizationId;
+      if (colliding && collidingOrganizationMatches && await isRepairableOrphanIn(dbOrTx, colliding.id as EventId, actorUserId)) {
+        const orphanId = colliding.id as EventId;
+        await grantOwnerIn(dbOrTx, orphanId, actorUserId);
+        await seedEventDefaultsIn(dbOrTx, orphanId);
+        const healed = await getEventIn(dbOrTx, orphanId);
+        if (!healed) throw new AppError("INTERNAL", "Could not load the repaired event");
+        return healed;
+      }
+      // A derived slug steps aside for the next suffix; a typed one, and the
+      // last candidate either way, still says so.
+      if (!lastAttempt) continue;
+      throw new AppError("VALIDATION", "That slug is taken", { field: "slug" });
     }
-    if (!isConstraintViolation(error, EVENTS_SLUG_UNIQUE)) throw error;
-    // `organizationId` is checked here for the same reason the id branch above
-    // checks it: `events_slug_key` is global, so a colliding row can belong to
-    // a different tenant. If organization A's create crashed between the
-    // `events` INSERT and `grantOwnerIn`, it leaves a zero-member, unseeded row
-    // — repairable by this heuristic — and the next user in organization B
-    // whose event name slugifies the same way was granted `owner` on it. B's
-    // "new" event then lived under A's `organization_id`: wrong tenant for the
-    // org directory, for team access, and for billing, while A's own retry was
-    // told "That slug is taken".
-    const [colliding] = await dbOrTx.select({ id: events.id, organizationId: events.organizationId })
-      .from(events).where(eq(events.slug, slugCandidate)).limit(1);
-    const collidingOrganizationMatches = organizationId === undefined || colliding?.organizationId === organizationId;
-    if (colliding && collidingOrganizationMatches && await isRepairableOrphanIn(dbOrTx, colliding.id as EventId, actorUserId)) {
-      const orphanId = colliding.id as EventId;
-      await grantOwnerIn(dbOrTx, orphanId, actorUserId);
-      await seedEventDefaultsIn(dbOrTx, orphanId);
-      const healed = await getEventIn(dbOrTx, orphanId);
-      if (!healed) throw new AppError("INTERNAL", "Could not load the repaired event");
-      return healed;
-    }
-    throw new AppError("VALIDATION", "That slug is taken", { field: "slug" });
-  }
 
-  await grantOwnerIn(dbOrTx, eventId, actorUserId);
-  await seedEventDefaultsIn(dbOrTx, eventId);
-  const created = await getEventIn(dbOrTx, eventId);
-  if (!created) throw new AppError("INTERNAL", "Could not load the created event");
-  return created;
+    await grantOwnerIn(dbOrTx, eventId, actorUserId);
+    await seedEventDefaultsIn(dbOrTx, eventId);
+    const created = await getEventIn(dbOrTx, eventId);
+    if (!created) throw new AppError("INTERNAL", "Could not load the created event");
+    return created;
+  }
+  // Unreachable: the loop either returns or throws on its last candidate.
+  throw new AppError("VALIDATION", "That slug is taken", { field: "slug" });
 }
 export const createEvent = (actorUserId: UserId, input: CreateEventInput, organizationId?: OrganizationId): Promise<EventDTO> =>
   createEventIn(db, actorUserId, input, organizationId);
