@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useRef, useState } from "react";
 import { forgetTourMirror, GuidedTourMount, TourAnchor } from "@/shared/ui/app/guided-tour";
-import type { TourBootstrap, TourChapter, TourStateWire, TourStep, TourTransport } from "@/shared/ui/app/guided-tour";
+import type { TourBootstrap, TourChapter, TourCompletion, TourStateWire, TourStep, TourTransport } from "@/shared/ui/app/guided-tour";
 import { Button, PageHeader, StatusBadge } from "@/shared/ui/ui-kit";
 
 /**
@@ -145,7 +145,15 @@ export function TourHarness() {
     context: { eventId: "fixture" },
   }), [transport]);
 
-  const reset = useCallback(() => {
+  /**
+   * Back to the top, fixture and all.
+   *
+   * Both the Reset button and the end of the tour land here. Winding the
+   * fixture back is not tidiness: the mirror still records the finished
+   * cursor and the stage still holds whatever satisfied the last objective,
+   * so a second run over either would come up already complete.
+   */
+  const rewind = useCallback(() => {
     // The engine owns the key; a second copy of the prefix here is a silent
     // no-op the day `mirror.ts` changes it.
     forgetTourMirror(SCOPE_ID);
@@ -153,10 +161,26 @@ export function TourHarness() {
     shippedRef.current = 0;
     setShipped(0);
     setPanelOpen(false);
-    setLog([]);
     setRunning(false);
     setGeneration((current) => current + 1);
   }, []);
+
+  const reset = useCallback(() => {
+    rewind();
+    setLog([]);
+  }, [rewind]);
+
+  /**
+   * The harness has to *watch* the tour end, not assume it never does.
+   *
+   * Without this, finishing a run left "Start the tour" disabled and labelled
+   * "Running" over a tutorial that had visibly stopped — and Reset, which also
+   * wipes the transport log the page exists to show, was the only way back.
+   */
+  const onComplete = useCallback(({ via }: TourCompletion) => {
+    note(`tour ${via === "skipped" ? "closed early" : "finished"} — harness rewound`);
+    rewind();
+  }, [note, rewind]);
 
   const ship = useCallback(() => {
     shippedRef.current += 1;
@@ -223,7 +247,7 @@ export function TourHarness() {
           </ul>}
       </section>
 
-      <GuidedTourMount key={generation} bootstrap={running ? bootstrap : null} />
+      <GuidedTourMount key={generation} bootstrap={running ? bootstrap : null} onComplete={onComplete} />
     </main>
   );
 }
