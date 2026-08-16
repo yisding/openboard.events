@@ -102,11 +102,19 @@ const envSchema = z.object({
   EMAIL_MODE: z.enum(["log", "send"]).default("log"),
   EMAIL_ALLOWLIST: optionalString,
   EMAIL_FALLBACK_UI: z.enum(["0", "1"]).default("1"),
+  // Local-only convenience for scripts/airtable-acceptance.ts. The sync engine
+  // never reads it — every token it uses comes sealed out of
+  // `airtable_connections`, per event, via the settings-panel connect flow.
+  // The trailing `.superRefine` below fails a deployed build that carries a
+  // standing global PAT closed rather than leaving it live unused.
   AIRTABLE_API_KEY: optionalString,
-  AIRTABLE_BASE_ID: optionalString,
-  // M39 is deferred and has no production implementation. A deployed flag
-  // must not make a missing integration look like successful scheduled work.
-  AIRTABLE_CRON: z.literal("0").default("0"),
+  // M39 is live: a bounded, idempotent, performUpsert-keyed push per connected
+  // event. "1" enables the *scheduled* sweep only — the settings panel's
+  // manual "Sync now" always works, because this flag gates cron pressure, not
+  // the feature. Default stays "0": enabling scheduled work is a deploy
+  // decision made once the first connections exist and the acceptance
+  // transcript is captured (scripts/airtable-acceptance.ts).
+  AIRTABLE_CRON: z.enum(["0", "1"]).default("0"),
   // Retired settings stay explicit for one release so stale deployment or
   // local configuration fails closed instead of silently implying a switch
   // that no longer exists.
@@ -219,6 +227,15 @@ const envSchema = z.object({
     }
     if (env.BILLING_MODE !== "disabled") {
       context.addIssue({ code: "custom", path: ["BILLING_MODE"], message: `must be disabled in ${env.APP_ENV} until a real provider adapter exists` });
+    }
+    // A global Airtable PAT in a multi-tenant deployment is a cross-tenant
+    // write waiting to happen — every real credential is per-event, sealed in
+    // `airtable_connections`. This is a rule, not a comment, so a deployed
+    // build that somehow carries one fails closed instead of the key sitting
+    // there unused (best case) or getting reached for by a future shortcut
+    // (worst case).
+    if (env.AIRTABLE_API_KEY) {
+      context.addIssue({ code: "custom", path: ["AIRTABLE_API_KEY"], message: `must be unset in ${env.APP_ENV} — it is a local-only convenience for scripts/airtable-acceptance.ts` });
     }
   }
 

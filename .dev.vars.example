@@ -13,8 +13,11 @@ EMAIL_REPLY_TO=
 EMAIL_MODE=log
 EMAIL_ALLOWLIST=
 EMAIL_FALLBACK_UI=1
+# Local-only convenience for scripts/airtable-acceptance.ts (never read by
+# the app itself — every real token is per-event, sealed in
+# airtable_connections). Setting this in a deployed environment fails the
+# build closed; see src/shared/lib/env.ts.
 AIRTABLE_API_KEY=
-AIRTABLE_BASE_ID=
 AIRTABLE_CRON=0
 R2_ACCOUNT_ID=
 R2_ACCESS_KEY_ID=

@@ -43,6 +43,13 @@ export const STATUS_BADGES = {
   complained: { label: "Spam complaint", tone: "danger" },
   processing: { label: "Processing", tone: "review" },
   completed: { label: "Completed", tone: "success" },
+  /**
+   * Work that stopped for a reason the *customer* owns — a missing permission,
+   * a table someone renamed in their own Airtable base. Amber rather than red
+   * on purpose: it is not a defect on our side and it is not an incident, it
+   * is a change somebody needs to make and can.
+   */
+  blocked: { label: "Needs attention", tone: "warning" },
 
   complete: { label: "Complete", tone: "success" },
   ready: { label: "Ready", tone: "success" },

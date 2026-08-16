@@ -64,7 +64,9 @@ vars=(
   --var "DEPLOYMENT_ID:$deployment_id"
 )
 [[ -n "${EMAIL_ALLOWLIST:-}" ]] && vars+=(--var "EMAIL_ALLOWLIST:$EMAIL_ALLOWLIST")
-[[ -n "${AIRTABLE_BASE_ID:-}" ]] && vars+=(--var "AIRTABLE_BASE_ID:$AIRTABLE_BASE_ID")
+# AIRTABLE_CRON itself is a plain `vars` entry in wrangler.jsonc, not threaded
+# through here — every real Airtable connection is per-event and sealed in
+# the database, so there is no per-deploy base id to pass through anymore.
 
 pnpm build:worker --env "$target_env"
 # Re-run the supported-artifact contract against the exact environment before

@@ -52,6 +52,23 @@ export async function settledJobStats(
   return stats;
 }
 
+/**
+ * Did this tick do work a heartbeat should vouch for?
+ *
+ * A sweep gated off by a flag returns `{ …SkippedDisabled: 1 }` and nothing
+ * else. Recording that as a success writes `last_succeeded_at`, and
+ * `/api/health` then reports a small `…LastSuccessAgeSeconds` for an
+ * integration that has never run — precisely the "a flag must not make an
+ * unrun integration look like successful scheduled work" failure the dispatcher
+ * gate exists to prevent, reachable by hand-curling the private route that
+ * `workers/jobs/README.md` documents. A tick with no stats at all is ordinary
+ * (nothing was due) and still counts.
+ */
+function isHeartbeatWorthy(stats: JobStats): boolean {
+  const keys = Object.keys(stats);
+  return keys.length === 0 || !keys.every((key) => key.endsWith("SkippedDisabled"));
+}
+
 export function definePrivateJobRoute(job: JobName, run: () => Promise<JobStats>) {
   async function POST(request: Request) {
     if (request.headers.get(PRIVATE_JOB_HEADER) !== PRIVATE_JOB_HEADER_VALUE) {
@@ -61,7 +78,7 @@ export function definePrivateJobRoute(job: JobName, run: () => Promise<JobStats>
     const requestId = request.headers.get("cf-ray") ?? `rpc:${crypto.randomUUID()}`;
     try {
       const stats = await run();
-      await recordJobSuccess(job, Date.now() - started);
+      if (isHeartbeatWorthy(stats)) await recordJobSuccess(job, Date.now() - started);
       const result: JobResult = { job, ok: true, stats, ms: Date.now() - started };
       log({ level: "info", msg: "job.complete", requestId, feature: "jobs", code: job, durationMs: result.ms, stats });
       return Response.json(result);

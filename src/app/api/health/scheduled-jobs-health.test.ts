@@ -18,6 +18,7 @@ describe("scheduledJobsHealth", () => {
       outbox_at: "2026-08-11T12:59:30Z",
       reminders_at: "2026-08-11T12:50:00Z",
       cleanup_at: null,
+      airtable_at: "2026-08-11T12:55:00Z",
       internal_result: "must-not-escape",
     }), now);
     expect(result).toEqual({
@@ -25,6 +26,7 @@ describe("scheduledJobsHealth", () => {
       outboxLastSuccessAgeSeconds: 30,
       remindersLastSuccessAgeSeconds: 600,
       cleanupLastSuccessAgeSeconds: null,
+      airtableLastSuccessAgeSeconds: 300,
     });
     expect(JSON.stringify(result)).not.toContain("internal_result");
   });
@@ -35,6 +37,7 @@ describe("scheduledJobsHealth", () => {
       outboxLastSuccessAgeSeconds: null,
       remindersLastSuccessAgeSeconds: null,
       cleanupLastSuccessAgeSeconds: null,
+      airtableLastSuccessAgeSeconds: null,
     });
   });
 

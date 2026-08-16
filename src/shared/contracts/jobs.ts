@@ -1,4 +1,4 @@
-export type JobName = "outbox" | "reminders" | "cleanup";
+export type JobName = "outbox" | "reminders" | "cleanup" | "airtable";
 export type JobStats = Record<string, number>;
 
 export const PRIVATE_JOB_PATH_PREFIX = "/worker-jobs/";

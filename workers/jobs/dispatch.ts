@@ -3,6 +3,7 @@ import { JOB_REQUEST_TIMEOUT_MS, type JobService } from "../job-service";
 
 export interface Env {
   WEB_JOBS: JobService;
+  AIRTABLE_CRON?: string;
 }
 export type JobRpc = (job: JobName) => Promise<Response>;
 
@@ -26,14 +27,24 @@ async function runRpcWithDeadline(rpc: JobRpc, job: JobName): Promise<Response> 
   }
 }
 
-export function jobsForScheduledTime(scheduledTime: number): JobName[] {
+export function jobsForScheduledTime(
+  scheduledTime: number,
+  options?: { airtableCron?: string | undefined },
+): JobName[] {
   const scheduled = new Date(scheduledTime);
   const minute = scheduled.getUTCMinutes();
   const jobs: JobName[] = ["outbox"];
   if (minute % 15 === 0) jobs.push("reminders");
-  // Airtable is a deferred bonus with no production implementation. Do not
-  // make a stub look like successful scheduled work; add it here only when
-  // the real idempotent sync and its production acceptance proof exist.
+  // M39 is live: the web-side sweep claims a bounded set of connected events,
+  // leases each one, upserts changed records keyed on `Openboard ID`, and
+  // reports the remainder it did not reach. It runs five minutes off the
+  // quarter hour so it never shares a tick with `reminders`. The flag is read
+  // *here* on purpose: with AIRTABLE_CRON unset or "0" nothing is dispatched,
+  // so no heartbeat is written and the health endpoint reports the
+  // integration as never having run — a flag must not make an unrun
+  // integration look like successful scheduled work. Manual "Sync now" is
+  // unaffected; it bypasses this dispatcher entirely.
+  if (options?.airtableCron === "1" && minute % 15 === 5) jobs.push("airtable");
   if (scheduled.getUTCHours() === 9 && minute === 0) jobs.push("cleanup");
   return jobs;
 }

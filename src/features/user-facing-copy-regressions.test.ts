@@ -24,6 +24,32 @@ describe("user-facing copy regressions", () => {
     expect(fileUpload).toContain("The upload could not be completed. Try again.");
   });
 
+  it("keeps the Airtable panel free of raw run statuses, scope strings, and generic failures", () => {
+    const copy = read("./airtable/copy.ts");
+    const card = read("./airtable/components/SyncStatusCard.tsx");
+    const panel = read("./airtable/components/AirtableSettingsPanel.tsx");
+
+    // Four backend run statuses, four authored labels — the badge, never the enum.
+    expect(card).toContain("<StatusBadge value={RUN_BADGES[row.original.status]} />");
+    expect(card).not.toContain("{row.original.status}");
+    expect(card).toContain("{AIRTABLE_COPY.trigger[row.original.trigger]}");
+
+    // Airtable's own scope identifiers are configuration, not language. They
+    // appear in `scopes.ts` as data and nowhere as rendered text.
+    expect(copy).not.toContain("data.records:");
+    expect(copy).not.toContain("schema.bases:");
+
+    const surfaces = `${copy}${card}${panel}`;
+    expect(surfaces).not.toMatch(/something went wrong/iu);
+    expect(surfaces).not.toMatch(/an error occurred/iu);
+    expect(surfaces).not.toMatch(/unexpected error/iu);
+
+    // Bounded work names its remainder rather than reading as truncation.
+    expect(copy).toContain("the next run picks up exactly where this one stopped");
+    // And a disconnect says what happens to the customer's own data.
+    expect(copy).toContain("stay exactly as they are — that base is yours");
+  });
+
   it("labels non-production credentials as demo access instead of development diagnostics", () => {
     const cfp = read("./forms/components/cfp-steps.tsx");
     const portal = read("./auth/components/portal-login-form.tsx");
