@@ -499,12 +499,24 @@ describe("portal task runtime", () => {
     // as empty. The two lines beside it already resolved track and format
     // correctly; level was missed.
     const levelField = "c4000000-0000-4000-8000-000000000059";
-    const levelSnapshot = structuredClone(PORTAL_SNAPSHOT) as typeof PORTAL_SNAPSHOT;
-    levelSnapshot.version = 4;
-    levelSnapshot.sections[0]?.fields.push({
-      id: levelField, key: "level", label: "Session level", type: "dropdown", required: false, locked: false,
-      maxChars: null, helpText: "", visibility: null, mapsTo: "submission.level",
-      options: [{ id: "lvl-beg", label: "Beginner" }, { id: "lvl-adv", label: "Advanced" }],
+    // Re-parsed rather than pushed onto the cloned array: the snapshot's field
+    // ids are branded, and the schema is what mints them.
+    const levelSnapshot = formSnapshotSchema.parse({
+      ...structuredClone(PORTAL_SNAPSHOT),
+      version: 4,
+      sections: PORTAL_SNAPSHOT.sections.map((section, index) => (index === 0
+        ? {
+          ...structuredClone(section),
+          fields: [
+            ...structuredClone(section.fields),
+            {
+              id: levelField, key: "level", label: "Session level", type: "dropdown", required: false, locked: false,
+              maxChars: null, helpText: "", visibility: null, mapsTo: "submission.level",
+              options: [{ id: "lvl-beg", label: "Beginner" }, { id: "lvl-adv", label: "Advanced" }],
+            },
+          ],
+        }
+        : structuredClone(section))),
     });
     await pglite.query("INSERT INTO form_versions(event_id,form_id,version,snapshot) VALUES($1,$2,4,$3::jsonb)", [eventId, formId, JSON.stringify(levelSnapshot)]);
     await pglite.query("UPDATE forms SET current_version=4 WHERE id=$1", [formId]);
