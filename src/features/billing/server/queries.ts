@@ -1,4 +1,4 @@
-import { asc, count, eq } from "drizzle-orm";
+import { and, asc, count, eq } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { billingPlans, events, organizationSubscriptions, organizationUsageCounters } from "@/db/schema";
 import {
@@ -75,9 +75,36 @@ export async function listOrganizationUsageCountersIn(dbOrTx: DbOrTx, organizati
 export const listOrganizationUsageCounters = (organizationId: OrganizationId): Promise<OrganizationUsageCounterDTO[]> =>
   listOrganizationUsageCountersIn(db, organizationId);
 
-/** Live count, not the `organization_usage_counters` cache — the authoritative source for "how many events does this organization have right now". */
+/**
+ * Live count, not the `organization_usage_counters` cache — the authoritative
+ * source for "how many events does this organization have right now".
+ *
+ * First Fair: demo events are excluded here, at the single read both
+ * `assertOrganizationCanCreateEventIn` and `getOrganizationBillingSummaryIn`
+ * go through, so the entitlement gate and the number on the billing page can
+ * never disagree. Charging a free-plan organizer one of five slots to look at
+ * a tutorial is hostile, and it creates the one failure mode where the tour is
+ * unavailable precisely when it is most useful: an organization sitting at its
+ * cap. The demo is never metered either (`incrementOrganizationUsageIn` is
+ * never called for it), so there is nothing to unwind when it is deleted.
+ * `events_org_real_idx` (drizzle/0044) is the partial index this predicate
+ * reads through.
+ */
 export async function countOrganizationEventsIn(dbOrTx: DbOrTx, organizationId: OrganizationId): Promise<number> {
-  const [row] = await dbOrTx.select({ n: count() }).from(events).where(eq(events.organizationId, organizationId));
+  const [row] = await dbOrTx.select({ n: count() }).from(events)
+    .where(and(eq(events.organizationId, organizationId), eq(events.isDemo, false)));
+  return row?.n ?? 0;
+}
+
+/**
+ * The other half of the same truth. The billing page says "0 of 5 events" while
+ * a demo exists, which without a second line reads as though the conference on
+ * the organizer's screen is not being counted by mistake. Naming the exemption
+ * out loud is what turns a confusing number into a deliberate one.
+ */
+export async function countOrganizationDemoEventsIn(dbOrTx: DbOrTx, organizationId: OrganizationId): Promise<number> {
+  const [row] = await dbOrTx.select({ n: count() }).from(events)
+    .where(and(eq(events.organizationId, organizationId), eq(events.isDemo, true)));
   return row?.n ?? 0;
 }
 
@@ -92,14 +119,15 @@ export async function getOrganizationBillingSummaryIn(dbOrTx: DbOrTx, organizati
   if (!subscription) throw new AppError("INTERNAL", "This organization has no billing subscription row");
   const plan = await getBillingPlanIn(dbOrTx, subscription.planId);
   if (!plan) throw new AppError("INTERNAL", `Unknown billing plan "${subscription.planId}"`);
-  const [used, counters] = await Promise.all([
+  const [used, demoEvents, counters] = await Promise.all([
     countOrganizationEventsIn(dbOrTx, organizationId),
+    countOrganizationDemoEventsIn(dbOrTx, organizationId),
     listOrganizationUsageCountersIn(dbOrTx, organizationId),
   ]);
   return organizationBillingSummaryDtoSchema.parse({
     plan,
     subscription,
-    usage: { events: { used, limit: plan.maxEvents } },
+    usage: { events: { used, limit: plan.maxEvents }, demoEvents },
     counters,
   });
 }

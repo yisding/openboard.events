@@ -81,6 +81,62 @@ describe("admin shell skip navigation", () => {
   });
 });
 
+describe("the demo event's shell", () => {
+  const eventId = eventIdSchema.parse("00000000-0000-4000-8000-000000000001");
+
+  function bootstrap() {
+    return {
+      scopeId: eventId,
+      statePath: `events/${eventId}/tour`,
+      stepsPath: `events/${eventId}/tour/steps`,
+      chapters: [{ id: "cold-open", name: "Cold open" }],
+      steps: [{ id: "coldopen.hello", chapter: "cold-open", kind: "beat" as const, title: "Hello", body: "Ten minutes?" }],
+      cursor: { chapter: "cold-open", stepId: "coldopen.hello", status: "active" as const },
+      completed: [],
+      questsDone: [],
+      world: {},
+      context: { eventId },
+    };
+  }
+
+  function render(props: Partial<Parameters<typeof AdminShell>[0]> = {}) {
+    return renderToStaticMarkup(
+      <AdminShell
+        eventId={eventId}
+        role="organizer"
+        canCreateEvent
+        event={{ id: eventId, slug: "summit", name: "Summit", shortName: "SUM", isDemo: true }}
+        {...props}
+      >
+        <section aria-label="Dashboard">Dashboard content</section>
+      </AdminShell>,
+    );
+  }
+
+  it("labels the demo in the topbar so nobody loses track of which tab is the sandbox", () => {
+    expect(render()).toContain('data-status="demo"');
+    expect(render({ event: { id: eventId, slug: "summit", name: "Summit", shortName: "SUM" } })).not.toContain('data-status="demo"');
+  });
+
+  it("still server-renders the whole shell while a tour is mounted", () => {
+    // The mount is `ssr: false`. Making it an ancestor would blank the admin
+    // shell on demo events until hydration.
+    const html = render({ tour: bootstrap() });
+
+    expect(html).toContain('id="admin-content"');
+    expect(html).toContain("Dashboard content");
+    expect(html).toContain('id="admin-navigation"');
+  });
+
+  it("never offers a reviewer a tutorial", () => {
+    const html = render({ role: "reviewer", tour: bootstrap() });
+
+    // Reviewer hints, not the organizer set — and certainly not silence.
+    expect(html).toContain("hint-on-nav");
+    expect(html).toContain("Dashboard content");
+  });
+});
+
 describe("admin main landmark ownership", () => {
   it.each(ADMIN_CHILD_VIEWS)("does not nest a main landmark in %s", (relativePath) => {
     const source = readFileSync(new URL(relativePath, import.meta.url), "utf8");

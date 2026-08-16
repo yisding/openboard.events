@@ -127,6 +127,20 @@ export async function createEventIn(
   actorUserId: UserId,
   input: CreateEventInput,
   organizationId?: OrganizationId,
+  /**
+   * Server-only creation options. `isDemo` is deliberately **not** part of
+   * `createEventInputSchema`: that schema is parsed straight from HTTP by
+   * `POST /api/internal/events` and the onboarding route, so a field there
+   * would let any organizer mint unlimited plan-exempt, mail-suppressed
+   * events. This argument has no HTTP surface at all — the demo provisioner
+   * is its only caller.
+   *
+   * It is applied inside the INSERT below rather than by a follow-up UPDATE
+   * so that a demo event cannot exist unflagged for even one instant: the
+   * comms dispatcher's suppression guard hangs off that column, and there is
+   * no writer anywhere that clears it again.
+   */
+  options?: { isDemo?: boolean },
 ): Promise<EventDTO> {
   const slugCandidate = slugify((input.slug ?? "").trim() || input.name);
   assertValidSlug(slugCandidate);
@@ -159,6 +173,9 @@ export async function createEventIn(
       // and letting it decide meant a self-serve organization's event landed in
       // the shared default tenant.
       ...(organizationId ? { organizationId } : {}),
+      // Spread rather than assigned so an omitted option leaves the column
+      // DEFAULT (`false`) in charge, exactly like `organizationId` above.
+      ...(options?.isDemo ? { isDemo: true } : {}),
     });
   } catch (error) {
     if (input.id && isConstraintViolation(error, EVENTS_PRIMARY_KEY)) {
@@ -189,8 +206,19 @@ export async function createEventIn(
       throw new AppError("VALIDATION", "That event creation request was already used");
     }
     if (!isConstraintViolation(error, EVENTS_SLUG_UNIQUE)) throw error;
-    const [colliding] = await dbOrTx.select({ id: events.id }).from(events).where(eq(events.slug, slugCandidate)).limit(1);
-    if (colliding && await isRepairableOrphanIn(dbOrTx, colliding.id as EventId, actorUserId)) {
+    // `organizationId` is checked here for the same reason the id branch above
+    // checks it: `events_slug_key` is global, so a colliding row can belong to
+    // a different tenant. If organization A's create crashed between the
+    // `events` INSERT and `grantOwnerIn`, it leaves a zero-member, unseeded row
+    // — repairable by this heuristic — and the next user in organization B
+    // whose event name slugifies the same way was granted `owner` on it. B's
+    // "new" event then lived under A's `organization_id`: wrong tenant for the
+    // org directory, for team access, and for billing, while A's own retry was
+    // told "That slug is taken".
+    const [colliding] = await dbOrTx.select({ id: events.id, organizationId: events.organizationId })
+      .from(events).where(eq(events.slug, slugCandidate)).limit(1);
+    const collidingOrganizationMatches = organizationId === undefined || colliding?.organizationId === organizationId;
+    if (colliding && collidingOrganizationMatches && await isRepairableOrphanIn(dbOrTx, colliding.id as EventId, actorUserId)) {
       const orphanId = colliding.id as EventId;
       await grantOwnerIn(dbOrTx, orphanId, actorUserId);
       await seedEventDefaultsIn(dbOrTx, orphanId);

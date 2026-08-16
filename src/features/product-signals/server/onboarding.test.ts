@@ -9,11 +9,17 @@ import {
   listOrganizationOnboardingMilestonesIn,
   recordOrganizationOnboardingMilestoneIn,
   recordSignupEmailVerifiedIn,
+  tryRecordOrganizationOnboardingMilestoneIn,
 } from "./onboarding";
 
 const migration0 = readFileSync(new URL("../../../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migrationTenancy = readFileSync(new URL("../../../../drizzle/0010_organization_tenancy.sql", import.meta.url), "utf8");
 const migrationMilestones = readFileSync(new URL("../../../../drizzle/0023_onboarding_milestones.sql", import.meta.url), "utf8");
+// First Fair widened 0023's CHECK for the demo/tour milestones. Without it in
+// this fixture the three new union members would raise a 23514 that
+// `tryRecord…` swallows — which is exactly the silent-funnel failure the last
+// test in this suite exists to make impossible.
+const migrationDemoEvents = readFileSync(new URL("../../../../drizzle/0047_demo_events_and_tour.sql", import.meta.url), "utf8");
 
 const userId = userIdSchema.parse("a2300000-0000-4000-8000-000000000001");
 const organizationId = organizationIdSchema.parse("a2300000-0000-4000-8000-000000000011");
@@ -28,6 +34,7 @@ describe("privacy-safe onboarding milestones", () => {
     await pglite.exec(migration0);
     await pglite.exec(migrationTenancy);
     await pglite.exec(migrationMilestones);
+    await pglite.exec(migrationDemoEvents);
     database = drizzle(pglite, { schema }) as unknown as DbOrTx;
     await pglite.query("INSERT INTO users(id,email,name) VALUES($1,'owner@example.com','Owner')", [userId]);
     await pglite.query(
@@ -50,6 +57,22 @@ describe("privacy-safe onboarding milestones", () => {
     expect((await listOrganizationOnboardingMilestonesIn(database, organizationId)).map((row) => row.milestone).sort())
       .toEqual(["email_verified", "signup_completed"]);
     await expect(listOrganizationOnboardingMilestonesIn(database, otherOrganizationId)).resolves.toEqual([]);
+  });
+
+  /**
+   * The union in `onboarding.ts` and the CHECK in the database are two halves
+   * of one vocabulary. Because `tryRecord…` deliberately never turns a
+   * completed customer action into a 500, a value present in only the
+   * TypeScript half would not fail loudly — the funnel would just go dark.
+   * These assertions go through `tryRecord…` for exactly that reason: it is
+   * the swallowing caller, so `true` here proves the row really landed.
+   */
+  it("records the First Fair milestones through the swallowing writer, proving the widened CHECK applied", async () => {
+    for (const milestone of ["demo_provisioned", "tour_completed", "real_event_after_demo"] as const) {
+      await expect(tryRecordOrganizationOnboardingMilestoneIn(database, otherOrganizationId, milestone, userId)).resolves.toBe(true);
+    }
+    expect((await listOrganizationOnboardingMilestonesIn(database, otherOrganizationId)).map((row) => row.milestone).sort())
+      .toEqual(["demo_provisioned", "real_event_after_demo", "tour_completed"]);
   });
 
   it("retains the aggregate after user deletion and erases it with the organization", async () => {

@@ -54,8 +54,8 @@ describe("organization-scoped event creation entry", () => {
       membership(northId, "North", "organizer"),
     ]);
 
-    await expect(Page()).rejects.toThrow(`redirect:/organizations/${northId}/onboarding`);
-    expect(redirectMock).toHaveBeenCalledWith(`/organizations/${northId}/onboarding`);
+    await expect(Page()).rejects.toThrow(`redirect:/organizations/${northId}/onboarding?mode=create`);
+    expect(redirectMock).toHaveBeenCalledWith(`/organizations/${northId}/onboarding?mode=create`);
   });
 
   it("requires an explicit choice between multiple eligible workspaces", async () => {
@@ -68,9 +68,9 @@ describe("organization-scoped event creation entry", () => {
     const html = renderToStaticMarkup(await Page());
 
     expect(html).toContain("Choose the workspace that should own this event.");
-    expect(html).toContain(`href="/organizations/${northId}/onboarding"`);
-    expect(html).toContain(`href="/organizations/${southId}/onboarding"`);
-    expect(html).not.toContain(`href="/organizations/${reviewId}/onboarding"`);
+    expect(html).toContain(`href="/organizations/${northId}/onboarding?mode=create"`);
+    expect(html).toContain(`href="/organizations/${southId}/onboarding?mode=create"`);
+    expect(html).not.toContain(`href="/organizations/${reviewId}/onboarding`);
     expect(html).not.toContain("Event name");
   });
 

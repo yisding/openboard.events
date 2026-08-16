@@ -29,6 +29,13 @@ const migrationBilling = readFileSync(new URL("../../drizzle/0012_billing_scaffo
 // the four above do. Applied in journal order, after the rest.
 const migrationRoster = readFileSync(new URL("../../drizzle/0008_speaker_roster_operations.sql", import.meta.url), "utf8");
 const migrationSpeakerMoments = readFileSync(new URL("../../drizzle/0016_speaker_moments.sql", import.meta.url), "utf8");
+// First Fair added `events.is_demo`. Drizzle names every mapped column on an
+// insert and on a bare `select()`, so this fixture needs 0044 even though it
+// never touches a demo event — the same reason the tenancy migration is here.
+// 0044 also widens 0023's milestone CHECK, so that migration has to be present
+// for the ALTER to find a constraint to replace.
+const migrationOnboardingMilestones = readFileSync(new URL("../../drizzle/0023_onboarding_milestones.sql", import.meta.url), "utf8");
+const migrationDemoEvents = readFileSync(new URL("../../drizzle/0047_demo_events_and_tour.sql", import.meta.url), "utf8");
 
 describe("events seed", () => {
   let pglite: PGlite;
@@ -43,6 +50,8 @@ describe("events seed", () => {
     await pglite.exec(migrationRoster);
     await pglite.exec(migrationBilling);
     await pglite.exec(migrationSpeakerMoments);
+    await pglite.exec(migrationOnboardingMilestones);
+    await pglite.exec(migrationDemoEvents);
     ctx = {
       tx: drizzle(pglite, { schema }) as unknown as TxDb,
       now: new Date("2026-08-09T12:00:00.000Z"),

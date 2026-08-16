@@ -1,8 +1,8 @@
-import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as schema from "@/db/schema";
+import { applyProductMigrations } from "../../../../scripts/lib/product-migrations";
 
 /**
  * The three unauthenticated `/api/v1` public DTO routes, driven as deployed
@@ -14,13 +14,13 @@ import * as schema from "@/db/schema";
  * appearing here cannot be walked back. The DTOs are written out column by
  * column rather than spread from the row, and this test is what keeps that
  * true when the underlying view gains a column.
+ *
+ * Migrations run through the full journal (`applyProductMigrations`) rather
+ * than a hand-picked subset: this test used to cherry-pick four migration
+ * files by name, which is exactly the kind of list a later migration (First
+ * Fair's `0044`, adding `events.is_demo`) breaks silently the moment any
+ * route it exercises starts selecting the new column.
  */
-const migration0 = readFileSync(new URL("../../../../drizzle/0000_init.sql", import.meta.url), "utf8");
-const migration1 = readFileSync(new URL("../../../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
-const migrationReviewOps = readFileSync(new URL("../../../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
-// `checkV1RateLimit` hits `rate_limit_buckets` on every one of these routes;
-// without this migration each call 500s before any DTO assertion runs.
-const migrationRateLimits = readFileSync(new URL("../../../../drizzle/0005_rate_limits.sql", import.meta.url), "utf8");
 
 const EVENT_ID = "b0000000-0000-4000-8000-000000000001";
 const SLUG = "public-dto-event";
@@ -57,10 +57,7 @@ function request(path: string) {
 
 describe("api/v1 public DTO routes", () => {
   beforeAll(async () => {
-    await pglite.exec(migration0);
-    await pglite.exec(migration1);
-    await pglite.exec(migrationReviewOps);
-    await pglite.exec(migrationRateLimits);
+    await applyProductMigrations(pglite);
 
     await pglite.query(
       `INSERT INTO events(id,name,slug,timezone,starts_at,ends_at,website_url,location)
@@ -105,10 +102,13 @@ describe("api/v1 public DTO routes", () => {
     expect(response.status).toBe(200);
     const payload = await response.json() as { data: Record<string, unknown> };
     expect(Object.keys(payload.data).sort()).toEqual([
-      "endsAt", "id", "location", "name", "slug", "startsAt", "timezone", "websiteUrl",
+      "endsAt", "id", "isDemo", "location", "name", "slug", "startsAt", "timezone", "websiteUrl",
     ]);
     expect(payload.data.slug).toBe(SLUG);
     expect(payload.data.websiteUrl).toBe("https://example.test");
+    // First Fair (design §5.1) — additive on the resource, false for every
+    // event this test ever inserts.
+    expect(payload.data.isDemo).toBe(false);
   });
 
   it("404s an unknown slug instead of synthesizing an event", async () => {

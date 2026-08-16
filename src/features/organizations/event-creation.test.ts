@@ -19,7 +19,7 @@ describe("eventCreationDestination", () => {
   it("goes straight to guided onboarding for one manageable organization", () => {
     const organizer = membership(1, "organizer");
     expect(eventCreationDestination([organizer, membership(2, "reviewer")]))
-      .toBe(`/organizations/${organizer.organization.id}/onboarding`);
+      .toBe(`/organizations/${organizer.organization.id}/onboarding?mode=create`);
   });
 
   it("uses the creation chooser for multiple or no manageable organizations", () => {
@@ -31,5 +31,13 @@ describe("eventCreationDestination", () => {
 
   it("never treats reviewer membership as event-creation authority", () => {
     expect(manageableOrganizations([membership(1, "reviewer")])).toEqual([]);
+  });
+
+  it("carries the explicit create intent so the demo fork never interrupts it", () => {
+    // First Fair (design §1.2). Without `?mode=create` the onboarding page is
+    // entitled to offer the demo fork, and the organizer who pressed "Create
+    // event" would be asked a question they already answered.
+    const organizer = membership(1, "organizer");
+    expect(eventCreationDestination([organizer])).toContain("?mode=create");
   });
 });

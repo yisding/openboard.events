@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ArrowLeft, Eye } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { AnswerValue, FieldId, FormSnapshot } from "@/shared/contracts";
+import { evaluateVisibility } from "@/shared/lib/conditions";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import type { BuilderEvent, BuilderForm } from "../../builder-types";
 import { tryCompileBuilderSnapshot } from "../../form-builder-state";
@@ -35,6 +36,22 @@ export function OrganizerFormPreview({ event, form, nowIso }: { event: BuilderEv
   const builderHref = `/events/${event.id}/forms/${form.id}`;
   const availability = formAvailability(form, nowIso);
   const sections = snapshot?.sections.filter((section) => section.fields.some(isRenderableFormField)) ?? [];
+
+  /**
+   * Which section, if any, is currently showing a question that only exists
+   * because of an answer given above it.
+   *
+   * This is the guided tour's one `data-tour` in the forms feature, and it is
+   * an attribute rather than an element on purpose: the section is always
+   * rendered, so the *attribute* appearing is exactly the event the tour is
+   * waiting for — "a question you did not put on this page just appeared". It
+   * reads the same evaluator the renderer does, so the marker cannot disagree
+   * with what is on screen.
+   */
+  const visibleFieldIds = snapshot ? evaluateVisibility(snapshot, answers) : new Set<FieldId>();
+  const conditionalSectionId = sections.find((section) => section.fields.some(
+    (field) => field.visibility !== null && visibleFieldIds.has(field.id),
+  ))?.id ?? null;
 
   function handleChange(fieldId: FieldId, value: AnswerValue | undefined) {
     setAnswers((current) => ({ ...current, [fieldId]: value }));
@@ -92,7 +109,12 @@ export function OrganizerFormPreview({ event, form, nowIso }: { event: BuilderEv
             <Link className="button button-primary" href={builderHref}>Add questions</Link>
           </section>
         ) : sections.map((section) => (
-          <section className="organizer-form-preview__section" key={section.id} aria-labelledby={`organizer-preview-section-${section.id}`}>
+          <section
+            className="organizer-form-preview__section"
+            key={section.id}
+            aria-labelledby={`organizer-preview-section-${section.id}`}
+            {...(section.id === conditionalSectionId ? { "data-tour": "forms.workshop-duration" } : {})}
+          >
             <header>
               <span>{section.key === "participant" ? "SPEAKER DETAILS" : "PROPOSAL"}</span>
               <h2 id={`organizer-preview-section-${section.id}`}>{section.pageHeading || section.title}</h2>

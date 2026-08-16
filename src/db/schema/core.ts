@@ -44,6 +44,13 @@ export const events = pgTable("events", {
   theme: text("theme"),
   logoFileId: uuid("logo_file_id"),
   backgroundFileId: uuid("background_file_id"),
+  // First Fair — marks the per-organization demo conference (drizzle/0044).
+  // It is written in exactly one place, `createEventIn`'s INSERT, from a
+  // server-only options argument that has no HTTP surface; nothing may ever
+  // clear it, because clearing it is precisely how fabricated speakers would
+  // start receiving real mail. The comms dispatcher and the entitlement count
+  // both read it.
+  isDemo: boolean("is_demo").notNull().default(false),
   submissionCapPerUser: integer("submission_cap_per_user").notNull().default(3),
   submissionSeq: integer("submission_seq").notNull().default(0),
   rowVersion: integer("row_version").notNull().default(1),

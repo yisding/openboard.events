@@ -15,12 +15,12 @@ describe("event creation entry points", () => {
     const html = renderToStaticMarkup(<EventsView
       events={[]}
       user={{ name: "Ada Organizer", email: "ada@example.test" }}
-      createHref="/organizations/30000000-0000-4000-8000-000000000001/onboarding"
+      createHref="/organizations/30000000-0000-4000-8000-000000000001/onboarding?mode=create"
       hasOrganizations
     />);
 
     expect(html.match(/Create event/g)).toHaveLength(2);
-    expect(html).toContain('href="/organizations/30000000-0000-4000-8000-000000000001/onboarding"');
+    expect(html).toContain('href="/organizations/30000000-0000-4000-8000-000000000001/onboarding?mode=create"');
     expect(html).not.toContain('href="/events/new"');
   });
 
@@ -47,7 +47,10 @@ describe("event creation entry points", () => {
     expect(newPage).toContain('.filter(({ role }) => roleSatisfies(role, "organizer"))');
     expect(newPage).toContain("memberships.length === 1 && only");
     expect(newPage).toContain("Choose the workspace that should own this event.");
-    expect(newPage).toContain("`/organizations/${only.organization.id}/onboarding`");
+    // First Fair (design §1.2): every entrance that already carries a create
+    // intent says so, or the guided-setup page offers the demo fork to an
+    // organizer who came here specifically to make a real event.
+    expect(newPage).toContain("`/organizations/${only.organization.id}/onboarding?mode=create`");
     expect(newPage).not.toContain("<EventForm");
     expect(eventsRoute).toContain("provisionEventForActor(actorId, input)");
     expect(eventsRoute).not.toContain("createEvent(actorId");

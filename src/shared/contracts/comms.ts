@@ -141,7 +141,26 @@ const commonVars = {
     last_name: z.string(),
     email: z.email(),
   }),
-  portal: z.object({ magic_link: z.url() }),
+  /**
+   * CP1 contract change, architect-approved.
+   *
+   * Optional because a magic link is now minted only for a template that
+   * actually carries `{{portal.magic_link}}`. Requiring it forced every context
+   * to supply a real URL, which forced a mint on *every* non-login speaker
+   * email — including `schedule_assigned` and `schedule_changed`, the
+   * highest-volume templates in the product (one per publish, drag, room swap
+   * and speaker add) and neither of which contains the token. Each mint issued
+   * a `purpose: "magic_link"`, `ttl: "P30D"` bearer credential that nothing
+   * sweeps: `invalidatePriorPortalTokens` clears only rows with an `otp_hash`,
+   * and logout deletes the session row alone. A speaker with a month of
+   * schedule mail therefore held a month of independent, unexpired,
+   * un-revocable portal credentials.
+   *
+   * `renderTemplateContent` still refuses an unresolved token, so a body that
+   * *does* use `{{portal.magic_link}}` fails loudly rather than rendering an
+   * empty href — omission is only ever paired with a body that never asks.
+   */
+  portal: z.object({ magic_link: z.url() }).optional(),
   unsubscribe: z.object({ url: z.url() }),
 };
 

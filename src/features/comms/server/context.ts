@@ -49,6 +49,17 @@ export class SkipEmail extends Error {
   }
 }
 
+/**
+ * First Fair — the reason stamped on every demo event's `skipped` outbox row.
+ *
+ * It is written to be read by an organizer, not by an operator: the demo
+ * event's Communications log is a tour destination, and this string is the
+ * payoff on that screen. Keep it in one place so the delivery log, the
+ * decision-email preflight and the suppression tab can never describe the
+ * barrier three slightly different ways.
+ */
+export const DEMO_MAIL_SKIP_REASON = "demo event — mail is never delivered";
+
 export type BuiltContext = {
   vars: TemplateVars;
   recipientEmail: string;
@@ -224,7 +235,17 @@ async function buildReviewVars(row: OutboxRow, dbOrTx: DbOrTx, env: RuntimeEnv) 
   };
 }
 
-export async function buildContext(row: DeliveryOutboxRow, dbOrTx: DbOrTx = db, env: RuntimeEnv = getEnv()): Promise<BuiltContext> {
+/** The stored template this context is being built for, so the mint below can ask whether its body wants a magic link. */
+export type ContextTemplate = { subject: string; bodyHtml: string };
+
+const MAGIC_LINK_TOKEN = /\{\{\s*portal\.magic_link\s*\}\}/u;
+
+export async function buildContext(
+  row: DeliveryOutboxRow,
+  dbOrTx: DbOrTx = db,
+  env: RuntimeEnv = getEnv(),
+  template?: ContextTemplate,
+): Promise<BuiltContext> {
   const [base] = await dbOrTx.select({
     eventName: events.name,
     eventSlug: events.slug,
@@ -234,6 +255,7 @@ export async function buildContext(row: DeliveryOutboxRow, dbOrTx: DbOrTx = db, 
     eventLocation: events.location,
     eventPhysicalAddress: events.physicalAddress,
     logoFileId: events.logoFileId,
+    isDemo: events.isDemo,
     email: contacts.email,
     firstName: contacts.firstName,
     lastName: contacts.lastName,
@@ -244,6 +266,30 @@ export async function buildContext(row: DeliveryOutboxRow, dbOrTx: DbOrTx = db, 
     .leftJoin(contactSuppressions, eq(contactSuppressions.contactId, contacts.id))
     .where(eq(events.id, row.eventId)).limit(1);
   if (!base) throw new SkipEmail("contact no longer exists");
+  // First Fair — the demo-event mail barrier, and the whole reason
+  // `events.is_demo` exists. `buildContext` is the choke point every
+  // `communication_logs` row passes before `sendViaResend`, so this single
+  // line is the difference between "we remembered to filter the senders we
+  // thought of" and "no email ever leaves the building".
+  //
+  // There are NO exceptions on this path — not `portal_login`, not a
+  // transactional decision notice. The moment one exists, the label the
+  // product shows the organizer ("every send is rendered, logged and then
+  // skipped") stops being literally true, and a demo event's eighteen
+  // fabricated speakers are one un-audited branch away from real mail.
+  //
+  // This is not the *only* path, though, and pretending otherwise is how the
+  // second one went unguarded: `admin_auth_email_outbox` is drained by
+  // `dispatchAdminAuthEmailOutboxIn`, never by this dispatcher, and a reviewer
+  // invitation is event-scoped enough to name a demo event. That outbox
+  // carries its own copy of this guard, and `inviteEventReviewerIn` refuses
+  // the write in the first place.
+  //
+  // It sits above the allowlist deliberately: a demo row must never mint a
+  // portal token, never open a sealed payload and never consult a provider,
+  // whatever the environment is configured to do. `scripts/check-source-invariants.ts`
+  // pins this guard by text so a refactor cannot quietly drop it.
+  if (base.isDemo) throw new SkipEmail(DEMO_MAIL_SKIP_REASON);
   if (!isEmailAllowed(base.email, env)) throw new SkipEmail("not in EMAIL_ALLOWLIST");
   // P3-EMAIL: a hard bounce/complaint (Resend webhook, `suppressedAt`) blocks
   // EVERY send, including decision/schedule/portal-login — the address is
@@ -498,13 +544,52 @@ export async function buildContext(row: DeliveryOutboxRow, dbOrTx: DbOrTx = db, 
     vars = { ...common, otp: { code: otpCode } } as TemplateVars;
   }
 
-  // A speaker-portal magic link is minted for every template that offers the
-  // `portal.magic_link` token. `portal_login` already carries its own; M42's
-  // admin auth mail and M44's team-invitation mail deliberately have none —
-  // see `isAdminAuthTemplate`/`isOrganizationInviteTemplate`.
-  if (row.templateKey !== "portal_login" && !isAdminAuthTemplate(row.templateKey) && !isOrganizationInviteTemplate(row.templateKey)) {
+  // A speaker-portal magic link is minted only for a template whose *effective*
+  // body or subject actually carries the token. `portal_login` already carries
+  // its own; M42's admin auth mail and M44's team-invitation mail deliberately
+  // have none — see `isAdminAuthTemplate`/`isOrganizationInviteTemplate`.
+  //
+  // Keying on the kind alone minted one on every non-login speaker email,
+  // including `schedule_assigned` and `schedule_changed` — the highest-volume
+  // templates in the product, one per publish, drag, room swap and speaker add,
+  // and neither of which contains the token. Every one issued a
+  // `purpose: "magic_link"`, `ttl: "P30D"` bearer credential that nothing
+  // sweeps: `invalidatePriorPortalTokens` clears only rows carrying an
+  // `otp_hash`, and `logoutPortal` deletes the session row alone. A speaker with
+  // a month of schedule mail held a month of independent, unexpired,
+  // un-revocable portal credentials.
+  //
+  // The effective body is the override when there is one — a bulk message's ad
+  // hoc content can use the token even though the stored `speaker_bulk_message`
+  // template does not. With no template supplied (a caller that has not loaded
+  // one), the old kind-based rule stands, so nothing silently loses a link.
+  // An override may replace only one half, so each half falls back to the stored
+  // template rather than to nothing.
+  const effectiveBody = templateOverride?.bodyHtml ?? template?.bodyHtml;
+  const effectiveSubject = templateOverride?.subject ?? template?.subject;
+  const wantsMagicLink = effectiveBody === undefined && effectiveSubject === undefined
+    ? true
+    : MAGIC_LINK_TOKEN.test(effectiveBody ?? "") || MAGIC_LINK_TOKEN.test(effectiveSubject ?? "");
+  // The key exclusions govern *minting*, not presence: `portal_login` wants the
+  // token and supplies its own link from the sealed payload, so it must keep the
+  // var even though nothing is minted for it here.
+  const mintsOwnLink = row.templateKey === "portal_login"
+    || isAdminAuthTemplate(row.templateKey)
+    || isOrganizationInviteTemplate(row.templateKey);
+  if (wantsMagicLink && !mintsOwnLink) {
     const { raw } = await issuePortalToken(dbOrTx, { contactId, eventId, purpose: "magic_link", ttl: "P30D" });
     common.portal.magic_link = `${env.APP_BASE_URL}/portal/${encodeURIComponent(base.eventSlug)}/verify?token=${encodeURIComponent(raw)}`;
+  } else if (!wantsMagicLink) {
+    // From `vars` as well as `common`: every `vars` above is a shallow spread of
+    // `common`, so the two share the `portal` object but not the key itself, and
+    // dropping it from `common` alone would leave `vars.portal.magic_link` as
+    // the empty placeholder — which `z.url()` rejects with the very
+    // "missing variable portal.magic_link" this is meant to stop raising.
+    //
+    // `renderTemplateContent` still refuses an *unresolved token*, so a body
+    // that does ask for a link fails loudly rather than rendering an empty href.
+    delete (common as { portal?: unknown }).portal;
+    delete (vars as { portal?: unknown }).portal;
   }
 
   return {

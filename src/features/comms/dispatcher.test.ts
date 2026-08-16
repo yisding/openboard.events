@@ -47,6 +47,11 @@ const migrationUserManagement = readFileSync(new URL("../../../drizzle/0011_user
 // unqualified `.returning()` needs every declared column to exist.
 const migrationSpeakerMoments = readFileSync(new URL("../../../drizzle/0016_speaker_moments.sql", import.meta.url), "utf8");
 const migrationCalendarCancellationSnapshots = readFileSync(new URL("../../../drizzle/0043_calendar_cancellation_snapshots.sql", import.meta.url), "utf8");
+// First Fair — `buildContext` now selects `events.is_demo` (the demo-event mail
+// barrier), so every dispatcher fixture needs the column. 0044 widens 0023's
+// milestone CHECK, which is why the milestone table comes along with it.
+const migrationOnboardingMilestones = readFileSync(new URL("../../../drizzle/0023_onboarding_milestones.sql", import.meta.url), "utf8");
+const migrationDemoEvents = readFileSync(new URL("../../../drizzle/0047_demo_events_and_tour.sql", import.meta.url), "utf8");
 const eventId = eventIdSchema.parse("c0000000-0000-4000-8000-000000000001");
 const emptyEventId = eventIdSchema.parse("c0000000-0000-4000-8000-000000000002");
 const contactId = contactIdSchema.parse("c0000000-0000-4000-8000-000000000003");
@@ -109,6 +114,8 @@ describe("communications outbox dispatcher", () => {
     await pglite.exec(migrationUserManagement);
     await pglite.exec(migrationSpeakerMoments);
     await pglite.exec(migrationCalendarCancellationSnapshots);
+    await pglite.exec(migrationOnboardingMilestones);
+    await pglite.exec(migrationDemoEvents);
     await pglite.query("INSERT INTO events(id,name,slug,location,timezone,starts_at,ends_at) VALUES($1,'AI Engineer','ai-engineer','Fort Mason','America/Los_Angeles','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z'),($2,'Empty','empty','Online','UTC','2026-10-01T09:00:00Z','2026-10-01T17:00:00Z')", [eventId, emptyEventId]);
     await pglite.query("INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'speaker@example.com','Nadia','Lee')", [contactId, eventId]);
     await pglite.query("INSERT INTO forms(id,event_id,context,internal_name,status) VALUES($1,$2,'cfp','Main CFP','open')", [formId, eventId]);
@@ -264,6 +271,43 @@ describe("communications outbox dispatcher", () => {
     await expect(dispatchOutboxIn(tx, 50, { env: logEnv })).resolves.toEqual({ claimed: 2, sent: 0, skipped: 0, failed: 2, retried: 0 });
     const rows = await pglite.query<{ status: string; secret_cleared: boolean }>("SELECT status,secret_payload_ciphertext IS NULL AS secret_cleared FROM communication_logs ORDER BY idempotency_key");
     expect(rows.rows).toEqual([{ status: "failed", secret_cleared: true }, { status: "failed", secret_cleared: true }]);
+  });
+
+  it("mints a portal credential only for a body that asks for one", async () => {
+    await seedDefaultTemplates(tx, eventId);
+
+    // `schedule_assigned` and `schedule_changed` carry no `{{portal.magic_link}}`
+    // and are the highest-volume templates in the product — one per publish,
+    // drag, room swap and speaker add. Keying the mint on template *kind*
+    // issued a `purpose: "magic_link"`, `ttl: "P30D"` bearer credential for
+    // every one of them. Nothing sweeps those:
+    // `invalidatePriorPortalTokens` clears only rows carrying an `otp_hash`,
+    // and `logoutPortal` deletes the session row alone — so a speaker with a
+    // month of schedule mail held a month of independent, unexpired,
+    // un-revocable portal credentials.
+    await enqueueEmail(tx, { eventId, contactId, templateKey: "schedule_assigned", idempotencyKey: `${eventId}:mint:schedule`, refs: { sessionId } });
+    await expect(dispatchOutboxIn(tx, 50, { env: logEnv })).resolves.toMatchObject({ sent: 1 });
+    const afterSchedule = await pglite.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM portal_tokens WHERE contact_id=$1 AND purpose='magic_link'", [contactId],
+    );
+    expect(afterSchedule.rows[0]?.n).toBe(0);
+
+    // A template whose body does use the token still gets one.
+    await pglite.query(
+      "UPDATE email_templates SET body_html = body_html || '<p>{{portal.magic_link}}</p>' WHERE event_id=$1 AND key='submission_received'",
+      [eventId],
+    );
+    await enqueueEmail(tx, { eventId, contactId, templateKey: "submission_received", idempotencyKey: `${eventId}:mint:received`, refs: { submissionId: receivedId } });
+    await expect(dispatchOutboxIn(tx, 50, { env: logEnv })).resolves.toMatchObject({ sent: 1 });
+    const afterReceived = await pglite.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM portal_tokens WHERE contact_id=$1 AND purpose='magic_link'", [contactId],
+    );
+    expect(afterReceived.rows[0]?.n).toBe(1);
+
+    const body = await pglite.query<{ body: string }>(
+      "SELECT body_rendered_html AS body FROM communication_logs WHERE idempotency_key=$1", [`${eventId}:mint:received`],
+    );
+    expect(body.rows[0]?.body).toContain("/verify?token=");
   });
 
   it("redacts a valid login credential from non-diagnostic audit storage", async () => {

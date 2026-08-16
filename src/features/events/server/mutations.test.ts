@@ -41,6 +41,13 @@ const migrationUserManagement = readFileSync(new URL("../../../../drizzle/0011_u
 // Manual agenda creates now atomically consume their caller-owned id in a
 // durable receipt, so the event/session bounds race exercises this migration.
 const migrationAgendaCreationReceipts = readFileSync(new URL("../../../../drizzle/0031_agenda_session_creation_receipts.sql", import.meta.url), "utf8");
+// First Fair added `events.is_demo`, which `createEventIn` now names on every
+// insert (same reasoning as `migrationTenancy` above) and which this suite
+// asserts on directly. 0044 also widens 0023's milestone CHECK, so that
+// migration has to be in the fixture for the ALTER to have a constraint to
+// replace.
+const migrationOnboardingMilestones = readFileSync(new URL("../../../../drizzle/0023_onboarding_milestones.sql", import.meta.url), "utf8");
+const migrationDemoEvents = readFileSync(new URL("../../../../drizzle/0047_demo_events_and_tour.sql", import.meta.url), "utf8");
 
 function baseInput(overrides: Partial<Parameters<typeof createEventIn>[2]> = {}) {
   return {
@@ -77,6 +84,8 @@ describe("database-backed event mutations", () => {
     await pglite.exec(migrationTenancy);
     await pglite.exec(migrationUserManagement);
     await pglite.exec(migrationAgendaCreationReceipts);
+    await pglite.exec(migrationOnboardingMilestones);
+    await pglite.exec(migrationDemoEvents);
     database = drizzle(pglite, { schema }) as unknown as DbOrTx;
     const [user] = await database.insert(schema.users).values({ email: "organizer@test.dev", name: "Test Organizer" }).returning();
     actorUserId = userIdSchema.parse(user?.id);
@@ -124,6 +133,28 @@ describe("database-backed event mutations", () => {
     expect(unscopedRow.rows[0]?.organization_id).toBe(DEFAULT_ORGANIZATION_ID);
   });
 
+  /**
+   * First Fair — `is_demo` is set inside the INSERT from a server-only options
+   * argument, so a demo event cannot exist unflagged for even one instant (the
+   * comms dispatcher's suppression guard hangs off that column), and the flag
+   * has no HTTP surface at all. The companion assertion — that
+   * `createEventInputSchema` has no `isDemo` key, so a POST body cannot supply
+   * one — lives in `../schemas.test.ts` beside the schema it protects.
+   */
+  it("marks an event as a demo only when the server-only option asks, never by default", async () => {
+    const demo = await createEventIn(database, actorUserId, baseInput({ name: "Demo Conf", slug: "demo-conf" }), undefined, { isDemo: true });
+    const demoRow = await pglite.query<{ is_demo: boolean }>("SELECT is_demo FROM events WHERE id=$1", [demo.id]);
+    expect(demoRow.rows[0]?.is_demo).toBe(true);
+
+    const plain = await createEventIn(database, actorUserId, baseInput({ name: "Real Conf", slug: "real-conf" }));
+    const plainRow = await pglite.query<{ is_demo: boolean }>("SELECT is_demo FROM events WHERE id=$1", [plain.id]);
+    expect(plainRow.rows[0]?.is_demo).toBe(false);
+
+    const explicitlyFalse = await createEventIn(database, actorUserId, baseInput({ name: "Also Real", slug: "also-real" }), undefined, {});
+    const explicitRow = await pglite.query<{ is_demo: boolean }>("SELECT is_demo FROM events WHERE id=$1", [explicitlyFalse.id]);
+    expect(explicitRow.rows[0]?.is_demo).toBe(false);
+  });
+
   it("rejects a reserved slug", async () => {
     expect(await codeOf(createEventIn(database, actorUserId, baseInput({ name: "Portal Days", slug: "portal" })))).toBe("VALIDATION");
   });
@@ -165,6 +196,45 @@ describe("database-backed event mutations", () => {
     expect(templates.rows[0]?.n).toBe(TEMPLATE_KEYS.length);
     const formats = await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM session_formats WHERE event_id=$1", [orphanId]);
     expect(formats.rows[0]?.n).toBe(5);
+  });
+
+  it("refuses to heal another organization's orphan into this one", async () => {
+    // `events_slug_key` is global, so a colliding row can belong to a different
+    // tenant. Organization A's create crashes between the INSERT and
+    // `grantOwnerIn`, leaving a zero-member, unseeded row that the repair
+    // heuristic considers healable. Without an organization check the next user
+    // in organization B whose event name slugifies the same way was granted
+    // `owner` on it, and B's "new" event lived under A's `organization_id` —
+    // wrong tenant for the org directory, team access, and billing — while A's
+    // own retry was told "That slug is taken". The id branch above has always
+    // checked this.
+    const [orgA] = await database.insert(schema.organizations).values({ name: "Tenant A", slug: "tenant-a" }).returning();
+    const [orgB] = await database.insert(schema.organizations).values({ name: "Tenant B", slug: "tenant-b" }).returning();
+    const organizationA = organizationIdSchema.parse(orgA?.id);
+    const organizationB = organizationIdSchema.parse(orgB?.id);
+
+    const orphanId = "a0000000-0000-4000-8000-0000000000a7" as EventId;
+    await pglite.query(
+      "INSERT INTO events(id,name,slug,timezone,starts_at,ends_at,organization_id) VALUES($1,'Summit 2026','summit-2026','America/Los_Angeles','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z',$2)",
+      [orphanId, organizationA],
+    );
+
+    const failure = await createEventIn(database, actorUserId, baseInput({ name: "Summit 2026", slug: "summit-2026" }), organizationB)
+      .catch((thrown: unknown) => thrown);
+    expect(isAppError(failure) && failure.code).toBe("VALIDATION");
+    expect(isAppError(failure) && failure.message).toBe("That slug is taken");
+
+    // A's orphan is untouched: still A's, still unseeded, still member-less.
+    const row = await pglite.query<{ organization_id: string }>("SELECT organization_id FROM events WHERE id=$1", [orphanId]);
+    expect(row.rows[0]?.organization_id).toBe(organizationA);
+    expect((await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM event_members WHERE event_id=$1", [orphanId])).rows[0]?.n).toBe(0);
+
+    // A's own retry still heals it, which is what the repair path is for.
+    const healed = await createEventIn(database, actorUserId, baseInput({ name: "Summit 2026", slug: "summit-2026" }), organizationA);
+    expect(healed.id).toBe(orphanId);
+
+    await pglite.query("DELETE FROM events WHERE id=$1", [orphanId]);
+    await pglite.query("DELETE FROM organizations WHERE id IN ($1,$2)", [organizationA, organizationB]);
   });
 
   it("refuses to hand ownership of a live event to a different admin, even when its format/template counts dip below the under-seeded thresholds", async () => {

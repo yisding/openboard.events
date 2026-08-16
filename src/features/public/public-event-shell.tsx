@@ -48,6 +48,10 @@ export type PublicEventInfo = {
   accentColor: string | null;
   logoUrl?: string | null;
   backgroundUrl?: string | null;
+  /** First Fair (design §5.1, §6.3). Optional — the embed's disabled-notice
+   * branch builds this object by hand from a row that predates the demo
+   * concept, so it simply omits the field rather than claiming `false`. */
+  isDemo?: boolean;
 } & Partial<{ startsAt: string; endsAt: string }>;
 
 // Posts the document height to the parent frame so /public/embed.js can size
@@ -108,11 +112,21 @@ export function PublicEventShell({
       : undefined,
   } as React.CSSProperties;
   const range = dateRange(event);
+  // First Fair (design §5.1, §6.3). A slim, unmistakable label rather than a
+  // hidden one — the safety story here is "fabricated speakers never enter a
+  // search index", and a ribbon a visitor can actually see is part of that
+  // story, not decoration on top of it.
+  const demoRibbon = event.isDemo && (
+    <div role="note" style={{ textAlign: "center", padding: "6px 12px", fontSize: "var(--text-xs)", fontWeight: 550, color: "var(--accent-dark, var(--muted))", background: "var(--fill)", borderBottom: "1px solid var(--line)" }}>
+      Sample event · built with Openboard
+    </div>
+  );
 
   if (embed) {
     return (
       <div className={`embed-shell ${embedOptions.theme === "dark" ? "embed-dark" : ""}`} style={accentStyle}>
         <EmbedResizer />
+        {demoRibbon}
         {/* An embed is its own document inside the host's iframe, so it needs
          * its own <h1> or a screen reader lands in a page with no outline —
          * the content's <h2> is hidden by `.embed-shell>.embed-content>header`
@@ -137,6 +151,7 @@ export function PublicEventShell({
 
   return (
     <div className="public-event" style={accentStyle}>
+      {demoRibbon}
       <header className="public-event-header">
         <div className="public-event-container">
           <Link className="public-event-logo" href={`/e/${eventSlug}/agenda`} aria-label={`${event.name} agenda`}>

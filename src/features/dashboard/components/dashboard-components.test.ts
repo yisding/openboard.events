@@ -77,6 +77,75 @@ describe("dashboard components", () => {
     expect(statusIndex).toBeLessThan(formProgressIndex);
   });
 
+  /**
+   * First Fair (design §3.9, §3.6). A demo dashboard has one onboarding voice
+   * on it, and it is the tutorial's. The milestone banner and the launch guide
+   * both exist to activate a *real* event, so both stand down — and the slot
+   * the launch guide vacates is where a paused tour offers itself back.
+   */
+  it("hands the demo dashboard's guidance slot to the tour and silences the other two nudges", () => {
+    const render = (
+      overview: typeof FIXTURE_OVERVIEW,
+      tour?: Parameters<typeof DashboardTabsView>[0]["tour"],
+    ) => renderToStaticMarkup(React.createElement(
+      ToastProvider,
+      null,
+      React.createElement(DashboardTabsView, {
+        eventId: overview.event.id as EventId,
+        firstName: "Maya",
+        initialTab: "today",
+        live: false,
+        overview,
+        ...(tour ? { tour } : {}),
+      }),
+    ));
+
+    // A real event keeps both nudges exactly as they were.
+    expect(render(FIXTURE_OVERVIEW)).toContain("dashboard-milestones");
+    expect(render(EMPTY_FIXTURE_OVERVIEW)).toContain("dashboard-activation");
+    expect(render(FIXTURE_OVERVIEW)).not.toContain("Guided tour · paused");
+
+    expect(render(FIXTURE_OVERVIEW, { isDemo: true }), "the milestone banner activates a real event, and this is not one")
+      .not.toContain("dashboard-milestones");
+    expect(render(EMPTY_FIXTURE_OVERVIEW, { isDemo: true }), "the launch guide stands down too — the tour owns this slot")
+      .not.toContain("dashboard-activation");
+
+    const paused = render(FIXTURE_OVERVIEW, {
+      isDemo: true,
+      resume: {
+        chapter: "the-grid",
+        stepId: "grid.place",
+        chapterLabel: "Chapter 7 of 11 — The grid",
+        percent: 62,
+        resumeHref: `/events/${FIXTURE_OVERVIEW.event.id}/agenda?view=day`,
+      },
+    });
+    expect(paused).toContain("Guided tour · paused");
+    expect(paused).toContain("Chapter 7 of 11 — The grid");
+    expect(paused).not.toContain("dashboard-milestones");
+
+    /**
+     * The other way a tutorial owes the organizer this card: the row still
+     * says `active`, but its step is one this build cannot show, so the coach
+     * has nothing to draw and the dashboard is the only surface left. Silence
+     * there reads as "the tour is gone", which is the one thing it is not.
+     */
+    const stranded = render(FIXTURE_OVERVIEW, {
+      isDemo: true,
+      resume: {
+        chapter: "the-grid",
+        stepId: "grid.place",
+        chapterLabel: "Chapter 7 of 11 — The grid",
+        percent: 62,
+        resumeHref: `/events/${FIXTURE_OVERVIEW.event.id}/agenda?view=day`,
+        stranded: true,
+      },
+    });
+    expect(stranded).toContain("Guided tour · waiting for you");
+    expect(stranded).toContain("not in this version of the tour any more");
+    expect(stranded).toContain("Pick the tour back up");
+  });
+
   it("renders every designed empty state without invalid percentages", () => {
     const speakerHtml = renderToStaticMarkup(React.createElement(SpeakerTrackingPanel, { overview: EMPTY_FIXTURE_OVERVIEW }));
     const todayHtml = renderToStaticMarkup(React.createElement(TodayPanel, { overview: EMPTY_FIXTURE_OVERVIEW, firstName: "Maya" }));

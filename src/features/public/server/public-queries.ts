@@ -1,4 +1,5 @@
 import { eq, sql } from "drizzle-orm";
+import { cache } from "react";
 import { db, type DbOrTx } from "@/db/client";
 import { events } from "@/db/schema";
 import {
@@ -39,6 +40,10 @@ type PublicEventRow = {
   theme: string | null;
   logoFileId: string | null;
   backgroundFileId: string | null;
+  // First Fair (design §6.3) — carried through to both public DTOs so
+  // `generateMetadata` on all five `/e/` pages (and their embeds) can answer
+  // `robots: { index: false }` from the read the page already performs.
+  isDemo: boolean;
 };
 
 async function resolveEventBySlug(dbOrTx: DbOrTx, eventSlug: string): Promise<PublicEventRow | null> {
@@ -52,11 +57,38 @@ async function resolveEventBySlug(dbOrTx: DbOrTx, eventSlug: string): Promise<Pu
       theme: events.theme,
       logoFileId: events.logoFileId,
       backgroundFileId: events.backgroundFileId,
+      isDemo: events.isDemo,
     })
     .from(events)
     .where(eq(events.slug, eventSlug))
     .limit(1);
   return row ? { ...row, id: eventIdSchema.parse(row.id) } : null;
+}
+
+/**
+ * The same lookup, deduplicated for the length of one render.
+ *
+ * Every public route now runs `generateMetadata` beside its page component,
+ * and both need the event row — `generateMetadata` only to answer
+ * `robots: { index: false }` for a demo. React's `cache` collapses that into
+ * one uncached `events`-by-slug select per regeneration instead of two.
+ */
+const resolveEventBySlugCached = cache((eventSlug: string) => resolveEventBySlug(db, eventSlug));
+
+/**
+ * Whether a public surface belongs to a demo event — the one fact
+ * `generateMetadata` needs (design §6.3).
+ *
+ * Deliberately *not* the whole published DTO. `renderEmbedSurface` promises
+ * that a disabled embed never performs the more expensive public-data query,
+ * and metadata runs before the page discovers the embed is off — so reading
+ * the schedule here to pull one boolean out of it would have made that
+ * promise false for every embed request. Shares its lookup with the page's
+ * own read on the canonical `/e/**` routes.
+ */
+export async function getPublicEventIsDemo(eventSlug: string): Promise<boolean> {
+  const event = await resolveEventBySlugCached(eventSlug);
+  return event?.isDemo === true;
 }
 
 function headshotUrl(fileId: string | null): string | null {
@@ -153,6 +185,7 @@ async function getPublishedScheduleForEventIn(dbOrTx: DbOrTx, event: PublicEvent
       accentColor: asAccentColor(event.theme),
       logoUrl: event.logoFileId ? `/f/${event.logoFileId}` : null,
       backgroundUrl: event.backgroundFileId ? `/f/${event.backgroundFileId}` : null,
+      isDemo: event.isDemo,
     },
     days,
     sessions,
@@ -165,7 +198,7 @@ export async function getPublishedScheduleIn(dbOrTx: DbOrTx, eventSlug: string):
 }
 
 export async function getPublishedSchedule(eventSlug: string): Promise<PublishedScheduleDTO | null> {
-  const event = await resolveEventBySlug(db, eventSlug);
+  const event = await resolveEventBySlugCached(eventSlug);
   return event
     ? cachePublicRead(event.id, "schedule", () => getPublishedScheduleForEventIn(db, event))
     : null;
@@ -248,6 +281,7 @@ async function getPublishedSpeakersForEventIn(dbOrTx: DbOrTx, event: PublicEvent
       accentColor: asAccentColor(event.theme),
       logoUrl: event.logoFileId ? `/f/${event.logoFileId}` : null,
       backgroundUrl: event.backgroundFileId ? `/f/${event.backgroundFileId}` : null,
+      isDemo: event.isDemo,
     },
     speakers,
   });
@@ -259,7 +293,7 @@ export async function getPublishedSpeakersIn(dbOrTx: DbOrTx, eventSlug: string):
 }
 
 export async function getPublishedSpeakers(eventSlug: string): Promise<PublishedSpeakersDTO | null> {
-  const event = await resolveEventBySlug(db, eventSlug);
+  const event = await resolveEventBySlugCached(eventSlug);
   return event
     ? cachePublicRead(event.id, "speakers", () => getPublishedSpeakersForEventIn(db, event))
     : null;

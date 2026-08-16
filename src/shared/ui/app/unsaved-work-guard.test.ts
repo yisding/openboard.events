@@ -52,8 +52,17 @@ describe("shell unsaved-work guard wiring", () => {
     expect(signOut).toContain("allowNextNavigation(() => {");
     expect(signOut).toContain("{ hardUnload: true }");
     // The guard stays the shell's outermost provider; first-run hints nest
-    // inside it so a hint's own navigation (none today) would still be guarded.
-    expect(shell).toContain("<UnsavedWorkGuardProvider><FirstRunHints");
+    // inside it so a hint's own navigation (none today) would still be
+    // guarded. First Fair (design §3.1) added a second child — the tour engine
+    // — beside the shell rather than around it, because `ssr: false` renders
+    // nothing on the server and wrapping the shell in it would leave a demo
+    // event's whole admin blank until hydration. Both children must still sit
+    // *inside* the provider: the tour navigates through `useGuardedAction()`,
+    // whose context is null above it.
+    expect(shell).toContain('const shell = <FirstRunHints scope="shell"');
     expect(shell).toContain('><div className="app-shell">');
+    expect(shell).toMatch(/return <UnsavedWorkGuardProvider>\s*\{shell\}/u);
+    expect(shell.indexOf("<UnsavedWorkGuardProvider>"))
+      .toBeLessThan(shell.indexOf("<GuidedTourMount"));
   });
 });

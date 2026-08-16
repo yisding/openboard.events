@@ -725,9 +725,95 @@ function inspectFile(absolutePath: string): Violation[] {
   return violations;
 }
 
+/**
+ * First Fair — the demo-event mail barrier, pinned by text.
+ *
+ * There are **two** outboxes and therefore two barriers. `buildContext` is the
+ * choke point for `communication_logs`, drained by the comms dispatcher; the
+ * admin auth outbox is drained separately by
+ * `dispatchAdminAuthEmailOutboxIn`, and a reviewer invitation is event-scoped,
+ * so it is the one platform template that can name a demo event. Both guards
+ * are the line standing between a demo event and real mail to a real stranger.
+ * Losing either would be silent: every existing dispatcher test runs against
+ * non-demo events and would stay green, and the demo suite would only catch it
+ * if somebody remembered to keep running it. So the guards are asserted by
+ * presence, the way the reviewer route allowlist is — the cheapest check that
+ * fails a refactor at `pnpm check` instead of in production.
+ *
+ * The check is conditional on the file existing so that a fixture root (see
+ * `tests/unit/source-invariants.test.ts`) exercising unrelated rules is not
+ * required to carry a copy of the comms feature.
+ */
+const DEMO_MAIL_GUARDS: ReadonlyArray<{
+  file: string;
+  fragments: ReadonlyArray<{ fragment: string; message: string }>;
+}> = [
+  {
+    file: "src/features/comms/server/context.ts",
+    fragments: [
+      {
+        fragment: "isDemo: events.isDemo",
+        message: "buildContext must select events.isDemo — the demo mail guard reads it from that row",
+      },
+      {
+        fragment: "if (base.isDemo) throw new SkipEmail(",
+        message: "buildContext must throw SkipEmail for a demo event, with no exceptions of any kind",
+      },
+      {
+        fragment: '"demo event — mail is never delivered"',
+        message: "the demo skip reason is shown to organizers in the delivery log and must not drift",
+      },
+    ],
+  },
+  {
+    file: "src/features/auth/server/admin-mail.ts",
+    fragments: [
+      {
+        fragment: "namesDemoEventIn",
+        message: "the admin auth outbox must resolve an invitation's event before delivering it",
+      },
+      {
+        fragment: "return skipRow(dbOrTx, row, DEMO_MAIL_SKIP_REASON)",
+        message: "the admin auth outbox must skip a reviewer invitation that names a demo event",
+      },
+      {
+        fragment: '"demo event — mail is never delivered"',
+        message: "the demo skip reason is shown to organizers in the delivery log and must not drift",
+      },
+    ],
+  },
+  {
+    file: "src/features/organizations/server/invitations.ts",
+    fragments: [
+      {
+        fragment: "if (target.isDemo)",
+        message: "inviteEventReviewerIn must refuse a demo event at the writer, not leave a mystery skipped row",
+      },
+    ],
+  },
+];
+
+function demoMailGuardViolations(): Violation[] {
+  return DEMO_MAIL_GUARDS.flatMap((guard) => {
+    let contents: string;
+    try {
+      contents = readFileSync(resolve(REPO_ROOT, guard.file), "utf8");
+    } catch {
+      return [];
+    }
+    return guard.fragments
+      .filter((expected) => !contents.includes(expected.fragment))
+      .map((expected) => ({
+        line: 1,
+        message: `${expected.message} (missing \`${expected.fragment}\`)`,
+        path: guard.file,
+        rule: "demo-mail-guard",
+      }));
+  });
+}
+
 const files = sourceFiles(SOURCE_ROOT);
-const violations = files
-  .flatMap(inspectFile)
+const violations = [...files.flatMap(inspectFile), ...demoMailGuardViolations()]
   .sort((left, right) => (
     left.path.localeCompare(right.path)
     || left.line - right.line

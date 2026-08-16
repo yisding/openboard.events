@@ -37,6 +37,7 @@ const migrationOnboardingMilestones = readFileSync(new URL("../../drizzle/0023_o
 // belongs in this fixture before organization exports query its current schema.
 const migrationReviewerInvitations = readFileSync(new URL("../../drizzle/0029_event_reviewer_invitations.sql", import.meta.url), "utf8");
 const migrationCalendarCancellationSnapshots = readFileSync(new URL("../../drizzle/0043_calendar_cancellation_snapshots.sql", import.meta.url), "utf8");
+const migrationDemoEventsAndTour = readFileSync(new URL("../../drizzle/0047_demo_events_and_tour.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("47000000-0000-4000-8000-000000000001");
 // Primary submitter, headshot owner, uploader — everything about them is
@@ -79,7 +80,7 @@ beforeAll(async () => {
     migration0, migration1, migrationAdminAuth, migrationRateLimits, migrationContentDeliverables, migrationEmailCompliance,
     migrationRoster, migrationProductAuth, migrationTenancy, migrationUserManagement,
     migrationBilling, migrationCrm, migrationAdminAuthOutbox, migrationOnboardingMilestones,
-    migrationReviewerInvitations, migrationCalendarCancellationSnapshots,
+    migrationReviewerInvitations, migrationCalendarCancellationSnapshots, migrationDemoEventsAndTour,
   ]) {
     await pglite.exec(migration);
   }
@@ -161,6 +162,12 @@ beforeAll(async () => {
   await pglite.query(
     `INSERT INTO speaker_bulk_messages(event_id,contact_id,idempotency_key,subject,body_html) VALUES($1,$2,'bulk-a','Hi','<p>hi</p>')`,
     [eventId, contactA],
+  );
+  // A portal task answer: what the speaker actually typed, as opposed to the
+  // workflow state `tasks` carries.
+  await pglite.query(
+    `INSERT INTO form_responses(event_id,form_id,form_version,contact_id,answers) VALUES($1,$2,1,$3,$4::jsonb)`,
+    [eventId, formId, contactA, JSON.stringify({ note: "Ada travels Tuesday" })],
   );
   await pglite.query(
     `INSERT INTO portal_tokens(event_id,contact_id,purpose,token_hash,expires_at) VALUES($1,$2,'magic_link','hash-a','2099-01-01T00:00:00Z')`,
@@ -273,6 +280,12 @@ describe("exportContactDataIn", () => {
     expect(bundle?.calendarInvites).toEqual([{ sessionId, icsUid: "uid-a", lastMethod: "request", lastSentAt: null }]);
     expect(bundle?.bulkMessages).toHaveLength(1);
     expect(bundle?.fileComments).toHaveLength(1);
+    // Portal task answers: `tasks` above carries only workflow state, while
+    // what the speaker actually typed lives in `form_responses`. Erasure
+    // deletes that table as personal data and the route promises "their
+    // submitted answer content", but the export never read it.
+    expect(bundle?.formResponses).toHaveLength(1);
+    expect(bundle?.formResponses[0]?.answers).toEqual({ note: "Ada travels Tuesday" });
     expect(bundle?.emailSuppressed).toBe(true);
     // Never the bearer material — only issuance metadata.
     expect(bundle?.portalTokens).toEqual([{ purpose: "magic_link", createdAt: expect.any(String), expiresAt: expect.any(String), consumedAt: null }]);
@@ -333,7 +346,9 @@ describe("eraseContactDataIn", () => {
       fileUploads: 1,
       fileComments: 1,
       fileCommentsAnonymized: 0,
-      formResponses: 0,
+      // Erasure has always covered this table; the export did not, which is
+      // what the export assertion above now pins.
+      formResponses: 1,
       submissionParticipants: 1,
       sessionSpeakers: 1,
       calendarInvites: 1,
@@ -530,6 +545,16 @@ describe("runDataRetentionSweepIn", () => {
              ('47000000-0000-4000-8000-000000000934',$1::jsonb)`,
       [retainedSnapshot],
     );
+    // The third per-recipient content store. `communication_logs` above is
+    // redacted at the same cutoff, so leaving these behind kept the identical
+    // body readable, still joined to the contact, indefinitely.
+    await pglite.query(
+      `INSERT INTO speaker_bulk_messages(event_id,contact_id,idempotency_key,subject,body_html,created_at) VALUES
+         ($1,$2,'idem-old','Old subject','<p>old</p>',$3),
+         ($1,$2,'idem-new','New subject','<p>new</p>',$4),
+         ($1,$2,'cancel-pending','Still delivering','<p>pending</p>',$3)`,
+      [eventId, contactB, oldCreatedAt, recentCreatedAt],
+    );
     await pglite.query(
       "INSERT INTO rate_limit_buckets(key_hash,count,window_started_at,updated_at) VALUES('rl-idle',3,$1,$1),('rl-active',3,$2,$2)",
       [idleCounter, activeCounter],
@@ -570,6 +595,14 @@ describe("runDataRetentionSweepIn", () => {
     expect(adminOutbox[1]?.secret_payload_ciphertext).toBeNull();
     expect(adminOutbox[0]?.subject_rendered).toBe("Reset your password");
     expect(stats.removedStaleCalendarCancellationJobs).toBe(1);
+    // Only the aged message whose own log is terminal. The recent one keeps its
+    // content, and `cancel-pending` is still queued — `buildContext` reads this
+    // row at render time, so removing it would break a live send.
+    expect(stats.redactedSpeakerBulkMessages).toBe(1);
+    const bulkKeys = (await pglite.query<{ idempotency_key: string }>(
+      "SELECT idempotency_key FROM speaker_bulk_messages ORDER BY idempotency_key",
+    )).rows.map((row) => row.idempotency_key);
+    expect(bulkKeys).toEqual(["cancel-pending", "idem-new"]);
     expect(stats.staleRateLimitBuckets).toBe(1);
     expect(stats.staleAdminLoginAttempts).toBe(2);
 
@@ -625,6 +658,7 @@ describe("runDataRetentionSweepIn", () => {
       redactedCommunicationLogs: 0,
       redactedAdminAuthEmails: 0,
       removedStaleCalendarCancellationJobs: 0,
+      redactedSpeakerBulkMessages: 0,
       staleRateLimitBuckets: 0,
       staleAdminLoginAttempts: 0,
     });

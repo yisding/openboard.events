@@ -386,3 +386,54 @@ A successful deploy is not the full hackathon infrastructure proof.
 - [ ] Record the full-quarantine no-regression authentication and placement probe before reject.
 - [x] Record the final preview URL without recording any secret values; record production
   after its first successful deployment.
+
+## 11. The self-serve demo event
+
+Nothing here needs provisioning — the demo event is built at runtime, per organization, by the
+product's own writers. This section exists because an operator will meet it in the logs, in the
+billing numbers and in a support ticket, and should know what it is before they do.
+
+**What it is.** One event per organization, flagged `events.is_demo`, created only by
+`POST /api/internal/organizations/{organizationId}/demo` as ten idempotent phases, one request
+each. Roughly 430 rows, under six seconds of wall clock in total. No other request in the product
+can produce one: `is_demo` is not on any input schema and reaches the INSERT as a server-only
+argument to `createEventIn`.
+
+**What it costs.** Ten POSTs per organization, rate-limited to 40 per five minutes per
+organization — sized for the loop plus a retry of every phase and a couple of resets, and for
+nothing else. The tour's world-state poll is `GET /api/internal/events/{eventId}/tour`, one
+indexed statement, limited to 400 per five minutes per event, and it only runs while the player
+has an objective armed (2 s backing off to 10 s, suspended while the tab is hidden, hard stop
+after ten minutes). At most one active tutorial per organizer, once.
+
+**What it cannot do.**
+
+- **Send mail.** Two independent barriers: every fabricated address is `@…demo.invalid`
+  (RFC 2606, no DNS), and `buildContext` raises `SkipEmail("demo event — mail is never
+  delivered")` on `events.is_demo` with no exceptions. Provisioning writes no `queued` outbox row,
+  so the per-minute `outbox` cron finds nothing from it. The `reminders` cron is deliberately
+  **not** filtered — the ladder genuinely fires for the demo's overdue task and every row it
+  produces drains to `skipped`, which is what the tutorial shows the organizer in Chapter 5.
+- **Consume a plan slot.** `countOrganizationEventsIn` filters `is_demo = false`, and neither the
+  entitlement gate nor the usage counter is called. An organization at its cap can still build one.
+- **Be indexed.** Demo sessions ship unpublished, its five embed configurations ship disabled, and
+  once an organizer publishes them the public and embed routes answer `robots: noindex, nofollow`
+  and carry a *"Sample event"* ribbon. The slug is per-organization and contains `-demo-`.
+- **Become a real event.** There is no path that clears the flag; the hand-off copies vocabulary
+  and one form's structure onto a *new* event instead.
+
+**Operating it.**
+
+| Need | Do this |
+|---|---|
+| Find an organization's demo | `SELECT id, slug, created_at FROM events WHERE organization_id = $1 AND is_demo` |
+| Confirm a build finished | `SELECT provision_phase FROM event_demo_tour WHERE event_id = $1` — `ready` means done; anything else names the phase it stopped on |
+| Rebuild a broken one | `POST …/demo {"mode":"reset"}`, then `{"mode":"provision"}` until `done`. It rebuilds at the same deterministic id |
+| Unstick a half-built one the organizer wants to keep | `POST …/demo {"mode":"skip"}` — jumps the cursor to `ready` and leaves the world as far as it got |
+| Remove one | `DELETE …/demo {"confirm":"DELETE"}`, owner only. `is_demo = true` is inside the DELETE's own predicate, so it is structurally incapable of removing a real event |
+| See what it did on the owner's behalf | The organization audit log: `demo.provisioned`, `demo.reset`, `demo.deleted` |
+
+**Residue after a delete.** R2 holds nothing at provision time (the demo ships with no headshots on
+purpose); anything the organizer uploaded during the tour is swept by the existing `cleanup` cron.
+`organization_usage_counters` was never incremented. The `demo_provisioned` and `tour_completed`
+milestones are first-occurrence and permanent, and stay — the funnel event did happen.

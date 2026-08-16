@@ -197,6 +197,58 @@ export const previewCrmMerge = (organizationId: OrganizationId, input: PreviewCr
   previewCrmMergeIn(db, organizationId, input);
 
 /**
+ * Follow every `merged_into_id` hop to the contact that actually survives.
+ *
+ * A merge never rewrites the loser's `email` — the patch in
+ * `mergeOrganizationContactsIn` carries no email, and `UNIQUE (organization_id,
+ * email)` means the loser holds a *different* address from its primary, which
+ * is exactly why erasure walks these chains too. So any lookup by address can
+ * still land on a tombstone, and writing there writes somewhere nobody can see:
+ * the directory, segments, metrics and every outreach audience all filter
+ * `merged_into_id IS NULL`.
+ *
+ * Lives here rather than in one caller because both the bulk-email audience and
+ * the CSV import need the same walk, and merge semantics are this module's.
+ * Loop-guarded on `seen`, so a cycle written by some future bug terminates
+ * instead of hanging a request.
+ */
+export async function canonicalOrganizationContactIdsIn(
+  dbOrTx: DbOrTx,
+  organizationId: OrganizationId,
+  organizationContactIds: readonly string[],
+): Promise<Map<string, string>> {
+  const parentById = new Map<string, string | null>();
+  const loaded = new Set<string>();
+  let pending = [...new Set(organizationContactIds)];
+  while (pending.length > 0) {
+    const rows = await dbOrTx.select({
+      id: organizationContacts.id,
+      mergedIntoId: organizationContacts.mergedIntoId,
+    }).from(organizationContacts).where(and(
+      eq(organizationContacts.organizationId, organizationId),
+      inArray(organizationContacts.id, pending),
+    ));
+    for (const id of pending) loaded.add(id);
+    for (const row of rows) parentById.set(row.id, row.mergedIntoId);
+    pending = [...new Set(rows.flatMap((row) => row.mergedIntoId ? [row.mergedIntoId] : []))]
+      .filter((id) => !loaded.has(id));
+  }
+
+  const canonicalById = new Map<string, string>();
+  for (const originId of organizationContactIds) {
+    let currentId = originId;
+    const seen = new Set<string>();
+    while (!seen.has(currentId)) {
+      seen.add(currentId);
+      const parentId = parentById.get(currentId);
+      if (!parentId) break;
+      currentId = parentId;
+    }
+    canonicalById.set(originId, currentId);
+  }
+  return canonicalById;
+}
+/**
  * Point a losing contact at its winner, but only while it is still un-merged.
  *
  * Exported so the guard is directly testable: the race it defends against

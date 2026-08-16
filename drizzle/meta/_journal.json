@@ -330,6 +330,20 @@
       "when": 1786815000000,
       "tag": "0046_communication_logs_submission_idx",
       "breakpoints": false
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1786816000000,
+      "breakpoints": false,
+      "tag": "0047_demo_events_and_tour"
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1786817000000,
+      "breakpoints": false,
+      "tag": "0048_demo_skipped_phase"
     }
   ]
 }

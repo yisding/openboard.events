@@ -65,6 +65,11 @@ export const STATUS_BADGES = {
   past_due: { label: "Past due", tone: "warning" },
   canceled: { label: "Canceled", tone: "neutral" },
 
+  // First Fair. Neutral on purpose: a demo event is not a warning, a state or
+  // an outcome — it is a fact about which conference you are looking at, and
+  // it must read the same in the topbar, the switcher and the event grid.
+  demo: { label: "Demo", tone: "neutral" },
+
   manual: { label: "Manual", tone: "neutral" },
   form: { label: "Form response", tone: "neutral" },
   file_request: { label: "File request", tone: "neutral" },

@@ -2,11 +2,17 @@ import type { Metadata } from "next";
 import { PublicAgenda } from "@/features/public/public-agenda";
 import { PublicBuildMarker } from "@/features/public/public-build-marker";
 import { getPublicEmbedConfig } from "@/features/public/server/embed-config-queries";
-import { getPublishedSchedule } from "@/features/public/server/public-queries";
+import { getPublicEventIsDemo, getPublishedSchedule } from "@/features/public/server/public-queries";
 import { getEnv } from "@/shared/lib/env";
 import { renderEmbedSurface } from "../embed-page";
 
-export const metadata: Metadata = { title: "Agenda" };
+/** First Fair (design §6.3) — the embed surfaces get the same treatment as
+ * their canonical `/e/` counterparts: `robots: { index: false }` for demos. */
+export async function generateMetadata({ params }: { params: Promise<{ eventSlug: string }> }): Promise<Metadata> {
+  const { eventSlug } = await params;
+  const isDemo = await getPublicEventIsDemo(eventSlug);
+  return { title: "Agenda", ...(isDemo ? { robots: { index: false, follow: false } } : {}) };
+}
 
 /** See `/e/**`'s identical comment: never read `searchParams` here, or this
  * route loses the edge cache (status.md rev. 11's "known regression",

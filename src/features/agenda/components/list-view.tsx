@@ -195,7 +195,10 @@ export function ListView({
             countLabel={countLabel}
             onClear={clearSelection}
             actions={<>
-              <Button size="sm" variant="secondary" disabled={setPublished.isPending} onClick={() => reviewPublish(selectedRows)}>Publish selected</Button>
+              {/* `data-tour`: the canonical bulk-selection bar only exists while
+                  rows are selected, so the guided tour has nothing to wait on
+                  until the organizer has already acted. */}
+              <Button data-tour="agenda.publish" size="sm" variant="secondary" disabled={setPublished.isPending} onClick={() => reviewPublish(selectedRows)}>Publish selected</Button>
               <Button size="sm" variant="secondary" disabled={setPublished.isPending} onClick={() => { void bulk(false, selectedRows); }}>Unpublish selected</Button>
             </>}
           />

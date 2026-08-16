@@ -192,7 +192,10 @@ export function UnscheduledTray({ eventId, event, sessions, accepted, rooms, tra
           <span>{drafts.length}</span>
         </div>
         <p>Open a session to place it on the grid.</p>
-        <Button variant="secondary" size="sm" disabled={drafts.length === 0} onClick={() => setAutoPlaceOpen(true)}>
+        {/* `data-tour`: "Auto-place" is also the label of the day view's own
+            button in `day-view/unscheduled-panel.tsx`, so the tour cannot
+            address this one by text. */}
+        <Button data-tour="agenda.auto-place-tray" variant="secondary" size="sm" disabled={drafts.length === 0} onClick={() => setAutoPlaceOpen(true)}>
           <Wand2 size={14} aria-hidden /> Auto-place
         </Button>
       </header>

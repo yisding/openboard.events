@@ -11,7 +11,10 @@ const paramsSchema = z.object({ sessionId: sessionIdSchema });
 
 /** M52 — a session's attributed title/description history, newest first. */
 const list = defineHandler({
-  auth: agendaAuth({ role: "reviewer" }),
+  // Organizer, like the sessions list beside it: this carries session titles and
+  // descriptions plus the editor's name or email, and its only client is the
+  // organizer-only editor dialog.
+  auth: agendaAuth(),
   input: z.object({}),
   handler: async ({ eventId, params }) => {
     const { sessionId } = paramsSchema.parse(params);

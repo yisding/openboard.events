@@ -1,9 +1,14 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { PublicSessions } from "@/features/public/public-sessions";
-import { getPublishedSchedule } from "@/features/public/server/public-queries";
+import { getPublicEventIsDemo, getPublishedSchedule } from "@/features/public/server/public-queries";
 
-export const metadata: Metadata = { title: "Sessions" };
+/** First Fair (design §6.3) — see `agenda/page.tsx`'s identical comment. */
+export async function generateMetadata({ params }: { params: Promise<{ eventSlug: string }> }): Promise<Metadata> {
+  const { eventSlug } = await params;
+  const isDemo = await getPublicEventIsDemo(eventSlug);
+  return { title: "Sessions", ...(isDemo ? { robots: { index: false, follow: false } } : {}) };
+}
 
 /**
  * CP0's revalidate-60 item, and the header `scripts/post-deploy-smoke.sh`

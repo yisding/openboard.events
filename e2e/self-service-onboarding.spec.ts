@@ -297,6 +297,18 @@ test.describe("self-service signup to first value", () => {
       await page.getByRole("button", { name: "Confirm and continue" }).click();
       await expect(page).toHaveURL(/\/organizations\/[0-9a-f-]{36}\/onboarding$/, { timeout: 30_000 });
       await expect(page.getByText(`Welcome to ${organizationName}`)).toBeVisible({ timeout: 30_000 });
+
+      // First Fair (design §1.1) — a brand-new organization meets the fork
+      // before the wizard. This spec is the "set up my real event" door: it
+      // takes it explicitly, which is also the assertion that the other door
+      // is never the only one and never a funnel. The demo door itself, and
+      // everything behind it, belongs to `demo-tour.spec.ts`.
+      await expect(page.getByRole("heading", { name: "Explore a finished conference" })).toBeVisible();
+      await expect(page.getByRole("link", { name: /Skip both/u })).toBeVisible();
+      await page.getByRole("link", { name: /Start setting it up/u }).click();
+      await expect(page).toHaveURL(/\/organizations\/[0-9a-f-]{36}\/onboarding\?mode=create$/, { timeout: 30_000 });
+      await expect(page.getByRole("heading", { name: "Step 1: Event details" })).toBeVisible({ timeout: 30_000 });
+
       const onboardingViewport = page.viewportSize();
       await page.setViewportSize({ width: 320, height: 700 });
       await expect.poll(async () => (
