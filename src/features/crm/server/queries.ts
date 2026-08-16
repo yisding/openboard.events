@@ -129,6 +129,17 @@ export async function listOrganizationContactsIn(dbOrTx: DbOrTx, organizationId:
   if (filter.pipelineStage && filter.pipelineStage.length > 0) {
     predicates.push(sql`EXISTS (SELECT 1 FROM organization_contact_pipeline p WHERE p.organization_contact_id = oc.id AND p.stage IN (${sqlIn(filter.pipelineStage)}))`);
   }
+  if (filter.customFields) {
+    // Values live inline on `oc.custom_fields` (a JSON object keyed by the
+    // field definition's `key`). Each entry is an exact-match predicate on
+    // that key's text, so multiple entries AND together with each other and
+    // with every predicate above. Both the key and the value are bound
+    // parameters — `->>` extracts the text at a parameterized key, never an
+    // interpolated one.
+    for (const [key, value] of Object.entries(filter.customFields)) {
+      predicates.push(sql`oc.custom_fields ->> ${key} = ${value}`);
+    }
+  }
   const where = sql.join(predicates, sql` AND `);
 
   const countResult = await dbOrTx.execute(sql`SELECT count(*)::int AS n FROM organization_contacts oc WHERE ${where}`);
@@ -284,7 +295,7 @@ export const getCrmSegment = (organizationId: OrganizationId, segmentId: string)
  */
 export async function resolveCrmSegmentIn(dbOrTx: DbOrTx, organizationId: OrganizationId, filter: CrmSegmentFilter): Promise<ResolvedCrmSegment> {
   const page = await listOrganizationContactsIn(dbOrTx, organizationId, {
-    search: filter.search, tagIds: filter.tagIds, eventIds: filter.eventIds, pipelineStage: filter.pipelineStage, source: filter.source,
+    search: filter.search, tagIds: filter.tagIds, eventIds: filter.eventIds, pipelineStage: filter.pipelineStage, source: filter.source, customFields: filter.customFields,
     limit: MAX_SEGMENT_RECIPIENTS, offset: 0,
   });
   const capped = page.total > MAX_SEGMENT_RECIPIENTS;
