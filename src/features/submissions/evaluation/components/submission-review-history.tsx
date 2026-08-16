@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { SkeletonText } from "@/shared/ui/app/skeleton";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import type { ReviewHistoryEntry } from "../types";
 
@@ -43,7 +44,7 @@ export function SubmissionReviewHistory({
       <h3>Review history</h3>
       <p className="muted">Every meaningful score save is retained here, including prior values after an edit.</p>
       {error && <p role="alert" className="form-error">{error}</p>}
-      {!error && entries === null && <p className="muted">Loading review history…</p>}
+      {!error && entries === null && <SkeletonText lines={2} label="Loading review history…" />}
       {!error && entries?.length === 0 && <p className="muted">No scores have been saved for this submission.</p>}
       {!error && entries && entries.length > 0 && (
         <ol className="review-history-list">

@@ -8,6 +8,10 @@ import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
 import { editorDraftChanged, requestGuardedEditorClose } from "@/shared/ui/app/modal-editor-guard";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, Drawer, Field, Select, Switch } from "@/shared/ui/ui-kit";
+// The same authored words the role badge renders on the team page, so the
+// reviewer picker cannot invent a second name for a role — and never shows the
+// database's own lowercase key.
+import { statusBadgeLabel } from "@/shared/ui/status-badge";
 import { useToast } from "@/shared/ui/toast";
 import { assignmentLockGuidance, assignmentLockReason, nextAssignmentLockRefreshMs } from "../assignment-writability";
 import type { PlanDTO } from "../types";
@@ -754,7 +758,7 @@ export function PlanEditor({
                 <div key={member.userId} className="reviewer-assignment">
                   <label>
                     <input type="checkbox" checked={Boolean(assignment)} onChange={() => toggleReviewer(member.userId)} />
-                    <b>{member.name || member.email}</b> <small>{member.role}</small>
+                    <b>{member.name || member.email}</b> <small>{statusBadgeLabel(member.role)}</small>
                   </label>
                   {assignment && (
                     <TrackScope

@@ -10,7 +10,7 @@ import { DataTable } from "@/shared/ui/app/data-table";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { Button, EmptyState, PageHeader, ProgressBar, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
-import type { OrganizationInvitationDTO } from "@/shared/contracts";
+import type { MemberRole, OrganizationInvitationDTO } from "@/shared/contracts";
 import { assignmentLockGuidance, assignmentLockReason, nextAssignmentLockRefreshMs } from "../assignment-writability";
 import { planStatusBadge } from "../plan-status";
 import type { PlanDTO } from "../types";
@@ -19,7 +19,7 @@ import { PlanEditor } from "./plan-editor";
 import { ReviewerInviteDialog } from "./reviewer-invite-dialog";
 
 export type TrackOption = { id: string; name: string; color: string | null };
-export type EventMember = { userId: string; name: string; email: string; role: string };
+export type EventMember = { userId: string; name: string; email: string; role: MemberRole };
 type Requester = (input: string, init?: RequestInit) => Promise<Response>;
 type ReminderRecipient = { reviewerUserId: string; name: string; email: string; outstanding: number };
 type ReminderDialogState = {

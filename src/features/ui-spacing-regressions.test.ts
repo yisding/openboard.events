@@ -353,8 +353,10 @@ describe("shared UI spacing regressions", () => {
     expect(css).toContain(
       ".data-table th.abstracts-title-column,.data-table td.abstracts-title-column{width:340px;min-width:280px}",
     );
+    // Title and description share the clamp: one 300-character probe title
+    // wrapped to twelve lines and set the row height on its own.
     expect(css).toContain(
-      ".submission-title-cell span{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}",
+      ".submission-title-cell b,.submission-title-cell span{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere}",
     );
   });
 

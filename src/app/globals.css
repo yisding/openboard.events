@@ -297,6 +297,21 @@ input:disabled, textarea:disabled, select:disabled { background-color: var(--sur
 .switch:disabled { opacity: .55; cursor: not-allowed; }
 /* An always-open listbox has no closed state to hang a chevron on. */
 .select-control[multiple] { appearance: auto; cursor: default; height: auto; padding-right: 12px; background-image: none; }
+/* The `ColorWell` primitive. The dialog behind it stays the platform's (DD-2,
+   same bargain as the native date picker); the *trigger* is the kit's. A UA
+   colour input paints its swatch inside a bevelled, square-cornered frame of
+   its own, which is why an accent picker sitting next to a `Field` and a
+   `Button` read as pasted in from the operating system. Zeroing the swatch
+   wrapper's padding lets the colour fill the control, and the border, radius
+   and focus ring then come from the shared `input` rules above — the same ones
+   every text field uses. `appearance` is deliberately left alone: `none` stops
+   Safari painting the swatch at all. */
+.color-well { cursor: pointer; }
+.color-well::-webkit-color-swatch-wrapper { padding: 0; }
+.color-well::-webkit-color-swatch { border: 0; border-radius: 5px; }
+.color-well::-moz-color-swatch { border: 0; border-radius: 5px; }
+.color-well:hover:not(:disabled) { border-color: var(--accent-border); }
+.color-well:disabled { cursor: not-allowed; opacity: .55; }
 /* Contextual corrections live at the very end of this file — see "Select —
    contextual corrections" there, and read that note before adding a rule that
    gives a select a `background` shorthand. */
@@ -1084,8 +1099,15 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
    ceiling (`max-width:340px`) without a floor collapsed the column to roughly
    its longest word: 111px, in a 192px row against a 62px design height.
    The width is a preference auto layout honours; the clamp keeps a long
-   description from setting the row height. */
-.submission-title-cell span{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+   description from setting the row height.
+
+   The title needs the same clamp as the description, and for the same reason:
+   one seeded 300-character probe title wrapped to twelve lines and made its row
+   twelve times taller than its neighbours. `overflow-wrap:anywhere` handles the
+   other half of that — a single unbroken 200-character "word" overflows a clamp
+   rather than wrapping inside it. The full title is one click away in the
+   drawer, and the cell carries it as a `title` tooltip meanwhile. */
+.submission-title-cell b,.submission-title-cell span{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
 
 .data-table th.abstracts-title-column,.data-table td.abstracts-title-column{width:340px;min-width:280px}
 
@@ -1414,6 +1436,12 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .route-skeleton--copy{width:min(430px,78vw);height:14px}
 .route-skeleton--button{width:126px;height:38px}
 .route-skeleton--event-card{height:220px;border:1px solid var(--line)}
+/* `SkeletonText` — the in-panel placeholder for prose still in flight (a
+   submission's answers, a history feed). The last line stops short so a block
+   of skeleton reads as text rather than as a filled rectangle. */
+.skeleton-text{display:grid;gap:9px;margin:12px 0}
+.skeleton-text__line{height:12px}
+.skeleton-text__line:last-child{width:62%}
 .route-loading-title>div{display:block}
 .route-workspace-loading{display:grid;gap:24px;max-width:1180px;min-height:420px}
 .route-workspace-loading>header{display:flex;align-items:flex-end;justify-content:space-between;gap:24px}
@@ -1644,6 +1672,13 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .routing-rule-card__row .rule-summary-line{margin:0}
 .routing-rule-card__actions{display:flex;justify-content:flex-end;gap:8px}
 .builder-live-preview__body{max-height:calc(100vh - 260px);overflow-y:auto}
+/* The live preview sits in `.builder-inspector`, a `minmax(260px,1fr)` rail —
+   at its floor that is 212px of content, and `.form-grid`'s two columns cut
+   each question to 98px. A dropdown that narrow clips its own placeholder
+   ("Choose one" rendered as "Choo"). The pane is a column, not a page: one
+   question per row, exactly as `.organizer-form-preview__section` already
+   unstacks the same renderer for its full-width preview. */
+.builder-live-preview__body .form-grid{grid-template-columns:minmax(0,1fr)}
 .loading-note{color:var(--muted);font-size:var(--text-xs);padding:24px 0}
 @media(max-width:768px){.condition-row__controls{grid-template-columns:1fr}.routing-rule-card__row{grid-template-columns:auto auto 1fr auto}.routing-rule-card__row>.button{grid-column:1/5}}
 

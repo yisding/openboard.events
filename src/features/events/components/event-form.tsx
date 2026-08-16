@@ -1,18 +1,16 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Field, Select } from "@/shared/ui/ui-kit";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
+import { DEFAULT_TIME_ZONE, TimeZoneSelect } from "@/shared/ui/app/time-zone-select";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
 import { isAppError, isDefinitiveWriteFailure } from "@/shared/lib/errors";
 import { eventDtoSchema } from "@/shared/contracts";
 import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
-import { timeZoneOptionLabel } from "@/shared/lib/time";
 import { EVENT_TYPES, type EventType } from "../schemas";
-
-const DEFAULT_TZ = "America/Los_Angeles";
 
 /**
  * The request fields this form has a `Field` for — every key that can carry a
@@ -32,14 +30,6 @@ const FIELD_IDS: Record<string, string> = {
   endsAt: "event-ends-at",
 };
 
-function browserTimeZones(): string[] {
-  try {
-    return Intl.supportedValuesOf("timeZone");
-  } catch {
-    return [DEFAULT_TZ, "America/New_York", "America/Chicago", "America/Denver", "Europe/London", "Europe/Paris", "Asia/Tokyo", "UTC"];
-  }
-}
-
 /**
  * The `/events/new` form. Plain `useState` + a submit-time server round trip
  * rather than react-hook-form — this codebase has no form library dependency
@@ -51,14 +41,13 @@ function browserTimeZones(): string[] {
 export function EventForm() {
   const router = useRouter();
   const { toast } = useToast();
-  const timeZones = useMemo(browserTimeZones, []);
 
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [eventType, setEventType] = useState<EventType>("conference");
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [location, setLocation] = useState("");
-  const [timezone, setTimezone] = useState(DEFAULT_TZ);
+  const [timezone, setTimezone] = useState(DEFAULT_TIME_ZONE);
   const [startsAt, setStartsAt] = useState<string | null>(null);
   const [endsAt, setEndsAt] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -161,9 +150,7 @@ export function EventForm() {
           </Select>
         </Field>
         <Field label="Timezone" required error={fieldErrors.timezone} errorId="event-timezone-error">
-          <Select id="event-timezone" name="timezone" required disabled={saving || recoveryRequired} aria-invalid={Boolean(fieldErrors.timezone) || undefined} aria-describedby={fieldErrors.timezone ? "event-timezone-error" : undefined} value={timezone} onChange={(event) => { setTimezone(event.target.value); clearFieldError("timezone"); }}>
-            {timeZones.map((zone) => <option key={zone} value={zone}>{timeZoneOptionLabel(zone)}</option>)}
-          </Select>
+          <TimeZoneSelect id="event-timezone" name="timezone" required disabled={saving || recoveryRequired} aria-invalid={Boolean(fieldErrors.timezone) || undefined} aria-describedby={fieldErrors.timezone ? "event-timezone-error" : undefined} value={timezone} onChange={(event) => { setTimezone(event.target.value); clearFieldError("timezone"); }} />
         </Field>
       </div>
       <div className="form-grid">
