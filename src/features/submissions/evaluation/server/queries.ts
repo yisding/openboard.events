@@ -1,7 +1,7 @@
 import { sql, type SQL } from "drizzle-orm";
 import { OUTSTANDING_REVIEW_WORK_SQL } from "@/db/review-work";
 import { db, type DbOrTx } from "@/db/client";
-import { criterionIdSchema, type CriterionSpec, type CriterionValue, type EventId, type PlanId, type SubmissionId, type UserId } from "@/shared/contracts";
+import { criterionIdSchema, type CriterionSpec, type CriterionValue, type EventId, type MemberRole, type PlanId, type SubmissionId, type UserId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { normalizeCriterionValues, reviewWindow } from "../scoring";
 import type {
@@ -414,7 +414,7 @@ export async function assertReviewerCanReadSubmissionIn(
 export async function listEventMembersIn(
   dbOrTx: DbOrTx,
   eventId: EventId,
-): Promise<Array<{ userId: UserId; name: string; email: string; role: string }>> {
+): Promise<Array<{ userId: UserId; name: string; email: string; role: MemberRole }>> {
   const result = await dbOrTx.execute<{ user_id: string; name: string; email: string; role: string }>(sql`
     SELECT m.user_id, u.name, u.email, m.role
     FROM event_members m JOIN users u ON u.id = m.user_id
@@ -425,7 +425,10 @@ export async function listEventMembersIn(
     userId: row.user_id as UserId,
     name: row.name,
     email: row.email,
-    role: row.role,
+    // `event_members.role` is the `member_role` Postgres enum, so the column
+    // cannot hold anything outside `MEMBER_ROLES`. Saying so here is what lets
+    // the picker render the *authored* label for a role instead of the raw key.
+    role: row.role as MemberRole,
   }));
 }
 

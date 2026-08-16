@@ -203,7 +203,7 @@ export function AbstractsTable({
         // QueryBoundary, so the lead row's title cell carries the anchor —
         // which is also the part of the row a spotlight should frame.
         <div className="submission-title-cell" {...(row.index === 0 ? { "data-tour": "abstracts.row" } : {})}>
-          <b>{row.original.title}</b>
+          <b title={row.original.title}>{row.original.title}</b>
           <Dash value={row.original.descriptionPlain}>
             <span>{row.original.descriptionPlain?.slice(0, 120)}</span>
           </Dash>

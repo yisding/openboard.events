@@ -177,3 +177,16 @@ describe("AbstractsTable responsive column hooks", () => {
     expect(html.slice(trackCellIndex, trackCellIndex + 200)).toContain("track-chip");
   });
 });
+
+describe("AbstractsTable title cell", () => {
+  it("keeps the whole of a clamped title reachable without opening the drawer", () => {
+    const long = "Why ".repeat(80) + "agents fail";
+    const html = renderTable([{ ...ROW, title: long }]);
+
+    // A 320-character title wrapped to twelve lines and made its row twelve
+    // times taller than every other one. The clamp itself is CSS (pinned in
+    // `ui-spacing-regressions.test.ts`); what the markup has to guarantee is
+    // that the two lines a reader can see are not all there is.
+    expect(html).toContain(`<b title="${long}">`);
+  });
+});

@@ -172,6 +172,33 @@ export function zoneAbbreviation(utc: Date | string | number, timeZone: string):
   return formatInTimeZone(asDate(utc), timeZone, "zzz");
 }
 
+/** The zone a new event starts in when nothing better is known. */
+export const DEFAULT_TIME_ZONE = "America/Los_Angeles";
+
+const FALLBACK_TIME_ZONES = [
+  DEFAULT_TIME_ZONE, "America/New_York", "America/Chicago", "America/Denver",
+  "Europe/London", "Europe/Paris", "Asia/Tokyo", "UTC",
+];
+
+/**
+ * Every zone the *rendering runtime* knows, with `UTC` guaranteed present.
+ *
+ * The list is CLDR data read from whichever ICU build is executing, so it is
+ * only stable within one runtime — see `TimeZoneSelect`, which is why the
+ * picker does not server-render it. The hand-written fallback covers a runtime
+ * without `Intl.supportedValuesOf` (or one that answers with nothing), so a
+ * caller always has something to offer.
+ */
+export function browserTimeZones(): string[] {
+  try {
+    const zones = Intl.supportedValuesOf("timeZone");
+    if (zones.length === 0) return FALLBACK_TIME_ZONES;
+    return zones.includes("UTC") ? zones : ["UTC", ...zones];
+  } catch {
+    return FALLBACK_TIME_ZONES;
+  }
+}
+
 const timeZoneOptionLabelCache = new Map<string, string>();
 
 /**

@@ -4,13 +4,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Field, Select } from "@/shared/ui/ui-kit";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
+import { TimeZoneSelect } from "@/shared/ui/app/time-zone-select";
 import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
 import { eventDtoSchema, LIMITS, plainTextLength, type EventDTO } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
 import { RESERVED_SLUGS } from "@/shared/lib/slug";
-import { timeZoneOptionLabel } from "@/shared/lib/time";
 import { EVENT_TYPES, type EventType } from "../schemas";
 import { BrandingPanel } from "./branding-panel";
 
@@ -114,20 +114,8 @@ export function focusDetailsNotice(
   schedule(() => notice.current?.focus());
 }
 
-function browserTimeZones(): string[] {
-  try {
-    return Intl.supportedValuesOf("timeZone");
-  } catch {
-    return [
-      "America/Los_Angeles", "America/New_York", "America/Chicago", "America/Denver",
-      "Europe/London", "Europe/Paris", "Asia/Tokyo", "UTC",
-    ];
-  }
-}
-
 export function DetailsTab({ event, onSaved }: { event: EventDTO; onSaved: (event: EventDTO) => void }) {
   const { toast } = useToast();
-  const timeZones = useMemo(browserTimeZones, []);
   const sectionRef = useRef<HTMLElement>(null);
   const errorRef = useRef<HTMLParagraphElement>(null);
   const staleRef = useRef<HTMLDivElement>(null);
@@ -287,9 +275,7 @@ export function DetailsTab({ event, onSaved }: { event: EventDTO; onSaved: (even
             </Select>
           </Field>
           <Field label="Timezone" required>
-            <Select required value={draft.timezone} onChange={(e) => setDraft((current) => ({ ...current, timezone: e.target.value }))}>
-              {timeZones.map((zone) => <option key={zone} value={zone}>{timeZoneOptionLabel(zone)}</option>)}
-            </Select>
+            <TimeZoneSelect required value={draft.timezone} onChange={(e) => setDraft((current) => ({ ...current, timezone: e.target.value }))} />
           </Field>
         </div>
         <div className="form-grid">
