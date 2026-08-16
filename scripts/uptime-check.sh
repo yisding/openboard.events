@@ -37,6 +37,16 @@ WARN_OLDEST_SECONDS=900
 PAGE_OLDEST_SECONDS=3600
 WARN_OUTBOX_HEARTBEAT_SECONDS=180
 PAGE_OUTBOX_HEARTBEAT_SECONDS=300
+# `admin_auth_email_outbox` — password resets, email verification, organization
+# invitations. An order of magnitude below the event-mail numbers above because
+# nobody sends this in bulk: twenty-five people waiting on a password reset is
+# an incident, where twenty-five queued event emails is a Tuesday. Its failed
+# rows never self-heal (only `pnpm auth:requeue` re-opens them), which is why
+# that threshold in particular is so low.
+WARN_AUTH_QUEUED=25
+PAGE_AUTH_QUEUED=100
+WARN_AUTH_FAILED=3
+PAGE_AUTH_FAILED=10
 
 fail=0
 warn=0
@@ -168,6 +178,45 @@ if [[ "$oldest" =~ ^[0-9]+$ ]]; then
     fail=1
   elif (( oldest > WARN_OLDEST_SECONDS )); then
     echo "::warning::comms.oldestQueuedAgeSeconds=$oldest exceeds warn threshold ($WARN_OLDEST_SECONDS) for $base_url"
+    warn=1
+  fi
+fi
+
+# Additive: an origin still serving the previous release has no `authOutbox`,
+# and every `jq` below yields empty, so those branches are skipped rather than
+# firing a false page. Once the field exists it is checked like any other.
+auth_queued="$(jq -r '.comms.authOutbox.queuedCount // empty' <<<"$body")"
+auth_failed="$(jq -r '.comms.authOutbox.failedCount // empty' <<<"$body")"
+auth_oldest="$(jq -r '.comms.authOutbox.oldestQueuedAgeSeconds // empty' <<<"$body")"
+
+if [[ "$auth_queued" =~ ^[0-9]+$ ]]; then
+  if (( auth_queued > PAGE_AUTH_QUEUED )); then
+    echo "::error::comms.authOutbox.queuedCount=$auth_queued exceeds page threshold ($PAGE_AUTH_QUEUED) for $base_url — admin password recovery mail is backing up"
+    fail=1
+  elif (( auth_queued > WARN_AUTH_QUEUED )); then
+    echo "::warning::comms.authOutbox.queuedCount=$auth_queued exceeds warn threshold ($WARN_AUTH_QUEUED) for $base_url"
+    warn=1
+  fi
+fi
+
+if [[ "$auth_failed" =~ ^[0-9]+$ ]]; then
+  if (( auth_failed > PAGE_AUTH_FAILED )); then
+    echo "::error::comms.authOutbox.failedCount=$auth_failed exceeds page threshold ($PAGE_AUTH_FAILED) for $base_url — those admins cannot recover their passwords; see 'pnpm auth:requeue'"
+    fail=1
+  elif (( auth_failed > WARN_AUTH_FAILED )); then
+    echo "::warning::comms.authOutbox.failedCount=$auth_failed exceeds warn threshold ($WARN_AUTH_FAILED) for $base_url — see 'pnpm auth:requeue'"
+    warn=1
+  fi
+fi
+
+# Shares the event-mail age thresholds: same drain cadence, same retry ladder,
+# so the same reasoning about sitting above the 60-minute backoff cap applies.
+if [[ "$auth_oldest" =~ ^[0-9]+$ ]]; then
+  if (( auth_oldest > PAGE_OLDEST_SECONDS )); then
+    echo "::error::comms.authOutbox.oldestQueuedAgeSeconds=$auth_oldest exceeds page threshold ($PAGE_OLDEST_SECONDS) for $base_url"
+    fail=1
+  elif (( auth_oldest > WARN_OLDEST_SECONDS )); then
+    echo "::warning::comms.authOutbox.oldestQueuedAgeSeconds=$auth_oldest exceeds warn threshold ($WARN_OLDEST_SECONDS) for $base_url"
     warn=1
   fi
 fi

@@ -21,8 +21,17 @@ function failingSql(message: string): NeonQueryFunction<false, false> {
 
 describe("commsHealth", () => {
   it("reports zero counts and a null age when nothing is queued or failed", async () => {
-    const result = await commsHealth(fakeSql({ queued_count: 0, failed_count: 0, oldest_queued_at: null }));
-    expect(result).toEqual({ ok: true, queuedCount: 0, failedCount: 0, oldestQueuedAgeSeconds: null });
+    const result = await commsHealth(fakeSql({
+      queued_count: 0, failed_count: 0, oldest_queued_at: null,
+      auth_queued_count: 0, auth_failed_count: 0, auth_oldest_queued_at: null,
+    }));
+    expect(result).toEqual({
+      ok: true,
+      queuedCount: 0,
+      failedCount: 0,
+      oldestQueuedAgeSeconds: null,
+      authOutbox: { queuedCount: 0, failedCount: 0, oldestQueuedAgeSeconds: null },
+    });
   });
 
   it("computes the oldest-queued age in whole seconds from the DB timestamp", async () => {
@@ -61,6 +70,39 @@ describe("commsHealth", () => {
 
   it("defaults to zero counts and a null age when the query returns no row at all", async () => {
     const result = await commsHealth(fakeSql(undefined));
-    expect(result).toEqual({ ok: true, queuedCount: 0, failedCount: 0, oldestQueuedAgeSeconds: null });
+    expect(result).toEqual({
+      ok: true,
+      queuedCount: 0,
+      failedCount: 0,
+      oldestQueuedAgeSeconds: null,
+      authOutbox: { queuedCount: 0, failedCount: 0, oldestQueuedAgeSeconds: null },
+    });
+  });
+
+  /**
+   * Issue #625 — `admin_auth_email_outbox` carries password resets, email
+   * verification, and organization invitations, and was invisible to this
+   * probe. Every admin could be locked out of password recovery with the
+   * health endpoint still reporting green.
+   */
+  it("reports the admin auth outbox separately from event mail", async () => {
+    const result = await commsHealth(fakeSql({
+      queued_count: 2,
+      failed_count: 0,
+      oldest_queued_at: null,
+      auth_queued_count: 7,
+      auth_failed_count: 4,
+      auth_oldest_queued_at: new Date(Date.now() - 120_000).toISOString(),
+    }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+    // The two outboxes must not be summed or confused: a healthy event queue
+    // beside a failing auth queue is exactly the case that used to read green.
+    expect(result.queuedCount).toBe(2);
+    expect(result.failedCount).toBe(0);
+    expect(result.authOutbox.queuedCount).toBe(7);
+    expect(result.authOutbox.failedCount).toBe(4);
+    expect(result.authOutbox.oldestQueuedAgeSeconds).toBeGreaterThanOrEqual(118);
+    expect(result.authOutbox.oldestQueuedAgeSeconds).toBeLessThanOrEqual(123);
   });
 });

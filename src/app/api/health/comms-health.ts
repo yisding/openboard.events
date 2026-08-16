@@ -23,28 +23,79 @@ import { errorMessage, log } from "@/shared/lib/log";
  * extra named export there fails `next build`'s generated route typing. This
  * file exists so the query/parsing logic can still be unit-tested directly
  * (`comms-health.test.ts`) without a live Postgres connection.
+ *
+ * `authOutbox` mirrors the same three fields for `admin_auth_email_outbox`,
+ * which carries password resets, email verification, and organization
+ * invitations. That table was invisible here, so every admin could be locked
+ * out of password recovery with the probe still reporting green — the loudest
+ * possible failure with the quietest possible signal. It is nested rather than
+ * split into its own top-level block because the question an operator is
+ * asking is one question ("is mail moving?"), and the two answers to it should
+ * not live in two places.
  */
-export async function commsHealth(sql: NeonQueryFunction<false, false>): Promise<{
-  ok: true;
+export type OutboxHealth = {
   queuedCount: number;
   failedCount: number;
   oldestQueuedAgeSeconds: number | null;
-} | { ok: false; error: string }> {
+};
+
+export type CommsHealth =
+  | (OutboxHealth & { ok: true; authOutbox: OutboxHealth })
+  | { ok: false; error: string };
+
+type OutboxCounts = { queued_count: number; failed_count: number; oldest_queued_at: string | null };
+
+function outboxHealth(counts: OutboxCounts | undefined, now: number): OutboxHealth {
+  const oldestQueuedAt = counts?.oldest_queued_at ? new Date(counts.oldest_queued_at) : null;
+  return {
+    queuedCount: counts?.queued_count ?? 0,
+    failedCount: counts?.failed_count ?? 0,
+    oldestQueuedAgeSeconds: oldestQueuedAt ? Math.max(0, Math.round((now - oldestQueuedAt.getTime()) / 1000)) : null,
+  };
+}
+
+export async function commsHealth(sql: NeonQueryFunction<false, false>): Promise<CommsHealth> {
   try {
+    // Both outboxes in one round trip. The probe already costs several, and
+    // adding a second aggregate per poll to answer half of one question is how
+    // a health check becomes the load it is meant to detect.
     const rows = await sql`
+      with event_mail as (
+        select
+          count(*) filter (where status = 'queued')::int as queued_count,
+          count(*) filter (where status = 'failed')::int as failed_count,
+          min(created_at) filter (where status = 'queued') as oldest_queued_at
+        from communication_logs
+      ), auth_mail as (
+        select
+          count(*) filter (where status = 'queued')::int as queued_count,
+          count(*) filter (where status = 'failed')::int as failed_count,
+          min(created_at) filter (where status = 'queued') as oldest_queued_at
+        from admin_auth_email_outbox
+      )
       select
-        count(*) filter (where status = 'queued')::int as queued_count,
-        count(*) filter (where status = 'failed')::int as failed_count,
-        min(created_at) filter (where status = 'queued') as oldest_queued_at
-      from communication_logs
+        event_mail.queued_count,
+        event_mail.failed_count,
+        event_mail.oldest_queued_at,
+        auth_mail.queued_count as auth_queued_count,
+        auth_mail.failed_count as auth_failed_count,
+        auth_mail.oldest_queued_at as auth_oldest_queued_at
+      from event_mail, auth_mail
     `;
-    const row = rows[0] as { queued_count: number; failed_count: number; oldest_queued_at: string | null } | undefined;
-    const oldestQueuedAt = row?.oldest_queued_at ? new Date(row.oldest_queued_at) : null;
+    const row = rows[0] as (OutboxCounts & {
+      auth_queued_count: number;
+      auth_failed_count: number;
+      auth_oldest_queued_at: string | null;
+    }) | undefined;
+    const now = Date.now();
     return {
       ok: true,
-      queuedCount: row?.queued_count ?? 0,
-      failedCount: row?.failed_count ?? 0,
-      oldestQueuedAgeSeconds: oldestQueuedAt ? Math.max(0, Math.round((Date.now() - oldestQueuedAt.getTime()) / 1000)) : null,
+      ...outboxHealth(row, now),
+      authOutbox: outboxHealth(row && {
+        queued_count: row.auth_queued_count,
+        failed_count: row.auth_failed_count,
+        oldest_queued_at: row.auth_oldest_queued_at,
+      }, now),
     };
   } catch (error) {
     // The raw error (e.g. a Postgres message naming a table/column) stays

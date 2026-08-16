@@ -11,6 +11,7 @@ import {
   getAdminAuthFallbackLinkIn,
   openPlatformAdminLinkPayload,
   recordAdminAuthEmailSuppressionIn,
+  requeueFailedAdminAuthEmailsIn,
   sendAdminAuthEmailIn,
 } from "@/features/auth";
 import { userIdSchema } from "@/shared/contracts";
@@ -397,5 +398,113 @@ describe("platform admin auth mail outbox", () => {
     const complaintStats = await dispatchAdminAuthEmailOutboxIn(tx, 10, { env: sendEnv, sender: permanentlySuppressed });
     expect(complaintStats).toMatchObject({ claimed: 1, skipped: 1 });
     expect(permanentlySuppressed).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Issue #625 — once a row exhausted the shared six-attempt cutoff, `failRow`
+ * wrote `status: "failed"` and nothing in the product could re-open it.
+ * `retryFailedCommunicationsIn` is event-scoped to `communication_logs`, so an
+ * admin whose reset mail died during a provider outage was locked out with SQL
+ * as the only remedy.
+ */
+describe("requeueing terminal admin auth mail", () => {
+  let pglite: PGlite;
+  let tx: TxDb;
+
+  beforeAll(async () => {
+    pglite = new PGlite();
+    for (const name of MIGRATIONS) {
+      await pglite.exec(readFileSync(new URL(`../../drizzle/${name}.sql`, import.meta.url), "utf8"));
+    }
+    await pglite.query(
+      "INSERT INTO users(id,email,name) VALUES($1,'organizer@example.com','Ada Organizer'),($2,'orphan@example.com','Eventless Owner')",
+      [userId, orphanId],
+    );
+    tx = drizzle(pglite, { schema }) as unknown as TxDb;
+  }, 60_000);
+
+  beforeEach(async () => {
+    await pglite.query("DELETE FROM admin_auth_email_outbox");
+  });
+
+  afterAll(async () => pglite.close());
+
+  async function queueThenFail(email: string): Promise<string> {
+    const result = await sendAdminAuthEmailIn(tx, {
+      templateKey: "admin_password_reset",
+      userId,
+      email,
+      name: "Ada Organizer",
+      url: "http://localhost:3000/login/reset?token=a-reset-token",
+      expiresIn: "1 hour",
+    }, logEnv);
+    await pglite.query(
+      "UPDATE admin_auth_email_outbox SET status='failed', attempts=6, error='provider unavailable' WHERE id=$1",
+      [result.messageId],
+    );
+    return result.messageId;
+  }
+
+  it("re-opens a terminal row and gives it a fresh attempt ladder", async () => {
+    const messageId = await queueThenFail("ada@example.com");
+
+    const result = await requeueFailedAdminAuthEmailsIn(tx, {});
+    expect(result.requeued.map((row) => row.id)).toEqual([messageId]);
+    // The failure it died of survives into the report — the operator needs to
+    // know what to fix before the fresh ladder spends itself on the same thing.
+    expect(result.requeued[0]).toMatchObject({ attempts: 6, error: "provider unavailable" });
+
+    const [row] = await tx.select().from(adminAuthEmailOutbox).where(eq(adminAuthEmailOutbox.id, messageId));
+    expect(row).toMatchObject({ status: "queued", attempts: 0, error: null, lockedUntil: null });
+    // Reset to zero rather than nudged: the row already spent its ladder on a
+    // condition the operator has since fixed, and leaving it at six would let
+    // one more transient failure close it again immediately.
+    expect(row?.nextAttemptAt.getTime()).toBeLessThanOrEqual(Date.now() + 1000);
+  });
+
+  it("narrows to one recipient when asked, leaving the rest terminal", async () => {
+    const mine = await queueThenFail("ada@example.com");
+    const theirs = await queueThenFail("grace@example.com");
+
+    const result = await requeueFailedAdminAuthEmailsIn(tx, { emails: ["ADA@Example.com"] });
+    expect(result.requeued.map((row) => row.id)).toEqual([mine]);
+
+    const [untouched] = await tx.select().from(adminAuthEmailOutbox).where(eq(adminAuthEmailOutbox.id, theirs));
+    expect(untouched?.status).toBe("failed");
+  });
+
+  // The link *is* the message for every template in this table, so re-sending
+  // one whose sealed payload is gone would deliver mail that cannot do
+  // anything — and stop the recipient waiting for a real one.
+  it("reports a row with no sealed payload as unrecoverable instead of re-sending it", async () => {
+    const messageId = await queueThenFail("ada@example.com");
+    await pglite.query("UPDATE admin_auth_email_outbox SET secret_payload_ciphertext = NULL WHERE id=$1", [messageId]);
+
+    const result = await requeueFailedAdminAuthEmailsIn(tx, {});
+    expect(result.requeued).toEqual([]);
+    expect(result.unrecoverable.map((row) => row.id)).toEqual([messageId]);
+
+    const [row] = await tx.select().from(adminAuthEmailOutbox).where(eq(adminAuthEmailOutbox.id, messageId));
+    expect(row?.status).toBe("failed");
+  });
+
+  it("leaves queued and sent rows alone", async () => {
+    const queued = await sendAdminAuthEmailIn(tx, {
+      templateKey: "admin_password_reset",
+      userId,
+      email: "waiting@example.com",
+      name: "Ada Organizer",
+      url: "http://localhost:3000/login/reset?token=still-waiting",
+      expiresIn: "1 hour",
+    }, logEnv);
+    await pglite.query("UPDATE admin_auth_email_outbox SET attempts=2 WHERE id=$1", [queued.messageId]);
+
+    const result = await requeueFailedAdminAuthEmailsIn(tx, {});
+    expect(result.requeued).toEqual([]);
+    // A mid-ladder row must keep its attempts: resetting one the drain is
+    // still working through would restart a backoff that is doing its job.
+    const [row] = await tx.select().from(adminAuthEmailOutbox).where(eq(adminAuthEmailOutbox.id, queued.messageId));
+    expect(row).toMatchObject({ status: "queued", attempts: 2 });
   });
 });

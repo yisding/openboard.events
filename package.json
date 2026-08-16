@@ -40,6 +40,7 @@
     "r2:lifecycle:ensure": "tsx scripts/ensure-r2-staging-lifecycle.ts",
     "seed": "tsx scripts/seed/index.ts",
     "admin:bootstrap": "tsx scripts/bootstrap-admin.ts",
+    "auth:requeue": "tsx scripts/requeue-auth-emails.ts",
     "dev:jobs": "wrangler dev --config workers/jobs/wrangler.jsonc --test-scheduled",
     "deploy:web": "pnpm deploy:web:production",
     "deploy:web:preview": "bash scripts/deploy-cloudflare.sh web preview",
