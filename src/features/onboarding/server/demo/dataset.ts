@@ -1,4 +1,4 @@
-import type { CommStatus, ConfirmationStatus, ParticipantRole, SubmissionStatus, TemplateKey } from "@/shared/contracts";
+import type { ConfirmationStatus, ParticipantRole, SubmissionStatus, TemplateKey } from "@/shared/contracts";
 
 /**
  * The "First Fair" demo world's content (design §2.4, §2.5).
@@ -853,14 +853,13 @@ export const RESOURCE_PAGES: readonly DemoResourcePage[] = [
 ] as const;
 
 // ---------------------------------------------------------------------------
-// Communications: 9 backdated, terminal-status log rows
+// Communications: 9 backdated, always-skipped log rows
 // ---------------------------------------------------------------------------
 
 export type DemoCommLogRow = {
   key: string;
   templateKey: TemplateKey;
   speakerKey: string;
-  status: Extract<CommStatus, "sent" | "skipped" | "failed">;
   subjectRendered: string;
   /** Relative to `now`. Always within [-14, 0] — see `demoDates(now).comms`.
    *  Mutually exclusive with `hoursAgo`; every row sets exactly one. */
@@ -868,26 +867,39 @@ export type DemoCommLogRow = {
   /** Only the most recent row uses this instead of `offsetDays`, matching
    *  design §2.4's "−1 h" endpoint of the backdated window. */
   hoursAgo?: number;
-  errorMessage?: string;
 };
 
-/** Six `sent`, two `skipped`, one `failed` — never `queued` (design §2.4:
- *  a demo event provisions its communications history directly, it never
- *  enqueues a row for the live dispatcher to pick up). */
+/**
+ * Nine rows of history, every one of them `skipped`.
+ *
+ * There is deliberately **no** `status` field to set. Six of these rows used
+ * to be seeded `sent` and one `failed`, to make the log look lived-in; the
+ * addresses were `.demo.invalid` so nothing was ever delivered, but the column
+ * an organizer actually reads said otherwise, and MTP-18 §4/26 — the safety
+ * audit, pass/fail — requires every row on a demo event's delivery log to read
+ * `Skipped`. A status the dataset cannot express is a status provisioning
+ * cannot get wrong. The history is still here: nine backdated rows, real
+ * templates, real recipients, real subjects, spread across two weeks. Only the
+ * claim to have dispatched mail is gone.
+ *
+ * Never `queued` either (design §2.4: a demo event provisions its
+ * communications history directly, it never enqueues a row for the live
+ * dispatcher to pick up).
+ */
 export const COMM_LOG_ROWS: readonly DemoCommLogRow[] = [
   {
     key: "submission-received-marcus", templateKey: "submission_received", speakerKey: "marcus-iyer",
-    status: "sent", subjectRendered: "We received your submission: Shipping MCP Servers Into Production Without Regretting It",
+    subjectRendered: "We received your submission: Shipping MCP Servers Into Production Without Regretting It",
     offsetDays: -14,
   },
   {
     key: "submission-received-aisha", templateKey: "submission_received", speakerKey: "aisha-bello",
-    status: "sent", subjectRendered: "We received your submission: Evals as a Product Requirement, Not an Afterthought",
+    subjectRendered: "We received your submission: Evals as a Product Requirement, Not an Afterthought",
     offsetDays: -12,
   },
   {
     key: "submission-accepted-tomas", templateKey: "submission_accepted", speakerKey: "tomas-reyes",
-    status: "sent", subjectRendered: "You're in! Reasoning Models in the Loop: When RL Post-Training Actually Pays Off",
+    subjectRendered: "You're in! Reasoning Models in the Loop: When RL Post-Training Actually Pays Off",
     offsetDays: -10,
   },
   // Victor Achebe, not Dana Whitfield: he is the one speaker whose travel form
@@ -896,29 +908,28 @@ export const COMM_LOG_ROWS: readonly DemoCommLogRow[] = [
   // all), and Chapter 6 sends the organizer to read exactly this ladder.
   {
     key: "task-assigned-victor", templateKey: "task_assigned", speakerKey: "victor-achebe",
-    status: "sent", subjectRendered: "New task: Submit your travel form", offsetDays: -9,
+    subjectRendered: "New task: Submit your travel form", offsetDays: -9,
   },
   {
     key: "schedule-assigned-priya", templateKey: "schedule_assigned", speakerKey: "priya-kalburgi",
-    status: "sent", subjectRendered: "Your session is scheduled: Building a Sales Agent That Your AEs Actually Trust",
+    subjectRendered: "Your session is scheduled: Building a Sales Agent That Your AEs Actually Trust",
     offsetDays: -6,
   },
   {
     key: "task-reminder-victor", templateKey: "task_reminder", speakerKey: "victor-achebe",
-    status: "sent", subjectRendered: "Reminder: Submit your travel form", offsetDays: -2,
+    subjectRendered: "Reminder: Submit your travel form", offsetDays: -2,
   },
   {
     key: "portal-login-elena", templateKey: "portal_login", speakerKey: "elena-torkelson",
-    status: "skipped", subjectRendered: "Your speaker portal link", offsetDays: -5,
+    subjectRendered: "Your speaker portal link", offsetDays: -5,
   },
   {
     key: "review-reminder-victor", templateKey: "review_reminder", speakerKey: "victor-achebe",
-    status: "skipped", subjectRendered: "Reviews are waiting for you", offsetDays: -3,
+    subjectRendered: "Reviews are waiting for you", offsetDays: -3,
   },
   {
     key: "task-reminder-yuki", templateKey: "task_reminder", speakerKey: "yuki-tanabe",
-    status: "failed", subjectRendered: "Reminder: Upload your slide deck", hoursAgo: 1,
-    errorMessage: "Upstream delivery provider timed out",
+    subjectRendered: "Reminder: Upload your slide deck", hoursAgo: 1,
   },
 ] as const;
 

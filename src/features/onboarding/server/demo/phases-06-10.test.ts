@@ -249,12 +249,30 @@ describe("phases 6-10", () => {
       );
       expect(rows.rows).toHaveLength(COMM_LOG_ROWS.length);
       expect(rows.rows.every((row) => row.idempotency_key.startsWith(`demo:${eventId}:`))).toBe(true);
-      const byStatus = new Map<string, number>();
-      for (const row of rows.rows) byStatus.set(row.status, (byStatus.get(row.status) ?? 0) + 1);
-      expect(byStatus.get("sent")).toBe(6);
-      expect(byStatus.get("skipped")).toBe(2);
-      expect(byStatus.get("failed")).toBe(1);
-      expect(byStatus.get("queued")).toBeUndefined();
+      expect([...new Set(rows.rows.map((row) => row.status))]).toEqual(["skipped"]);
+    });
+
+    // MTP-18 §4/26, the safety audit's pass/fail row: the demo may never claim
+    // to have dispatched mail, not even in backdated history nobody watched
+    // being written. Status *and* reason, because a row skipped for a missing
+    // template would also read `skipped` while meaning something else.
+    it("never claims a demo send: every backdated row is skipped, for the demo reason, with no sent timestamp", async () => {
+      const rows = await pglite.query<{ status: string; error: string | null; sent_at: Date | null; attempts: number }>(
+        "SELECT status, error, sent_at, attempts FROM communication_logs WHERE event_id = $1",
+        [eventId],
+      );
+      // Non-vacuity first: "every row is skipped" is trivially true of zero
+      // rows, and a phase 10 that seeded nothing would pass the loop below
+      // while failing the guarantee the loop exists to enforce.
+      expect(rows.rows).toHaveLength(COMM_LOG_ROWS.length);
+      for (const row of rows.rows) {
+        expect(row).toMatchObject({
+          status: "skipped",
+          error: "demo event — mail is never delivered",
+          sent_at: null,
+          attempts: 0,
+        });
+      }
     });
   });
 });

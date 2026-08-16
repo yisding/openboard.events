@@ -83,6 +83,14 @@ async function betterAuthSignIn(request: NextRequest, credentials: z.infer<typeo
     if (result.status === 403 && body?.code === "EMAIL_NOT_VERIFIED") {
       return NextResponse.json({ error: { code: "EMAIL_NOT_VERIFIED", message: "Confirm your email before signing in" } }, { status: 403 });
     }
+    // Better Auth runs its own limiter *inside* this handler, and it is on by
+    // default in production (`rateLimit.enabled ?? isProduction`) with a
+    // built-in `/sign-in*` rule of 3 per 10s — stricter, and therefore earlier,
+    // than our own durable throttle at attempt 6. Its 429 body carries only
+    // `message`, never a `code`, so collapsing it into `unauthorized()` told
+    // the one organizer who had just typed the right password that it was
+    // wrong. Same defect this route's own 429 was fixed for, one layer down.
+    if (result.status === 429) return credentialRateLimited();
     return unauthorized();
   }
   return withCookies(result, { data: { signedIn: true } }, 200);
