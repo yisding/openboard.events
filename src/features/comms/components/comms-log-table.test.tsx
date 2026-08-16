@@ -49,7 +49,7 @@ describe("CommsLogTable responsive column hooks", () => {
   it("stamps the comms-log-col-* class onto both th and td, for every column the ladder touches", () => {
     const html = renderLog();
 
-    for (const column of ["recipient", "template", "provider", "created", "sent"]) {
+    for (const column of ["recipient", "template", "subject", "provider", "created", "sent"]) {
       const className = `comms-log-col-${column}`;
       const occurrences = html.split(`class="${className}"`).length - 1;
       expect(occurrences, `${className} should appear on one <th> and one <td>`).toBe(2);
@@ -58,6 +58,16 @@ describe("CommsLogTable responsive column hooks", () => {
 
   it("leaves Status unclassed — it is the column this table exists to show", () => {
     expect(renderLog()).not.toContain("comms-log-col-status");
+  });
+
+  // Every row was "Portal sign-in · Nadia Lee · Sent" until this column landed:
+  // nothing on the list said which of two messages from the same template was
+  // which, so identifying a row meant opening it.
+  it("identifies a row by the subject the recipient actually saw", () => {
+    const html = renderLog();
+
+    expect(html).toContain('class="table-sort">Subject</button>');
+    expect(html).toContain('<td class="comms-log-col-subject"><span title="Your sign-in code">Your sign-in code</span></td>');
   });
 
   it("names templates the way every other surface does, never the raw enum key", () => {
