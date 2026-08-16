@@ -433,7 +433,7 @@ export function getAdminAuthFallbackLink(email: string): Promise<string | null> 
 export async function recordAdminAuthEmailSuppressionIn(
   dbOrTx: DbOrTx,
   args: { providerMessageId: string; reason: "bounce" | "complaint" },
-): Promise<boolean> {
+): Promise<{ recipientEmail: string } | null> {
   const [updated] = await dbOrTx.update(adminAuthEmailOutbox).set({
     status: args.reason === "bounce" ? "bounced" : "complained",
     suppressedAt: sql`now()`,
@@ -441,10 +441,15 @@ export async function recordAdminAuthEmailSuppressionIn(
     eq(adminAuthEmailOutbox.providerMessageId, args.providerMessageId),
     eq(adminAuthEmailOutbox.status, "sent"),
   )).returning();
-  return Boolean(updated);
+  // The address goes back to the caller so it can also be suppressed for the
+  // comms outbox. This one is only about *this* table: it flips the row's status
+  // and starts its 30-day ageing window, and nothing here writes
+  // `contact_suppressions`, so on its own a bounce here never stopped a single
+  // event email.
+  return updated ? { recipientEmail: updated.recipientEmail } : null;
 }
 
-export function recordAdminAuthEmailSuppression(args: { providerMessageId: string; reason: "bounce" | "complaint" }): Promise<boolean> {
+export function recordAdminAuthEmailSuppression(args: { providerMessageId: string; reason: "bounce" | "complaint" }): Promise<{ recipientEmail: string } | null> {
   return recordAdminAuthEmailSuppressionIn(db, args);
 }
 

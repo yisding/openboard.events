@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
+import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TxDb } from "@/db/client";
@@ -18,7 +19,7 @@ import { enqueueEmail } from "@/shared/server/enqueue-email";
 import { dispatchOutboxIn } from "./server/dispatcher";
 import { listLogIn } from "./server/queries";
 import type { EmailMessage } from "@/shared/server/email-provider";
-import { recordSuppressionIn } from "./server/suppression";
+import { recordSuppressionIn, suppressAddressIn } from "./server/suppression";
 import { seedDefaultTemplates } from "./server/templates";
 import { signUnsubscribeToken, unsubscribeFromRemindersIn, verifyUnsubscribeToken } from "./server/unsubscribe";
 import { deleteSessionIn } from "@/features/agenda/server/mutations";
@@ -624,6 +625,33 @@ describe("communications outbox dispatcher", () => {
     await expect(dispatchOutboxIn(tx, 50, { env: logEnv })).resolves.toEqual({ claimed: 2, sent: 0, skipped: 2, failed: 0, retried: 0 });
     const rows = await pglite.query<{ error: string }>("SELECT error FROM communication_logs WHERE idempotency_key IN ($1,$2)", [`${eventId}:bounce:decision`, `${eventId}:bounce:schedule`]);
     expect(rows.rows.every((row) => row.error === "contact suppressed (bounce)")).toBe(true);
+  });
+
+  it("suppresses every contact holding an address the platform outbox saw bounce", async () => {
+    // The webhook tries the comms outbox first and falls back to the platform
+    // one, which flips only `admin_auth_email_outbox.status` and starts that
+    // table's own 30-day ageing window. Nothing there wrote
+    // `contact_suppressions`, so `buildContext`'s guard never fired: the comms
+    // dispatcher — which has no ageing at all — kept mailing an address the
+    // provider had already confirmed undeliverable, and the organizer's
+    // Suppressions tab showed nothing to explain it. The two outboxes address
+    // the same mailboxes: a reviewer invitation goes out through the platform
+    // one, and `ensureReviewerContact` materialises a `contacts` row from that
+    // same `users.email`.
+    await seedDefaultTemplates(tx, eventId);
+    expect(await suppressAddressIn(tx, sql`'speaker@example.com'`, "bounce")).toBeGreaterThan(0);
+
+    await enqueueEmail(tx, { eventId, contactId, templateKey: "submission_received", idempotencyKey: `${eventId}:bridge:after`, refs: { submissionId: receivedId } });
+    await expect(dispatchOutboxIn(tx, 50, { env: logEnv })).resolves.toMatchObject({ sent: 0, skipped: 1 });
+    const skipped = await pglite.query<{ error: string }>(
+      "SELECT error FROM communication_logs WHERE idempotency_key=$1", [`${eventId}:bridge:after`],
+    );
+    expect(skipped.rows[0]?.error).toBe("contact suppressed (bounce)");
+
+    // And an address nobody holds is a no-op rather than an error.
+    expect(await suppressAddressIn(tx, sql`'nobody@example.com'`, "bounce")).toBe(0);
+
+    await pglite.query("DELETE FROM contact_suppressions WHERE contact_id=$1", [contactId]);
   });
 
   it("attaches List-Unsubscribe only to non-essential sends and renders the CAN-SPAM address in the footer", async () => {

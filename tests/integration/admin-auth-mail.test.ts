@@ -345,7 +345,8 @@ describe("platform admin auth mail outbox", () => {
       expiresIn: "1 hour",
     }, logEnv);
     await dispatchAdminAuthEmailOutboxIn(tx, 10, { env: sendEnv, sender: vi.fn().mockResolvedValue("auth-bounce-id") });
-    await expect(recordAdminAuthEmailSuppressionIn(tx, { providerMessageId: "auth-bounce-id", reason: "bounce" })).resolves.toBe(true);
+    await expect(recordAdminAuthEmailSuppressionIn(tx, { providerMessageId: "auth-bounce-id", reason: "bounce" }))
+      .resolves.toEqual({ recipientEmail: "organizer@example.com" });
 
     await sendAdminAuthEmailIn(tx, {
       templateKey: "admin_password_reset",
@@ -379,7 +380,8 @@ describe("platform admin auth mail outbox", () => {
     expect(recoveredSender).toHaveBeenCalledOnce();
 
     // Complaints remain permanent regardless of age.
-    await expect(recordAdminAuthEmailSuppressionIn(tx, { providerMessageId: "auth-complaint-id", reason: "complaint" })).resolves.toBe(true);
+    await expect(recordAdminAuthEmailSuppressionIn(tx, { providerMessageId: "auth-complaint-id", reason: "complaint" }))
+      .resolves.toEqual({ recipientEmail: "organizer@example.com" });
     await pglite.query(
       "UPDATE admin_auth_email_outbox SET suppressed_at=now() - interval '31 days' WHERE provider_message_id='auth-complaint-id'",
     );

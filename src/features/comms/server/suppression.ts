@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql, type SQL } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { communicationLogs, contacts, contactSuppressions } from "@/db/schema";
 import { type ContactId, type EventId, type SuppressionReason } from "@/shared/contracts";
@@ -71,16 +71,47 @@ export async function recordSuppressionIn(
   // `CHECK (email = lower(btrim(email)))` since 0000_init, so the stored form
   // is already canonical and normalizing here would only cost the comparison
   // its index eligibility. The scan is per bounce webhook, not per send.
-  const siblings = await dbOrTx.select({ id: contacts.id, eventId: contacts.eventId })
-    .from(contacts)
-    .where(sql`${contacts.email} = (SELECT email FROM contacts WHERE id = ${log.contactId})`);
-  const rows = siblings.length > 0
-    ? siblings.map((sibling) => ({ contactId: sibling.id, eventId: sibling.eventId, reason: args.reason }))
-    : [{ contactId: log.contactId, eventId: log.eventId, reason: args.reason }];
-  await dbOrTx.insert(contactSuppressions)
-    .values(rows)
-    .onConflictDoUpdate({ target: contactSuppressions.contactId, set: { reason: args.reason, suppressedAt: sql`now()` } });
+  const suppressed = await suppressAddressIn(
+    dbOrTx,
+    sql`(SELECT email FROM contacts WHERE id = ${log.contactId})`,
+    args.reason,
+  );
+  if (suppressed === 0) {
+    // No `contacts` row resolved — only reachable if the log's contact vanished
+    // between the two reads. Keep the original row suppressed regardless.
+    await dbOrTx.insert(contactSuppressions)
+      .values([{ contactId: log.contactId, eventId: log.eventId, reason: args.reason }])
+      .onConflictDoUpdate({ target: contactSuppressions.contactId, set: { reason: args.reason, suppressedAt: sql`now()` } });
+  }
   return { eventId: log.eventId as EventId, contactId: log.contactId as ContactId };
+}
+
+/**
+ * Suppress every `contacts` row holding an address, and answer how many.
+ *
+ * The address is passed as SQL so a caller can hand over either a literal or a
+ * subquery. Extracted because the platform outbox needs the same fan-out: its
+ * bounces used to stop at `admin_auth_email_outbox.status` and never reach
+ * `contact_suppressions`, so the comms dispatcher — which has no ageing window
+ * at all — kept mailing an address the provider had already confirmed
+ * undeliverable, and the organizer's Suppressions tab showed nothing to explain
+ * it. The two outboxes provably address the same mailboxes: a reviewer
+ * invitation goes out through the platform one, and `ensureReviewerContact`
+ * materialises a `contacts` row from that same `users.email`.
+ */
+export async function suppressAddressIn(
+  dbOrTx: DbOrTx,
+  email: SQL,
+  reason: SuppressionReason,
+): Promise<number> {
+  const holders = await dbOrTx.select({ id: contacts.id, eventId: contacts.eventId })
+    .from(contacts)
+    .where(sql`${contacts.email} = ${email}`);
+  if (holders.length === 0) return 0;
+  await dbOrTx.insert(contactSuppressions)
+    .values(holders.map((holder) => ({ contactId: holder.id, eventId: holder.eventId, reason })))
+    .onConflictDoUpdate({ target: contactSuppressions.contactId, set: { reason, suppressedAt: sql`now()` } });
+  return holders.length;
 }
 
 export const recordSuppression = (args: { providerMessageId: string; reason: SuppressionReason }): Promise<{ eventId: EventId; contactId: ContactId } | null> =>
@@ -141,3 +172,7 @@ export async function removeSuppressionIn(dbOrTx: DbOrTx, eventId: EventId, cont
 export function removeSuppression(eventId: EventId, contactId: ContactId): Promise<boolean> {
   return removeSuppressionIn(db, eventId, contactId);
 }
+
+/** Address-keyed suppression for a caller outside this module's own outbox. */
+export const suppressAddress = (email: string, reason: SuppressionReason): Promise<number> =>
+  suppressAddressIn(db, sql`${email}`, reason);
