@@ -29,7 +29,7 @@ const EVENT_ID = "c4500000-0000-4000-8000-000000000001";
 const PLAN_ID = "c4500000-0000-4000-8000-000000000010" as PlanDTO["id"];
 const CRITERION_ID = "c4500000-0000-4000-8002-000000000013" as PlanDTO["criteria"][number]["id"];
 
-const SCORED_ROUND: PlanDTO = {
+const REVIEWED_ROUND: PlanDTO = {
   id: PLAN_ID,
   name: "Round 1",
   round: 1,
@@ -115,9 +115,9 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-describe("evaluation round editor on a round that has been scored", () => {
+describe("evaluation round editor on a round that already has reviews", () => {
   it("locks the scale and criteria the server would refuse, and says why", async () => {
-    await renderEditor(SCORED_ROUND);
+    await renderEditor(REVIEWED_ROUND);
 
     expect(fieldControl("Scale low")?.disabled).toBe(true);
     expect(fieldControl("Scale high")?.disabled).toBe(true);
@@ -126,11 +126,23 @@ describe("evaluation round editor on a round that has been scored", () => {
     expect(fieldControl("Choices")?.disabled).toBe(true);
     expect(removeCriterionButton()?.disabled).toBe(true);
     expect(buttonNamed("Add criterion")?.disabled).toBe(true);
-    expect(container.textContent).toContain("This round has been scored, so its scale and criteria are fixed.");
+    expect(container.textContent).toContain("This round already has reviews, so its scale and criteria are fixed.");
+  });
+
+  it("locks a round whose only review is still unfinished", async () => {
+    // `assertScoringShapeEditable` refuses on any review row, finished or not,
+    // so the lock cannot be read off finished-review progress: a round showing
+    // 0 scored out of 3 is already frozen the moment a reviewer opens it.
+    await renderEditor({ ...REVIEWED_ROUND, progress: { scored: 0, total: 3 } });
+
+    expect(fieldControl("Scale low")?.disabled).toBe(true);
+    expect(fieldControl("Scale high")?.disabled).toBe(true);
+    expect(buttonNamed("Add criterion")?.disabled).toBe(true);
+    expect(container.textContent).toContain("This round already has reviews, so its scale and criteria are fixed.");
   });
 
   it("keeps the round's name, window and criterion wording editable", async () => {
-    await renderEditor(SCORED_ROUND);
+    await renderEditor(REVIEWED_ROUND);
 
     // Everything `assertScoringShapeEditable` still accepts stays open: a
     // reworded criterion re-values nothing.
@@ -141,8 +153,8 @@ describe("evaluation round editor on a round that has been scored", () => {
     expect(buttonNamed("Save round")?.disabled).toBe(false);
   });
 
-  it("leaves an unscored round completely editable", async () => {
-    await renderEditor({ ...SCORED_ROUND, hasReviews: false, progress: { scored: 0, total: 3 } });
+  it("leaves a round nobody has reviewed completely editable", async () => {
+    await renderEditor({ ...REVIEWED_ROUND, hasReviews: false, progress: { scored: 0, total: 3 } });
 
     expect(fieldControl("Scale low")?.disabled).toBe(false);
     expect(fieldControl("Scale high")?.disabled).toBe(false);
@@ -151,6 +163,6 @@ describe("evaluation round editor on a round that has been scored", () => {
     expect(fieldControl("Choices")?.disabled).toBe(false);
     expect(removeCriterionButton()?.disabled).toBe(false);
     expect(buttonNamed("Add criterion")?.disabled).toBe(false);
-    expect(container.textContent).not.toContain("This round has been scored");
+    expect(container.textContent).not.toContain("This round already has reviews");
   });
 });

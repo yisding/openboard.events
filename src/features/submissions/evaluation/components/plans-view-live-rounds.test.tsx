@@ -220,4 +220,17 @@ describe("evaluation round list after a write", () => {
     expect(withSavedPlan([ROUND_ONE], { ...ROUND_ONE, name: "Renamed" }).map((plan) => plan.name))
       .toEqual(["Renamed"]);
   });
+
+  it("moves an edited round to where its new number and name put it", () => {
+    // The number and the name are both editable, so an edit can change where
+    // the row belongs. Leaving it in place until the refresh lands is the same
+    // lie as the stale numbers this fold exists to fix.
+    const roundTwo = { ...ROUND_ONE, id: "c4400000-0000-4000-8000-000000000020" as PlanDTO["id"], name: "Round 2", round: 2 };
+    const roundThree = { ...ROUND_ONE, id: "c4400000-0000-4000-8000-000000000030" as PlanDTO["id"], name: "Round 3", round: 3 };
+
+    expect(withSavedPlan([ROUND_ONE, roundTwo, roundThree], { ...ROUND_ONE, round: 4 }).map((plan) => plan.name))
+      .toEqual(["Round 2", "Round 3", "Round 1"]);
+    expect(withSavedPlan([ROUND_ONE, roundTwo], { ...roundTwo, round: 1, name: "Appeals" }).map((plan) => plan.name))
+      .toEqual(["Appeals", "Round 1"]);
+  });
 });

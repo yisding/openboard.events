@@ -185,9 +185,15 @@ export function listPlansIn(dbOrTx: DbOrTx, eventId: EventId): Promise<PlanDTO[]
  * travel further than it has to. Redaction happens here, while the DTO is being
  * built, for the same reason blindness does: a route cannot forget to do what it
  * was never handed.
+ *
+ * `hasReviews` goes the same way, and on the same principle rather than on any
+ * harm it would do: it exists so the organizer's editor can grey out what the
+ * save would refuse, no reviewer screen reads it, and this function is only
+ * honest as the single redaction point if everything organizer-shaped leaves
+ * here.
  */
 export function forReviewer(plan: PlanDTO): PlanDTO {
-  return { ...plan, reviewers: [] };
+  return { ...plan, reviewers: [], hasReviews: false };
 }
 
 /** The rounds a reviewer is on, as their own round-switcher lists them. */

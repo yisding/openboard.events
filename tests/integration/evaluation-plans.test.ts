@@ -75,6 +75,14 @@ async function giveReview(planId: PlanId, submissionId: SubmissionId, reviewerUs
   );
 }
 
+/** A review a reviewer has opened and not finished: a row with no `submitted_at`. */
+async function beginReview(planId: PlanId, submissionId: SubmissionId, reviewerUserId: UserId): Promise<void> {
+  await pglite.query(
+    "INSERT INTO reviews(event_id,plan_id,submission_id,reviewer_user_id,overall_score,submitted_at) VALUES($1,$2,$3,$4,NULL,NULL)",
+    [eventId, planId, submissionId, reviewerUserId],
+  );
+}
+
 describe("evaluation plans and reviewer routing", () => {
   beforeAll(async () => {
     pglite = new PGlite();
@@ -617,7 +625,19 @@ describe("evaluation plans and reviewer routing", () => {
     await expect(savePlanIn(runEvaluationTransaction, eventId, planInput({ planId, scaleMax: 7 })))
       .resolves.toMatchObject({ planId });
 
-    await giveReview(planId, platformsTalk, ada, 4);
+    // An unfinished review is enough on both sides. Deriving the flag from
+    // finished-review progress instead would leave the scale editable for a
+    // round a reviewer is part-way through, and the save would refuse it.
+    await beginReview(planId, platformsTalk, ada);
+
+    expect((await getPlanIn(db, eventId, planId)).progress.scored).toBe(0);
+    expect((await getPlanIn(db, eventId, planId)).hasReviews).toBe(true);
+    expect((await listPlansIn(db, eventId)).map((plan) => plan.hasReviews)).toEqual([true]);
+    const refusedForUnfinished = await savePlanIn(runEvaluationTransaction, eventId, planInput({ planId, scaleMax: 8 }))
+      .catch((thrown: unknown) => thrown);
+    expect(isAppError(refusedForUnfinished) && refusedForUnfinished.code).toBe("CONFLICT");
+
+    await giveReview(planId, platformsTalk, grace, 4);
 
     expect((await getPlanIn(db, eventId, planId)).hasReviews).toBe(true);
     expect((await listPlansIn(db, eventId)).map((plan) => plan.hasReviews)).toEqual([true]);

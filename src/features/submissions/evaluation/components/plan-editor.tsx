@@ -110,6 +110,22 @@ export function outgoingCriterionWeight(criterion: Pick<CriterionDraft, "kind" |
   return criterionWeightError({ kind: "numeric", weight: criterion.weight }) ? 1 : criterion.weight;
 }
 
+/**
+ * A whole number typed into a round's number boxes, or nothing at all.
+ *
+ * `Number("")` is 0 and `Number("1e")` is NaN, so clearing Scale high to retype
+ * it put a 0 in the draft, and a half-typed entry put a NaN — which
+ * `JSON.stringify` writes as `null`, and the save then refuses for a value the
+ * organizer never chose. Ignoring the keystroke leaves the box showing what was
+ * typed while the draft keeps the last number that parsed, so an organizer who
+ * clears a box and clicks away still saves the round they were looking at.
+ */
+export function typedNumber(value: string): number | null {
+  if (value.trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function draftFrom(plan: PlanDTO): PlanDraft {
   return {
     name: plan.name,
@@ -554,20 +570,29 @@ export function PlanEditor({
 
         <div className="evaluation-field-row evaluation-number-row">
           <Field label="Round">
-            <input type="number" min={1} value={draft.round} onChange={(event) => patch({ round: Number(event.target.value) })} />
+            <input type="number" min={1} value={draft.round} onChange={(event) => {
+              const round = typedNumber(event.target.value);
+              if (round !== null) patch({ round });
+            }} />
           </Field>
           <Field label="Scale low">
-            <input type="number" min={0} value={draft.scaleMin} disabled={scoringLocked} onChange={(event) => patch({ scaleMin: Number(event.target.value) })} />
+            <input type="number" min={0} value={draft.scaleMin} disabled={scoringLocked} onChange={(event) => {
+              const scaleMin = typedNumber(event.target.value);
+              if (scaleMin !== null) patch({ scaleMin });
+            }} />
           </Field>
           <Field label="Scale high">
-            <input type="number" min={1} value={draft.scaleMax} disabled={scoringLocked} onChange={(event) => patch({ scaleMax: Number(event.target.value) })} />
+            <input type="number" min={1} value={draft.scaleMax} disabled={scoringLocked} onChange={(event) => {
+              const scaleMax = typedNumber(event.target.value);
+              if (scaleMax !== null) patch({ scaleMax });
+            }} />
           </Field>
         </div>
         {scoringLocked && (
           <p className="portal-note" role="status">
-            <b>This round has been scored, so its scale and criteria are fixed.</b> Every stored score was worked out
-            with them and is never recalculated. Renaming a criterion or changing whether it is required still saves;
-            for a different scale or a different set of criteria, create the next round.
+            <b>This round already has reviews, so its scale and criteria are fixed.</b> Every stored score was worked
+            out with them and is never recalculated. Renaming a criterion or changing whether it is required still
+            saves; for a different scale or a different set of criteria, create the next round.
           </p>
         )}
 
@@ -630,7 +655,7 @@ export function PlanEditor({
           </p>
           {scoringLocked && (
             <p className="portal-note" role="status">
-              This round has been scored: labels and the required flag are still yours to change, the rest of a criterion is not.
+              This round already has reviews: labels and the required flag are still yours to change, the rest of a criterion is not.
             </p>
           )}
           {draft.criteria.map((criterion, index) => {

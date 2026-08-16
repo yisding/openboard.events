@@ -63,15 +63,18 @@ export async function completeEvaluationPlanDelete(
 /**
  * Where a round the organizer just wrote belongs in the list.
  *
- * The server orders rounds by number and then by name, and a new round has to
- * land in that order rather than at the end — otherwise creating Round 2 while
- * looking at Round 3 puts it in a place a reload would move it away from.
+ * The server orders rounds by number and then by name, and a round has to land
+ * in that order rather than at the end — otherwise creating Round 2 while
+ * looking at Round 3 puts it in a place a reload would move it away from. An
+ * edit reorders for the same reason: the round number and the name are both
+ * editable, so renaming Round 1 to "Round 1 · Final" or renumbering it has to
+ * move the row now rather than at the next refresh.
  */
 export function withSavedPlan(plans: readonly PlanDTO[], saved: PlanDTO): PlanDTO[] {
-  if (plans.some((plan) => plan.id === saved.id)) {
-    return plans.map((plan) => plan.id === saved.id ? saved : plan);
-  }
-  return [...plans, saved].sort((left, right) => left.round - right.round
+  const next = plans.some((plan) => plan.id === saved.id)
+    ? plans.map((plan) => plan.id === saved.id ? saved : plan)
+    : [...plans, saved];
+  return next.sort((left, right) => left.round - right.round
     || left.name.toLowerCase().localeCompare(right.name.toLowerCase()));
 }
 
@@ -117,8 +120,15 @@ export function PlansView({
    * toast said "6 assigned" while the row under it still read 0, and the only
    * way out was a manual reload. Every one of these writes already answers with
    * the round it produced, so the row is corrected the moment the mutation
-   * succeeds; the effect below still lets the next server snapshot — which is
-   * always fetched after the write committed — have the last word.
+   * succeeds; the effect below still lets the next server snapshot have the
+   * last word.
+   *
+   * That last word is usually the newer one and not always: the `focus`
+   * listener below can have a `router.refresh()` already in flight when the
+   * write lands, and its older snapshot would re-seed pre-save numbers over the
+   * fold. It heals itself, because every write fires its own `refresh()`
+   * straight afterwards — the cost is a flicker, not a row that stays wrong,
+   * which is why this is a re-seed rather than a revision-guarded merge.
    */
   const [plans, setPlans] = useState<PlanDTO[]>(serverPlans);
   useEffect(() => setPlans(serverPlans), [serverPlans]);
