@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SpeakerProfileDTO } from "@/features/portal";
-import { profileTextChanged, profileTextDraft } from "./profile-form";
+import { patchProfile, profileTextChanged, profileTextDraft } from "./profile-form";
 
 const profile: SpeakerProfileDTO = {
   contactId: "contact_1",
@@ -86,5 +86,46 @@ describe("speaker profile unsaved-work guard", () => {
     expect(banner).toContain('fetch("/api/internal/auth/portal/logout"');
     // The return navigation only happens once the session row is gone.
     expect(banner.indexOf("if (!response.ok)")).toBeLessThan(banner.indexOf("window.location.assign(backHref)"));
+  });
+});
+
+describe("patchProfile error reading", () => {
+  const payload = { firstName: "Ada" } as Parameters<typeof patchProfile>[1];
+
+  function respond(body: unknown, status = 400) {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(body), {
+      status,
+      headers: { "content-type": "application/json" },
+    })));
+  }
+
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("reads field errors from where the envelope actually puts them", async () => {
+    // `errorEnvelope` puts a zod failure's `fieldErrors` at the *top level* of
+    // `error`; `data` is `AppError.details`, a different constructor argument.
+    // Reading `error.data.fieldErrors` therefore never found anything, so
+    // `setFieldErrors` only ever received nothing and all eight
+    // `error={fieldErrors.*}` slots — plus the focus-first-invalid effect —
+    // were dead. A speaker over a field's limit got a bare "Request validation
+    // failed" toast with nothing highlighted, across twelve inputs.
+    respond({ error: { code: "VALIDATION", message: "Request validation failed", fieldErrors: { company: "Too long" } } });
+    await expect(patchProfile("evt", payload)).resolves.toMatchObject({
+      ok: false,
+      fieldErrors: { company: "Too long" },
+    });
+  });
+
+  it("still reads the nested shape an AppError's details can carry", async () => {
+    respond({ error: { code: "VALIDATION", message: "Nope", data: { fieldErrors: { headshotFileId: "Pick a smaller image" } } } });
+    await expect(patchProfile("evt", payload)).resolves.toMatchObject({
+      fieldErrors: { headshotFileId: "Pick a smaller image" },
+    });
+  });
+
+  it("reports the message alone when there are no field errors", async () => {
+    respond({ error: { code: "INTERNAL", message: "Unexpected server error" } });
+    const result = await patchProfile("evt", payload);
+    expect(result).toEqual({ ok: false, message: "Unexpected server error" });
   });
 });

@@ -118,9 +118,24 @@ export type FormField = z.infer<typeof formFieldSchema>;
  * told about. Capping here turns that into an ordinary field error, in the
  * wizard and in the submit pipeline alike.
  */
+const MAPPED_CEILINGS: Partial<Record<NonNullable<FormField["mapsTo"]>, number>> = {
+  "submission.title": LIMITS.TITLE,
+  // `LIMITS.JOB_TITLE`'s own comment states the invariant: "a value one writer
+  // accepts must never be one another rejects, or the profile form (which sends
+  // both fields on every save) would be stuck." The stock CFP authors both at
+  // `maxChars: 255` and only `submission.title` was clamped here, so a speaker
+  // who pasted a 180-character affiliation into a Company question — advertised
+  // as 255 — could never save their portal profile again. The prefilled value
+  // fails on every PATCH, and `maxLength={160}` stops them retyping it but not
+  // the value already there.
+  "contact.job_title": LIMITS.JOB_TITLE,
+  "contact.company": LIMITS.JOB_TITLE,
+};
+
 export function fieldMaxChars(field: Pick<FormField, "type" | "maxChars" | "mapsTo">): number {
   const authored = field.maxChars ?? (field.type === "richtext" ? LIMITS.RICHTEXT : LIMITS.SHORT_TEXT);
-  return field.mapsTo === "submission.title" ? Math.min(authored, LIMITS.TITLE) : authored;
+  const ceiling = field.mapsTo ? MAPPED_CEILINGS[field.mapsTo] : undefined;
+  return ceiling === undefined ? authored : Math.min(authored, ceiling);
 }
 
 const formSectionSchema = z.object({
