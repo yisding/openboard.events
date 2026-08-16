@@ -316,17 +316,26 @@ export const revokeEventReviewerInvitation = (
 ) => withTx((tx) => revokeEventReviewerInvitationIn(tx, eventId, invitationId, actorUserId));
 
 /**
- * Every *event-scoped* pending invitation in this organization.
+ * The two pending-invitation lists below differ by exactly one predicate:
+ * whether `event_id` is set. Everything else — what "pending" means, the
+ * columns, the ordering, the DTO mapping — has to stay identical between them,
+ * because the export presents both as the same kind of record, and this whole
+ * change exists because those two readings of one table disagreed once already.
+ * Sharing the body is what keeps them from drifting apart again.
  *
- * The workspace query below filters `event_id IS NULL`, which is right for the
- * Team panel — but reviewer invitations live in the same table under the same
- * organization with `event_id` set, and the organization export read only the
- * workspace query. So a bundle whose stated purpose is the complete
- * administrative record reported `pendingInvitations: []` while five reviewer
- * invitations were outstanding, and contradicted its own audit log, which shows
- * the `reviewer.invited` entries that sent them.
+ * `expires_at > now()` is the same bound the token lookup enforces. Without it
+ * an expired invitation stayed under the Team panel's "Pending invitations"
+ * heading forever, with a past expiry date beside it — and the write-recovery
+ * path asserted it as fact ("currently has a pending organizer invitation").
+ * The owner believed access was still coming while the invitee's link 400s.
+ * Re-inviting the same address upserts the expired row and refreshes its
+ * expiry, so nothing is stranded by hiding it.
  */
-export async function listPendingOrganizationEventInvitationsIn(dbOrTx: DbOrTx, organizationId: OrganizationId): Promise<OrganizationInvitationDTO[]> {
+async function listPendingInvitationsScopedIn(
+  dbOrTx: DbOrTx,
+  organizationId: OrganizationId,
+  scope: "workspace" | "event",
+): Promise<OrganizationInvitationDTO[]> {
   const rows = await dbOrTx.select({
     id: organizationInvitations.id,
     organizationId: organizationInvitations.organizationId,
@@ -340,7 +349,7 @@ export async function listPendingOrganizationEventInvitationsIn(dbOrTx: DbOrTx, 
   }).from(organizationInvitations)
     .where(and(
       eq(organizationInvitations.organizationId, organizationId),
-      isNotNull(organizationInvitations.eventId),
+      scope === "workspace" ? isNull(organizationInvitations.eventId) : isNotNull(organizationInvitations.eventId),
       sql`${organizationInvitations.acceptedAt} IS NULL`,
       sql`${organizationInvitations.revokedAt} IS NULL`,
       sql`${organizationInvitations.expiresAt} > now()`,
@@ -354,40 +363,23 @@ export async function listPendingOrganizationEventInvitationsIn(dbOrTx: DbOrTx, 
   }));
 }
 
-export async function listPendingOrganizationInvitationsIn(dbOrTx: DbOrTx, organizationId: OrganizationId): Promise<OrganizationInvitationDTO[]> {
-  const rows = await dbOrTx.select({
-    id: organizationInvitations.id,
-    organizationId: organizationInvitations.organizationId,
-    email: organizationInvitations.email,
-    role: organizationInvitations.role,
-    invitedByUserId: organizationInvitations.invitedByUserId,
-    createdAt: organizationInvitations.createdAt,
-    expiresAt: organizationInvitations.expiresAt,
-    acceptedAt: organizationInvitations.acceptedAt,
-    revokedAt: organizationInvitations.revokedAt,
-  }).from(organizationInvitations)
-    .where(and(
-      eq(organizationInvitations.organizationId, organizationId),
-      isNull(organizationInvitations.eventId),
-      sql`${organizationInvitations.acceptedAt} IS NULL`,
-      sql`${organizationInvitations.revokedAt} IS NULL`,
-      // Same `expires_at > now()` the reviewer-scoped sibling above applies,
-      // and the same one the token lookup enforces. Without it an expired
-      // invitation stayed under the Team panel's "Pending invitations" heading
-      // forever, with a past expiry date beside it — and the write-recovery
-      // path asserted it as fact ("currently has a pending organizer
-      // invitation"). The owner believed access was still coming while the
-      // invitee's link 400s. Re-inviting the same address upserts the expired
-      // row and refreshes its expiry, so nothing is stranded by hiding it.
-      sql`${organizationInvitations.expiresAt} > now()`,
-    ))
-    .orderBy(asc(organizationInvitations.createdAt));
-  return rows.map((row) => organizationInvitationDtoSchema.parse({
-    id: row.id, organizationId: row.organizationId, email: row.email, role: row.role,
-    invitedByUserId: row.invitedByUserId, createdAt: row.createdAt.toISOString(), expiresAt: row.expiresAt.toISOString(),
-    acceptedAt: row.acceptedAt ? row.acceptedAt.toISOString() : null,
-    revokedAt: row.revokedAt ? row.revokedAt.toISOString() : null,
-  }));
+/**
+ * Every *event-scoped* pending invitation in this organization.
+ *
+ * The workspace query below filters `event_id IS NULL`, which is right for the
+ * Team panel — but reviewer invitations live in the same table under the same
+ * organization with `event_id` set, and the organization export read only the
+ * workspace query. So a bundle whose stated purpose is the complete
+ * administrative record reported `pendingInvitations: []` while five reviewer
+ * invitations were outstanding, and contradicted its own audit log, which shows
+ * the `reviewer.invited` entries that sent them.
+ */
+export function listPendingOrganizationEventInvitationsIn(dbOrTx: DbOrTx, organizationId: OrganizationId): Promise<OrganizationInvitationDTO[]> {
+  return listPendingInvitationsScopedIn(dbOrTx, organizationId, "event");
+}
+
+export function listPendingOrganizationInvitationsIn(dbOrTx: DbOrTx, organizationId: OrganizationId): Promise<OrganizationInvitationDTO[]> {
+  return listPendingInvitationsScopedIn(dbOrTx, organizationId, "workspace");
 }
 export const listPendingOrganizationInvitations = (organizationId: OrganizationId) =>
   listPendingOrganizationInvitationsIn(db, organizationId);
