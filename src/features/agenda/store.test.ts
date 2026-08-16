@@ -77,6 +77,39 @@ describe("defaultScheduledRange", () => {
     });
   });
 
+  it("does not propose the previous day when the selected day has no midnight", () => {
+    // The same hazard f659e7ea fixed on the server's day bounds, still live on
+    // this client-side floor: `America/Havana` jumps 00:00 to 01:00 on
+    // 2026-03-08, so `zonedInputToUtc("2026-03-08T00:00:00")` resolved
+    // *backwards* to 2026-03-07 23:00. When the fallback branch picked that
+    // floor, the create dialog proposed a session on the day before the one the
+    // organizer had selected. The first real instant of 2026-03-08 in Havana is
+    // 01:00 local — 05:00Z — and the proposal must never start before it.
+    expect(defaultScheduledRange({
+      timezone: "America/Havana",
+      startsAt: "2026-03-07T14:00:00.000Z",
+      endsAt: "2026-03-08T05:20:00.000Z",
+    }, "2026-03-08", 30 * 60_000)).toEqual({
+      startsAt: "2026-03-08T05:00:00.000Z",
+      endsAt: "2026-03-08T05:20:00.000Z",
+    });
+  });
+
+  it("uses the day's first real instant when the event's opening clock is skipped on it", () => {
+    // An event opening at 00:30 local has no 00:30 on a day the clock jumps
+    // 00:00 to 01:00, and resolving that wall time backwards would place the
+    // proposal on the previous evening. 01:00 local — 05:00Z — is the honest
+    // opening for that day.
+    expect(defaultScheduledRange({
+      timezone: "America/Havana",
+      startsAt: "2026-03-07T05:30:00.000Z",
+      endsAt: "2026-03-08T16:00:00.000Z",
+    }, "2026-03-08", 30 * 60_000)).toEqual({
+      startsAt: "2026-03-08T05:00:00.000Z",
+      endsAt: "2026-03-08T05:30:00.000Z",
+    });
+  });
+
   it("keeps every calendar day when the clock springs forward mid-event", () => {
     // Stepping the cursor by 24 hours of absolute milliseconds moves the local
     // time-of-day forward an hour across a spring-forward, so a cursor starting

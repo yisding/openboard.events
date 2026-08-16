@@ -8,6 +8,7 @@ import { getCrmMetrics, listCrmTags, listOrganizationContacts } from "@/features
 import { DirectoryView } from "@/features/crm/components/directory-view";
 import { directoryFilterSchema, CRM_CONTACT_SOURCES, CRM_PIPELINE_STAGES, organizationIdSchema, type CrmContactSource, type CrmPipelineStage } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
+import { pageNumberFrom } from "@/shared/lib/page-query";
 
 export const metadata: Metadata = { title: "Speaker CRM" };
 export const dynamic = "force-dynamic";
@@ -56,8 +57,7 @@ export default async function Page({
   const sourceParam = firstOf(query.source);
   const source: CrmContactSource | null = (CRM_CONTACT_SOURCES as readonly string[]).includes(sourceParam ?? "") ? sourceParam as CrmContactSource : null;
   const hasEventLink = firstOf(query.hasEventLink) === "false" ? false : firstOf(query.hasEventLink) === "true" ? true : null;
-  const pageParam = Number(firstOf(query.page) ?? "1");
-  const page = Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1;
+  const page = pageNumberFrom(firstOf(query.page));
 
   // `safeParse` rather than `parse`: a hand-edited or stale URL (a tag/event
   // id that no longer exists, or was never a real id) must degrade to the

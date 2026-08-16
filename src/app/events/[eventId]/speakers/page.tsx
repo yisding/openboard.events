@@ -6,6 +6,7 @@ import { getSpeakerFilterCounts, listContacts, type ContactFilters } from "@/fea
 import { SpeakersAdminView } from "@/features/portal/components/speakers-admin/speakers-admin-view";
 import { parseSpeakerMissing } from "@/features/portal/speaker-deep-links";
 import { contactIdSchema, eventIdSchema, SPEAKERS_DEEPLINK_PARAMS } from "@/shared/contracts";
+import { pageNumberFrom } from "@/shared/lib/page-query";
 
 export const metadata: Metadata = { title: "Speakers" };
 export const dynamic = "force-dynamic";
@@ -53,7 +54,7 @@ export default async function Page({
   const sortParam = firstOf(query.sort);
   const confirmationParam = firstOf(query.confirmation);
   const q = firstOf(query.q) ?? "";
-  const pageParam = Number(firstOf(query.page) ?? "1");
+  const page = pageNumberFrom(firstOf(query.page));
 
   const filters: ContactFilters = {
     ...(q ? { q } : {}),
@@ -62,7 +63,7 @@ export default async function Page({
     ...(isConfirmationParam(confirmationParam) ? { confirmation: confirmationParam } : {}),
     sort: isSortParam(sortParam) ? sortParam : "name",
     dir: firstOf(query.dir) === "desc" ? "desc" : "asc",
-    page: Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1,
+    page,
     pageSize: 25,
   };
 
