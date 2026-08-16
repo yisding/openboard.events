@@ -1,7 +1,7 @@
 import { aliasedTable, and, desc, eq, inArray } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { events, organizationAuditLog, users } from "@/db/schema";
-import { eventIdSchema, organizationAuditLogEntryDtoSchema, type EventId, type OrganizationAuditLogEntryDTO, type OrganizationId, type UserId } from "@/shared/contracts";
+import { eventIdSchema, organizationAuditLogEntryDtoSchema, type EventId, type OrganizationAuditAction, type OrganizationAuditLogEntryDTO, type OrganizationId, type UserId } from "@/shared/contracts";
 
 /**
  * M44 — a light, append-only audit trail over organization membership
@@ -9,12 +9,16 @@ import { eventIdSchema, organizationAuditLogEntryDtoSchema, type EventId, type O
  * enqueue pass real transactions because their domain mutation and this
  * evidence row form one consistency boundary. Other callers accept the small
  * gap between a domain mutation and this evidence row.
+ *
+ * `action` is the closed `OrganizationAuditAction` union rather than `string`
+ * so that a writer in another feature cannot mint a vocabulary the reader has
+ * no label for — the way every `demo.*` action once did.
  */
 export async function recordOrganizationAuditEventIn(
   dbOrTx: DbOrTx,
   organizationId: OrganizationId,
   actorUserId: UserId | null,
-  action: string,
+  action: OrganizationAuditAction,
   targetUserId: UserId | null,
   metadata: Record<string, unknown> = {},
 ): Promise<void> {

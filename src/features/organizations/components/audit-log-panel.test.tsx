@@ -1,7 +1,7 @@
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { organizationAuditLogEntryDtoSchema, type OrganizationAuditLogEntryDTO } from "@/shared/contracts";
+import { ORGANIZATION_AUDIT_ACTIONS, organizationAuditLogEntryDtoSchema, type OrganizationAuditLogEntryDTO } from "@/shared/contracts";
 import { AuditLogPanel } from "./audit-log-panel";
 
 Object.assign(globalThis, { React });
@@ -63,6 +63,22 @@ describe("AuditLogPanel", () => {
     const html = render([entry({ action: "demo.deleted", targetEventName: null })]);
 
     expect(html).toContain(EVENT_ID);
+  });
+
+  // Closes the class, not the instance: the bug was one action added by a
+  // writer outside this feature with no label here, and `demo.provisioned` was
+  // only the first that could happen to. `satisfies` already fails the build
+  // for a missing key; this catches the other half — a key present but filled
+  // in with the dotted identifier itself.
+  it("has a human label for every action a writer may record", () => {
+    const html = render(ORGANIZATION_AUDIT_ACTIONS.map((action, index) => entry({
+      id: `50000000-0000-4000-8000-0000000001${String(index).padStart(2, "0")}`,
+      action,
+    })));
+
+    for (const action of ORGANIZATION_AUDIT_ACTIONS) {
+      expect(html, `${action} rendered as its raw identifier`).not.toContain(action);
+    }
   });
 
   it("still names the person on a membership entry", () => {

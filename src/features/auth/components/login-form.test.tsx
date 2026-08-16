@@ -117,6 +117,10 @@ describe("LoginForm rejection copy", () => {
 
     expect(message).toContain("Too many sign-in attempts");
     expect(message).toContain("was not checked");
+    // The durable block is `LOGIN_WINDOW_MS` — 15 minutes (`auth/server/admin.ts`).
+    // Naming a shorter one sends the locked-out organizer back early to read
+    // the same sentence again, so the ceiling is pinned here.
+    expect(message).toContain("15 minutes");
     expect(message).not.toContain("Invalid email or password");
   });
 

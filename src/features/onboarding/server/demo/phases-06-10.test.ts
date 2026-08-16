@@ -261,6 +261,10 @@ describe("phases 6-10", () => {
         "SELECT status, error, sent_at, attempts FROM communication_logs WHERE event_id = $1",
         [eventId],
       );
+      // Non-vacuity first: "every row is skipped" is trivially true of zero
+      // rows, and a phase 10 that seeded nothing would pass the loop below
+      // while failing the guarantee the loop exists to enforce.
+      expect(rows.rows).toHaveLength(COMM_LOG_ROWS.length);
       for (const row of rows.rows) {
         expect(row).toMatchObject({
           status: "skipped",

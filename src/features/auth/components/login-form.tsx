@@ -28,10 +28,18 @@ export function googleSignInErrorMessage(code: string | null): string {
  * password" tells the one person who typed the right password the one thing
  * guaranteed to send them to the reset flow instead of waiting. Same for a
  * 5xx: nothing was checked, so nothing about the credentials is known.
+ *
+ * The duration names the *ceiling*, not the typical case. Three limiters can
+ * produce this 429 and they clear at wildly different speeds — the burst keys
+ * in a second, the isolate budget immediately — but `registerLoginAttempt`
+ * sets `blockedUntil = now + LOGIN_WINDOW_MS` (`auth/server/admin.ts`), which
+ * is 15 minutes, and that is the one a locked-out organizer is most likely
+ * sitting behind. "A few minutes" sent them back at minute three to read the
+ * identical sentence and learn nothing from it.
  */
 export function signInErrorMessage(status: number, code?: string): string {
   if (code === "RATE_LIMITED" || status === 429) {
-    return "Too many sign-in attempts. Your password was not checked — wait a few minutes, then try again.";
+    return "Too many sign-in attempts. Your password was not checked — wait up to 15 minutes, then try again.";
   }
   if (status >= 500) return "Sign-in is temporarily unavailable. Try again in a moment.";
   return "Invalid email or password";

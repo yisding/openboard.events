@@ -101,6 +101,36 @@ export const organizationInvitationDtoSchema = z.object({
 export type OrganizationInvitationDTO = z.infer<typeof organizationInvitationDtoSchema>;
 
 /**
+ * Every action `recordOrganizationAuditEventIn` may write.
+ *
+ * The writer's parameter is this union and the reader's label map is declared
+ * `satisfies Record<OrganizationAuditAction, string>`, so neither side can
+ * move without the other: adding an action here fails the build until it has
+ * a label, and inventing one at a call site fails the build here. That is the
+ * shape of the bug this closes — `demo.provisioned` reached the audit table as
+ * a raw dotted string because the first writers lived beside the label map and
+ * the `demo.*` ones, added later and from another feature, did not.
+ *
+ * The stored DTO below deliberately keeps `action: z.string()`. The log is
+ * append-only and outlives any one deploy's vocabulary; a row written before
+ * an action was renamed still has to parse and still has to render.
+ */
+export const ORGANIZATION_AUDIT_ACTIONS = [
+  "member.invited",
+  "member.role_changed",
+  "member.removed",
+  "invitation.revoked",
+  "invitation.accepted",
+  "reviewer.invited",
+  "reviewer.invitation_revoked",
+  "demo.provisioned",
+  "demo.reset",
+  "demo.deleted",
+  "demo.scaffold_copied",
+] as const;
+export type OrganizationAuditAction = typeof ORGANIZATION_AUDIT_ACTIONS[number];
+
+/**
  * M44 — one row of the organization audit log. `actorUserId`/`targetUserId`
  * are nullable because the underlying `users` row can be deleted out from
  * under a historical entry (`ON DELETE SET NULL`); the log outlives the
