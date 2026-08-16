@@ -113,20 +113,25 @@ function union(current: readonly string[], incoming: readonly string[]): readonl
 }
 
 /**
- * Whether a step's own href is the URL the browser is already showing.
+ * Whether a step's href is somewhere the browser already is.
  *
- * Deliberately the same equality `navigate` applies — path plus the exact
- * query set — so a control offered on the strength of this answer cannot turn
- * out to be a no-op. Read from the router's reactive values rather than
- * `window.location`, which does not re-render anything when it changes.
+ * Extra parameters on the *current* URL are allowed, exactly as `routeMatches`
+ * allows them when judging an objective, and for the same reason: a filter the
+ * organizer put there is theirs. Under exact-set equality, a step whose route
+ * is a bare `/speakers` decided that `/speakers?missing=either` was somewhere
+ * else — so it labelled the page "That control isn't on this screen right now"
+ * and offered a trip whose only effect was to strip the filter the *previous*
+ * step had just asked them to apply.
+ *
+ * The predicate `navigate` bails on is still this one, so a control offered on
+ * the strength of it cannot turn out to be a no-op. Read from the router's
+ * reactive values rather than `window.location`, which does not re-render
+ * anything when it changes.
  */
 function isCurrentLocation(href: string, location: TourLocation): boolean {
   const [path = "", search = ""] = href.split("?");
   if (path !== location.pathname) return false;
-  const target = [...new URLSearchParams(search).entries()];
-  const current = Object.entries(location.query);
-  if (target.length !== current.length) return false;
-  return target.every(([key, value]) => location.query[key] === value);
+  return [...new URLSearchParams(search).entries()].every(([key, value]) => location.query[key] === value);
 }
 
 

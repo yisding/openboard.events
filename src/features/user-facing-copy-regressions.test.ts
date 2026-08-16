@@ -42,6 +42,13 @@ describe("user-facing copy regressions", () => {
     // address gets nothing either.
     expect(script).not.toContain("the demo's speakers cannot receive a code");
     expect(script).toContain("the demo event suppresses every message");
+    // The delivery log is where the tour stakes its credibility, and it is
+    // also the one screen that can contradict it at a glance: phase 10
+    // backdates nine terminal rows — six `sent`, one `failed` — so the log a
+    // player opens is *not* nine skips. "Every row reads skipped" was
+    // falsifiable by reading the column the card was pointing at.
+    expect(script).not.toContain("Every row reads skipped");
+    expect(script).not.toContain("Nine seeded messages");
   });
 
   // These credentials belong to a real deployment whose mail is restricted, not

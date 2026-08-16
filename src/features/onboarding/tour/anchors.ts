@@ -32,7 +32,13 @@ export const TOUR_ANCHOR_IDS = [
   "abstracts.decision-notify",
   /** The Conflicts tab: one of six `role="tab"` buttons whose only distinguishing text is a word plus a count. */
   "agenda.conflicts-tab",
-  /** The **tray's** Auto-place: the string "Auto-place" is duplicated in `day-view/unscheduled-panel.tsx`. */
+  /**
+   * The **Day view's** Auto-place: the string is duplicated by the workspace
+   * tray in `unscheduled-tray.tsx`, and the Day view is the one the quest
+   * that points at this actually routes to — the workspace tray renders only
+   * on the other views, so pinning that copy left the quest pointing at a
+   * button its own page never mounts.
+   */
   "agenda.auto-place-tray",
   /** Bulk publish: inside the canonical bulk-selection bar, which only exists while rows are selected. */
   "agenda.publish",

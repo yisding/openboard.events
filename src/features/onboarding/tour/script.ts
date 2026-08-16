@@ -413,7 +413,12 @@ const THE_DECISION: readonly TourStep[] = [
     chapter: "the-decision",
     kind: "observe",
     title: "Real outbox, real dispatcher, zero mail.",
-    body: "Every row reads skipped, reason: demo event — mail is never delivered. The rail is a line in the dispatcher, not a setting you can miss.",
+    // Not "every row reads skipped". Phase 10 backdates nine terminal rows to
+    // give the log a history — six of them `sent`, one `failed` — so the
+    // sweeping version was falsifiable on the very screen it points at, by a
+    // player doing nothing more than reading the column the card names. The
+    // rows *this tour* caused are the ones the claim can carry.
+    body: "The rows you just queued read skipped, reason: demo event — mail is never delivered from here. Everything older is backdated history the demo was built with, in the states a real log has.",
     route: at("/communications", { tab: "log" }),
     anchor: css("#communications-tab-log"),
     placement: "bottom",
@@ -457,12 +462,24 @@ const FIELD_TRIP: readonly TourStep[] = [
     // has an empty portal — following this instruction with her name on it
     // dead-ends the chapter. Phase 8's `OVERDUE_HOLDOUT_KEY` names the same
     // person this copy does, and `script.test.ts` holds the two together.
-    title: "Open the speaker portal as Victor.",
-    body: "Real impersonation in a new tab, not a fixture switch. Finish one of his tasks over there — we will be watching from here.",
+    // Titled for the *objective*, not for the doorway.
+    //
+    // "Open the speaker portal as Victor" named the button the card
+    // spotlights, so pressing it read as finishing the step — and then the
+    // card went on pulsing "Waiting for you…" at a control the organizer had
+    // just used, with nothing to say about why. The objective is a task
+    // completed in the other tab; the button is how you get there.
+    title: "Finish one of Victor's portal tasks.",
+    body: "Real impersonation in a new tab, not a fixture switch. Opening the portal is only the door — this step finishes when a task of his does, and we will see it from here.",
     anchor: tourIdAnchor("speakers.impersonate"),
     placement: "bottom",
     objective: world("portalTaskCompletions", "increased"),
-    hint: "Open Victor Achebe from the roster, then press Open portal as Victor.",
+    // Three presses, named in order. The roster row opens a drawer, and the
+    // drawer has no impersonation control on it: that lives on the full
+    // profile behind it, which is where this anchor mounts. A hint that
+    // skipped the middle step sent the organizer looking for a button that
+    // was one page further on.
+    hint: "Open Victor Achebe from the roster, press Open full profile, then Open portal as Victor — and complete one of his tasks in the new tab.",
   },
   {
     id: "trip.return",
@@ -495,8 +512,17 @@ const THE_GRID: readonly TourStep[] = [
     title: "Three accepted talks with nowhere to be.",
     body: "Accepted is not scheduled. The tray holds everything the programme has said yes to and the grid has not found a room for yet.",
     route: at("/agenda", { view: "day" }),
-    anchor: css(".unscheduled-tray"),
-    placement: "left",
+    // Not `.unscheduled-tray`. That class belongs to the *workspace* tray,
+    // which the Day view does not render at all — on `?view=day` the only
+    // element carrying it is `ReadyToPromoteTray`, accepted abstracts that are
+    // not sessions yet. So the spotlight framed the promotion panel while the
+    // card described the column beside it, and the "three accepted talks" it
+    // counts were nowhere near the box it was pointing at.
+    anchor: named("complementary", "Unscheduled sessions"),
+    // Right, not left. Both trays live against the leading edge, so a card
+    // opening leftward can only ever be clamped to the 12px margin — on top of
+    // the navigation rail, and over the panel it is describing.
+    placement: "right",
   },
   {
     id: "grid.place",
@@ -672,7 +698,9 @@ const SIDE_QUESTS: readonly TourStep[] = [
     kind: "observe",
     optional: true,
     title: "Read the mail you did not send.",
-    body: "Nine seeded messages plus everything this tour queued, each one rendered in full, logged, and then skipped at the dispatcher.",
+    // Same correction as `decide.outbox`: the nine seeded rows are backdated
+    // history in three terminal states, not nine skips.
+    body: "Nine backdated messages the world was built with, plus everything this tour queued — and every one of those was rendered in full, logged, and then skipped at the dispatcher.",
     route: at("/communications", { tab: "log" }),
     anchor: css("#communications-tab-log"),
     placement: "bottom",
