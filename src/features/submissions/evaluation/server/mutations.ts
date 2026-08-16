@@ -710,6 +710,20 @@ export async function assignSubmissionsIn(
  * being outstanding work immediately, the reason and time stay attached to the
  * row, and reassigning the abstract to somebody else leaves this record intact
  * — which is the whole point of writing it down.
+ *
+ * The reviewer's own verdict goes with it. "Recuse myself" is offered on every
+ * open row, and `listReviewQueueIn` keeps already-scored rows in the queue
+ * (sorted last rather than dropped), so score-then-recuse is an ordinary path.
+ * `submission_ratings_v` reads `reviews` with no join to `review_assignments`,
+ * so the status flip alone was invisible to it: the reviewer's progress dropped
+ * the row while their 8/10 kept moving the committee mean, kept being shown to
+ * peer reviewers as the round's average, and kept driving the Rating column and
+ * the accept/decline sort the organizer decides from — the one score a
+ * conflict-of-interest declaration exists to remove.
+ *
+ * Deleted rather than blanked: a withdrawn verdict's comment has no more claim
+ * on an organizer's attention than its number does, and the recusal row is
+ * already the durable record that this reviewer looked and stepped away.
  */
 export async function recuseAssignmentIn(
   dbOrTx: DbOrTx,
@@ -719,13 +733,24 @@ export async function recuseAssignmentIn(
   reviewerUserId: UserId,
   reason: string,
 ): Promise<void> {
+  // One statement, so a verdict can never survive its own recusal: the DELETE
+  // runs only for an assignment this call actually flipped.
   const result = await dbOrTx.execute<{ id: string }>(sql`
-    UPDATE review_assignments ra
-    SET status = 'recused', recusal_reason = ${reason}, recused_at = now(), updated_at = now()
-    WHERE ra.event_id = ${eventId} AND ra.plan_id = ${planId}
-      AND ra.submission_id = ${submissionId} AND ra.reviewer_user_id = ${reviewerUserId}
-      AND ra.status = 'assigned'
-    RETURNING ra.id
+    WITH recused AS (
+      UPDATE review_assignments ra
+      SET status = 'recused', recusal_reason = ${reason}, recused_at = now(), updated_at = now()
+      WHERE ra.event_id = ${eventId} AND ra.plan_id = ${planId}
+        AND ra.submission_id = ${submissionId} AND ra.reviewer_user_id = ${reviewerUserId}
+        AND ra.status = 'assigned'
+      RETURNING ra.id
+    ), withdrawn AS (
+      DELETE FROM reviews r
+      WHERE r.event_id = ${eventId} AND r.plan_id = ${planId}
+        AND r.submission_id = ${submissionId} AND r.reviewer_user_id = ${reviewerUserId}
+        AND EXISTS (SELECT 1 FROM recused)
+      RETURNING r.id
+    )
+    SELECT id FROM recused
   `);
   if ((result.rows ?? []).length > 0) return;
 

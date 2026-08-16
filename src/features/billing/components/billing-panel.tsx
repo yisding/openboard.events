@@ -88,6 +88,9 @@ export function BillingPanel({
           <span>{usage.events.used} of {usage.events.limit ?? "∞"} used</span>
         </div>
         <ProgressBar label="Event usage" value={usage.events.limit === null ? 0 : usagePercent} tone={usageTone} />
+        {usage.demoEvents > 0 && <p style={{ margin: "8px 0 0", color: "var(--muted)", fontSize: 12.5 }}>
+          {usage.demoEvents === 1 ? "1 demo event" : `${usage.demoEvents} demo events`} (not counted toward your plan).
+        </p>}
       </div>
       {counters.length > 0 && <ul style={{ marginTop: 16, display: "grid", gap: 4, fontSize: 12.5, color: "var(--muted)" }}>
         {counters.map((counter) => <li key={counter.metric}>{counter.metric}: {counter.count}</li>)}

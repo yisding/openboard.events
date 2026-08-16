@@ -643,6 +643,43 @@ describe("organization-level speaker CRM (M55)", () => {
     expect(retry.matchedExisting).toBe(2);
   });
 
+  it("imports onto the survivor when a CSV carries a merged-away contact's old address", async () => {
+    // A merge never rewrites the loser's email, and `UNIQUE (organization_id,
+    // email)` means the loser holds a *different* address from its primary. So
+    // a CSV carrying that old address matched the tombstone: the gap-fill and
+    // the `imported` activity landed on a contact the directory, segments,
+    // metrics and every outreach audience filter out, the survivor gained
+    // nothing, and no new contact was created — the import silently no-oped for
+    // that person while reporting `matched_existing`.
+    const survivorId = await createOrganizationContactIn(db, orgA, { email: "chen.new@example.com", firstName: "Wei", lastName: "Chen" });
+    const loserId = await createOrganizationContactIn(db, orgA, { email: "chen.old@example.com", firstName: "Wei", lastName: "" });
+    await mergeOrganizationContactsIn(
+      db as unknown as TxDb, orgA,
+      { primaryContactId: survivorId, mergedContactId: loserId, fieldResolutions: {} },
+      actorUserId,
+    );
+
+    const csvText = ["email,firstName,company", "chen.old@example.com,Wei,Analytical Engines"].join("\n");
+    const mapping = { email: 0, fields: { firstName: 1 as const, company: 2 as const } };
+    const before = (await listOrganizationContactsIn(db, orgA, { limit: 200, offset: 0 })).total;
+
+    const commit = await importCrmContactsCsvIn(db, orgA, { csvText, mapping, mode: "commit" });
+    expect(commit.matchedExisting).toBe(1);
+    expect(commit.created).toBe(0);
+    expect(commit.rows[0]?.organizationContactId).toBe(survivorId);
+    expect((await listOrganizationContactsIn(db, orgA, { limit: 200, offset: 0 })).total).toBe(before);
+
+    // The gap the CSV filled landed on the contact people can actually see.
+    const survivor = await pglite.query<{ company: string | null }>(
+      "SELECT company FROM organization_contacts WHERE id=$1", [survivorId],
+    );
+    expect(survivor.rows[0]?.company).toBe("Analytical Engines");
+    const loser = await pglite.query<{ company: string | null }>(
+      "SELECT company FROM organization_contacts WHERE id=$1", [loserId],
+    );
+    expect(loser.rows[0]?.company).toBeNull();
+  });
+
   it("merges a duplicate into an explicit primary, preserving references with an audit record", async () => {
     const tag = await createCrmTagIn(db, orgA, { name: "Keynote", color: "#00a878" });
     const [ada] = (await listOrganizationContactsIn(db, orgA, { search: "ada", limit: 10, offset: 0 })).rows;

@@ -1,8 +1,7 @@
 import { cookies } from "next/headers";
 import { and, count, desc, eq, gt, gte, isNotNull, isNull } from "drizzle-orm";
 import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
-import { contacts, events, portalSessions, portalTokens } from "@/db/schema";
-import { getOrCreateContact } from "@/features/event-contacts";
+import { contacts, events, portalSessions, portalTokens, users } from "@/db/schema";
 import type { ContactId, EventId, UserId } from "@/shared/contracts";
 import { idem } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
@@ -17,6 +16,18 @@ import { consumeToken, issuePortalToken } from "./tokens";
 
 const PORTAL_SESSION_SECONDS = 30 * 24 * 60 * 60;
 const CONCURRENT_LOGIN_GRACE_MS = 60 * 1_000;
+
+/**
+ * The one answer the public sign-in form gives, whoever typed into it. It has
+ * to be byte-identical on both branches below — an address on file and an
+ * address that is not — or the screen itself becomes the account-enumeration
+ * oracle the neutral wording exists to close.
+ */
+export const PORTAL_LOGIN_NEUTRAL_MESSAGE = "If that address is on file, we've sent a code";
+
+/** How long a login request is throttled for, and how many are allowed inside it. */
+export const PORTAL_LOGIN_THROTTLE = { limit: 3, windowMs: 10 * 60 * 1_000 } as const;
+export const PORTAL_LOGIN_THROTTLE_MESSAGE = "Check your inbox, or try again in a few minutes";
 
 export type PortalSession = {
   contactId: ContactId;
@@ -151,6 +162,20 @@ export async function requirePortalByEventId(eventId: EventId): Promise<PortalSe
   };
 }
 
+/**
+ * Who opened an impersonated portal session. The banner names the speaker being
+ * viewed; without this it names nobody accountable, so on a shared machine
+ * there is no way to tell from the portal which organizer started the session.
+ */
+export async function getPortalImpersonator(userId: UserId): Promise<{ name: string; email: string } | null> {
+  const [user] = await db.select({ name: users.name, email: users.email })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  if (!user) return null;
+  return { name: user.name.trim() || user.email, email: user.email };
+}
+
 export async function requirePortal(eventSlug: string): Promise<PortalSession> {
   const event = await resolveEvent(db, eventSlug);
   return requirePortalByEventId(event.id);
@@ -166,13 +191,23 @@ export async function requestPortalLoginIn(tx: TxDb, args: {
   next?: string;
 }): Promise<PortalLoginRequestResult> {
   const email = args.email.trim().toLowerCase();
-  const contactId = await getOrCreateContact(tx, args.eventId, email);
+  // Look the recipient up; never create them. This form is unauthenticated, so
+  // a `getOrCreateContact` here let anyone mint a permanent roster row per
+  // typed address — the organizer's Speakers list filled with people who never
+  // existed, each one "Awaiting confirmation, 0 submissions". A speaker always
+  // has a contact row already (the organizer added them, or their CFP
+  // submission created one), so there is nothing to create at sign-in time.
   const [lockedContact] = await tx.select({ id: contacts.id }).from(contacts)
     .where(and(eq(contacts.eventId, args.eventId), eq(contacts.email, email)))
     .limit(1)
     .for("update");
-  if (!lockedContact) throw new AppError("INTERNAL", "Portal contact lock was not acquired");
-  const since = new Date(Date.now() - 10 * 60 * 1_000);
+  // The neutral answer, not a 404: whether an address is on file is exactly
+  // what this endpoint refuses to disclose. The caller applies the same
+  // per-address throttle either way, so the *rate limit* cannot answer it
+  // either — see the login request route.
+  if (!lockedContact) return { message: PORTAL_LOGIN_NEUTRAL_MESSAGE };
+  const contactId = lockedContact.id as ContactId;
+  const since = new Date(Date.now() - PORTAL_LOGIN_THROTTLE.windowMs);
   const [recent] = await tx.select({ n: count() }).from(portalTokens).where(and(
     eq(portalTokens.eventId, args.eventId),
     eq(portalTokens.contactId, contactId),
@@ -180,8 +215,8 @@ export async function requestPortalLoginIn(tx: TxDb, args: {
     isNotNull(portalTokens.otpHash),
     gt(portalTokens.createdAt, since),
   ));
-  if ((recent?.n ?? 0) >= 3) {
-    throw new AppError("RATE_LIMITED", "Check your inbox, or try again in a few minutes");
+  if ((recent?.n ?? 0) >= PORTAL_LOGIN_THROTTLE.limit) {
+    throw new AppError("RATE_LIMITED", PORTAL_LOGIN_THROTTLE_MESSAGE);
   }
   await tx.update(portalTokens).set({ consumedAt: new Date() }).where(and(
     eq(portalTokens.eventId, args.eventId),
@@ -207,7 +242,7 @@ export async function requestPortalLoginIn(tx: TxDb, args: {
     secretPayloadCiphertext,
   });
   return {
-    message: "If that address is on file, we've sent a code",
+    message: PORTAL_LOGIN_NEUTRAL_MESSAGE,
     ...(args.fallback ? { fallback: { otp: issued.otp, magicLink } } : {}),
   };
 }
@@ -227,41 +262,78 @@ export async function requestPortalLogin(eventSlug: string, email: string, next?
   }));
 }
 
+export type PortalLoginVerification =
+  | { verified: true; raw: string; contactId: ContactId; email: string; alreadySignedIn?: true }
+  | { verified: false };
+
+/**
+ * The transactional half of a portal sign-in. A **refusal is returned, never
+ * thrown**, and that is the whole point of the split.
+ *
+ * `consumeToken` spends one of the five OTP guesses by incrementing
+ * `portal_tokens.attempts` (and burning the token at five). Throwing the
+ * `UNAUTHORIZED` from inside this transaction rolled that increment back with
+ * everything else, so the counter never left zero and the brute-force lockout
+ * never engaged — unlimited guesses at a six-digit login credential. Returning
+ * lets the transaction commit the guess it just spent; the caller turns
+ * `{ verified: false }` into the same `UNAUTHORIZED` the speaker saw before.
+ *
+ * The success path is untouched and still atomic: a correct code burns its
+ * token and mints its session together, or neither happens.
+ */
+export async function verifyPortalLoginIn(tx: TxDb, args: {
+  eventId: EventId;
+  purpose: "magic_link" | "impersonation";
+  raw?: string;
+  code?: string;
+  email?: string;
+  impersonatedByUserId: UserId | null;
+}): Promise<PortalLoginVerification> {
+  let contactId: ContactId | undefined;
+  if (args.code && args.email) {
+    const [contact] = await tx.select({ id: contacts.id }).from(contacts)
+      .where(and(eq(contacts.eventId, args.eventId), eq(contacts.email, args.email.trim().toLowerCase())))
+      .limit(1);
+    contactId = contact?.id as ContactId | undefined;
+  }
+  const credential = { ...(args.raw ? { raw: args.raw } : {}), ...(args.code ? { code: args.code } : {}), ...(contactId ? { contactId } : {}) };
+  const consumed = await consumeToken(tx, credential, { eventId: args.eventId, purpose: args.purpose });
+  if (!consumed) {
+    const concurrent = await findConcurrentPortalSignInIn(tx, credential, { eventId: args.eventId, purpose: args.purpose });
+    if (!concurrent) return { verified: false };
+    const recovered = await createConcurrentPortalRecoverySessionIn(tx, concurrent, args.eventId, args.impersonatedByUserId);
+    return { verified: true, raw: recovered.raw, contactId: recovered.contactId, email: recovered.email, alreadySignedIn: true };
+  }
+  const session = await createPortalSessionRowIn(tx, consumed.contactId, args.eventId, args.impersonatedByUserId);
+  const [contact] = await tx.select({ email: contacts.email }).from(contacts)
+    .where(and(eq(contacts.id, consumed.contactId), eq(contacts.eventId, args.eventId)))
+    .limit(1);
+  if (!contact) throw new AppError("NOT_FOUND", "Contact not found");
+  return { verified: true, raw: session.raw, contactId: consumed.contactId, email: contact.email };
+}
+
 export async function verifyPortalLogin(args: { eventSlug: string; raw?: string; code?: string; email?: string; impersonate?: boolean }): Promise<PortalSession & { alreadySignedIn?: boolean }> {
   const event = await resolveEvent(db, args.eventSlug);
   const admin = args.impersonate ? await getAdminSession() : null;
   if (args.impersonate && !admin) throw new AppError("UNAUTHORIZED", "Admin sign-in required");
   if (admin) await requireAdmin(event.id, "organizer");
-  const result = await withTx(async (tx) => {
-    let contactId: ContactId | undefined;
-    if (args.code && args.email) {
-      const [contact] = await tx.select({ id: contacts.id }).from(contacts)
-        .where(and(eq(contacts.eventId, event.id), eq(contacts.email, args.email.trim().toLowerCase())))
-        .limit(1);
-      contactId = contact?.id as ContactId | undefined;
-    }
-    const purpose = args.impersonate ? "impersonation" as const : "magic_link" as const;
-    const credential = { ...(args.raw ? { raw: args.raw } : {}), ...(args.code ? { code: args.code } : {}), ...(contactId ? { contactId } : {}) };
-    const consumed = await consumeToken(tx, credential, { eventId: event.id, purpose });
-    if (!consumed) {
-      const concurrent = await findConcurrentPortalSignInIn(tx, credential, { eventId: event.id, purpose });
-      if (!concurrent) throw new AppError("UNAUTHORIZED", "That code or link is invalid or expired");
-      return createConcurrentPortalRecoverySessionIn(tx, concurrent, event.id, admin?.userId ?? null);
-    }
-    const session = await createPortalSessionRowIn(tx, consumed.contactId, event.id, admin?.userId ?? null);
-    const [contact] = await tx.select({ email: contacts.email }).from(contacts)
-      .where(and(eq(contacts.id, consumed.contactId), eq(contacts.eventId, event.id)))
-      .limit(1);
-    if (!contact) throw new AppError("NOT_FOUND", "Contact not found");
-    return { raw: session.raw, contactId: consumed.contactId, email: contact.email };
-  });
+  const result = await withTx((tx) => verifyPortalLoginIn(tx, {
+    eventId: event.id,
+    purpose: args.impersonate ? "impersonation" : "magic_link",
+    ...(args.raw ? { raw: args.raw } : {}),
+    ...(args.code ? { code: args.code } : {}),
+    ...(args.email ? { email: args.email } : {}),
+    impersonatedByUserId: admin?.userId ?? null,
+  }));
+  // Thrown out here, after the commit, so the spent guess survives the refusal.
+  if (!result.verified) throw new AppError("UNAUTHORIZED", "That code or link is invalid or expired");
   await setPortalCookie(event.id, result.raw);
   return {
     contactId: result.contactId,
     eventId: event.id,
     email: result.email,
     impersonatedByUserId: admin?.userId ?? null,
-    ...("alreadySignedIn" in result && result.alreadySignedIn ? { alreadySignedIn: true } : {}),
+    ...(result.alreadySignedIn ? { alreadySignedIn: true } : {}),
   };
 }
 

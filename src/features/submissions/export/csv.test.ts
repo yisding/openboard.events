@@ -183,6 +183,11 @@ describe("submissionCsvColumns — row rendering", () => {
     expect(get("Code", baseRow({ code: 42 }))).toBe("SESS-42");
   });
 
+  it("labels the status the way the Abstracts table does, never as the raw enum", () => {
+    expect(get("Status", baseRow({ status: "accept_queue" }))).toBe("Queued to accept");
+    expect(get("Status", baseRow({ status: "pending" }))).toBe("Pending review");
+  });
+
   it("labels a CFP submission's source with the form's internal name", () => {
     expect(get("Source", baseRow({ source: "cfp", formName: "Technical Talks" }))).toBe("Technical Talks");
   });

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { criterionKindSchema } from "./enums";
 import { criterionIdSchema } from "./ids";
+import { LIMITS } from "./limits";
 
 /**
  * M50 — the typed answer a reviewer gives one criterion.
@@ -16,11 +17,15 @@ import { criterionIdSchema } from "./ids";
  *   - `select` contributes the chosen option's `score`, and nothing when that
  *     score is `null` (an "N/A" or purely descriptive option);
  *   - `text` never contributes.
+ *
+ * The text branch carries the same ceiling the textarea enforces. Not `.trim()`
+ * — `isValidCriterionValue` already owns the non-empty rule, and trimming here
+ * would change what is stored.
  */
 export const criterionValueSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("numeric"), value: z.number() }),
   z.object({ kind: z.literal("select"), optionId: z.string().min(1) }),
-  z.object({ kind: z.literal("text"), value: z.string() }),
+  z.object({ kind: z.literal("text"), value: z.string().max(LIMITS.REVIEW_TEXT) }),
 ]);
 export type CriterionValue = z.infer<typeof criterionValueSchema>;
 

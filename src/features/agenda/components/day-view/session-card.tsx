@@ -2,12 +2,13 @@
 
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, EyeOff, PenLine } from "lucide-react";
 import { useMemo, type CSSProperties } from "react";
 import type { ScheduledSessionDTO, TrackDTO } from "@/shared/contracts";
 import { cn } from "@/shared/lib/cn";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { useDayGridConflicts } from "../../hooks/use-day-grid-state";
+import { abstractDivergence, divergenceNotice } from "../../lib/abstract-divergence";
 import { ResizeHandles } from "./resize-handles";
 
 function initialsOf(name: string): string {
@@ -52,7 +53,14 @@ export function SessionCard({
   timezone: string;
   onEdit?: (id: string) => void;
 }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+  // `attributes` is deliberately not spread onto the card. dnd-kit's defaults
+  // announce "press the space bar to pick up a draggable item", but this grid
+  // registers a PointerSensor only (`day-view.tsx`), so that instruction would
+  // describe an interaction that does nothing. Pointer drag stays an
+  // enhancement; the card describes itself below as what it really is for a
+  // keyboard — a button that opens the session editor, exactly like a List
+  // view row. Rescheduling without a pointer happens in that dialog.
+  const { listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: String(session.id),
     data: { type: "session", session },
   });
@@ -64,6 +72,13 @@ export function SessionCard({
     return hits.some((conflict) => conflict.severity === "error") ? "error" : "warning";
   }, [conflicts, session.id]);
   const compact = isCompactSession(durationMinutes);
+
+  // A card is far too small for the whole sentence, so the grid shows the mark
+  // and says the rest in the card's own label and tooltip. The List view and
+  // the trays carry the full chip.
+  const divergence = useMemo(() => abstractDivergence(session), [session]);
+  const divergenceMark = divergence ? divergenceNotice(divergence) : null;
+  const DivergenceIcon = divergence?.kind === "title_drift" ? PenLine : EyeOff;
 
   // Mirrors `<ColorChip>`'s alpha-suffix pattern: the track's own hex colour,
   // never a feature-local palette, so this card looks identical to the same
@@ -96,18 +111,41 @@ export function SessionCard({
       className={cn(
         "dv-session-card",
         severity && `dv-session-card--${severity}`,
+        divergenceMark && "dv-session-card--diverged",
         compact && "dv-session-card--compact",
         durationMinutes < 30 && "dv-session-card--single-line",
         isDragging && "dv-session-card--dragging",
       )}
-      aria-label={`${session.title}${severity ? ", has a scheduling conflict" : ""}, drag to reschedule`}
-      title={speakerNames.length > 0 ? `${session.title} · ${speakerNames.join(", ")}` : session.title}
+      role="button"
+      tabIndex={0}
+      aria-label={`${session.title}${severity ? ", has a scheduling conflict" : ""}${divergenceMark ? `, ${divergenceMark.detail}` : ""}, press Enter to edit`}
+      aria-keyshortcuts="Enter Space"
+      title={[
+        speakerNames.length > 0 ? `${session.title} · ${speakerNames.join(", ")}` : session.title,
+        divergenceMark?.detail,
+      ].filter(Boolean).join("\n")}
       onDoubleClick={() => onEdit?.(String(session.id))}
-      {...attributes}
+      onKeyDown={(keyEvent) => {
+        if (keyEvent.target !== keyEvent.currentTarget) return;
+        if (keyEvent.key !== "Enter" && keyEvent.key !== " ") return;
+        keyEvent.preventDefault();
+        onEdit?.(String(session.id));
+      }}
       {...listeners}
     >
       <ResizeHandles session={session} />
       {severity && <AlertTriangle className="dv-session-card-conflict-icon" size={13} aria-hidden="true" />}
+      {divergenceMark && (
+        <DivergenceIcon
+          className={cn(
+            "dv-session-card-divergence-icon",
+            `dv-session-card-divergence-icon--${divergenceMark.tone}`,
+            severity && "dv-session-card-divergence-icon--offset",
+          )}
+          size={13}
+          aria-hidden="true"
+        />
+      )}
       {compact ? <div className="dv-session-card-compact-line">
         <span className="dv-session-card-time"><TzTime instant={session.startsAt} tz={timezone} style={{ hour: "numeric", minute: "2-digit" }} zoneDisplay="context" /></span>
         <b>{session.title}</b>

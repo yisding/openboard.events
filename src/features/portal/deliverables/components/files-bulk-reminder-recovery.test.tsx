@@ -29,6 +29,7 @@ const navigation = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => navigation,
+  usePathname: () => "/events/11111111-1111-4111-8111-111111111111/files",
   useSearchParams: () => navigation.params,
 }));
 vi.mock("@/shared/ui/toast", () => ({ useToast: () => ({ toast: toastMock }) }));

@@ -23,7 +23,16 @@ const listInput = z.object({
 });
 
 const list = defineHandler({
-  auth: agendaAuth({ role: "reviewer" }),
+  // The organizer default, matching the only page that renders this: the agenda
+  // itself was tightened to `requireAdmin(eventId, "organizer")` because a
+  // reviewer could soft-navigate in from `/review`, but this route kept the
+  // wider guard. It returns every session's title, description and speaker ids —
+  // drafts included, since `listSessionsIn` applies no status filter — so on an
+  // event whose round sets `anonymize_authors`, a reviewer could call it
+  // directly and join those titles back to the anonymized abstracts in their own
+  // queue. `useSessions` is the only client, and it renders only from that
+  // organizer-gated page, so the wider guard bought nothing.
+  auth: agendaAuth(),
   input: listInput,
   handler: async ({ input }) => listSessions(input.eventId, {
     ...(input.search === undefined ? {} : { search: input.search }),

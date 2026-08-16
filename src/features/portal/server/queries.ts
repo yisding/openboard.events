@@ -2,6 +2,7 @@ import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { contacts, forms, sessionFormats, submissionParticipants, submissions, tracks } from "@/db/schema";
 import { PORTAL_STATUS_LABEL, type ContactId, type EventId, type ParticipantRole, type SubmissionStatus } from "@/shared/contracts";
+import type { FormOpenStatus } from "@/features/forms/index.availability";
 
 /**
  * The speaker's own view of their submissions.
@@ -46,6 +47,17 @@ export type PortalSubmissionRow = {
   updatedAt: string;
   /** M59 — the draft-resume banner's countdown target; null once the form has no deadline. */
   formClosesAt: string | null;
+  /**
+   * The other two halves of the form's open verdict.
+   *
+   * `closesAt` alone is not the answer: `0038_form_open_wall_clock.sql` gates on
+   * `status = 'open' AND …`, so "Stop accepting submissions" on a form with no
+   * close date leaves `closes_at` NULL and only flips `status`. Carrying all
+   * three lets a consumer ask `formOpenState`, the shared twin of
+   * `is_form_open()`, rather than re-deriving half of it.
+   */
+  formStatus: FormOpenStatus;
+  formOpensAt: string | null;
 };
 
 export type PortalParticipant = {
@@ -59,6 +71,13 @@ export type PortalParticipant = {
 export type PortalSubmissionDetail = PortalSubmissionRow & {
   descriptionHtml: string | null;
   participants: PortalParticipant[];
+  /**
+   * Whether the viewer is the submitter, not merely a listed participant.
+   * `withdraw` scopes its UPDATE by `submitter_contact_id`, so this is the one
+   * flag that decides whether offering the control would end in a bare
+   * NOT_FOUND for a co-speaker looking at a submission they can see.
+   */
+  isSubmitter: boolean;
 };
 
 export function portalStatus(status: SubmissionStatus): PortalStatus {
@@ -86,6 +105,8 @@ export async function listMySubmissionsIn(dbOrTx: DbOrTx, eventId: EventId, cont
       submittedAt: submissions.submittedAt,
       updatedAt: submissions.updatedAt,
       formClosesAt: forms.closesAt,
+      formStatus: forms.status,
+      formOpensAt: forms.opensAt,
     })
     .from(submissions)
     .innerJoin(
@@ -117,6 +138,8 @@ export async function listMySubmissionsIn(dbOrTx: DbOrTx, eventId: EventId, cont
     submittedAt: row.submittedAt ? row.submittedAt.toISOString() : null,
     updatedAt: row.updatedAt.toISOString(),
     formClosesAt: row.formClosesAt ? row.formClosesAt.toISOString() : null,
+    formStatus: (row.formStatus ?? "closed") as FormOpenStatus,
+    formOpensAt: row.formOpensAt ? row.formOpensAt.toISOString() : null,
   }));
 }
 
@@ -146,7 +169,10 @@ export async function getMySubmissionIn(
       submittedAt: submissions.submittedAt,
       updatedAt: submissions.updatedAt,
       descriptionHtml: submissions.descriptionHtml,
+      submitterContactId: submissions.submitterContactId,
       formClosesAt: forms.closesAt,
+      formStatus: forms.status,
+      formOpensAt: forms.opensAt,
     })
     .from(submissions)
     .innerJoin(
@@ -197,7 +223,10 @@ export async function getMySubmissionIn(
     submittedAt: row.submittedAt ? row.submittedAt.toISOString() : null,
     updatedAt: row.updatedAt.toISOString(),
     descriptionHtml: row.descriptionHtml,
+    isSubmitter: row.submitterContactId === contactId,
     formClosesAt: row.formClosesAt ? row.formClosesAt.toISOString() : null,
+    formStatus: (row.formStatus ?? "closed") as FormOpenStatus,
+    formOpensAt: row.formOpensAt ? row.formOpensAt.toISOString() : null,
     participants: participants.map((participant) => ({
       contactId: participant.contactId,
       name: displayName(participant.firstName, participant.lastName, participant.email),

@@ -1,15 +1,16 @@
 "use client";
 
-import { History } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, ArrowRight, History, MapPin } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { EventId, ScheduledSessionDTO, SessionContentRevisionDTO, SessionId } from "@/shared/contracts";
-import { sessionContentRevisionDtoSchema, sessionIdSchema } from "@/shared/contracts";
-import { z } from "zod";
+import type { EventId, ScheduledSessionDTO, SessionContentRevisionDTO, SessionId, SessionPlacementRevisionDTO } from "@/shared/contracts";
+import { sessionHistoryDtoSchema, sessionIdSchema } from "@/shared/contracts";
 import { isAppError, isDefinitiveWriteFailure } from "@/shared/lib/errors";
 import { api } from "@/shared/lib/api-client";
+import { formatInZone, zoneAbbreviation } from "@/shared/lib/time";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
+import { emitTourSignal } from "@/shared/ui/app/guided-tour/signals";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { SpeakerQuickAdd, type QuickAddedSpeaker } from "@/shared/ui/app/speaker-quick-add";
@@ -20,9 +21,11 @@ import { Button, Field, Modal, Select } from "@/shared/ui/ui-kit";
 import type { AgendaViewProps } from "../index.client";
 import { agendaKeys } from "../hooks/keys";
 import { useSessionMutations, type SaveSessionPayload } from "../hooks/use-session-mutations";
+import { abstractDivergence, divergenceNotice } from "../lib/abstract-divergence";
+import { roomCapacityWarning } from "../lib/room-capacity";
 import { defaultScheduledRange } from "../store";
 
-const revisionsSchema = z.array(sessionContentRevisionDtoSchema);
+const revisionsSchema = sessionHistoryDtoSchema;
 
 export type SessionDraft = {
   title: string;
@@ -35,6 +38,29 @@ export type SessionDraft = {
   speakerContactIds: string[];
   status: "draft" | "published";
 };
+
+/**
+ * Change the format, and re-prefill the end time with the new format's default
+ * duration — but only while the draft is still carrying a prefilled one.
+ *
+ * The default duration used to land at exactly one moment: unticking "Leave
+ * unscheduled". Choosing "Workshop" (90 min) after that left a placed session
+ * running the no-format 30 minutes, with nothing on screen saying the format's
+ * own default had been ignored. Comparing the current duration against what the
+ * *previous* format prefilled is what keeps a duration the organizer typed by
+ * hand from being overwritten.
+ */
+export function draftWithFormat(
+  draft: SessionDraft,
+  formatId: string,
+  previousDefaultMs: number,
+  nextDefaultMs: number,
+): SessionDraft {
+  const next = { ...draft, formatId };
+  if (draft.startsAt === null || draft.endsAt === null) return next;
+  if (Date.parse(draft.endsAt) - Date.parse(draft.startsAt) !== previousDefaultMs) return next;
+  return { ...next, endsAt: new Date(Date.parse(draft.startsAt) + nextDefaultMs).toISOString() };
+}
 
 export function isSessionDraftDirty(draft: SessionDraft, original: SessionDraft): boolean {
   return JSON.stringify(draft) !== JSON.stringify(original);
@@ -93,6 +119,7 @@ export function SessionFormDialog({
   tracks,
   formats,
   speakers,
+  onSpeakerAdded,
 }: {
   open: boolean;
   onClose: () => void;
@@ -100,6 +127,12 @@ export function SessionFormDialog({
   session: ScheduledSessionDTO | null;
   /** Event-local day selected in the agenda toolbar. */
   defaultDay: string | null;
+  /**
+   * A contact created by the quick-add inside this dialog. The agenda page
+   * keeps it so every view can name the speaker on the row this dialog saves,
+   * not just the picker it was typed into.
+   */
+  onSpeakerAdded: (speaker: QuickAddedSpeaker) => void;
 } & Pick<AgendaViewProps, "eventId" | "event" | "rooms" | "tracks" | "formats" | "speakers">) {
   const { toast } = useToast();
   const { runGuarded } = useGuardedAction();
@@ -138,12 +171,22 @@ export function SessionFormDialog({
     setCreationId(session ? null : sessionIdSchema.parse(crypto.randomUUID()));
   }, [identity, open, session]);
 
-  const defaultDurationMs = useMemo(() => {
-    const format = formats.find((candidate) => String(candidate.id) === draft.formatId);
+  const formatDurationMs = useCallback((formatId: string) => {
+    const format = formats.find((candidate) => String(candidate.id) === formatId);
     return (format?.defaultDurationMins ?? 30) * 60_000;
-  }, [formats, draft.formatId]);
+  }, [formats]);
+  const defaultDurationMs = useMemo(() => formatDurationMs(draft.formatId), [formatDurationMs, draft.formatId]);
 
   const scheduled = draft.startsAt !== null;
+
+  // Live against the *draft's* room, so picking a smaller room says so before
+  // the save rather than after it. `session` is the only source of an expected
+  // audience — a session being created here has no abstract behind it yet, so
+  // there is nothing truthful to compare and nothing is shown.
+  const capacityWarning = useMemo(
+    () => roomCapacityWarning({ expectedAttendance: session?.expectedAttendance ?? null, roomId: draft.roomId }, rooms),
+    [draft.roomId, rooms, session],
+  );
 
   const setStart = (next: string | null) => {
     setDraft((current) => {
@@ -163,25 +206,6 @@ export function SessionFormDialog({
         : [...current.speakerContactIds, contactId],
     }));
   };
-
-  /**
-   * Speakers created from inside this dialog. `speakers` comes from the page's
-   * server render and will not include them until the next navigation, so the
-   * person the organizer just typed in has to be held here to stay visible and
-   * checked.
-   *
-   * Deliberately *not* cleared when `identity` changes. A created contact
-   * belongs to the event, not to the session that happened to be open when it
-   * was made — clearing on switch would drop the only client-side copy of a
-   * contact that really exists on the server, and it would vanish from every
-   * later picker until a manual refresh.
-   */
-  const [addedSpeakers, setAddedSpeakers] = useState<QuickAddedSpeaker[]>([]);
-  const pickableSpeakers = useMemo<QuickAddedSpeaker[]>(() => {
-    const known = speakers.map((speaker) => ({ contactId: String(speaker.contactId), name: speaker.name }));
-    const knownIds = new Set(known.map((speaker) => speaker.contactId));
-    return [...known, ...addedSpeakers.filter((added) => !knownIds.has(added.contactId))];
-  }, [speakers, addedSpeakers]);
 
   const submit = async () => {
     setError(null);
@@ -213,6 +237,11 @@ export function SessionFormDialog({
         };
     try {
       await save.mutateAsync(payload);
+      // A latency shortcut for the guided tour: placing a session is the
+      // objective the tutorial's set-piece waits on, and this saves it a poll
+      // interval. It is never the authority — the objective is still decided by
+      // the server's world snapshot, so removing this line costs two seconds.
+      emitTourSignal("agenda.session-saved");
       toast(session ? "Session updated" : "Session created");
       closeAfterMutation();
     } catch (caught) {
@@ -259,6 +288,10 @@ export function SessionFormDialog({
   // editable values.
   const createControlsLocked = !session && (save.isPending || createLocked);
   const dirty = isSessionDraftDirty(draft, original);
+  // Compared against the *saved* session, not the draft: typing a new title in
+  // this dialog should not make a drift notice flicker away before it is saved.
+  const divergence = useMemo(() => (session ? abstractDivergence(session) : null), [session]);
+  const divergenceMark = divergence ? divergenceNotice(divergence) : null;
   useUnsavedWorkGuard(open && (dirty || busy), { blocking: busy });
 
   const requestClose = () => {
@@ -319,6 +352,23 @@ export function SessionFormDialog({
         <div className="form-stack">
           {error && <p className="conflict-check warning" role="alert"><span>{error}</span></p>}
 
+          {/* The abstract behind this session, when it no longer agrees with
+              it. Drift is offered a one-click fix that fills the field the
+              organizer is already looking at — the save is still theirs to
+              make, so nothing is renamed behind their back. */}
+          {divergenceMark && (
+            <div className={`agenda-divergence-notice agenda-divergence-notice--${divergenceMark.tone}`} role="status">
+              <span>{divergenceMark.detail}</span>
+              {divergence?.kind === "title_drift" && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setDraft((current) => ({ ...current, title: divergence.abstractTitle }))}
+                >Use the abstract’s title</Button>
+              )}
+            </div>
+          )}
+
           <fieldset
             className="form-stack"
             disabled={createControlsLocked}
@@ -347,7 +397,15 @@ export function SessionFormDialog({
 
           <div className="form-grid">
             <Field label="Format">
-              <Select value={draft.formatId} onChange={(changed) => setDraft((current) => ({ ...current, formatId: changed.target.value }))}>
+              <Select
+                value={draft.formatId}
+                onChange={(changed) => setDraft((current) => draftWithFormat(
+                  current,
+                  changed.target.value,
+                  formatDurationMs(current.formatId),
+                  formatDurationMs(changed.target.value),
+                ))}
+              >
                 <option value="">No format</option>
                 {formats.map((format) => <option key={String(format.id)} value={String(format.id)}>{format.name}</option>)}
               </Select>
@@ -363,10 +421,26 @@ export function SessionFormDialog({
                 <option value="">No room</option>
                 {rooms.map((room) => <option key={String(room.id)} value={String(room.id)}>{room.name}</option>)}
               </Select>
+              {/* MTP-07 step 12 — advisory, never a gate: the Save button stays
+                  enabled, because an organizer who deliberately puts a big draw
+                  in a small room is making a programming decision, not a
+                  mistake. `role="status"` for the same reason — a warning the
+                  save path does not act on must not interrupt like an alert. */}
+              {capacityWarning && (
+                <p className="agenda-capacity-note" role="status">
+                  <AlertTriangle size={14} aria-hidden />
+                  <span>{capacityWarning} You can still place it here.</span>
+                </p>
+              )}
             </Field>
           </div>
 
-          <Field label="Placement" hint={`Times are in ${event.timezone}.`}>
+          {/* `group`, not a plain label: the control here is a checkbox with its
+              own <label>, and nesting one label inside another is invalid HTML —
+              clicking the word "Placement" toggled the checkbox and the
+              accessible name ran the group label, the option and the hint
+              together. */}
+          <Field label="Placement" group hint={`Times are in ${zoneAbbreviation(draft.startsAt ?? event.startsAt, event.timezone)}.`}>
             <label className="agenda-unscheduled-toggle">
               <input
                 type="checkbox"
@@ -404,12 +478,19 @@ export function SessionFormDialog({
               event: "no contacts yet" with nothing to do about it, so the only
               way on was to abandon a half-filled dialog, create the contact on
               Speakers, and start over. The speaker is now created here. */}
-          <Field label="Speakers" hint="The first one selected is the primary speaker.">
+          {/* `group` for the same reason as Placement above: the control is a
+              list of checkboxes that each own a <label>, and a <label> wrapping
+              them is invalid HTML — it labelled only the first checkbox, with
+              an accessible name built from every *other* speaker's name. */}
+          {/* `speakers` already carries the contacts quick-added since this page
+              loaded: the agenda page holds them, so the row this dialog saves
+              can name its speaker without waiting for a server render. */}
+          <Field label="Speakers" group hint="The first one selected is the primary speaker.">
             <div className="agenda-speaker-picker">
-              {pickableSpeakers.length === 0 && (
+              {speakers.length === 0 && (
                 <span className="dash">No contacts on this event yet — add the speaker below</span>
               )}
-              {pickableSpeakers.map((speaker) => (
+              {speakers.map((speaker) => (
                 <label key={speaker.contactId}>
                   <input
                     type="checkbox"
@@ -427,7 +508,7 @@ export function SessionFormDialog({
                 disabled={createControlsLocked}
                 onPendingChange={setSpeakerQuickAddPending}
                 onAdded={(speaker) => {
-                  setAddedSpeakers((current) => [...current, speaker]);
+                  onSpeakerAdded(speaker);
                   toggleSpeaker(speaker.contactId);
                 }}
               />
@@ -489,11 +570,32 @@ export function SessionFormDialog({
 }
 
 /**
+ * One side of a recorded move, as a sentence.
+ *
+ * Exported for its test, and pure: the room name is whatever was frozen into
+ * the record, so a room deleted since the move still reads as the room the
+ * session was actually in.
+ */
+export function describePlacement(
+  side: SessionPlacementRevisionDTO["from"],
+  timezone: string,
+): string {
+  if (side.startsAt === null) return side.roomName ? `${side.roomName}, unscheduled` : "Unscheduled";
+  const when = `${formatInZone(side.startsAt, timezone, "dateTime")}`;
+  return side.roomName ? `${side.roomName}, ${when}` : `No room, ${when}`;
+}
+
+/**
  * M52 — a session's attributed title/description history, newest first, with
  * a Restore action per earlier entry. The list refetches after a restore
  * (through `agendaKeys.revisions`, invalidated the same way every other
  * agenda write invalidates `allSessions`) so the new "restored from" entry
  * appears without the organizer having to reopen the dialog.
+ *
+ * MTP-07 step 14 adds the other half of that history below it: where this
+ * session used to sit, where it went, and who moved it. Both halves arrive in
+ * one request, because a panel with two spinners can be half-broken and this
+ * one cannot.
  */
 function SessionHistoryPanel({
   eventId,
@@ -511,10 +613,13 @@ function SessionHistoryPanel({
     queryKey: agendaKeys.revisions(eventId, sessionId),
     queryFn: () => api(`agenda/sessions/${sessionId}/revisions?eventId=${eventId}`, revisionsSchema),
   });
-  const revisions = query.data ?? [];
+  const revisions = query.data?.content ?? [];
+  const placements = query.data?.placements ?? [];
   const hint = revisions.length > 0 ? `${revisions.length} revision${revisions.length === 1 ? "" : "s"}` : undefined;
+  const placementHint = placements.length > 0 ? `${placements.length} move${placements.length === 1 ? "" : "s"}` : undefined;
 
   return (
+    <>
     <Field label="Content history" group {...(hint ? { hint } : {})}>
       {query.isLoading && <p className="portal-note">Loading history…</p>}
       {query.isError && (
@@ -540,9 +645,9 @@ function SessionHistoryPanel({
               {index === 0
                 ? <em>Current</em>
                 : (
-                  <button
-                    type="button"
-                    className="icon-button"
+                  <Button
+                    size="sm"
+                    variant="ghost"
                     disabled={restoringId !== null}
                     onClick={async () => {
                       setRestoringId(revision.id);
@@ -555,7 +660,7 @@ function SessionHistoryPanel({
                     }}
                   >
                     {restoringId === revision.id ? "Restoring…" : "Restore"}
-                  </button>
+                  </Button>
                 )}
             </li>
           ))}
@@ -568,5 +673,33 @@ function SessionHistoryPanel({
         </details>
       )}
     </Field>
+
+    {/* MTP-07 step 14: "prior placements are recorded with who and when."
+        Every writer records into the same table — the grid drag, this dialog's
+        own save, Auto-place's apply and an Undo — so this list is the whole
+        story of where the session has been, not just the moves made from here. */}
+    <Field label="Placement history" group {...(placementHint ? { hint: placementHint } : {})}>
+      {!query.isLoading && !query.isError && placements.length === 0 && (
+        <p className="portal-note">No moves recorded yet — the room and time this session has now are its first.</p>
+      )}
+      {placements.length > 0 && (
+        <ul className="agenda-placement-history">
+          {placements.map((move: SessionPlacementRevisionDTO) => (
+            <li key={move.id}>
+              <MapPin size={14} aria-hidden />
+              <span>
+                <b>{describePlacement(move.from, timezone)}</b>
+                {" "}<ArrowRight size={11} aria-hidden />{" "}
+                <b>{describePlacement(move.to, timezone)}</b>
+                <small>
+                  {move.movedByName ?? "Someone"} · <TzTime instant={move.createdAt} tz={timezone} style="date" />
+                </small>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Field>
+    </>
   );
 }

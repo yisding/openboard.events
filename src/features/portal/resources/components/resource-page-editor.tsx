@@ -4,12 +4,15 @@ import { useEffect, useRef, useState } from "react";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { editorDraftChanged, requestGuardedEditorClose } from "@/shared/ui/app/modal-editor-guard";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
+import { moveRovingTab } from "@/shared/ui/app/roving-tabs";
 import { Button, Field, Modal, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
 import { slugify } from "@/shared/lib/slug";
 import { readFieldErrors } from "@/shared/lib/api-client";
 import type { ResourcePageDTO } from "../server/queries";
+
+const BODY_MODES = ["rich", "source"] as const;
 
 export type ResourcePageDraft = {
   id?: string;
@@ -74,13 +77,27 @@ export function ResourcePageEditor({
   const [draft, setDraft] = useState<ResourcePageDraft>(initialDraft);
   const [baseline, setBaseline] = useState<ResourcePageDraft>(initialDraft);
   const [slugTouched, setSlugTouched] = useState(Boolean(page));
-  const [mode, setMode] = useState<"rich" | "source">("rich");
+  const [mode, setMode] = useState<(typeof BODY_MODES)[number]>("rich");
   const [saving, setSaving] = useState(false);
+  /**
+   * Somebody else's edit landed first. The draft stays exactly where it is —
+   * this used to toast "please re-apply your edit" and then close the modal,
+   * which threw the edit away in the same breath as asking for it back. The
+   * task editor beside this one has always kept its draft and offered "Load
+   * latest"; this now does the same.
+   */
+  const [stale, setStale] = useState(false);
+  const staleRef = useRef<HTMLDivElement>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const createRequestId = useRef(createStableCreateRequestId());
   const { runGuarded } = useGuardedAction();
   const dirty = open && editorDraftChanged(draft, baseline);
   useUnsavedWorkGuard(dirty);
+
+  useEffect(() => {
+    if (!stale) return;
+    window.requestAnimationFrame(() => staleRef.current?.focus());
+  }, [stale]);
 
   useEffect(() => {
     if (!open) {
@@ -95,6 +112,9 @@ export function ResourcePageEditor({
     setSlugTouched(Boolean(page));
     setMode("rich");
     setFieldErrors({});
+    // Reopening, or loading the latest, clears the banner along with the draft
+    // it was protecting.
+    setStale(false);
   }, [open, page]);
 
   function setTitle(title: string) {
@@ -150,12 +170,11 @@ export function ResourcePageEditor({
       } | null;
       if (response.status === 409 || payload?.error?.code === "STALE_WRITE") {
         // Not an error the organizer caused, and not one they can fix by saving
-        // again: somebody else's edit landed first, so say so and let the list
-        // refetch rather than silently overwriting it.
-        toast("This page changed since you opened it. Reloading the latest version — please re-apply your edit.", { kind: "error" });
-        await recoverStaleResourcePage(onSaved, () => {
-          toast("The latest page could not be reloaded. Refresh the browser before editing it again.", { kind: "error" });
-        });
+        // again: somebody else's edit landed first. Say so, and keep every word
+        // they have typed — closing the modal here discarded the rewrite the
+        // toast was asking them to re-apply.
+        setStale(true);
+        toast("This page changed since you opened it. Your draft is still here.", { kind: "error" });
         return;
       }
       if (!response.ok) {
@@ -185,9 +204,26 @@ export function ResourcePageEditor({
       wide
       footer={<>
         <Button variant="secondary" onClick={closeEditor} disabled={saving}>Cancel</Button>
-        <Button disabled={!draft.title.trim() || saving} onClick={save}>{saving ? "Saving…" : draft.id ? "Save changes" : "Create page"}</Button>
+        <Button disabled={!draft.title.trim() || saving || stale} onClick={save}>{saving ? "Saving…" : draft.id ? "Save changes" : "Create page"}</Button>
       </>}
     >
+      {stale && (
+        <div ref={staleRef} className="notify-bar" role="alert" tabIndex={-1}>
+          <div>
+            <p><b>This page changed since you opened it.</b></p>
+            <small>Your draft is still here. Load the latest page only when you are ready to replace it.</small>
+          </div>
+          <Button
+            variant="secondary"
+            disabled={saving}
+            onClick={() => void recoverStaleResourcePage(onSaved, () => {
+              toast("The latest page could not be reloaded. Refresh the browser before editing it again.", { kind: "error" });
+            })}
+          >
+            Load latest
+          </Button>
+        </div>
+      )}
       <div ref={formRef} className="form-stack" inert={saving || undefined} aria-busy={saving || undefined}>
         <Field label="Title" required error={fieldErrors.title} errorId="resource-title-error">
           <input required aria-invalid={Boolean(fieldErrors.title) || undefined} aria-describedby={fieldErrors.title ? "resource-title-error" : undefined} value={draft.title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Speaker Guide" />
@@ -199,21 +235,23 @@ export function ResourcePageEditor({
 
         <Field label="Body" group>
           <div className="rich-text-mode-toggle" role="tablist" aria-label="Body editing mode">
-            <button type="button" role="tab" aria-selected={mode === "rich"} className={mode === "rich" ? "active" : ""} onClick={() => setMode("rich")}>Rich text</button>
-            <button type="button" role="tab" aria-selected={mode === "source"} className={mode === "source" ? "active" : ""} onClick={() => setMode("source")}>HTML source</button>
+            <button type="button" role="tab" id="resource-body-tab-rich" aria-controls="resource-body-panel" aria-selected={mode === "rich"} tabIndex={mode === "rich" ? 0 : -1} className={mode === "rich" ? "active" : ""} onKeyDown={(event) => moveRovingTab(event, BODY_MODES, "rich", setMode)} onClick={() => setMode("rich")}>Rich text</button>
+            <button type="button" role="tab" id="resource-body-tab-source" aria-controls="resource-body-panel" aria-selected={mode === "source"} tabIndex={mode === "source" ? 0 : -1} className={mode === "source" ? "active" : ""} onKeyDown={(event) => moveRovingTab(event, BODY_MODES, "source", setMode)} onClick={() => setMode("source")}>HTML source</button>
           </div>
-          {mode === "rich"
-            ? <RichTextEditor ariaLabel="Resource page body" value={draft.bodyHtml} onChange={(html) => setDraft((current) => ({ ...current, bodyHtml: html }))} placeholder="Write the page…" />
-            : (
-              <textarea
-                className="html-source-editor"
-                value={draft.bodyHtml}
-                onChange={(event) => setDraft((current) => ({ ...current, bodyHtml: event.target.value }))}
-                placeholder='<iframe src="https://www.youtube.com/embed/…" allowfullscreen></iframe>'
-                spellCheck={false}
-                aria-label="HTML source"
-              />
-            )}
+          <div id="resource-body-panel" role="tabpanel" aria-labelledby={`resource-body-tab-${mode}`}>
+            {mode === "rich"
+              ? <RichTextEditor ariaLabel="Resource page body" value={draft.bodyHtml} onChange={(html) => setDraft((current) => ({ ...current, bodyHtml: html }))} placeholder="Write the page…" />
+              : (
+                <textarea
+                  className="html-source-editor"
+                  value={draft.bodyHtml}
+                  onChange={(event) => setDraft((current) => ({ ...current, bodyHtml: event.target.value }))}
+                  placeholder='<iframe src="https://www.youtube.com/embed/…" allowfullscreen></iframe>'
+                  spellCheck={false}
+                  aria-label="HTML source"
+                />
+              )}
+          </div>
           <p className="field-note">
             HTML source is the only place to paste a video or map embed — the rich text toolbar never offers one.
             Both are sanitized on save and again on render: script tags and event handlers are always stripped, and

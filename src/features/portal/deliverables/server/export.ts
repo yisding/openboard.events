@@ -130,6 +130,39 @@ export async function createFileExportJobIn(
   const fileUploadIds = (resolved.rows ?? []).map((row) => row.file_upload_id);
   if (fileUploadIds.length === 0) throw new AppError("VALIDATION", "None of the selected deliverables have an uploaded file yet");
 
+  // Two ceilings the writer cannot honour, checked here where the organizer can
+  // still act on them rather than after every byte has been read and uploaded.
+  //
+  // Per entry: a step materialises the whole object, then `buildLocalAndCentral`
+  // and `appendZipBatch` each concat a copy — about three times the file against
+  // a 128 MB isolate. Uploads are allowed to 100 MB, so a single large deck
+  // killed the isolate outright. That kills the `catch` too, so the job was
+  // never marked `failed`: the lease simply expired, the next poll re-claimed,
+  // and the banner read "Preparing export…" until the row was pruned a day
+  // later, with no error ever shown.
+  //
+  // In total: the archive writer is ZIP32. `u32()` wraps modulo 2^32 without
+  // complaint, so past 4 GiB the central-directory offsets and the EOCD wrap and
+  // the job still reports "Export ready" — the download works and the archive is
+  // corrupt, which is worse than a refusal.
+  const sizes = await dbOrTx.execute<{ file_upload_id: string; filename: string; size_bytes: string }>(sql`
+    SELECT u.id AS file_upload_id, fa.filename, fa.size_bytes
+    FROM file_uploads u
+    JOIN file_assets fa ON fa.id = u.file_asset_id AND fa.event_id = u.event_id
+    WHERE u.event_id = ${eventId} AND u.id = ANY(${uuidArraySql(fileUploadIds)})
+  `);
+  let total = 0;
+  for (const row of sizes.rows ?? []) {
+    const bytes = Number(row.size_bytes);
+    total += bytes;
+    if (bytes > EXPORT_MAX_ENTRY_BYTES) {
+      throw new AppError("VALIDATION", `“${row.filename}” is too large to include in a ZIP export (${Math.round(bytes / (1024 * 1024))} MB; the limit is ${EXPORT_MAX_ENTRY_BYTES / (1024 * 1024)} MB). Download it on its own instead.`);
+    }
+  }
+  if (total > EXPORT_MAX_TOTAL_BYTES) {
+    throw new AppError("VALIDATION", `That selection is ${Math.round(total / (1024 ** 3))} GB, over the ${EXPORT_MAX_TOTAL_BYTES / (1024 ** 3)} GB an export can hold. Select fewer deliverables.`);
+  }
+
   const inserted = await dbOrTx.execute<JobRow>(sql`
     INSERT INTO file_export_jobs (event_id, requested_by_user_id, status, group_by, file_upload_ids, expires_at)
     VALUES (${eventId}, ${actorUserId}, 'pending', ${groupBy}::file_export_group_by, ${uuidArraySql(fileUploadIds)}, now() + interval '24 hours')
@@ -276,12 +309,13 @@ async function stillHoldsLease(
   return kept;
 }
 
+/** Answers whether this call still held the lease, so the caller can decide what else it is entitled to undo. */
 async function failJobIn(
   dbOrTx: DbOrTx, eventId: EventId, jobId: string, lease: string, message: string,
-): Promise<void> {
+): Promise<boolean> {
   // Without the lease this could mark `failed` a job another worker has since
   // re-claimed and completed.
-  await stillHoldsLease(dbOrTx, eventId, jobId, sql`
+  return stillHoldsLease(dbOrTx, eventId, jobId, sql`
     UPDATE file_export_jobs SET status = 'failed', error = ${message.slice(0, 1000)}, updated_at = now(), completed_at = now()
     WHERE id = ${jobId} AND event_id = ${eventId} AND ${heldLeaseSql(lease)}
     RETURNING id
@@ -310,6 +344,22 @@ function groupLabelSql(groupBy: FileExportGroupBy): SQL {
 
 /** Each non-final R2 multipart part must clear R2/S3's 5 MiB floor; this adds a safety margin so a batch is never accidentally right at the edge. */
 export const EXPORT_PART_TARGET_BYTES = 6 * 1024 * 1024;
+
+/**
+ * The largest single file a step can put in the archive.
+ *
+ * A step reads the whole object, then the ZIP writer concats it twice more —
+ * roughly three copies live at once against the isolate's 128 MB. 32 MB leaves
+ * headroom for the rest of the batch and for the writer's own state.
+ */
+export const EXPORT_MAX_ENTRY_BYTES = 32 * 1024 * 1024;
+
+/**
+ * The largest archive the ZIP32 writer can address. `u32()` wraps silently past
+ * this, so an export beyond it completes, reports "Export ready", and hands the
+ * organizer a file whose central directory points at garbage.
+ */
+export const EXPORT_MAX_TOTAL_BYTES = 4 * 1024 ** 3;
 
 /**
  * Pure batch planner, extracted so its boundary behavior (stop once the byte
@@ -398,18 +448,39 @@ export async function processFileExportJobIn(dbOrTx: DbOrTx, eventId: EventId, j
     // columns as JS numbers here, but `Number(...)` makes that an invariant,
     // not an assumption).
     const byId = new Map((rows.rows ?? []).map((row) => [row.file_upload_id, { ...row, sizeBytes: Number(row.size_bytes) }]));
-    const { batch, consumed } = planExportBatch(remainingIds, byId, EXPORT_PART_TARGET_BYTES);
-    const isLast = state.nextIndex + consumed >= fileUploadIds.length;
-
-    const { names, seen: nextNameDedupe } = uniqueZipNamesFrom(
-      state.nameDedupe, batch.map((row) => ({ group: row.group_label, filename: row.filename })),
-    );
+    // `planExportBatch` sizes a batch from the DB's `size_bytes`, but a row whose
+    // R2 object has vanished contributes nothing to the part actually uploaded.
+    // A batch of one 5.9 MB missing file plus one 0.2 MB present file therefore
+    // produced a ~0.2 MB *non-final* part, which R2 rejects at `complete()` with
+    // EntityTooSmall — after every other batch had already been read and
+    // uploaded. Keep consuming until the bytes really read clear the target, or
+    // until there is nothing left to consume (which makes this the last part,
+    // where no floor applies). The extra rows this pulls in are exactly the ones
+    // whose objects are missing, so the bytes read per step stay near the target
+    // and the step's budget is unchanged in the normal case.
     const entries: { name: string; data: Uint8Array }[] = [];
-    for (const [index, row] of batch.entries()) {
-      const bytes = await getObjectBytes(row.r2_key);
-      // A row whose object went missing is skipped rather than failing the
-      // whole export for every other file in the batch.
-      if (bytes) entries.push({ name: names[index] ?? row.filename, data: bytes });
+    let consumed = 0;
+    let nextNameDedupe = state.nameDedupe;
+    let readBytes = 0;
+    let isLast = false;
+    for (;;) {
+      const planned = planExportBatch(remainingIds.slice(consumed), byId, EXPORT_PART_TARGET_BYTES);
+      consumed += planned.consumed;
+      isLast = state.nextIndex + consumed >= fileUploadIds.length;
+      const { names, seen } = uniqueZipNamesFrom(
+        nextNameDedupe, planned.batch.map((row) => ({ group: row.group_label, filename: row.filename })),
+      );
+      nextNameDedupe = seen;
+      for (const [index, row] of planned.batch.entries()) {
+        const bytes = await getObjectBytes(row.r2_key);
+        // A row whose object went missing is skipped rather than failing the
+        // whole export for every other file in the batch.
+        if (bytes) {
+          entries.push({ name: names[index] ?? row.filename, data: bytes });
+          readBytes += bytes.length;
+        }
+      }
+      if (isLast || readBytes >= EXPORT_PART_TARGET_BYTES) break;
     }
 
     const zipState = toZipStreamState(state);
@@ -436,11 +507,13 @@ export async function processFileExportJobIn(dbOrTx: DbOrTx, eventId: EventId, j
       return;
     }
 
-    // Not the last batch: this part is guaranteed >= EXPORT_PART_TARGET_BYTES
-    // of *input* by the loop above (so comfortably clears R2's 5 MiB floor
-    // once ZIP headers are added), unless every row in it vanished — in
-    // which case there is nothing to upload and this step just advances
-    // `nextIndex` past the gap for the next step to continue from.
+    // Not the last batch: the loop above only leaves this branch once the bytes
+    // it actually *read* reached EXPORT_PART_TARGET_BYTES (so the part
+    // comfortably clears R2's 5 MiB floor once ZIP headers are added), or once
+    // there was nothing left to consume — and that second case sets `isLast`,
+    // which returns above. The remaining reachable case is a batch in which
+    // every row's object vanished: nothing to upload, and this step just
+    // advances `nextIndex` past the gap for the next step to continue from.
     // Copied, not reused, before mutating — `state.uploadedParts` may be the
     // shared `EMPTY_STATE.uploadedParts` array literal for a job's first
     // step, and pushing onto that directly would leak into every other
@@ -467,10 +540,20 @@ export async function processFileExportJobIn(dbOrTx: DbOrTx, eventId: EventId, j
       claimedAt: null,
     });
   } catch (error) {
-    if (currentUploadId && currentExportFileId) {
+    // Fail first, then abort — and abort only if the fail actually landed.
+    //
+    // `currentUploadId` comes from the *persisted* state, so it is the job's
+    // shared multipart upload, not one this call created. A step that overran
+    // its 25-second lease while uploading a large part would, on erroring,
+    // abort the very upload the new lease holder had already resumed: its own
+    // `failJobIn` correctly no-oped, but every later step then threw
+    // `NoSuchUpload`, and the organizer saw "Export failed" with a raw R2 error
+    // after all the work had in fact succeeded. The lease check that already
+    // guards the database write now guards this too.
+    const owned = await failJobIn(dbOrTx, eventId, jobId, lease, error instanceof Error ? error.message : String(error));
+    if (owned && currentUploadId && currentExportFileId) {
       await abortExportMultipart(buildExportZipKey(eventId, currentExportFileId), currentUploadId);
     }
-    await failJobIn(dbOrTx, eventId, jobId, lease, error instanceof Error ? error.message : String(error));
   }
 }
 

@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
-import { consumeToken, issuePortalToken, requestPortalLoginIn } from "@/features/auth";
+import { PORTAL_LOGIN_NEUTRAL_MESSAGE, consumeToken, issuePortalToken, requestPortalLoginIn, verifyPortalLoginIn } from "@/features/auth";
 import { createPortalSessionRowIn, findConcurrentPortalSignInIn } from "@/features/auth/server/portal";
 import { openPortalLoginPayload, sealPortalLoginPayload } from "@/features/auth/index.payloads";
 import { verifyPortalTokenIn } from "@/features/auth/server/tokens";
@@ -30,6 +30,7 @@ const eventB = eventIdSchema.parse("b0000000-0000-4000-8000-000000000002");
 const contactA = contactIdSchema.parse("b0000000-0000-4000-8000-000000000003");
 const payloadTokenId = tokenIdSchema.parse("b0000000-0000-4000-8000-000000000004");
 const secret = "portal-auth-test-secret-that-is-at-least-32-bytes";
+const ONFILE_EMAILS = ["throttle@example.com", "return-path@example.com", "concurrent-throttle@example.com", "on-file@example.com"];
 
 describe("portal authentication", () => {
   let pglite: PGlite;
@@ -45,11 +46,21 @@ describe("portal authentication", () => {
     await pglite.exec(migrationSpeakerMoments);
     await pglite.query("INSERT INTO events(id,name,slug,starts_at,ends_at) VALUES($1,'Portal A','portal-a','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z'),($2,'Portal B','portal-b','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')", [eventA, eventB]);
     await pglite.query("INSERT INTO contacts(id,event_id,email) VALUES($1,$2,'speaker@example.com')", [contactA, eventA]);
+    // The sign-in form no longer creates a contact for whatever address is
+    // typed into it, so the throttle and return-path cases need people who are
+    // genuinely on file — the organizer added them, or a CFP submission did.
+    for (const email of ONFILE_EMAILS) {
+      await pglite.query("INSERT INTO contacts(event_id,email) VALUES($1,$2)", [eventA, email]);
+    }
     testDb = drizzle(pglite, { schema });
     tx = testDb as unknown as TxDb;
   }, 30_000);
 
   afterAll(async () => pglite.close());
+
+  const countPortalSessions = async () => (await pglite.query<{ n: number }>(
+    "SELECT count(*)::int AS n FROM portal_sessions WHERE contact_id=$1", [contactA],
+  )).rows[0]?.n ?? 0;
 
   it("stores only token hashes and consumes a correct OTP once", async () => {
     const issued = await issuePortalToken(tx, { eventId: eventA, contactId: contactA, purpose: "magic_link", ttl: "PT15M", withOtp: true });
@@ -86,6 +97,59 @@ describe("portal authentication", () => {
     expect(state.rows[0]).toEqual({ attempts: 5, consumed: true });
   });
 
+  /**
+   * The lockout above is only real if the guess survives the refusal. Every
+   * wrong code is spent inside the sign-in transaction, and that transaction
+   * used to be rolled back by the `UNAUTHORIZED` thrown from inside it — the
+   * counter went back to zero on every guess, so five-strikes-and-out never
+   * arrived and a six-digit credential could be guessed indefinitely. The
+   * refusal is returned now and thrown by the caller after the commit.
+   */
+  it("spends a guess on every wrong code, even though the sign-in is refused", async () => {
+    const issued = await issuePortalToken(tx, { eventId: eventA, contactId: contactA, purpose: "magic_link", ttl: "PT15M", withOtp: true });
+    if (!issued.otp) throw new Error("expected OTP");
+    const correctCode = issued.otp;
+    const wrongCode = correctCode === "000000" ? "999999" : "000000";
+    const attempt = (code: string) => testDb.transaction((inner) => verifyPortalLoginIn(inner as unknown as TxDb, {
+      eventId: eventA,
+      purpose: "magic_link",
+      code,
+      email: "speaker@example.com",
+      impersonatedByUserId: null,
+    }));
+    const tokenState = async () => (await pglite.query<{ attempts: number; consumed: boolean }>(
+      "SELECT attempts,consumed_at IS NOT NULL AS consumed FROM portal_tokens WHERE id=$1", [issued.tokenId],
+    )).rows[0];
+    const sessionsBefore = await countPortalSessions();
+
+    for (let guess = 1; guess <= 5; guess += 1) {
+      await expect(attempt(wrongCode)).resolves.toEqual({ verified: false });
+      expect(await tokenState()).toEqual({ attempts: guess, consumed: guess === 5 });
+    }
+    // Five strikes burned the challenge, so the code that was right all along
+    // is refused too — and no session was minted on the way past.
+    await expect(attempt(correctCode)).resolves.toEqual({ verified: false });
+    expect(await countPortalSessions()).toBe(sessionsBefore);
+  });
+
+  it("signs a speaker in on the right code and burns the challenge with the session", async () => {
+    const issued = await issuePortalToken(tx, { eventId: eventA, contactId: contactA, purpose: "magic_link", ttl: "PT15M", withOtp: true });
+    if (!issued.otp) throw new Error("expected OTP");
+    const code = issued.otp;
+    const sessionsBefore = await countPortalSessions();
+    const outcome = await testDb.transaction((inner) => verifyPortalLoginIn(inner as unknown as TxDb, {
+      eventId: eventA,
+      purpose: "magic_link",
+      code,
+      email: "speaker@example.com",
+      impersonatedByUserId: null,
+    }));
+    expect(outcome).toMatchObject({ verified: true, contactId: contactA, email: "speaker@example.com" });
+    const state = await pglite.query<{ consumed: boolean }>("SELECT consumed_at IS NOT NULL AS consumed FROM portal_tokens WHERE id=$1", [issued.tokenId]);
+    expect(state.rows[0]?.consumed).toBe(true);
+    expect(await countPortalSessions()).toBe(sessionsBefore + 1);
+  });
+
   it("verifies calendar tokens repeatedly without consuming them", async () => {
     const issued = await issuePortalToken(tx, { eventId: eventA, contactId: contactA, purpose: "ics_download", ttl: "P365D" });
     await expect(verifyPortalTokenIn(tx, issued.raw, { purpose: "ics_download" })).resolves.toEqual({ contactId: contactA, eventId: eventA });
@@ -114,6 +178,44 @@ describe("portal authentication", () => {
     await expect(requestPortalLoginIn(tx, { eventId: eventA, eventSlug: "portal-a", email, appBaseUrl: "https://preview.example.com", sessionSecret: secret, fallback: false })).rejects.toMatchObject({ code: "RATE_LIMITED" });
     const rows = await pglite.query<{ n: number; encrypted: number }>("SELECT count(*)::int AS n,count(secret_payload_ciphertext)::int AS encrypted FROM communication_logs l JOIN contacts c ON c.id=l.contact_id WHERE c.email=$1", [email]);
     expect(rows.rows[0]).toEqual({ n: 3, encrypted: 3 });
+  });
+
+  /**
+   * The sign-in form is public and unauthenticated. Creating a contact for
+   * whatever address was typed into it handed anyone a write into the
+   * organizer's roster: every stray or scripted address became a permanent
+   * speaker row, "Awaiting confirmation, 0 submissions", forever. The neutral
+   * answer is the *only* thing an unknown address gets.
+   */
+  it("answers an address that is not on file without writing anything down", async () => {
+    const stranger = "nobody-typed-this@example.com";
+    const roster = async () => (await pglite.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM contacts WHERE event_id=$1", [eventA],
+    )).rows[0]?.n ?? 0;
+    // The outbox is `communication_logs`, keyed by `contact_id` — there is no
+    // per-address column an unknown sender could even land in — so measure the
+    // login-mail count across the pair of requests and prove only one landed.
+    const outbox = async () => (await pglite.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM communication_logs WHERE event_id=$1 AND template_key='portal_login'", [eventA],
+    )).rows[0]?.n ?? 0;
+    const before = await roster();
+    const outboxBefore = await outbox();
+
+    const known = await requestPortalLoginIn(tx, { eventId: eventA, eventSlug: "portal-a", email: "on-file@example.com", appBaseUrl: "https://preview.example.com", sessionSecret: secret, fallback: false });
+    const unknown = await requestPortalLoginIn(tx, { eventId: eventA, eventSlug: "portal-a", email: stranger, appBaseUrl: "https://preview.example.com", sessionSecret: secret, fallback: false });
+    // Indistinguishable from the on-file answer: the screen must not be able to
+    // tell an attacker who has an account here.
+    expect(unknown).toEqual({ message: PORTAL_LOGIN_NEUTRAL_MESSAGE });
+    expect(unknown).toEqual(known);
+
+    // The roster is exactly as long as it was, and the address that was typed
+    // has left no trace — no contact, and so no outbox row hanging off one.
+    expect(await roster()).toBe(before);
+    const trace = await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM contacts WHERE event_id=$1 AND email=$2", [eventA, stranger]);
+    expect(trace.rows[0]?.n).toBe(0);
+    // Only the on-file request enqueued a login email; the unknown one queued
+    // nothing — there is no contact to hang an outbox row off.
+    expect(await outbox()).toBe(outboxBefore + 1);
   });
 
   it("carries a validated return path into the encrypted magic link", async () => {

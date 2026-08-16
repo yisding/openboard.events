@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { parseResendWebhookEvent, recordSuppression, verifyResendWebhookSignature } from "@/features/comms";
+import { parseResendWebhookEvent, recordSuppression, suppressAddress, verifyResendWebhookSignature } from "@/features/comms";
 import { recordAdminAuthEmailSuppression } from "@/features/auth";
 import { AppError } from "@/shared/lib/errors";
 import { getEnv } from "@/shared/lib/env";
@@ -42,7 +42,19 @@ export async function POST(request: NextRequest): Promise<Response> {
     const parsed = parseResendWebhookEvent(body);
     if (parsed) {
       const result = await recordSuppression({ providerMessageId: parsed.emailId, reason: parsed.reason });
-      if (!result) await recordAdminAuthEmailSuppression({ providerMessageId: parsed.emailId, reason: parsed.reason });
+      if (!result) {
+        // The platform outbox owns this message. Suppressing its row starts that
+        // table's own 30-day ageing window, but stops there — so the comms
+        // dispatcher, which has no ageing at all, kept mailing an address the
+        // provider had already confirmed undeliverable, and the organizer's
+        // Suppressions tab showed nothing to explain it. The two outboxes
+        // provably address the same mailboxes: a reviewer invitation goes out
+        // through the platform one, and `ensureReviewerContact` materialises a
+        // `contacts` row from that same `users.email`. A bounce is a fact about
+        // the mailbox, so it has to reach both.
+        const suppressed = await recordAdminAuthEmailSuppression({ providerMessageId: parsed.emailId, reason: parsed.reason });
+        if (suppressed) await suppressAddress(suppressed.recipientEmail, parsed.reason);
+      }
       log({ level: "info", msg: "webhook.resend.suppression", requestId, feature: "comms", ...(result ? { eventId: result.eventId } : {}) });
     }
     return NextResponse.json({ data: { ok: true } });

@@ -14,7 +14,7 @@ const toastMock = vi.hoisted(() => vi.fn());
 const routerPushMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/shared/ui/toast", () => ({ useToast: () => ({ toast: toastMock }) }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: routerPushMock }) }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/events/one/settings", useRouter: () => ({ push: routerPushMock }) }));
 vi.mock("./resource-page-editor", () => ({ ResourcePageEditor: () => null }));
 
 Object.assign(globalThis, { React, IS_REACT_ACT_ENVIRONMENT: true });

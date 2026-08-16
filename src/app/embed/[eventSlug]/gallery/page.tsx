@@ -1,10 +1,15 @@
 import type { Metadata } from "next";
 import { PublicSpeakerGallery } from "@/features/public/public-speaker-gallery";
 import { getPublicEmbedConfig } from "@/features/public/server/embed-config-queries";
-import { getPublishedSpeakers } from "@/features/public/server/public-queries";
+import { getPublicEventIsDemo, getPublishedSchedule, getPublishedSpeakers } from "@/features/public/server/public-queries";
 import { renderEmbedSurface } from "../embed-page";
 
-export const metadata: Metadata = { title: "Speaker gallery" };
+/** First Fair (design §6.3) — see `agenda/page.tsx`'s identical comment. */
+export async function generateMetadata({ params }: { params: Promise<{ eventSlug: string }> }): Promise<Metadata> {
+  const { eventSlug } = await params;
+  const isDemo = await getPublicEventIsDemo(eventSlug);
+  return { title: "Speaker gallery", ...(isDemo ? { robots: { index: false, follow: false } } : {}) };
+}
 
 /** See `/e/**`'s identical comment: never read `searchParams` here, or this
  * route loses the edge cache (status.md rev. 11's "known regression",
@@ -22,7 +27,12 @@ export default async function Page({ params }: { params: Promise<{ eventSlug: st
     active: "gallery",
     disabledLabel: "speaker gallery",
     getConfig: (eventId) => getPublicEmbedConfig(eventId, "speaker_gallery"),
-    getContent: getPublishedSpeakers,
-    renderContent: (speakers, context) => <PublicSpeakerGallery {...context} speakers={speakers} embed />,
+    // The schedule comes along only so the empty state knows whether pointing
+    // at the agenda is a live destination — see `public-speaker-gallery.tsx`.
+    getContent: async (slug) => {
+      const [speakers, schedule] = await Promise.all([getPublishedSpeakers(slug), getPublishedSchedule(slug)]);
+      return speakers ? { speakers, hasSessions: (schedule?.sessions.length ?? 0) > 0 } : null;
+    },
+    renderContent: ({ speakers, hasSessions }, context) => <PublicSpeakerGallery {...context} speakers={speakers} hasSessions={hasSessions} embed />,
   });
 }

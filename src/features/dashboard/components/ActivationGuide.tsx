@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Clock3, Copy, ExternalLink, FilePlus2, Rocket, RotateCcw } from "lucide-react";
+import { ArrowRight, Clock3, Compass, Copy, ExternalLink, FilePlus2, Rocket, RotateCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
@@ -98,9 +98,38 @@ function CopyablePublicLink({ path }: { path: string }) {
   );
 }
 
-export function ActivationGuide({ overview }: { overview: DashboardOverview }) {
+/**
+ * First Fair (design §1.3) — the third pull-based entrance into the demo.
+ *
+ * A quiet last line under the launch guide, not a competing card: the
+ * organizer is already being told the one concrete thing to do next, and the
+ * tutorial is an offer rather than a task. It is a plain link on purpose.
+ */
+function DemoTourInvitation({ href }: { href: string }) {
+  return <p style={{ margin: "12px 0 0", fontSize: "var(--text-xs)" }}>
+    <Link href={href} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+      <Compass size={14} aria-hidden="true" /> Take the ten-minute tour — a finished conference to poke at
+    </Link>
+  </p>;
+}
+
+export function ActivationGuide({ overview, isDemo = false, demoTourHref = null }: {
+  overview: DashboardOverview;
+  /**
+   * First Fair (design §3.9). The launch guide's job is activating a *real*
+   * event; on the demo the tour owns this slot, and two onboarding voices
+   * talking over each other is worse than either alone.
+   */
+  isDemo?: boolean;
+  /** Where "Take the ten-minute tour" goes, while `tour_completed` is unrecorded. */
+  demoTourHref?: string | null;
+}) {
   const state = resolveActivationState(overview);
-  if (!state) return null;
+  if (isDemo) return null;
+  // Nothing left to launch, but the tour is still worth offering: an organizer
+  // whose first proposals have landed is exactly who benefits from seeing what
+  // the next four screens do.
+  if (!state) return demoTourHref ? <DemoTourInvitation href={demoTourHref} /> : null;
 
   const formsHref = `/events/${overview.event.id}/forms`;
   const formHref = state.kind === "no_form" ? formsHref : `${formsHref}/${state.form.formId}`;
@@ -160,6 +189,7 @@ export function ActivationGuide({ overview }: { overview: DashboardOverview }) {
             <Link className="button button-primary" href={formHref}>{action} <ArrowRight size={15} /></Link>
           </div>
         )}
+        {demoTourHref && <DemoTourInvitation href={demoTourHref} />}
       </div>
     </section>
   );

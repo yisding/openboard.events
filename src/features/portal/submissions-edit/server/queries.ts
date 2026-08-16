@@ -142,10 +142,17 @@ async function preservedParticipantAnswers(
   participantFieldIds: ReadonlySet<string>,
 ): Promise<CleanAnswers> {
   if (participantFieldIds.size === 0) return cleanAnswersSchema.parse([]);
+  // LEFT, not INNER. A *draft* stores the primary speaker's participant answers
+  // with `participant_id IS NULL` — `saveCfpDraft` runs the pipeline over the
+  // whole snapshot with `participantId: null` — and an inner join can never see
+  // those rows. The abstract-only edit form then deleted them anyway, because
+  // the replace is scoped by field id alone: a speaker who resumed a draft to
+  // fix a typo in the title lost their entire "Tell us about you" step,
+  // including required locked fields, and the wizard does not re-seed it.
   const rows = await db
     .select({ fieldId: submissionAnswers.fieldId, value: submissionAnswers.value, contactId: submissionParticipants.contactId })
     .from(submissionAnswers)
-    .innerJoin(submissionParticipants, and(
+    .leftJoin(submissionParticipants, and(
       eq(submissionParticipants.id, submissionAnswers.participantId),
       eq(submissionParticipants.eventId, submissionAnswers.eventId),
     ))
@@ -154,7 +161,7 @@ async function preservedParticipantAnswers(
   return cleanAnswersSchema.parse(
     rows
       .filter((row) => participantFieldIds.has(row.fieldId))
-      .map((row) => ({ fieldId: row.fieldId, participantId: row.contactId, value: answerValueSchema.parse(row.value) })),
+      .map((row) => ({ fieldId: row.fieldId, participantId: row.contactId ?? null, value: answerValueSchema.parse(row.value) })),
   );
 }
 

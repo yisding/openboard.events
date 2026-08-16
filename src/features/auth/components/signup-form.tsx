@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { ArrowRight, Building2, Mail, User } from "lucide-react";
 import { Button } from "@/shared/ui/ui-kit";
-import { authPathWithNext, safeInternalPath } from "../safe-next";
+import { authPathWithNext, requestsGoogleSignup, safeInternalPath } from "../safe-next";
 import { invitationTokenFromNextPath } from "../signup-context";
 import { beginGoogleSignup, signupAndAwaitVerification } from "../signup-request";
 import type { SignupLegalConsent } from "../legal-consent";
@@ -55,7 +55,10 @@ export function SignupForm({ googleEnabled = false, legalConsent = null }: Signu
   const invitationToken = invitationTokenFromNextPath(next);
   const startsGuidedSetup = !invitationToken && next === "/organizations";
   const oauthReturnedWithError = googleEnabled && Boolean(searchParams.get("error"));
-  const [googleSetup, setGoogleSetup] = useState(oauthReturnedWithError);
+  // `/login` sends an unrecognised Google address here rather than refusing it,
+  // so open the step that turns it into a workspace instead of the email form.
+  const arrivedFromGoogleSignIn = googleEnabled && !oauthReturnedWithError && requestsGoogleSignup(searchParams);
+  const [googleSetup, setGoogleSetup] = useState(oauthReturnedWithError || arrivedFromGoogleSignIn);
   const [pending, setPending] = useState<"email" | "google" | null>(null);
   const [error, setError] = useState(oauthReturnedWithError
     ? "Google could not create that account. Check the workspace details or use email instead."
@@ -127,12 +130,13 @@ export function SignupForm({ googleEnabled = false, legalConsent = null }: Signu
       : startsGuidedSetup
         ? "Name your organization, then continue securely with your Google account."
         : "Name your organization, then continue securely with Google and return to the page you requested."}</p>
+    {arrivedFromGoogleSignIn && <p role="status">Sign-in didn’t find a workspace for that Google address — this is the one step that creates it.</p>}
     <aside className="auth-help auth-signup-path">
       <b>What happens next</b>
       <span>{invitationToken
         ? "Google confirms your identity, then you’ll continue straight to the workspace that invited you."
         : startsGuidedSetup
-          ? "Google confirms your identity, then guided setup takes you from event details to a shareable CFP."
+          ? "Google confirms your identity, then guided setup takes you from event details to a shareable call for speakers."
           : "Google confirms your identity, creates your workspace, then returns you to the page you requested."}</span>
     </aside>
     {!invitationToken && <label className="field"><span>Organization name</span><div className="input-icon"><Building2 size={16} /><input name="organizationName" autoComplete="organization" required maxLength={160} type="text" placeholder="Acme Events" /></div></label>}
@@ -160,7 +164,7 @@ export function SignupForm({ googleEnabled = false, legalConsent = null }: Signu
       <span>{invitationToken
         ? "Confirm your email, then continue straight to the workspace that invited you."
         : startsGuidedSetup
-          ? "Confirm your email, add your event details, and leave with a ready-to-share CFP."
+          ? "Confirm your email, add your event details, and leave with a ready-to-share call for speakers."
           : "Confirm your email, sign in, and continue where you left off."}</span>
     </aside>
     {googleEnabled && <>

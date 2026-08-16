@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { TemplateVars } from "@/shared/contracts";
-import { SAMPLE_VARS } from "./components/sample-vars";
+import { z } from "zod";
+import { TEMPLATE_KEYS, type TemplateVars } from "@/shared/contracts";
+import { collectVariablePaths, SAMPLE_VARS, templateVariablePaths } from "./components/sample-vars";
+import { unknownTokensClientSide } from "./components/validate-client";
+import { DEFAULT_TEMPLATES } from "./server/templates";
 import { renderTemplate, renderTemplateContent, validateTemplateBody } from "./server/render";
 
 const common = {
@@ -46,6 +49,127 @@ describe("communications template renderer", () => {
     } as TemplateVars;
     expect(() => renderTemplateContent("submission_received", "Received", "<p>{{submission.title}}</p>", vars))
       .toThrowError(/missing variable submission\.title/u);
+  });
+
+  it("offers every shipped default template's own tokens, and validates each one unedited", () => {
+    // The picker walks `TEMPLATE_VAR_SCHEMAS` and the server checks a
+    // hand-listed `TOKENS_BY_KEY`; the doc comment on the walk promises the two
+    // "cannot drift". They did: when `portal` became `.optional()`, a
+    // `ZodOptional` stopped matching the walk's `ZodObject` test, so it yielded
+    // the bare `portal` — a token the server rejects — and dropped
+    // `portal.magic_link`, which five shipped defaults use. Every one of them
+    // then opened in the editor with "Unknown variable {{portal.magic_link}}"
+    // and a disabled Save.
+    //
+    // Asserted over every key rather than the one that broke, because the next
+    // wrapper a contract picks up would break the same way.
+    for (const key of TEMPLATE_KEYS) {
+      const template = DEFAULT_TEMPLATES[key];
+      if (!template) continue;
+      expect(
+        unknownTokensClientSide(key, template.subject, template.bodyHtml),
+        `${key} default body`,
+      ).toEqual([]);
+
+      // And every chip the picker offers is a token the server accepts.
+      for (const path of templateVariablePaths(key)) {
+        expect(
+          () => validateTemplateBody(key, "Subject", `<p>{{${path}}}</p>`),
+          `${key} offers {{${path}}}`,
+        ).not.toThrow();
+      }
+    }
+  });
+
+  it("previews every chip the picker offers, for every template", () => {
+    // The picker and the server allowlist are now walked off the same
+    // contract, but the *preview* has a third input: `SAMPLE_VARS`, a
+    // hand-written fixture. Its doc comment promises `renderTemplateContent`
+    // "never throws TEMPLATE_VAR_MISSING on a fresh page load", and nothing
+    // held it to that. Add a required field to a contract and the picker
+    // offers the new chip, the server accepts it, and the fixture alone is
+    // missing it — so `/api/internal/comms/[eventId]/preview` throws and the
+    // organizer gets an error where the live preview should be, which is the
+    // same dead panel the `portal.magic_link` regression produced from the
+    // other side.
+    //
+    // Rendering every offered chip at once also proves each one resolves to a
+    // real value, not just that the key type-checks.
+    for (const key of TEMPLATE_KEYS) {
+      const body = templateVariablePaths(key).map((path) => `<p>{{${path}}}</p>`).join("");
+      expect(() => renderTemplateContent(key, "Subject", body, SAMPLE_VARS[key]), `${key} preview`).not.toThrow();
+    }
+  });
+
+  it("does not offer the unsubscribe token where it can only render a broken link", () => {
+    // `buildContext` appends `?token=` only for non-transactional keys, so on a
+    // transactional one `{{unsubscribe.url}}` renders tokenless and the
+    // unsubscribe page reports the link invalid or expired. The chip used to be
+    // offered anyway: an organizer editing `submission_accepted` could click it,
+    // save without complaint, and ship a guaranteed-broken link in every
+    // acceptance email. `emailLayout` already suppresses its own footer link for
+    // these keys.
+    expect(templateVariablePaths("submission_accepted")).not.toContain("unsubscribe.url");
+    expect(templateVariablePaths("portal_login")).not.toContain("unsubscribe.url");
+    expect(templateVariablePaths("admin_password_reset")).not.toContain("unsubscribe.url");
+
+    // Non-transactional mail still offers it, and still ships a working link.
+    expect(templateVariablePaths("task_reminder")).toContain("unsubscribe.url");
+    expect(templateVariablePaths("speaker_bulk_message")).toContain("unsubscribe.url");
+
+    // Still *accepted* on a transactional key, so a body saved before this
+    // filter existed keeps validating rather than becoming unsaveable.
+    expect(() => validateTemplateBody("submission_accepted", "Accepted", "<p>{{unsubscribe.url}}</p>")).not.toThrow();
+
+    // …and the editor has to agree, or "stays editable" is only true of the
+    // server. `unknownTokensClientSide` reads the *unfiltered* token list for
+    // exactly this reason: while it read the filtered chip list, opening such a
+    // body showed "Unknown variable {{unsubscribe.url}}", blocked the preview
+    // and disabled Save — the same dead editor this filter exists to avoid,
+    // reached from the other side.
+    expect(unknownTokensClientSide("submission_accepted", "Accepted", "<p>{{unsubscribe.url}}</p>")).toEqual([]);
+    expect(unknownTokensClientSide("admin_password_reset", "Reset", "<p>{{unsubscribe.url}}</p>")).toEqual([]);
+
+    // The client is no laxer than the server either: a token neither one knows
+    // is still flagged.
+    expect(unknownTokensClientSide("submission_accepted", "Accepted", "<p>{{portal}}</p>")).toEqual(["portal"]);
+  });
+
+  it("walks through a stack of schema wrappers, not just the outermost one", () => {
+    // `portal` picking up a single `.optional()` is what broke the picker; the
+    // unwrap that fixed it peeled exactly one layer, so the next contract to
+    // reach for `.nullish()` (`ZodOptional(ZodNullable(…))`) or
+    // `.optional().default({})` (`ZodDefault(ZodOptional(…))`) would yield the
+    // bare prefix again and reproduce the bug verbatim.
+    const schema = z.object({
+      speaker: z.object({ first_name: z.string() }),
+      portal: z.object({ magic_link: z.url() }).nullish(),
+      calendar: z.object({ download_url: z.url() }).optional().default({ download_url: "https://example.com/c.ics" }),
+    });
+    expect(collectVariablePaths(schema).sort()).toEqual(["calendar.download_url", "portal.magic_link", "speaker.first_name"]);
+  });
+
+  it("breaks a line for every block-level closer, not only <br> and </p>", () => {
+    // `{{tasks.outstanding_list}}` is a bare `<ul><li>…</li></ul>` and is the
+    // entire payload of the default `task_reminder` body. Breaking only on
+    // `<br>` and `</p>` left `parseTag` to delete the list tags with no
+    // separator, so the text/plain alternative every plain-text reader and
+    // every spam filter sees ran the items together:
+    // "Upload your headshot — September 1Sign the agreement — September 5".
+    const body = "<p>Here are your tasks:</p><ul><li>Upload your headshot</li><li>Sign the agreement</li></ul><h2>Then</h2><blockquote>Reply to us</blockquote>";
+    const rendered = renderTemplateContent("task_reminder", "Tasks", body, {
+      ...common,
+      task: { name: "Upload your headshot", due_date: "September 1", portal_url: "https://example.com/portal" },
+      tasks: { outstanding_list: "" },
+    } as unknown as TemplateVars);
+
+    expect(rendered.text).toContain("Upload your headshot\nSign the agreement");
+    expect(rendered.text).not.toContain("headshotSign");
+    // The list/heading boundary yields a blank line, which is what a reader
+    // wants; the \n{3,} collapse keeps it to exactly one.
+    expect(rendered.text).toContain("Sign the agreement\n\nThen\nReply to us");
+    // The HTML part is untouched.
+    expect(rendered.html).toContain("<li>Upload your headshot</li>");
   });
 
   it("carries each link's destination into the plain-text alternative", () => {

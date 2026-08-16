@@ -2,7 +2,7 @@ import { SignJWT, jwtVerify } from "jose";
 import { sql, type SQLWrapper } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db/client";
-import { contactIdSchema, eventIdSchema, type ContactId, type EventId } from "@/shared/contracts";
+import { contactIdSchema, eventIdSchema, speakerDisplayName, type ContactId, type EventId } from "@/shared/contracts";
 import { getEnv } from "@/shared/lib/env";
 import { AppError } from "@/shared/lib/errors";
 
@@ -108,11 +108,6 @@ type ShareRow = {
  * (`api/v1/server/queries.ts`, `public/server/public-queries.ts`); the email
  * fallback is the *admin* roster's rule, which drifted onto a public surface.
  */
-function displayName(first: string, last: string): string {
-  const name = `${first} ${last}`.trim();
-  return name.length > 0 ? name : "Unnamed speaker";
-}
-
 function iso(value: string | Date | null): string | null {
   if (!value) return null;
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
@@ -152,7 +147,7 @@ export async function getSpeakerShareDataIn(dbOrTx: ShareDb, eventId: EventId, c
     eventName: row.event_name,
     eventSlug: row.event_slug,
     eventTimezone: row.event_timezone,
-    speakerName: displayName(row.first_name, row.last_name),
+    speakerName: speakerDisplayName(row.first_name, row.last_name),
     headshotUrl: row.headshot_file_id ? `/f/${row.headshot_file_id}` : null,
     submissionCode: row.submission_code,
     submissionTitle: row.submission_title,

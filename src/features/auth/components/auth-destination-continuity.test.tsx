@@ -71,6 +71,24 @@ describe("authentication destination continuity", () => {
     expect(html).not.toContain("Organization name");
   });
 
+  it("opens the Google step for an address sign-in handed over", () => {
+    navigation.searchParams = new URLSearchParams("provider=google&next=%2Forganizations");
+    const html = renderToStaticMarkup(<SignupForm googleEnabled />);
+
+    expect(html).toContain("Set up with Google");
+    expect(html).toContain("Sign-in didn’t find a workspace for that Google address");
+    expect(html).toContain("Organization name");
+    expect(html).not.toContain("Google could not create that account");
+  });
+
+  it("keeps the email form when Google is unavailable or unrequested", () => {
+    navigation.searchParams = new URLSearchParams("provider=google&next=%2Forganizations");
+    expect(renderToStaticMarkup(<SignupForm />)).toContain("Create account");
+
+    navigation.searchParams = new URLSearchParams("next=%2Forganizations");
+    expect(renderToStaticMarkup(<SignupForm googleEnabled />)).toContain("Create account");
+  });
+
   it("explains activation and lets email users verify the password they typed", () => {
     const html = renderToStaticMarkup(<SignupForm />);
 
@@ -87,7 +105,7 @@ describe("authentication destination continuity", () => {
     const html = renderToStaticMarkup(<SignupForm />);
 
     expect(html).toContain("Start your organization now, then publish your first call for speakers in guided setup.");
-    expect(html).toContain("Confirm your email, add your event details, and leave with a ready-to-share CFP.");
+    expect(html).toContain("Confirm your email, add your event details, and leave with a ready-to-share call for speakers.");
     expect(html).toContain("Organization name");
   });
 
@@ -129,7 +147,7 @@ describe("authentication destination continuity", () => {
       const continueWithGoogle = [...container.querySelectorAll<HTMLButtonElement>("button")]
         .find((button) => button.textContent?.includes("Continue with Google"));
       await act(async () => continueWithGoogle?.click());
-      expect(container.textContent).toContain("Google confirms your identity, then guided setup takes you from event details to a shareable CFP.");
+      expect(container.textContent).toContain("Google confirms your identity, then guided setup takes you from event details to a shareable call for speakers.");
       const useEmail = [...container.querySelectorAll<HTMLButtonElement>("button")]
         .find((button) => button.textContent?.includes("Use email instead"));
       await act(async () => useEmail?.click());

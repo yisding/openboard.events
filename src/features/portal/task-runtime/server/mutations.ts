@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
 import { lockTaskAssignmentsIn } from "@/db/task-assignment-lock";
 import { deriveMappedFields, getCurrentSnapshotIn, runSubmitPipeline, type RawAnswers } from "@/features/forms";
-import type { ContactId, EventId, FileCommentDTO, FileKind, FileVersionDTO, FormId, SubmissionId, TaskId } from "@/shared/contracts";
+import type { ContactId, EventId, FileCommentDTO, FileKind, FileVersionDTO, FormId, SubmissionId, TaskId, UserId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { log } from "@/shared/lib/log";
 import { assertUploadAllowed, buildObjectKey } from "@/shared/server/r2";
@@ -25,6 +25,19 @@ import { addFileCommentIn, listFileVersionsIn } from "../../server/deliverable-s
  */
 
 type Mode = "manual" | "form" | "file_request";
+
+/**
+ * `task_completions.completed_by_user_id` — the admin who performed this
+ * completion, or `null` when the speaker did it themselves.
+ *
+ * A speaker is a contact, not a user, so `contact_id` already says who the work
+ * belonged to; this column answers the different question of who pressed the
+ * button. It matters for exactly one case: an organizer working inside "Open
+ * portal as …". Without it an impersonated completion was recorded as the
+ * speaker's own, and there was no way — in the product or in the database — to
+ * tell that an organizer had acted on their behalf.
+ */
+type CompletedByUserId = UserId | null;
 
 type UploadPolicy = { extensions: string[]; maxSizeMb: number };
 
@@ -134,11 +147,12 @@ export async function completeTaskManualIn(
   contactId: ContactId,
   taskId: string,
   submissionId: string | null,
+  completedByUserId: CompletedByUserId = null,
 ): Promise<void> {
   await lockTaskAssignmentsIn(tx, eventId, taskId as TaskId);
   const result = await tx.execute<{ id: string }>(sql`
-    INSERT INTO task_completions (event_id, task_id, contact_id, submission_id, completed_via)
-    SELECT v.event_id, v.task_id, v.contact_id, v.submission_id, 'manual'
+    INSERT INTO task_completions (event_id, task_id, contact_id, submission_id, completed_via, completed_by_user_id)
+    SELECT v.event_id, v.task_id, v.contact_id, v.submission_id, 'manual', ${completedByUserId}::uuid
     FROM task_assignments_v v
     JOIN portal_tasks t ON t.id = v.task_id AND t.event_id = v.event_id
     WHERE v.event_id = ${eventId} AND v.contact_id = ${contactId} AND v.task_id = ${taskId}
@@ -177,6 +191,7 @@ export async function completeTaskViaUploadIn(
   taskId: string,
   submissionId: string | null,
   fileAssetId: string,
+  completedByUserId: CompletedByUserId = null,
 ): Promise<FileVersionDTO> {
   await lockTaskAssignmentsIn(tx, eventId, taskId as TaskId);
   const assignment = await requireAssignment(tx, eventId, contactId, taskId, submissionId, "file_request");
@@ -205,10 +220,11 @@ export async function completeTaskViaUploadIn(
     // asset only proves the association exists; this task still needs its own
     // completion row.
     await tx.execute(sql`
-      INSERT INTO task_completions (event_id, task_id, contact_id, submission_id, completed_via, file_upload_id)
-      VALUES (${eventId}, ${taskId}, ${contactId}, ${submissionId}, 'file_upload', ${existing.fileUploadId})
+      INSERT INTO task_completions (event_id, task_id, contact_id, submission_id, completed_via, file_upload_id, completed_by_user_id)
+      VALUES (${eventId}, ${taskId}, ${contactId}, ${submissionId}, 'file_upload', ${existing.fileUploadId}, ${completedByUserId}::uuid)
       ON CONFLICT (task_id, contact_id, submission_id) DO UPDATE SET
-        completed_via = 'file_upload', file_upload_id = EXCLUDED.file_upload_id
+        completed_via = 'file_upload', file_upload_id = EXCLUDED.file_upload_id,
+        completed_by_user_id = EXCLUDED.completed_by_user_id
     `);
     return existing;
   }
@@ -237,12 +253,14 @@ export async function completeTaskViaUploadIn(
 
   // A re-upload keeps the original completion time — the task was finished
   // then — but must repoint at the newest file, or the organizer keeps being
-  // served the version the speaker replaced.
+  // served the version the speaker replaced. The actor moves with it: whoever
+  // sent the file now is who this completion currently stands on.
   await tx.execute(sql`
-    INSERT INTO task_completions (event_id, task_id, contact_id, submission_id, completed_via, file_upload_id)
-    VALUES (${eventId}, ${taskId}, ${contactId}, ${submissionId}, 'file_upload', ${fileUploadId})
+    INSERT INTO task_completions (event_id, task_id, contact_id, submission_id, completed_via, file_upload_id, completed_by_user_id)
+    VALUES (${eventId}, ${taskId}, ${contactId}, ${submissionId}, 'file_upload', ${fileUploadId}, ${completedByUserId}::uuid)
     ON CONFLICT (task_id, contact_id, submission_id) DO UPDATE SET
-      completed_via = 'file_upload', file_upload_id = EXCLUDED.file_upload_id
+      completed_via = 'file_upload', file_upload_id = EXCLUDED.file_upload_id,
+      completed_by_user_id = EXCLUDED.completed_by_user_id
   `);
 
   // Return the exact row the organizer and task detail views will read. This
@@ -310,12 +328,28 @@ export async function completeTaskViaResponseIn(
   taskId: string,
   submissionId: string | null,
   answers: RawAnswers,
+  formVersion?: number,
+  completedByUserId: CompletedByUserId = null,
 ): Promise<void> {
   await lockTaskAssignmentsIn(tx, eventId, taskId as TaskId);
   const assignment = await requireAssignment(tx, eventId, contactId, taskId, submissionId, "form");
   if (!assignment.formId) throw new AppError("VALIDATION", "This task has no form attached");
 
   const snapshot = await getCurrentSnapshotIn(tx, eventId, assignment.formId as FormId);
+  // Pinned like every other submit surface. Without this, an organizer who
+  // published a new required question mid-fill turned the speaker's submit into
+  // a 400 whose `fieldErrors` are keyed by a field id their snapshot does not
+  // contain: nothing renders it, the focus-first-invalid selector matches
+  // nothing, and the toast says "Some answers need fixing" with no visible
+  // error anywhere. Nothing on that page refetches on failure, so only a manual
+  // browser reload recovered. `FORM_VERSION_STALE` carries the fresh snapshot,
+  // which is what the client re-renders from.
+  if (formVersion !== undefined && formVersion !== snapshot.version) {
+    throw new AppError("FORM_VERSION_STALE", "This form changed while you were filling it in", {
+      snapshot,
+      version: snapshot.version,
+    });
+  }
   const pipeline = runSubmitPipeline(snapshot, answers, { participantId: null, requireRequired: true });
   if (!pipeline.ok) throw new AppError("VALIDATION", "Some answers need fixing", { fieldErrors: pipeline.fieldErrors });
   if (pipeline.discarded.length > 0) {
@@ -354,7 +388,14 @@ export async function completeTaskViaResponseIn(
   // minute ago. `deriveMappedFields` is the one place `mapsTo` is interpreted.
   const mapped = deriveMappedFields(snapshot, pipeline.clean);
   if (Object.keys(mapped.contact).length > 0) {
-    await updateContactFields(tx, eventId, contactId, mapped.contact);
+    // An emptied answer clears the column rather than writing "". These are
+    // nullable text columns, and every other writer of them — the Profile page
+    // included — stores NULL for "not set", which is what `missing_assets_v`
+    // and the public gallery test.
+    const contactPatch = Object.fromEntries(
+      Object.entries(mapped.contact).map(([key, value]) => [key, value === "" ? null : value]),
+    );
+    await updateContactFields(tx, eventId, contactId, contactPatch);
   }
   // The allowlist enforces itself rather than being asserted into: a key it does
   // not define would build `undefined = $n` and fail the UPDATE with a syntax
@@ -382,19 +423,23 @@ export async function completeTaskViaResponseIn(
   }
 
   await tx.execute(sql`
-    INSERT INTO task_completions (event_id, task_id, contact_id, submission_id, completed_via, form_response_id)
-    VALUES (${eventId}, ${taskId}, ${contactId}, ${submissionId}, 'form_response', ${responseId})
+    INSERT INTO task_completions (event_id, task_id, contact_id, submission_id, completed_via, form_response_id, completed_by_user_id)
+    VALUES (${eventId}, ${taskId}, ${contactId}, ${submissionId}, 'form_response', ${responseId}, ${completedByUserId}::uuid)
     ON CONFLICT DO NOTHING
   `);
 }
 
-export const completeTaskManual = (eventId: EventId, contactId: ContactId, taskId: string, submissionId: string | null) =>
-  withTx((tx) => completeTaskManualIn(tx, eventId, contactId, taskId, submissionId));
+export const completeTaskManual = (
+  eventId: EventId, contactId: ContactId, taskId: string, submissionId: string | null,
+  completedByUserId: CompletedByUserId = null,
+) => withTx((tx) => completeTaskManualIn(tx, eventId, contactId, taskId, submissionId, completedByUserId));
 
 export const completeTaskViaUpload = (
   eventId: EventId, contactId: ContactId, taskId: string, submissionId: string | null, fileAssetId: string,
-) => withTx((tx) => completeTaskViaUploadIn(tx, eventId, contactId, taskId, submissionId, fileAssetId));
+  completedByUserId: CompletedByUserId = null,
+) => withTx((tx) => completeTaskViaUploadIn(tx, eventId, contactId, taskId, submissionId, fileAssetId, completedByUserId));
 
 export const completeTaskViaResponse = (
   eventId: EventId, contactId: ContactId, taskId: string, submissionId: string | null, answers: RawAnswers,
-) => withTx((tx) => completeTaskViaResponseIn(tx, eventId, contactId, taskId, submissionId, answers));
+  formVersion?: number, completedByUserId: CompletedByUserId = null,
+) => withTx((tx) => completeTaskViaResponseIn(tx, eventId, contactId, taskId, submissionId, answers, formVersion, completedByUserId));

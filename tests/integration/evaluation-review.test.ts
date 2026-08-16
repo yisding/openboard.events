@@ -152,12 +152,25 @@ describe("reviewer queue and scoring", () => {
     expect(queue.rows.map((row) => row.submissionId)).toEqual([agentsTalk]);
   });
 
-  it("gives an unassigned member an empty queue rather than the whole event", async () => {
+  it("gives an unassigned member an empty queue, and does not describe the round to them either", async () => {
     const planId = await seedPlan();
     await assignReviewersIn(runEvaluationTransaction, eventId, planId, [{ userId: ada, trackIds: null }]);
+
+    // `rows` was always correctly empty. The plan was not: naming a round you
+    // are not on returned its whole DTO — scale, track scope, window,
+    // `anonymizeAuthors`, `showPeerScores`, every criterion with its weights
+    // and option scores, and the round-wide progress count. The review page
+    // narrows `planId` against `listReviewerPlans` first, but
+    // `/api/internal/evaluation/[eventId]/queue` is reviewer-authed and passes
+    // the id straight through.
     const queue = await listReviewQueueIn(db, eventId, grace, planId);
     expect(queue.rows).toEqual([]);
-    expect(queue.plan?.id).toBe(planId);
+    expect(queue.plan).toBeNull();
+    expect(queue.progress).toEqual({ scored: 0, total: 0 });
+
+    // An assigned reviewer still gets the round.
+    const assigned = await listReviewQueueIn(db, eventId, ada, planId);
+    expect(assigned.plan?.id).toBe(planId);
   });
 
   it("updates rather than duplicates when the same reviewer scores twice", async () => {

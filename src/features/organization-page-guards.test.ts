@@ -42,7 +42,10 @@ describe("organization page guards", () => {
     const start = source.indexOf("canManageEvents ? <>");
     expect(start).toBeGreaterThan(0);
     const gated = source.slice(start, source.indexOf("</>", start));
-    for (const href of ["/crm`", "/billing`", "/audit`", "/team`", "/onboarding`"]) {
+    // `/onboarding?mode=create` — First Fair (design §1.2): the guided-setup
+    // link is also the demo fork's front door, so the organizer-only "Create
+    // event" button states its intent rather than inheriting a question.
+    for (const href of ["/crm`", "/billing`", "/audit`", "/team`", "/onboarding?mode=create`"]) {
       expect(gated, `gated behind canManageEvents: ${href}`).toContain(href);
     }
   });

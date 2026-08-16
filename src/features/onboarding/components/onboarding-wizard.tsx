@@ -16,9 +16,9 @@ import { EVENT_TYPES, type EventType } from "@/features/events/index.schemas";
 import { formOpenState, type FormOpenReason } from "@/features/forms/index.availability";
 import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
 import { DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
-import { endOfDayInTz, eventDayKey, formatInZone, timeZoneOptionLabel, viewerTimeZone } from "@/shared/lib/time";
+import { browserTimeZones, DEFAULT_TIME_ZONE, endOfDayInTz, eventDayKey, formatInZone, viewerTimeZone } from "@/shared/lib/time";
+import { TimeZoneSelect } from "@/shared/ui/app/time-zone-select";
 
-const DEFAULT_TZ = "America/Los_Angeles";
 const CUSTOM_TRACK_COLOR = DEFAULT_BRAND_COLOR;
 const SUGGESTED_TRACKS: Array<{ name: string; color: string }> = [
   { name: "Main Stage", color: "#00a878" },
@@ -28,6 +28,7 @@ const SUGGESTED_TRACKS: Array<{ name: string; color: string }> = [
 const STEPS = ["Event details", "Tracks", "First form", "Share"] as const;
 const RENDERED_FIELDS = new Set(["name", "slug", "eventType", "timezone", "startsAt", "endsAt"]);
 const deletedSchema = z.object({ deleted: z.boolean() });
+const copiedScaffoldSchema = z.object({ copied: z.boolean() });
 const tracksListSchema = z.array(trackDtoSchema);
 const FIELD_IDS: Record<string, string> = {
   name: "onboarding-event-name",
@@ -42,17 +43,8 @@ export function OnboardingStepHeading({ step, headingRef }: { step: 1 | 2 | 3 | 
   return <h2 ref={headingRef} tabIndex={-1} className="sr-only">Step {step}: {STEPS[step - 1]}</h2>;
 }
 
-function browserTimeZones(): string[] {
-  try {
-    const zones = Intl.supportedValuesOf("timeZone");
-    return zones.includes("UTC") ? zones : ["UTC", ...zones];
-  } catch {
-    return [DEFAULT_TZ, "America/New_York", "America/Chicago", "America/Denver", "Europe/London", "Europe/Paris", "Asia/Tokyo", "UTC"];
-  }
-}
-
 export function preferredTimeZone(candidate: string | undefined, supported: readonly string[]): string {
-  return candidate === "UTC" || (candidate && supported.includes(candidate)) ? candidate : DEFAULT_TZ;
+  return candidate === "UTC" || (candidate && supported.includes(candidate)) ? candidate : DEFAULT_TIME_ZONE;
 }
 
 // `BuilderForm` (features/forms/builder-types.ts) has no shared zod contract
@@ -323,12 +315,17 @@ export function OnboardingWizard({
   organizationId,
   organizationName,
   hasExistingEvents,
+  hasDemoEvent = false,
   initialState = null,
   nowIso = new Date().toISOString(),
 }: {
   organizationId: OrganizationId;
   organizationName: string;
   hasExistingEvents: boolean;
+  /** First Fair (design §5.4) — whether this organization has a demo event to
+   * offer step 1's "Start from my demo's setup" checkbox against. `false`
+   * simply hides the checkbox; nothing else in the wizard depends on it. */
+  hasDemoEvent?: boolean;
   initialState?: OnboardingResumeState | null;
   nowIso?: string;
 }) {
@@ -341,9 +338,13 @@ export function OnboardingWizard({
   const [name, setName] = useState(initialState?.event.name ?? "");
   const [slug, setSlug] = useState(initialState?.event.slug ?? "");
   const [eventType, setEventType] = useState<EventType>((initialState?.event.eventType as EventType | undefined) ?? "conference");
-  const [timezone, setTimezone] = useState(initialState?.event.timezone ?? DEFAULT_TZ);
+  const [timezone, setTimezone] = useState(initialState?.event.timezone ?? DEFAULT_TIME_ZONE);
   const [startsAt, setStartsAt] = useState<string | null>(initialState?.event.startsAt ?? null);
   const [endsAt, setEndsAt] = useState<string | null>(initialState?.event.endsAt ?? null);
+  // First Fair (design §5.4) — "Start from my demo's setup". Only meaningful
+  // on the create path; there is nothing to copy onto an event that already
+  // exists.
+  const [copyFromDemo, setCopyFromDemo] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -443,6 +444,34 @@ export function OnboardingWizard({
     setEndsAt(saved.endsAt);
   }
 
+  /**
+   * First Fair (design §5.4) — "Start from my demo's setup", fired once,
+   * right after the real event is created. A bonus, not a gate: a failure
+   * here leaves a blank-slate event exactly as the wizard already produced
+   * for everyone else, and the organizer is told rather than silently short
+   * of what they asked for.
+   */
+  async function copyDemoScaffoldOnto(newEventId: EventDTO["id"]) {
+    try {
+      await api(`organizations/${organizationId}/demo/copy-scaffold`, copiedScaffoldSchema, {
+        method: "POST",
+        body: { eventId: newEventId },
+      });
+      // The copy writes tracks server-side, and `tracks` was seeded once from
+      // `initialState` — which is empty on the create path. Without this
+      // re-read step 2 renders no track list at all (it is gated on
+      // `tracks.length > 0`) directly under a toast promising the tracks came
+      // over, and `addTrack`'s duplicate guard consults the stale empty list,
+      // so re-adding a name the demo already owns POSTs and comes back
+      // `refused` for a track the screen never showed. A failure to re-read is
+      // not a failed copy: the rows are there, so keep the success toast.
+      setTracks(await api(`events/${newEventId}/vocab/tracks`, tracksListSchema).catch(() => tracks));
+      toast("Brought over your demo's tracks, rooms and call for speakers");
+    } catch {
+      toast("Could not copy your demo's setup — the event was created without it", { kind: "error" });
+    }
+  }
+
   async function saveEventStep() {
     if (!name.trim()) return fail("Event name is required", { name: "Event name is required" });
     if (event && !slug.trim()) return fail("Event slug is required", { slug: "Event slug is required" });
@@ -451,6 +480,15 @@ export function OnboardingWizard({
         ...(startsAt ? {} : { startsAt: "Start date and time are required" }),
         ...(endsAt ? {} : { endsAt: "End date and time are required" }),
       });
+    }
+    // The same rule `createEventIn` enforces, checked before the request rather
+    // than only after it. `assertValidSlug`'s neighbour has always rejected an
+    // end that is not after the start, but the wizard let the organizer pick
+    // one, press Create event, and wait out a round trip to be told — and on
+    // the create path a definitive failure also clears the retained field set,
+    // so the refusal read as the form having simply not gone anywhere.
+    if (!(Date.parse(endsAt) > Date.parse(startsAt))) {
+      return fail("The end must be after the start", { endsAt: "Ends must be after starts" });
     }
     setSaving(true);
     fail("");
@@ -488,6 +526,7 @@ export function OnboardingWizard({
         setCustomClosesAt(deadline.customClosesAt);
       }
       toast(event ? `${saved.name} updated` : `${saved.name} created`);
+      if (!event && copyFromDemo) await copyDemoScaffoldOnto(saved.id);
       setStep(2);
     } catch (caught) {
       const outcomeUnknown = !event && !isDefinitiveWriteFailure(caught);
@@ -811,7 +850,7 @@ export function OnboardingWizard({
           </Field>
           <details ref={slugDetailsRef} className="onboarding-advanced" open={Boolean(event) || eventCreateRecoveryRequired}>
             <summary>{event ? "Public URL" : "Customize public URL"}</summary>
-            <Field label="Event slug" required={Boolean(event)} hint={event ? "Used in your public URLs — changing it means existing CFP links will stop working" : "Optional — leave blank to generate it from the event name"} hintId="onboarding-event-slug-help" error={fieldErrors.slug} errorId="onboarding-event-slug-error">
+            <Field label="Event slug" required={Boolean(event)} hint={event ? "Used in your public URLs — changing it means existing call-for-speakers links will stop working" : "Optional — leave blank to generate it from the event name"} hintId="onboarding-event-slug-help" error={fieldErrors.slug} errorId="onboarding-event-slug-error">
               <input id="onboarding-event-slug" name="slug" required={Boolean(event)} disabled={!hydrated || saving || eventCreateRecoveryRequired} aria-invalid={Boolean(fieldErrors.slug) || undefined} aria-describedby={fieldErrors.slug ? "onboarding-event-slug-error" : "onboarding-event-slug-help"} value={slug} onChange={(event) => { setSlug(event.target.value); clearFieldError("slug"); }} placeholder="your-event" />
             </Field>
           </details>
@@ -822,9 +861,7 @@ export function OnboardingWizard({
               </Select>
             </Field>
             <Field label="Timezone" required error={fieldErrors.timezone} errorId="onboarding-event-timezone-error">
-              <Select id="onboarding-event-timezone" name="timezone" required disabled={!hydrated || saving || eventCreateRecoveryRequired} aria-invalid={Boolean(fieldErrors.timezone) || undefined} aria-describedby={fieldErrors.timezone ? "onboarding-event-timezone-error" : undefined} value={timezone} onChange={(event) => { setTimezone(event.target.value); clearFieldError("timezone"); }}>
-                {timeZones.map((zone) => <option key={zone} value={zone}>{timeZoneOptionLabel(zone)}</option>)}
-              </Select>
+              <TimeZoneSelect id="onboarding-event-timezone" name="timezone" required disabled={!hydrated || saving || eventCreateRecoveryRequired} aria-invalid={Boolean(fieldErrors.timezone) || undefined} aria-describedby={fieldErrors.timezone ? "onboarding-event-timezone-error" : undefined} value={timezone} onChange={(event) => { setTimezone(event.target.value); clearFieldError("timezone"); }} />
             </Field>
           </div>
           <div className="form-grid">
@@ -837,6 +874,12 @@ export function OnboardingWizard({
           </div>
           {error && <p ref={summaryRef} tabIndex={-1} className="field-error" role="alert">{error}</p>}
           {eventCreateRecoveryRequired && <p className="portal-note" role="status">Your original details are locked so retrying can safely recover the same event.</p>}
+          {!event && hasDemoEvent && (
+            <label className="onboarding-toggle">
+              <input type="checkbox" checked={copyFromDemo} disabled={!hydrated || saving} onChange={(changeEvent) => setCopyFromDemo(changeEvent.target.checked)} />
+              Start from my demo&rsquo;s setup — its tracks, rooms, formats, tags and call for speakers, renamed for this event
+            </label>
+          )}
           <footer className="cfp-actions">
             <Button type="submit" disabled={!hydrated || saving}>{saving ? eventCreateRecoveryRequired ? "Retrying…" : "Saving…" : eventCreateRecoveryRequired ? "Retry event creation" : event ? "Save and continue" : "Create event"} <ArrowRight size={16} /></Button>
           </footer>

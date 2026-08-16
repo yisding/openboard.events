@@ -320,9 +320,58 @@
     {
       "idx": 45,
       "version": "7",
-      "when": 1786778931000,
-      "tag": "0045_airtable_connections",
+      "when": 1786810000000,
+      "tag": "0045_public_views_submission_status",
       "breakpoints": false
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1786815000000,
+      "tag": "0046_communication_logs_submission_idx",
+      "breakpoints": false
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1786816000000,
+      "breakpoints": false,
+      "tag": "0047_demo_events_and_tour"
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1786817000000,
+      "breakpoints": false,
+      "tag": "0048_demo_skipped_phase"
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1786818000000,
+      "breakpoints": false,
+      "tag": "0049_embeds_one_row_per_content_type"
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1786819000000,
+      "breakpoints": false,
+      "tag": "0050_session_placement_revisions"
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1786820000000,
+      "breakpoints": false,
+      "tag": "0051_room_deletion_notice"
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1786821000000,
+      "breakpoints": false,
+      "tag": "0052_airtable_connections"
     }
   ]
 }

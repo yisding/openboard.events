@@ -57,6 +57,12 @@ const POST_M42_MIGRATIONS = ["0010_organization_tenancy", "0011_user_management"
 const REVIEWER_INVITATION_MIGRATION = "0029_event_reviewer_invitations";
 const IDENTITY_LINK_MIGRATION = "0041_stable_user_contact_links";
 const RETIREMENT_MIGRATION = "0033_retire_fallback_auth";
+// First Fair. `inviteEventReviewerIn` reads `events.is_demo` — the writer-side
+// half of the demo mail guard, which refuses a reviewer invitation on a demo
+// event before it can queue real mail about a conference that does not exist.
+// This file applies a hand-picked upgrade path rather than the whole journal,
+// so the column it now depends on has to be named here.
+const DEMO_FLAG_MIGRATION = "0047_demo_events_and_tour";
 
 const eventA = eventIdSchema.parse("b0000000-0000-4000-8000-000000000001");
 const eventB = eventIdSchema.parse("b0000000-0000-4000-8000-000000000002");
@@ -152,6 +158,7 @@ describe("M42 admin auth on Better Auth", () => {
     await apply(REVIEWER_INVITATION_MIGRATION);
     await apply(IDENTITY_LINK_MIGRATION);
     await apply(RETIREMENT_MIGRATION);
+    await apply(DEMO_FLAG_MIGRATION);
 
     // These accounts have no passwords and exist only as authorization
     // fixtures, so activation is outside their test scope. The legacy password

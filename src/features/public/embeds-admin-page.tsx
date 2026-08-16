@@ -4,14 +4,14 @@ import { Calendar, ChevronDown, Clipboard, ExternalLink, Grid3x3, Link2, ListChe
 import { useEffect, useState } from "react";
 import type { RoomDTO, SessionFormatDTO, TrackDTO } from "@/shared/contracts";
 import { api } from "@/shared/lib/api-client";
-import { Button, PageHeader, Segmented, Switch } from "@/shared/ui/ui-kit";
+import { Button, ColorWell, Field, PageHeader, Segmented, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { embedFiltersEqual, embedStylesEqual, hasUnsavedEmbedSettings } from "./embed-config-dirty";
 import { sanitizeEmbedFilters, type EmbedFilterVocabulary } from "./embed-filter-state";
 import { embedConfigDtoSchema, type CanonicalEmbedContentType, type EmbedConfigDTO, type EmbedFilters, type EmbedStyle } from "./embed-config-types";
 import { autoResizeEmbedSnippet, fixedHeightEmbedSnippet } from "./embed-snippets";
-import { DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
+import { ACCENT_HEX_RE, DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
 
 type ResolvedEmbedStyle = { accent: string; theme: "light" | "dark"; showHeader: boolean };
 const DEFAULT_STYLE: ResolvedEmbedStyle = { accent: DEFAULT_BRAND_COLOR, theme: "light", showHeader: true };
@@ -30,6 +30,18 @@ const SESSION_SHAPED = new Set<CanonicalEmbedContentType>(["agenda", "session_li
 
 function withDefaults(style: EmbedStyle): ResolvedEmbedStyle {
   return { accent: style.accent ?? DEFAULT_STYLE.accent, theme: style.theme ?? DEFAULT_STYLE.theme, showHeader: style.showHeader ?? DEFAULT_STYLE.showHeader };
+}
+
+/**
+ * A native colour well accepts `#rrggbb` and nothing else — hand it `#abc` or
+ * `#00a878ff` and the browser silently swaps in black. The hex field beside it
+ * keeps the shorter and alpha forms; this is only what the well is shown.
+ */
+function colorWellValue(accent: string): string {
+  if (!ACCENT_HEX_RE.test(accent)) return DEFAULT_BRAND_COLOR;
+  const hex = accent.slice(1);
+  if (hex.length <= 4) return `#${hex.slice(0, 3).replace(/./gu, (channel) => channel + channel)}`;
+  return `#${hex.slice(0, 6)}`;
 }
 
 function toggleId(list: string[] | undefined, id: string): string[] {
@@ -191,6 +203,8 @@ export function EmbedsAdminPage({
           const filters = filtersFor(config.contentType);
           const Icon = meta.icon;
           const sessionShaped = SESSION_SHAPED.has(config.contentType);
+          const accentText = style.accent;
+          const accentValid = ACCENT_HEX_RE.test(accentText);
           const settingsDirty = !embedStylesEqual(styleDraft, config.style)
             || !embedFiltersEqual(filters, config.filters);
           const open = openConfigId === config.id;
@@ -230,7 +244,9 @@ export function EmbedsAdminPage({
                   <i />
                   <span><b>{settingsDirty ? "Unsaved changes" : "Everything is saved"}</b><small>{settingsDirty ? "Save to update the live embed." : "The preview shows your published settings."}</small></span>
                 </div>
-                {settingsDirty && <Button size="sm" disabled={busy !== null} onClick={() => void saveSettings(config)}>{busy === config.id ? "Saving…" : "Save changes"}</Button>}
+                {/* An accent the renderer would discard is caught here rather than
+                    saving cleanly and reverting to the default with no message. */}
+                {settingsDirty && <Button size="sm" disabled={busy !== null || !accentValid} onClick={() => void saveSettings(config)}>{busy === config.id ? "Saving…" : "Save changes"}</Button>}
               </div>
 
               <div className="embed-editor-layout">
@@ -243,13 +259,32 @@ export function EmbedsAdminPage({
                       <span>Color theme</span>
                       <Segmented label={`${meta.label} color theme`} value={style.theme} onChange={(theme) => setStyleDraft(config.contentType, { theme: theme as "light" | "dark" })} items={[{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }]} />
                     </div>
-                    <label className="field">
-                      <span>Accent color</span>
+                    <Field
+                      label="Accent color"
+                      group
+                      hint="6-digit hex, for example #00a878"
+                      hintId={`embed-accent-hint-${config.id}`}
+                      error={accentValid ? undefined : "Use a hex color like #00a878"}
+                      errorId={`embed-accent-error-${config.id}`}
+                    >
                       <div className="color-input">
-                        <i style={{ background: style.accent }} />
-                        <input value={style.accent} onChange={(e) => setStyleDraft(config.contentType, { accent: e.target.value })} />
+                        {/* The well and the hex field are one control: a well only
+                            emits #rrggbb, so pasting an #rgba/#rrggbbaa value has
+                            to go through the text side. */}
+                        <ColorWell
+                          aria-label={`${meta.label} accent color picker`}
+                          value={colorWellValue(accentText)}
+                          onChange={(e) => setStyleDraft(config.contentType, { accent: e.target.value })}
+                        />
+                        <input
+                          aria-label={`${meta.label} accent color hex value`}
+                          aria-invalid={accentValid ? undefined : true}
+                          aria-describedby={accentValid ? `embed-accent-hint-${config.id}` : `embed-accent-error-${config.id}`}
+                          value={accentText}
+                          onChange={(e) => setStyleDraft(config.contentType, { accent: e.target.value })}
+                        />
                       </div>
-                    </label>
+                    </Field>
                     <div className="inline-setting">
                       <div><b>Show event header</b><small>Include the event name above content</small></div>
                       <Switch label={`${meta.label}: show event header`} checked={style.showHeader} disabled={busy !== null} onClick={() => setStyleDraft(config.contentType, { showHeader: !style.showHeader })} />

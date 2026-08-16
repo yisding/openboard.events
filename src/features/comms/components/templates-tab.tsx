@@ -6,6 +6,7 @@ import { TEMPLATE_KEYS, type EventId, type TemplateKey } from "@/shared/contract
 import { isAppError } from "@/shared/lib/errors";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { RichTextEditor, type RichTextEditorHandle } from "@/shared/ui/app/rich-text-editor-lazy";
+import { templateLabel } from "@/shared/ui/template-label";
 import { Button, Field, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { useSaveTemplate, useTemplates } from "../hooks/use-templates";
@@ -14,10 +15,6 @@ import { MessagePreview } from "./message-preview";
 import { templateVariablePaths } from "./sample-vars";
 import { templateBodyForMode, type TemplateBodyMode } from "./template-body-mode";
 import { unknownTokensClientSide } from "./validate-client";
-
-function humanizeKey(key: TemplateKey): string {
-  return key.replaceAll("_", " ").replace(/^./u, (c) => c.toUpperCase());
-}
 
 type FocusTarget = "subject" | "body";
 const PREVIEW_DEBOUNCE_MS = 400;
@@ -117,7 +114,7 @@ export function TemplatesTab({ eventId }: { eventId: EventId }) {
     try {
       await save.mutateAsync({ key: selectedKey, subject, bodyHtml, enabled, expectedUpdatedAt: selected.updatedAt });
       setDirty(false);
-      toast(`${humanizeKey(selectedKey)} saved`);
+      toast(`${templateLabel(selectedKey)} saved`);
     } catch (error) {
       if (isAppError(error) && error.code === "STALE_WRITE") { setStaleConflict(true); return; }
       if (isAppError(error) && error.code === "TEMPLATE_VAR_MISSING") return; // the inline warning already covers this
@@ -147,7 +144,7 @@ export function TemplatesTab({ eventId }: { eventId: EventId }) {
             if (row.key !== selectedKey) runGuarded(() => selectKey(row.key));
           }}>
             <i className={row.enabled ? "enabled" : ""} />
-            {humanizeKey(row.key)}
+            {templateLabel(row.key)}
           </button>
         ))}
       </nav>
@@ -155,7 +152,7 @@ export function TemplatesTab({ eventId }: { eventId: EventId }) {
         <header className="template-editor-header">
           <div>
             <span className="page-eyebrow">Email template</span>
-            <h2>{humanizeKey(selectedKey)}</h2>
+            <h2>{templateLabel(selectedKey)}</h2>
             <p>Changes affect every future message that uses this template.</p>
           </div>
           <span className={`template-state ${enabled ? "is-enabled" : ""}`}>{enabled ? "Enabled" : "Paused"}</span>
@@ -205,7 +202,7 @@ export function TemplatesTab({ eventId }: { eventId: EventId }) {
             <div className="template-editor-actions">
               <div className="inline-setting template-enabled-setting">
                 <div><b>Enabled</b><small>Allow this template to send when its trigger runs</small></div>
-                <Switch label={`${humanizeKey(selectedKey)} enabled`} checked={enabled} onClick={() => { setEnabled((current) => !current); setDirty(true); }} />
+                <Switch label={`${templateLabel(selectedKey)} enabled`} checked={enabled} onClick={() => { setEnabled((current) => !current); setDirty(true); }} />
               </div>
               <Button onClick={() => void onSave()} disabled={unknownTokens.length > 0 || save.isPending || !dirty}>
                 {save.isPending ? "Saving…" : "Save template"}

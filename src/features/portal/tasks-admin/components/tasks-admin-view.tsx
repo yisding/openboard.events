@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 import { CalendarClock, CheckCircle2, FileText, MoreHorizontal, Plus, Search, Upload, Users } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { BulkReminderRecoveryDialog, useBulkReminderRecovery } from "@/features/comms/index.client";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
+import { popoverPosition } from "@/shared/ui/app/popover-position";
 import { useFlowKeyboardNav } from "@/shared/ui/app/use-flow-keyboard-nav";
 import { Button, EmptyState, PageHeader, ProgressBar, Segmented } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
@@ -16,14 +18,14 @@ import { TaskEditor } from "./task-editor";
 import { TaskMatrixDrawer } from "./task-matrix-drawer";
 import { taskMutation } from "./task-mutation";
 
-const MODE_LABEL: Record<AdminTaskDTO["completionMode"], string> = { manual: "Manual", form: "Form", file_request: "File Request" };
+const MODE_LABEL: Record<AdminTaskDTO["completionMode"], string> = { manual: "Manual", form: "Form", file_request: "File request" };
 const MODE_ICON: Record<AdminTaskDTO["completionMode"], typeof CheckCircle2> = { manual: CheckCircle2, form: FileText, file_request: Upload };
 
 type Tab = "all" | "contact" | "group" | "submission";
 
 export function mergeSavedTask(tasks: AdminTaskDTO[], saved: TaskDTO): AdminTaskDTO[] {
   const previous = tasks.find((task) => task.id === saved.id);
-  const next = { ...saved, counts: previous?.counts ?? { completed: 0, open: 0, overdue: 0 } };
+  const next = { ...saved, counts: previous?.counts ?? { completed: 0, open: 0, overdue: 0, recorded: 0 } };
   return previous
     ? tasks.map((task) => task.id === saved.id ? next : task)
     : [...tasks, next];
@@ -80,7 +82,14 @@ export function TasksAdminView({
 }) {
   const router = useRouter();
   const { toast } = useToast();
-  const [section, setSection] = useState<"tasks" | "file_requests">("tasks");
+  // `?section=file_requests` deep-links the segment, so a "Create a file
+  // request" call to action elsewhere lands on the screen that creates one
+  // rather than on the Tasks list. Only the initial value is read: the segment
+  // is a local view toggle from there on.
+  const searchParams = useSearchParams();
+  const [section, setSection] = useState<"tasks" | "file_requests">(
+    searchParams.get("section") === "file_requests" ? "file_requests" : "tasks",
+  );
   const [tab, setTab] = useState<Tab>("all");
   const [search, setSearch] = useState("");
   const [tasks, setTasks] = useState(initialTasks);
@@ -175,23 +184,23 @@ export function TasksAdminView({
         eyebrow="PEOPLE"
         title="Tasks"
         description="Create tasks that can be assigned to your portals"
-        actions={<Button onClick={() => setCreating(true)}><Plus size={16} /> Add Task</Button>}
+        actions={<Button onClick={() => setCreating(true)}><Plus size={16} /> Add task</Button>}
       />
 
       <Segmented
         label="Task content type"
         value={section}
         onChange={setSection}
-        items={[{ value: "tasks", label: "Tasks" }, { value: "file_requests", label: "File Requests" }]}
+        items={[{ value: "tasks", label: "Tasks" }, { value: "file_requests", label: "File requests" }]}
       />
 
       {section === "tasks" && (
         <>
           <nav className="abstract-status-tabs" aria-label="Task filters">
-            <button type="button" aria-pressed={tab === "all"} className={tab === "all" ? "active" : ""} onClick={() => setTab("all")}>All Tasks <span>{tabCounts.all}</span></button>
-            <button type="button" aria-pressed={tab === "contact"} className={tab === "contact" ? "active" : ""} onClick={() => setTab("contact")}>Contact Tasks <span>{tabCounts.contact}</span></button>
-            <button type="button" aria-pressed={tab === "group"} className={tab === "group" ? "active" : ""} onClick={() => setTab("group")}>Group Tasks <span>{tabCounts.group}</span></button>
-            <button type="button" aria-pressed={tab === "submission"} className={tab === "submission" ? "active" : ""} onClick={() => setTab("submission")}>Submission Tasks <span>{tabCounts.submission}</span></button>
+            <button type="button" aria-pressed={tab === "all"} className={tab === "all" ? "active" : ""} onClick={() => setTab("all")}>All tasks <span>{tabCounts.all}</span></button>
+            <button type="button" aria-pressed={tab === "contact"} className={tab === "contact" ? "active" : ""} onClick={() => setTab("contact")}>Contact tasks <span>{tabCounts.contact}</span></button>
+            <button type="button" aria-pressed={tab === "group"} className={tab === "group" ? "active" : ""} onClick={() => setTab("group")}>Group tasks <span>{tabCounts.group}</span></button>
+            <button type="button" aria-pressed={tab === "submission"} className={tab === "submission" ? "active" : ""} onClick={() => setTab("submission")}>Submission tasks <span>{tabCounts.submission}</span></button>
           </nav>
 
           <section className="panel data-panel">
@@ -210,7 +219,7 @@ export function TasksAdminView({
                 description={tab === "group"
                   ? "The speaker portal only assigns tasks to speakers and submissions."
                   : "Create a task to collect information, files, or confirmations from your speakers."}
-                action={tab !== "group" ? <Button onClick={() => setCreating(true)}>Add Task</Button> : undefined}
+                action={tab !== "group" ? <Button onClick={() => setCreating(true)}>Add task</Button> : undefined}
               />
             )}
 
@@ -249,7 +258,11 @@ export function TasksAdminView({
         open={creating || editing !== null || duplicatingTask !== null}
         task={editing}
         duplicateOf={duplicatingTask}
-        locked={editing !== null && editing.counts.completed > 0}
+        // `recorded`, not `completed`: the server's lock counts `task_completions`
+        // directly, while `completed` comes from `task_assignments_v`, which
+        // drops inactive tasks. Deactivating a task with completions used to
+        // unlock these controls and then reject the save.
+        locked={editing !== null && editing.counts.recorded > 0}
         forms={forms}
         fileRequests={fileRequests}
         onClose={() => { setCreating(false); setEditing(null); setDuplicatingTask(null); }}
@@ -279,6 +292,7 @@ export function TasksAdminView({
           task={matrixTask}
           timezone={timezone}
           onClose={() => { if (!reminderRecovery.blocked) setMatrixTaskId(null); }}
+          onCompletionReopened={refresh}
           reminderRecovery={reminderRecovery}
           reminderAcknowledgement={reminderAcknowledgement}
           nav={{
@@ -306,8 +320,10 @@ export function TasksAdminView({
 
 export function TaskRowMenu({ task, onView, onEdit, onDuplicate, onDelete }: { task: AdminTaskDTO; onView: () => void; onEdit: () => void; onDuplicate: () => void; onDelete: () => void }) {
   const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState<CSSProperties | null>(null);
   const menuId = useId();
   const containerRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
@@ -316,16 +332,42 @@ export function TaskRowMenu({ task, onView, onEdit, onDuplicate, onDelete }: { t
     if (restoreFocus) window.requestAnimationFrame(() => triggerRef.current?.focus());
   }, []);
 
+  // Measure before paint: the menu is portalled and fixed, so it has no
+  // position at all until this runs, and a frame at the top-left corner would
+  // be visible.
+  useEffect(() => {
+    if (!open) { setPosition(null); return; }
+    const anchor = triggerRef.current?.getBoundingClientRect();
+    if (!anchor) return;
+    setPosition(popoverPosition(
+      "bottom-end",
+      anchor,
+      { width: window.innerWidth, height: window.innerHeight },
+      { width: MENU_WIDTH, clearance: MENU_CLEARANCE },
+    ));
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const frame = window.requestAnimationFrame(() => itemRefs.current[0]?.focus());
     const onPointerDown = (event: PointerEvent) => {
-      if (!containerRef.current?.contains(event.target as Node)) close(false);
+      const target = event.target as Node;
+      // The menu is no longer a descendant of the row, so it needs its own
+      // containment check or the first click on any item would dismiss it.
+      if (containerRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      close(false);
     };
+    // Fixed coordinates are measured once; a scroll would leave the menu
+    // hanging beside nothing. Closing is what the ambient hint card does too.
+    const onScroll = () => close(false);
     document.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onScroll);
     return () => {
       window.cancelAnimationFrame(frame);
       document.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onScroll);
     };
   }, [close, open]);
 
@@ -354,16 +396,33 @@ export function TaskRowMenu({ task, onView, onEdit, onDuplicate, onDelete }: { t
       <button ref={triggerRef} type="button" className="icon-button" aria-label={`Actions for ${task.name}`} aria-haspopup="menu" aria-expanded={open} aria-controls={menuId} onClick={() => setOpen((current) => !current)} onKeyDown={(event) => { if (!open && event.key === "ArrowDown") { event.preventDefault(); setOpen(true); } }}>
         <MoreHorizontal size={18} />
       </button>
-      {open && (
-        <div id={menuId} role="menu" aria-label={`Actions for ${task.name}`} onKeyDown={onMenuKeyDown} style={{ position: "absolute", right: 0, top: "100%", zIndex: 10, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 8, boxShadow: "var(--shadow-sm)", minWidth: 140, padding: 4 }}>
+      {open && position && createPortal((
+        <div ref={menuRef} id={menuId} role="menu" aria-label={`Actions for ${task.name}`} onKeyDown={onMenuKeyDown} style={{ position: "fixed", ...position, zIndex: 300, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 8, boxShadow: "var(--shadow-sm)", width: MENU_WIDTH, padding: 4 }}>
           <button ref={(node) => { itemRefs.current[0] = node; }} tabIndex={-1} type="button" role="menuitem" className="menu-item" style={menuItemStyle} onClick={() => { setOpen(false); onView(); }}>View responses</button>
           <button ref={(node) => { itemRefs.current[1] = node; }} tabIndex={-1} type="button" role="menuitem" className="menu-item" style={menuItemStyle} onClick={() => { setOpen(false); onEdit(); }}>Edit</button>
           <button ref={(node) => { itemRefs.current[2] = node; }} tabIndex={-1} type="button" role="menuitem" className="menu-item" style={menuItemStyle} onClick={() => { setOpen(false); onDuplicate(); }}>Duplicate</button>
           <button ref={(node) => { itemRefs.current[3] = node; }} tabIndex={-1} type="button" role="menuitem" className="menu-item" style={{ ...menuItemStyle, color: "var(--red)" }} onClick={() => { setOpen(false); onDelete(); }}>Delete</button>
         </div>
-      )}
+      ), document.body)}
     </div>
   );
 }
 
 const menuItemStyle: CSSProperties = { display: "block", width: "100%", textAlign: "left", padding: "8px 12px", border: 0, background: "transparent", fontSize: "var(--text-xs)", borderRadius: 6, cursor: "pointer" };
+
+/**
+ * The menu opens into `document.body` rather than beside its trigger, because
+ * the row it belongs to lives in `.data-panel{overflow:clip}` — a clip box that
+ * ends exactly at the last row's bottom border, since `.panel` carries no
+ * padding. Absolutely positioned at `top:100%`, the menu was painted outside
+ * that box and simply not drawn: on the last task row only "View responses"
+ * survived, and Delete was unreachable by any means, the ⋯ menu being the row's
+ * only entry point. `clip` is not a scroll container, so there was nothing to
+ * scroll to it either.
+ *
+ * `clearance` is the worst case the menu gets — four items at the 44px touch
+ * height the small-viewport rules give `.menu-item`, plus its own padding — so
+ * `popoverPosition` can keep it inside the bottom edge before it has rendered.
+ */
+const MENU_WIDTH = 180;
+const MENU_CLEARANCE = 4 * 44 + 8;

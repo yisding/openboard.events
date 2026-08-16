@@ -1,7 +1,7 @@
 "use client";
 
 import { ClipboardCheck, Plus, UserPlus } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ColumnDef } from "@tanstack/react-table";
 import { ColorChip } from "@/shared/ui/app/color-chip";
@@ -10,15 +10,16 @@ import { DataTable } from "@/shared/ui/app/data-table";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { Button, EmptyState, PageHeader, ProgressBar, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
-import type { OrganizationInvitationDTO } from "@/shared/contracts";
+import type { MemberRole, OrganizationInvitationDTO } from "@/shared/contracts";
 import { assignmentLockGuidance, assignmentLockReason, nextAssignmentLockRefreshMs } from "../assignment-writability";
+import { planStatusBadge } from "../plan-status";
 import type { PlanDTO } from "../types";
 import { AssignmentDrawer } from "./assignment-drawer";
 import { PlanEditor } from "./plan-editor";
 import { ReviewerInviteDialog } from "./reviewer-invite-dialog";
 
 export type TrackOption = { id: string; name: string; color: string | null };
-export type EventMember = { userId: string; name: string; email: string; role: string };
+export type EventMember = { userId: string; name: string; email: string; role: MemberRole };
 type Requester = (input: string, init?: RequestInit) => Promise<Response>;
 type ReminderRecipient = { reviewerUserId: string; name: string; email: string; outstanding: number };
 type ReminderDialogState = {
@@ -60,6 +61,24 @@ export async function completeEvaluationPlanDelete(
 }
 
 /**
+ * Where a round the organizer just wrote belongs in the list.
+ *
+ * The server orders rounds by number and then by name, and a round has to land
+ * in that order rather than at the end — otherwise creating Round 2 while
+ * looking at Round 3 puts it in a place a reload would move it away from. An
+ * edit reorders for the same reason: the round number and the name are both
+ * editable, so renaming Round 1 to "Round 1 · Final" or renumbering it has to
+ * move the row now rather than at the next refresh.
+ */
+export function withSavedPlan(plans: readonly PlanDTO[], saved: PlanDTO): PlanDTO[] {
+  const next = plans.some((plan) => plan.id === saved.id)
+    ? plans.map((plan) => plan.id === saved.id ? saved : plan)
+    : [...plans, saved];
+  return next.sort((left, right) => left.round - right.round
+    || left.name.toLowerCase().localeCompare(right.name.toLowerCase()));
+}
+
+/**
  * Program → Evaluation: the rounds an organizer runs, and how far each has got.
  *
  * Progress is the reason this page exists — "who still owes me scores" is the
@@ -68,11 +87,12 @@ export async function completeEvaluationPlanDelete(
  */
 export function PlansView({
   eventId,
-  plans,
+  plans: serverPlans,
   tracks,
   members,
   pendingReviewerInvitations,
   timezone,
+  isDemo = false,
 }: {
   eventId: string;
   plans: PlanDTO[];
@@ -81,9 +101,41 @@ export function PlansView({
   pendingReviewerInvitations: OrganizationInvitationDTO[];
   /** The event's zone — a round's open/close window is set in it. */
   timezone: string;
+  /**
+   * First Fair. A reviewer invitation is the one organizer action on this page
+   * that would put real mail in a real stranger's inbox on behalf of a
+   * conference that does not exist, so the demo event does not offer it. The
+   * server refuses it too (`inviteEventReviewerIn`) — this is the half that
+   * keeps the organizer from finding out the hard way.
+   */
+  isDemo?: boolean;
 }) {
   const router = useRouter();
   const { toast } = useToast();
+  /**
+   * The rounds on screen, seeded from the server and folded forward by every
+   * write this page makes.
+   *
+   * `router.refresh()` alone left this table repeating pre-save numbers: the
+   * toast said "6 assigned" while the row under it still read 0, and the only
+   * way out was a manual reload. Every one of these writes already answers with
+   * the round it produced, so the row is corrected the moment the mutation
+   * succeeds; the effect below still lets the next server snapshot have the
+   * last word.
+   *
+   * That last word is usually the newer one and not always: the `focus`
+   * listener below can have a `router.refresh()` already in flight when the
+   * write lands, and its older snapshot would re-seed pre-save numbers over the
+   * fold. It heals itself, because every write fires its own `refresh()`
+   * straight afterwards — the cost is a flicker, not a row that stays wrong,
+   * which is why this is a re-seed rather than a revision-guarded merge.
+   */
+  const [plans, setPlans] = useState<PlanDTO[]>(serverPlans);
+  useEffect(() => setPlans(serverPlans), [serverPlans]);
+  const applySavedPlan = useCallback(
+    (saved: PlanDTO) => setPlans((current) => withSavedPlan(current, saved)),
+    [],
+  );
   const [editingPlanId, setEditingPlanId] = useState<PlanDTO["id"] | null>(null);
   const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -233,7 +285,10 @@ export function PlansView({
       // close it instead; that message is the useful one, so pass it through.
       return completeEvaluationPlanDelete(eventId, plan, {
         onError: (message) => toast(message, { kind: "error" }),
-        onDeleted: () => toast(`${plan.name} deleted`),
+        onDeleted: () => {
+          setPlans((current) => current.filter((entry) => entry.id !== plan.id));
+          toast(`${plan.name} deleted`);
+        },
         refresh: () => router.refresh(),
         closeConfirmation: () => setPendingDelete(null),
       });
@@ -326,7 +381,14 @@ export function PlansView({
         </div>
       ),
     },
-    { id: "status", header: "Status", accessorKey: "status", cell: ({ row }) => <StatusBadge value={row.original.status} /> },
+    {
+      id: "status",
+      header: "Status",
+      // Derived rather than `plan.status`, so sorting groups the rows the way
+      // the chips read them.
+      accessorFn: (plan) => planStatusBadge(plan, new Date(assignmentNowMs)),
+      cell: ({ row }) => <StatusBadge value={planStatusBadge(row.original, new Date(assignmentNowMs))} />,
+    },
     {
       id: "actions",
       header: "",
@@ -360,7 +422,7 @@ export function PlansView({
         description="Scoring rounds, who reviews which tracks, and how far each round has got."
         actions={
           <>
-            <Button variant="secondary" onClick={() => setInviting(true)}><UserPlus size={16} /> Invite reviewer{pendingReviewerInvitations.length > 0 ? ` · ${pendingReviewerInvitations.length} pending` : ""}</Button>
+            {!isDemo && <Button variant="secondary" onClick={() => setInviting(true)}><UserPlus size={16} /> Invite reviewer{pendingReviewerInvitations.length > 0 ? ` · ${pendingReviewerInvitations.length} pending` : ""}</Button>}
             <Button onClick={() => setCreating(true)}><Plus size={16} /> New evaluation plan</Button>
           </>
         }
@@ -382,18 +444,26 @@ export function PlansView({
       />
 
       {(creating || editing) && (
+        // Keyed by the round, because the editor holds identity in mount-time
+        // state — the plan id it PATCHes, the id it would create under, the
+        // baseline it diffs against. Without the key a second round could
+        // inherit the first one's, and a save would target the wrong record.
+        // The id is stable across `router.refresh()`, so the `[plan]` rebase
+        // inside the editor still owns concurrent-edit merging.
         <PlanEditor
+          key={editing?.id ?? "new"}
           eventId={eventId}
           plan={editing}
           tracks={tracks}
           members={members}
           nextRound={nextRound}
           timezone={timezone}
+          onSaved={applySavedPlan}
           onClose={() => { setCreating(false); setEditingPlanId(null); }}
         />
       )}
 
-      {assigning && <AssignmentDrawer eventId={eventId} plan={assigning} onClose={() => setAssigningPlanId(null)} />}
+      {assigning && <AssignmentDrawer key={assigning.id} eventId={eventId} plan={assigning} onSaved={applySavedPlan} onClose={() => setAssigningPlanId(null)} />}
       {inviting && <ReviewerInviteDialog eventId={eventId} initialPendingInvitations={pendingReviewerInvitations} timezone={timezone} onClose={() => setInviting(false)} />}
 
       <ConfirmDialog

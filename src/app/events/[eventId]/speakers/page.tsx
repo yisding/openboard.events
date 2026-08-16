@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/features/auth";
+import { getEvent } from "@/features/events";
 import { getSpeakerFilterCounts, listContacts, type ContactFilters } from "@/features/portal";
 import { SpeakersAdminView } from "@/features/portal/components/speakers-admin/speakers-admin-view";
 import { parseSpeakerMissing } from "@/features/portal/speaker-deep-links";
 import { contactIdSchema, eventIdSchema, SPEAKERS_DEEPLINK_PARAMS } from "@/shared/contracts";
+import { pageNumberFrom } from "@/shared/lib/page-query";
 
 export const metadata: Metadata = { title: "Speakers" };
 export const dynamic = "force-dynamic";
@@ -52,7 +54,7 @@ export default async function Page({
   const sortParam = firstOf(query.sort);
   const confirmationParam = firstOf(query.confirmation);
   const q = firstOf(query.q) ?? "";
-  const pageParam = Number(firstOf(query.page) ?? "1");
+  const page = pageNumberFrom(firstOf(query.page));
 
   const filters: ContactFilters = {
     ...(q ? { q } : {}),
@@ -61,21 +63,26 @@ export default async function Page({
     ...(isConfirmationParam(confirmationParam) ? { confirmation: confirmationParam } : {}),
     sort: isSortParam(sortParam) ? sortParam : "name",
     dir: firstOf(query.dir) === "desc" ? "desc" : "asc",
-    page: Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1,
+    page,
     pageSize: 25,
   };
 
-  const [{ rows, total }, filterCounts] = await Promise.all([
+  // The flow drawer renders task due dates, and every rendered time in the
+  // product is drawn in the *event's* zone — same read the speaker profile
+  // page makes for the same reason.
+  const [{ rows, total }, filterCounts, event] = await Promise.all([
     listContacts(eventId, filters),
     getSpeakerFilterCounts(eventId, {
       ...(filters.q ? { q: filters.q } : {}),
       ...(filters.confirmation ? { confirmation: filters.confirmation } : {}),
     }),
+    getEvent(eventId),
   ]);
 
   return (
     <SpeakersAdminView
       eventId={eventId}
+      timezone={event?.timezone ?? "America/Los_Angeles"}
       rows={rows}
       total={total}
       filterCounts={filterCounts}

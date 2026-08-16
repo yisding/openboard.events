@@ -12,6 +12,7 @@ const migration0 = readFileSync(new URL("../../../../drizzle/0000_init.sql", imp
 const migrationContentRevisions = readFileSync(new URL("../../../../drizzle/0006_content_deliverables.sql", import.meta.url), "utf8");
 const migrationCreationReceipts = readFileSync(new URL("../../../../drizzle/0031_agenda_session_creation_receipts.sql", import.meta.url), "utf8");
 const migrationCalendarCancellationSnapshots = readFileSync(new URL("../../../../drizzle/0043_calendar_cancellation_snapshots.sql", import.meta.url), "utf8");
+const migrationRoomDeletionNotice = readFileSync(new URL("../../../../drizzle/0051_room_deletion_notice.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("a4100000-0000-4000-8000-000000000001");
 const otherEventId = eventIdSchema.parse("a4100000-0000-4000-8000-000000000002");
@@ -33,6 +34,7 @@ describe("retry-safe manual session creation", () => {
     await pg.exec(migrationContentRevisions);
     await pg.exec(migrationCreationReceipts);
     await pg.exec(migrationCalendarCancellationSnapshots);
+    await pg.exec(migrationRoomDeletionNotice);
     database = drizzle(pg, { schema }) as unknown as DbOrTx;
     await pg.query(
       `INSERT INTO events(id,name,slug,timezone,starts_at,ends_at) VALUES

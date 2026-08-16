@@ -29,6 +29,7 @@ const summarySchema = z.object({
 });
 const createdSchema = summarySchema.omit({ lastUsedAt: true }).extend({ plaintext: z.string() });
 const revokedSchema = z.object({ revoked: z.boolean() });
+const keyListSchema = z.array(summarySchema);
 
 export type ApiKeySummary = z.infer<typeof summarySchema>;
 
@@ -107,9 +108,28 @@ export function ApiKeysPanel({ eventId, initialKeys, timezone }: { eventId: Even
     try {
       await api(`events/${eventId}/api-keys/${removed.id}`, revokedSchema, { method: "DELETE" });
       toast(`${removed.name} revoked`);
-    } catch {
-      setKeys((current) => [removed, ...current]);
-      toast("That revoke failed — the key has been restored", { kind: "error" });
+    } catch (caught) {
+      // A definitive refusal proves the key is still live, so restoring the row
+      // is a fact. Anything else — a transport failure, an INTERNAL — leaves the
+      // outcome unknown, and the old bare `catch` restored the row either way
+      // while announcing "the key has been restored". A revoke that had in fact
+      // committed then showed a leaked key as live in the UI while every
+      // integration using it got 401. `isDefinitiveWriteFailure` exists for
+      // exactly this split; `createKey` above and the Team panel's member
+      // removal both already use it.
+      if (isDefinitiveWriteFailure(caught)) {
+        setKeys((current) => current.some((key) => key.id === removed.id) ? current : [removed, ...current]);
+        toast(caught.message, { kind: "error" });
+        return;
+      }
+      // Outcome unknown: ask the server rather than assert either answer.
+      try {
+        setKeys(await api(`events/${eventId}/api-keys`, keyListSchema, { method: "GET" }));
+        toast("That revoke could not be confirmed. The list above is now current.", { kind: "error" });
+      } catch {
+        setKeys((current) => current.some((key) => key.id === removed.id) ? current : [removed, ...current]);
+        toast("That revoke is unconfirmed. Restore your connection and check this list before assuming the key is still live.", { kind: "error" });
+      }
     }
   }
 

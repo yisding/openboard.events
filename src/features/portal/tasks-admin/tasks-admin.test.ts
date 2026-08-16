@@ -138,7 +138,7 @@ describe("tasks admin: database CRUD, the assignment-view counting law, and REST
     }));
     const replayedRequest = await createFileRequestIn(db, eventId, saveFileRequestInputSchema.parse({
       id: stableRequestId, title: "Stale retry files", targetType: "contact",
-      instructionsHtml: "<p>Stale</p>", acceptedExtensions: ["zip"], maxSizeMb: 400,
+      instructionsHtml: "<p>Stale</p>", acceptedExtensions: ["zip"], maxSizeMb: 75,
     }));
 
     expect(replayedTask).toMatchObject({ id: stableTaskId, name: "Original task", descriptionHtml: "<p>Original</p>", isActive: true });
@@ -217,6 +217,97 @@ describe("tasks admin: database CRUD, the assignment-view counting law, and REST
     const [row] = await listTasksIn(db, eventId, { search: "Counting law task" });
     expect(row?.counts.completed).toBe(1);
     expect(row?.counts.open).toBe(row ? row.counts.completed + row.counts.open - 1 : 0);
+    expect(row?.counts.recorded).toBe(1);
+  });
+
+  it("refuses a file-request save that would silently revert a concurrent edit", async () => {
+    const created = await createFileRequestIn(db, eventId, saveFileRequestInputSchema.parse({
+      title: "Concurrent slides", targetType: "submission", acceptedExtensions: ["pdf"], maxSizeMb: 25,
+    }));
+
+    // Organizer A saves first.
+    const first = await saveFileRequestIn(db, eventId, saveFileRequestInputSchema.parse({
+      id: created.id, title: "Concurrent slides", targetType: "submission",
+      acceptedExtensions: ["pdf", "key"], maxSizeMb: 25, expectedUpdatedAt: created.updatedAt,
+    }));
+    expect(first.acceptedExtensions).toEqual(["pdf", "key"]);
+
+    // Organizer B still holds the pre-A copy. This used to be a blind
+    // `ON CONFLICT (id) DO UPDATE SET …`, so it succeeded and reverted A's
+    // extension list with nothing to notice — the sibling task path in this
+    // same module has had a compare-and-swap since M23.
+    const stale = await saveFileRequestIn(db, eventId, saveFileRequestInputSchema.parse({
+      id: created.id, title: "Concurrent slides", targetType: "submission",
+      acceptedExtensions: ["pdf"], maxSizeMb: 50, expectedUpdatedAt: created.updatedAt,
+    })).catch((thrown: unknown) => thrown);
+    expect(isAppError(stale) && stale.code).toBe("STALE_WRITE");
+
+    const current = await saveFileRequestIn(db, eventId, saveFileRequestInputSchema.parse({
+      id: created.id, title: "Concurrent slides", targetType: "submission",
+      acceptedExtensions: ["pdf", "key"], maxSizeMb: 50, expectedUpdatedAt: first.updatedAt,
+    }));
+    expect(current.maxSizeMb).toBe(50);
+    expect(current.acceptedExtensions).toEqual(["pdf", "key"]);
+
+    // An update with no token at all is refused rather than silently blind.
+    const untokened = await saveFileRequestIn(db, eventId, saveFileRequestInputSchema.parse({
+      id: created.id, title: "Concurrent slides", targetType: "submission", acceptedExtensions: ["pdf"], maxSizeMb: 10,
+    })).catch((thrown: unknown) => thrown);
+    expect(isAppError(untokened) && untokened.code).toBe("VALIDATION");
+  });
+
+  it("keeps a completion visible in the matrix after its assignment moves to someone else", async () => {
+    const saved = await saveTaskIn(db, eventId, taskInput({ name: "Orphaned completion", targetType: "submission" }));
+    await pglite.query(
+      "INSERT INTO task_completions(event_id,task_id,contact_id,submission_id,completed_via) VALUES($1,$2,$3,$4,'manual')",
+      [eventId, saved.id, ada, talkOne],
+    );
+    expect(await getTaskCompletionMatrixIn(db, eventId, saved.id)).toContainEqual(
+      expect.objectContaining({ contactId: ada, completed: true }),
+    );
+
+    // `task_assignments_v` resolves one contact per accepted submission — the
+    // primary participant — so making someone else primary drops Ada's
+    // completion out of the view. `recorded` is a raw table count and still
+    // refuses every shape change with "This task has completions", so the row
+    // doing the locking became unreachable: the drawer never mentioned it, and
+    // `reopenCompletionIn` is only reachable from the drawer.
+    await pglite.query("UPDATE submission_participants SET is_primary=false WHERE submission_id=$1 AND contact_id=$2", [talkOne, ada]);
+    await pglite.query("UPDATE submission_participants SET is_primary=true WHERE submission_id=$1 AND contact_id=$2", [talkOne, grace]);
+    // The view now resolves Grace, so Ada's completion has no live assignment.
+    expect((await getTaskCompletionMatrixIn(db, eventId, saved.id)).map((row) => row.contactId)).toContain(grace);
+
+    const matrix = await getTaskCompletionMatrixIn(db, eventId, saved.id);
+    expect(matrix).toContainEqual(expect.objectContaining({ contactId: ada, completed: true }));
+    // And the count that locks the editor still counts it, so the two agree.
+    const [row] = await listTasksIn(db, eventId, { search: "Orphaned completion" });
+    expect(row?.counts.recorded).toBe(1);
+
+    await pglite.query("UPDATE submission_participants SET is_primary=false WHERE submission_id=$1 AND contact_id=$2", [talkOne, grace]);
+    await pglite.query("UPDATE submission_participants SET is_primary=true WHERE submission_id=$1 AND contact_id=$2", [talkOne, ada]);
+  });
+
+  it("keeps the editor's shape lock true after a completed task is deactivated", async () => {
+    const saved = await saveTaskIn(db, eventId, taskInput({ name: "Deactivated but completed" }));
+    await pglite.query(
+      "INSERT INTO task_completions(event_id,task_id,contact_id,submission_id,completed_via) VALUES($1,$2,$3,$4,'manual')",
+      [eventId, saved.id, ada, talkOne],
+    );
+    const deactivated = await saveTaskIn(
+      db, eventId, taskInput({ id: saved.id, name: "Deactivated but completed", isActive: false }),
+      { expectedUpdatedAt: saved.updatedAt },
+    );
+    expect(deactivated.isActive).toBe(false);
+
+    const [row] = await listTasksIn(db, eventId, { search: "Deactivated but completed" });
+    // `task_assignments_v` filters `t.is_active`, so the progress numbers
+    // correctly go to zero — an inactive task assigns nobody. But the server's
+    // shape-change lock counts `task_completions` directly, so the editor has
+    // to as well: deriving `locked` from `completed` unlocked the target and
+    // mode controls here and then rejected the save with FORM_LOCKED after the
+    // organizer had filled the whole form in.
+    expect(row?.counts.completed).toBe(0);
+    expect(row?.counts.recorded).toBe(1);
   });
 
   it("reopen: deletes the one completion row without touching assignment membership", async () => {

@@ -29,10 +29,16 @@ function isolate(listeners: Listeners): Listeners {
  * `onDragEnd` reads `event.delta.y` (the total pointer displacement, not a
  * drop-cell lookup) for these, converts it to a slot count via
  * `pixelDeltaToSlotDelta`, and clamps with `clampResize`.
+ *
+ * The strips are pointer-only affordances, so `attributes: { tabIndex: -1 }`
+ * overrides dnd-kit's focusable default: they are `aria-hidden`, and a
+ * focusable element that assistive tech cannot describe is a silent dead tab
+ * stop (two per placed session). Keyboard organizers adjust times in the
+ * session dialog instead.
  */
 export function ResizeHandles({ session, disabled = false }: { session: ScheduledSessionDTO; disabled?: boolean }) {
-  const start = useDraggable({ id: `resize:${session.id}:start`, data: { type: "resize-start", session }, disabled });
-  const end = useDraggable({ id: `resize:${session.id}:end`, data: { type: "resize-end", session }, disabled });
+  const start = useDraggable({ id: `resize:${session.id}:start`, data: { type: "resize-start", session }, disabled, attributes: { tabIndex: -1 } });
+  const end = useDraggable({ id: `resize:${session.id}:end`, data: { type: "resize-end", session }, disabled, attributes: { tabIndex: -1 } });
 
   return (
     <>

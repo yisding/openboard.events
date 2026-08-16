@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { ConfirmDialog } from "./confirm-dialog";
 
 type GuardContext = {
@@ -110,11 +110,25 @@ export function HistoryPositionTracker() {
 
 export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  // The route is the *router's* pathname, not `window.location.pathname`: an
+  // intercepted navigation commits the URL before the router has moved, so
+  // only this value tracks which page is actually on screen.
+  const pathname = usePathname();
   const guardsRef = useRef(new Set<symbol>());
   const blockingGuardsRef = useRef(new Set<symbol>());
+  /** Which route each guard was registered by. See the route sweep below. */
+  const guardRoutesRef = useRef(new Map<symbol, string>());
+  // Assigned during render rather than in an effect: React runs a child's
+  // effects before its parent's, so a page registering on arrival must already
+  // see the route it arrived at, not the one it replaced.
+  const routeRef = useRef(pathname);
+  routeRef.current = pathname;
+  const settledRouteRef = useRef(pathname);
   const [guardCount, setGuardCount] = useState(0);
   const [blockingGuardCount, setBlockingGuardCount] = useState(0);
   const [pending, setPending] = useState<PendingDecision | null>(null);
+  const pendingRef = useRef<PendingDecision | null>(null);
+  pendingRef.current = pending;
   const allowNextRef = useRef(false);
   const allowNextUnloadRef = useRef(false);
   const historyFallbackRef = useRef<HistoryFallback | null>(null);
@@ -122,13 +136,60 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
   const hasBlockingWork = blockingGuardCount > 0;
 
   const register = useCallback((token: symbol, active: boolean, blocking: boolean) => {
-    if (active) guardsRef.current.add(token);
-    else guardsRef.current.delete(token);
+    if (active) {
+      guardsRef.current.add(token);
+      guardRoutesRef.current.set(token, routeRef.current);
+    } else {
+      guardsRef.current.delete(token);
+      guardRoutesRef.current.delete(token);
+    }
     if (active && blocking) blockingGuardsRef.current.add(token);
     else blockingGuardsRef.current.delete(token);
     setGuardCount(guardsRef.current.size);
     setBlockingGuardCount(blockingGuardsRef.current.size);
   }, []);
+
+  /**
+   * Unsaved work belongs to the page that has it. A guard is normally retired
+   * by its own unmount, but that is the one cleanup nothing else can vouch
+   * for: an editor kept alive behind a transition, a registration whose effect
+   * never re-ran, a decision left open by a navigation that resolved
+   * elsewhere. Any of those turns into a "Discard unsaved work?" raised
+   * minutes later, on a page with no form on it at all, about changes the
+   * organizer already saved — and, worse, into a `beforeunload` that fires
+   * against work that no longer exists.
+   *
+   * So the route change sweeps: guards keep their claim only while the route
+   * that registered them is still the route on screen. Search-only moves — the
+   * form builder's `?step=`, Communications' `?tab=` — deliberately do not
+   * count, because those keep the same editor mounted with its draft intact.
+   */
+  useEffect(() => {
+    if (settledRouteRef.current === pathname) return;
+    settledRouteRef.current = pathname;
+    // A one-shot allowance is granted for one trip. The trip has landed; an
+    // allowance still set was granted for a push that never reached the
+    // navigation event, and would silently wave the *next* one through.
+    allowNextRef.current = false;
+    allowNextUnloadRef.current = false;
+    for (const [token, route] of guardRoutesRef.current) {
+      if (route === pathname) continue;
+      guardRoutesRef.current.delete(token);
+      guardsRef.current.delete(token);
+      blockingGuardsRef.current.delete(token);
+    }
+    setGuardCount(guardsRef.current.size);
+    setBlockingGuardCount(blockingGuardsRef.current.size);
+    // A decision cannot outlive the navigation it was asked about. Cancelling
+    // rather than dropping it settles the interception promise this decision
+    // may be holding open.
+    const stale = pendingRef.current;
+    if (stale) {
+      pendingRef.current = null;
+      stale.cancel?.();
+      setPending(null);
+    }
+  }, [pathname]);
 
   const allowNextNavigation = useCallback((action?: () => void, options?: NavigationOptions) => {
     allowNextUnloadRef.current = options?.hardUnload === true;
@@ -289,14 +350,20 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
     }
     const guardNavigation = (rawEvent: Event) => {
       const event = rawEvent as NavigationEventLike;
+      // Intercepting reloads or cross-document transitions turns them into
+      // same-document navigation. Let beforeunload own both so confirming
+      // actually loads the requested document.
+      //
+      // Checked *before* the one-shot is consumed, and deliberately so: a
+      // same-origin `location.assign` fires `navigate` first and `beforeunload`
+      // second, so burning the allowance here would leave the unload it was
+      // granted for unguarded and raise a native "Leave site?" behind an
+      // in-app confirmation the organizer already answered.
+      if (!shouldInterceptNavigation(event)) return;
       if (allowNextRef.current) {
         allowNextRef.current = false;
         return;
       }
-      // Intercepting reloads or cross-document transitions turns them into
-      // same-document navigation. Let beforeunload own both so confirming
-      // actually loads the requested document.
-      if (!shouldInterceptNavigation(event)) return;
       if (hasBlockingWork) {
         event.intercept({
           handler: async () => {
@@ -364,7 +431,24 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
   );
 }
 
-export function useUnsavedWorkGuard(active: boolean, options: { blocking?: boolean } = {}) {
+/**
+ * Registers this component's unsaved work with the guard, and hands back a
+ * `release` for the one moment the declarative registration is too slow.
+ *
+ * Registration is an effect, so a form that has just become clean stays
+ * registered until React has re-rendered *and* flushed passive effects — at
+ * least a tick. A save handler spends that tick handing the saved record back
+ * to the page it lives on, and those handoffs refresh the page: the guard was
+ * still armed from the pre-save draft and answered the app's own post-save
+ * refresh with "Discard unsaved work?" about changes that had already
+ * committed. `release()` closes that window by retiring this guard the instant
+ * the mutation commits, before control leaves the save handler.
+ *
+ * It is deliberately one-shot and not sticky: the next time `active` changes
+ * the effect re-registers as usual, so a form that goes dirty again is guarded
+ * again.
+ */
+export function useUnsavedWorkGuard(active: boolean, options: { blocking?: boolean } = {}): () => void {
   const { register } = useContext(GuardContext);
   const token = useRef(Symbol("unsaved-work"));
   useEffect(() => {
@@ -372,6 +456,7 @@ export function useUnsavedWorkGuard(active: boolean, options: { blocking?: boole
     register(current, active, options.blocking === true);
     return () => register(current, false, false);
   }, [active, options.blocking, register]);
+  return useCallback(() => register(token.current, false, false), [register]);
 }
 
 export function useGuardedAction() {

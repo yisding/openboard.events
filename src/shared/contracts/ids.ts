@@ -36,6 +36,8 @@ export const tokenIdSchema = brandedUuid<"TokenId">();
 export const fileUploadIdSchema = brandedUuid<"FileUploadId">();
 export const fileCommentIdSchema = brandedUuid<"FileCommentId">();
 export const sessionContentRevisionIdSchema = brandedUuid<"SessionContentRevisionId">();
+// MTP-07 — the placement half of a session's history, beside the content half.
+export const sessionPlacementRevisionIdSchema = brandedUuid<"SessionPlacementRevisionId">();
 export const fileExportJobIdSchema = brandedUuid<"FileExportJobId">();
 // M51 — standalone speaker roster operations.
 export const logisticsFieldIdSchema = brandedUuid<"LogisticsFieldId">();
@@ -85,6 +87,7 @@ export type TokenId = z.infer<typeof tokenIdSchema>;
 export type FileUploadId = z.infer<typeof fileUploadIdSchema>;
 export type FileCommentId = z.infer<typeof fileCommentIdSchema>;
 export type SessionContentRevisionId = z.infer<typeof sessionContentRevisionIdSchema>;
+export type SessionPlacementRevisionId = z.infer<typeof sessionPlacementRevisionIdSchema>;
 export type FileExportJobId = z.infer<typeof fileExportJobIdSchema>;
 export type LogisticsFieldId = z.infer<typeof logisticsFieldIdSchema>;
 export type UnavailabilityId = z.infer<typeof unavailabilityIdSchema>;

@@ -40,7 +40,17 @@ async function hashKey(key: string): Promise<string> {
  * supply hash an IP address (`/api/v1`, portal login request), which is not
  * something to retain forever.
  */
-export async function checkRateLimit(dbOrTx: DbOrTx, args: { key: string; limit: number; windowMs: number }): Promise<void> {
+export async function checkRateLimit(
+  dbOrTx: DbOrTx,
+  /**
+   * `message` replaces the generic refusal for callers whose 429 is read by a
+   * person mid-flow. The portal sign-in form says "Check your inbox, or try
+   * again in a few minutes" — the same sentence its per-contact throttle
+   * already used, so which of the two fired is not something the screen
+   * reports.
+   */
+  args: { key: string; limit: number; windowMs: number; message?: string },
+): Promise<void> {
   const keyHash = await hashKey(args.key);
   const now = new Date();
   const windowCutoff = new Date(now.getTime() - args.windowMs);
@@ -56,7 +66,7 @@ export async function checkRateLimit(dbOrTx: DbOrTx, args: { key: string; limit:
     })
     .returning();
   if ((bucket?.count ?? 0) > args.limit) {
-    throw new AppError("RATE_LIMITED", "Too many requests. Please try again shortly.");
+    throw new AppError("RATE_LIMITED", args.message ?? "Too many requests. Please try again shortly.");
   }
 }
 

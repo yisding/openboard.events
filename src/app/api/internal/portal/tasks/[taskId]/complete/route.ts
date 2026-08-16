@@ -5,7 +5,7 @@ import { revalidatePublicEvent } from "@/features/public/server/revalidate";
 import { eventIdSchema } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { defineHandler } from "@/shared/server/handler";
-import { portalQueryAuth, requestWithPathValues, sessionContactId } from "../../../_lib";
+import { portalQueryAuth, requestWithPathValues, sessionContactId, sessionImpersonatedByUserId } from "../../../_lib";
 
 export const dynamic = "force-dynamic";
 
@@ -21,18 +21,29 @@ const complete = defineHandler({
     taskId: z.uuid(),
     submissionId: z.uuid().nullable().default(null),
     answers: z.record(z.string(), z.unknown()).default({}),
+    /**
+     * The form version the speaker's page rendered, so an organizer publishing a
+     * new required question mid-fill produces `FORM_VERSION_STALE` with the
+     * fresh snapshot rather than a 400 whose field errors name a question the
+     * client has never heard of. Optional so an older page keeps working.
+     */
+    formVersion: z.number().int().positive().optional(),
   }),
   handler: async ({ eventId, session, input, requestId }) => {
     const event = eventIdSchema.parse(eventId);
     const contactId = sessionContactId(session);
+    // Null unless an organizer is inside "Open portal as …", in which case the
+    // completion records them as the actor rather than reading as the speaker's
+    // own work.
+    const completedByUserId = sessionImpersonatedByUserId(session);
     const task = await getMyTask(event, contactId, input.taskId, input.submissionId);
     // A task belonging to another speaker reads exactly like one that is not there.
     if (!task) throw new AppError("NOT_FOUND", "Task not found");
 
     if (task.completionMode === "manual") {
-      await completeTaskManual(event, contactId, input.taskId, input.submissionId);
+      await completeTaskManual(event, contactId, input.taskId, input.submissionId, completedByUserId);
     } else if (task.completionMode === "form") {
-      await completeTaskViaResponse(event, contactId, input.taskId, input.submissionId, input.answers);
+      await completeTaskViaResponse(event, contactId, input.taskId, input.submissionId, input.answers, input.formVersion, completedByUserId);
       await revalidatePublicEvent(event, ["schedule", "speakers"], requestId);
     } else {
       throw new AppError("VALIDATION", "This task is completed by uploading a file");

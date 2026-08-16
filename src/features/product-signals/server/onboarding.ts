@@ -4,12 +4,27 @@ import { events, organizationOnboardingMilestones } from "@/db/schema";
 import type { EventId, OrganizationId, UserId } from "@/shared/contracts";
 import { log } from "@/shared/lib/log";
 
+/**
+ * Mirrors `organization_onboarding_milestones_name_ck`. That CHECK is the
+ * database half of this union, and `tryRecord…` below deliberately swallows
+ * write failures, so a value added here without widening the constraint would
+ * not fail loudly — it would make the funnel go quietly dark. The two are
+ * changed together, always (the demo/tour trio landed with `drizzle/0044`).
+ */
 export type OnboardingMilestone =
   | "signup_completed"
   | "email_verified"
   | "event_created"
   | "form_published"
-  | "public_form_visited";
+  | "public_form_visited"
+  // First Fair. `demo_provisioned` deliberately carries "the tutorial started"
+  // too: a demo exists only because someone asked for one. A demo is never an
+  // `event_created`, because a tutorial must not look like a conversion.
+  | "demo_provisioned"
+  | "tour_completed"
+  // The number that actually matters: a real event created by an organizer who
+  // learned the product in the demo first.
+  | "real_event_after_demo";
 
 export type OrganizationOnboardingMilestone = {
   milestone: OnboardingMilestone;

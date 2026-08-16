@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { SpeakerProfileDTO } from "@/features/portal";
 import { LIMITS, plainTextLength } from "@/shared/contracts";
+import { readFieldErrors } from "@/shared/lib/api-client";
 import { FileUpload } from "@/shared/ui/app/file-upload";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
@@ -26,6 +27,8 @@ type Payload = {
   lastName?: string;
   pronouns?: string;
   gender?: string;
+  jobTitle?: string;
+  company?: string;
   headshotFileId?: string | null;
   linkedinUrl?: string | null;
   twitterUrl?: string | null;
@@ -41,6 +44,8 @@ export type ProfileTextDraft = {
   lastName: string;
   pronouns: string;
   gender: string;
+  jobTitle: string;
+  company: string;
   linkedinUrl: string;
   twitterUrl: string;
   facebookUrl: string;
@@ -56,6 +61,8 @@ export function profileTextDraft(profile: SpeakerProfileDTO): ProfileTextDraft {
     lastName: profile.lastName,
     pronouns: profile.pronouns ?? "",
     gender: profile.gender ?? "",
+    jobTitle: profile.jobTitle ?? "",
+    company: profile.company ?? "",
     linkedinUrl: profile.linkedinUrl ?? "",
     twitterUrl: profile.twitterUrl ?? "",
     facebookUrl: profile.facebookUrl ?? "",
@@ -67,7 +74,8 @@ export function profileTextChanged(draft: ProfileTextDraft, baseline: ProfileTex
   return textDraftChanged(draft, baseline);
 }
 
-async function patchProfile(eventId: string, payload: Payload): Promise<
+/** Exported for test: the envelope shape this reads is the whole defect it fixes. */
+export async function patchProfile(eventId: string, payload: Payload): Promise<
   { ok: true; profile: SpeakerProfileDTO } | { ok: false; message: string; fieldErrors?: Record<string, string> }
 > {
   let response: Response;
@@ -82,10 +90,20 @@ async function patchProfile(eventId: string, payload: Payload): Promise<
   }
   const body = await response.json().catch(() => null) as {
     data?: SpeakerProfileDTO;
-    error?: { message?: string; data?: { fieldErrors?: Record<string, string> } };
+    error?: { message?: string; fieldErrors?: Record<string, string>; data?: unknown };
   } | null;
   if (!response.ok || !body?.data) {
-    const fieldErrors = body?.error?.data?.fieldErrors;
+    // `readFieldErrors`, not `error.data.fieldErrors`. `errorEnvelope` puts a
+    // zod failure's `fieldErrors` at the *top level* of `error`, and `data` is
+    // `AppError.details` — a different constructor argument entirely. The
+    // headshot validations pass their map as `fieldErrors` with no `details`,
+    // so `error.data.fieldErrors` was always absent: `setFieldErrors` only ever
+    // received nothing, and all eight `error={fieldErrors.*}` slots plus the
+    // focus-first-invalid effect were dead code. A speaker whose company or job
+    // title exceeds its limit got a bare "Request validation failed" toast with
+    // no field highlighted and no focus moved, across twelve inputs. The CFP
+    // client reads both shapes; this one read only the wrong one.
+    const fieldErrors = readFieldErrors(body?.error);
     return { ok: false, message: body?.error?.message ?? "That did not go through", ...(fieldErrors ? { fieldErrors } : {}) };
   }
   return { ok: true, profile: body.data };
@@ -113,6 +131,8 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
   const [lastName, setLastName] = useState(initialText.lastName);
   const [pronouns, setPronouns] = useState(initialText.pronouns);
   const [gender, setGender] = useState(initialText.gender);
+  const [jobTitle, setJobTitle] = useState(initialText.jobTitle);
+  const [company, setCompany] = useState(initialText.company);
   const [linkedinUrl, setLinkedinUrl] = useState(initialText.linkedinUrl);
   const [twitterUrl, setTwitterUrl] = useState(initialText.twitterUrl);
   const [facebookUrl, setFacebookUrl] = useState(initialText.facebookUrl);
@@ -124,7 +144,7 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const formRef = useRef<HTMLFormElement>(null);
   const currentText: ProfileTextDraft = {
-    bioHtml, salutation, honorific, firstName, lastName, pronouns, gender,
+    bioHtml, salutation, honorific, firstName, lastName, pronouns, gender, jobTitle, company,
     linkedinUrl, twitterUrl, facebookUrl, websiteUrl,
   };
   const dirty = profileTextChanged(currentText, savedText);
@@ -154,6 +174,8 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
       lastName: submittedText.lastName,
       pronouns: submittedText.pronouns,
       gender: submittedText.gender,
+      jobTitle: submittedText.jobTitle,
+      company: submittedText.company,
       linkedinUrl: nullIfBlank(submittedText.linkedinUrl),
       twitterUrl: nullIfBlank(submittedText.twitterUrl),
       facebookUrl: nullIfBlank(submittedText.facebookUrl),
@@ -237,6 +259,12 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
                   <option value="Non-binary" />
                 </datalist>
               </Field>
+              <Field label="Job title" hint="Shown under your name on the public site" hintId="profile-job-title-hint" error={fieldErrors.jobTitle} errorId="profile-job-title-error">
+                <input maxLength={LIMITS.JOB_TITLE} value={jobTitle} onChange={(event) => setJobTitle(event.target.value)} aria-invalid={Boolean(fieldErrors.jobTitle) || undefined} aria-describedby={fieldErrors.jobTitle ? "profile-job-title-error" : "profile-job-title-hint"} placeholder="Principal Engineer" />
+              </Field>
+              <Field label="Company" hint="Shown under your name on the public site" hintId="profile-company-hint" error={fieldErrors.company} errorId="profile-company-error">
+                <input maxLength={LIMITS.JOB_TITLE} value={company} onChange={(event) => setCompany(event.target.value)} aria-invalid={Boolean(fieldErrors.company) || undefined} aria-describedby={fieldErrors.company ? "profile-company-error" : "profile-company-hint"} placeholder="Analytical Engines" />
+              </Field>
             </div>
             <Field label="Biography" hint={`${bioLength} / ${LIMITS.BIO} characters`} hintId="profile-bio-hint" error={bioError} errorId="profile-bio-error">
               <RichTextEditor
@@ -274,8 +302,12 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
             <span className="public-preview-label">PUBLIC PREVIEW</span>
             <Avatar initials={initials} size="xl" {...(headshotUrl ? { imageUrl: headshotUrl } : {})} />
             <h3>{firstName} {lastName}</h3>
+            {(jobTitle || company) && <p>{[jobTitle, company].filter(Boolean).join(" · ")}</p>}
             {pronouns && <p>{pronouns}</p>}
-            <small>{bioLength > 0 ? `${plainTextPreview(bioHtml)}…` : "No biography yet."}</small>
+            {/* The ellipsis belongs to the truncation, not to the preview: an
+                unabridged bio was being shown as though there were more of it,
+                live, while the speaker typed. */}
+            <small>{bioLength > 0 ? plainTextPreview(bioHtml) : "No biography yet."}</small>
           </section>
         </aside>
       </div>
@@ -283,7 +315,23 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
   );
 }
 
+/**
+ * The ellipsis is part of the truncation, so it is decided here rather than by
+ * the caller: appending it unconditionally told a speaker with a short bio that
+ * the card was hiding the rest of it, and did so live as they typed.
+ * Code points, not UTF-16 units, so a slice never lands mid-emoji.
+ */
 function plainTextPreview(html: string): string {
-  const text = html.replace(/<[^>]*>/g, "");
-  return [...text].slice(0, 140).join("");
+  // Strip to a fixpoint so nested fragments like `<scr<script>ipt>` cannot
+  // reassemble a tag. A regex loop rather than DOMParser: this render path
+  // also runs during SSR, where DOMParser does not exist, and the output must
+  // be identical on both sides to hydrate cleanly.
+  let text = html;
+  let before: string;
+  do {
+    before = text;
+    text = text.replace(/<[^>]*>/g, "");
+  } while (text !== before);
+  const characters = [...text];
+  return characters.length > 140 ? `${characters.slice(0, 140).join("")}…` : text;
 }

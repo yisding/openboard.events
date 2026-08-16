@@ -1,5 +1,6 @@
 import { eventDayKey, hourMinuteInZone } from "@/shared/lib/time";
 import { formatCode } from "@/features/submissions/server/guards";
+import { statusBadgeLabel } from "@/shared/ui/status-badge";
 import type { SubmissionListRow } from "@/shared/contracts";
 
 /**
@@ -68,7 +69,10 @@ function sourceLabel(row: SubmissionListRow): string {
 export function submissionCsvColumns(timeZone: string): readonly CsvColumn<SubmissionListRow>[] {
   return [
     { header: "Code", get: (row) => formatCode(row.code) },
-    { header: "Status", get: (row) => row.status },
+    // The export is a human artifact — codes read `SESS-42`, sources read
+    // "Manual" — so the status column speaks the Abstracts table's vocabulary
+    // too. A forwarded file never says `accept_queue`.
+    { header: "Status", get: (row) => statusBadgeLabel(row.status) },
     { header: "Source", get: sourceLabel },
     { header: "Title", get: (row) => row.title },
     { header: "Description", get: (row) => row.descriptionPlain },

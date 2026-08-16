@@ -21,6 +21,7 @@ import { matchesPublicSpeakerSearch } from "./speaker-search";
 export function PublicSpeakersList({
   eventSlug,
   speakers,
+  hasSessions = false,
   embed = false,
   embedOptions = DEFAULT_EMBED_OPTIONS,
   filters = {},
@@ -28,6 +29,13 @@ export function PublicSpeakersList({
 }: {
   eventSlug: string;
   speakers: PublishedSpeakersDTO;
+  /**
+   * Whether the agenda has anything published. The roster's empty state only
+   * offers "View the agenda" when it is a live destination — on a brand-new
+   * event both surfaces are empty and the cross-links become a loop of dead
+   * ends. Defaults to no link, which is the honest answer when unknown.
+   */
+  hasSessions?: boolean;
   embed?: boolean;
   embedOptions?: EmbedOptions;
   filters?: EmbedFilters;
@@ -72,9 +80,10 @@ export function PublicSpeakersList({
           <PublicComingSoon
             icon={Search}
             title="Speakers coming soon"
-            description="Confirmed speakers will appear here as they're announced — the agenda is the other place to check."
-            linkHref={`/e/${eventSlug}/agenda`}
-            linkLabel="View the agenda"
+            description={hasSessions
+              ? "Confirmed speakers will appear here as they're announced — the agenda already has sessions to browse."
+              : "Confirmed speakers will appear here as they're announced."}
+            {...(hasSessions ? { linkHref: `/e/${eventSlug}/agenda`, linkLabel: "View the agenda" } : {})}
           />
         ) : (
           <>

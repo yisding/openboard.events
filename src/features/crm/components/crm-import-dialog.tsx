@@ -13,6 +13,7 @@ import {
   type OrganizationId,
 } from "@/shared/contracts";
 import { Button, Field, Modal, Select, StatusBadge } from "@/shared/ui/ui-kit";
+import { LocalFilePicker } from "@/shared/ui/app/file-upload";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
@@ -159,8 +160,8 @@ export function CrmImportDialog({ organizationId, open, onClose }: { organizatio
     >
       {step === "upload" && (
         <div className="form-stack">
-          <Field label="CSV file" required>
-            <input ref={fileInput} type="file" accept=".csv,text/csv" required onChange={(event) => { const file = event.target.files?.[0]; if (file) onFile(file); }} />
+          <Field label="CSV file" required group>
+            <LocalFilePicker accept=".csv,text/csv" label="Choose a CSV file" hint="One header row, comma separated" inputRef={fileInput} onPick={onFile} />
           </Field>
           {error && <p className="field-error" role="alert">{error}</p>}
         </div>

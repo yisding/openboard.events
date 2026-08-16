@@ -261,16 +261,46 @@ describe("createSubmission", () => {
 
   it("refuses once the per-user limit is used up, and drafts do not count", async () => {
     await createSubmission(eventId, cfpInput({ fields: { title: "First talk" } }));
-    await createSubmission(eventId, cfpInput({ fields: { title: "Second talk" } }));
+    // One slot used and one draft open: the draft must not be the second, or
+    // this submit would be refused instead of promoting it.
     const draft = await upsertDraft(eventId, speaker, openForm, 1);
+    const second = await createSubmission(eventId, cfpInput({ fields: { title: "Second talk" } }));
+    expect(second.submissionId).toBe(draft.submissionId);
 
     const error = await createSubmission(eventId, cfpInput({ fields: { title: "Third talk" } }))
       .catch((thrown: unknown) => thrown);
     expect(isAppError(error) && error.code).toBe("LIMIT_REACHED");
+    // And the speaker is told before they fill anything in, rather than after a
+    // whole wizard: a draft they could never submit is not started at all.
+    const draftError = await upsertDraft(eventId, speaker, openForm, 1).catch((thrown: unknown) => thrown);
+    expect(isAppError(draftError) && draftError.code).toBe("LIMIT_REACHED");
     expect(await countRows("submissions", "status='pending'")).toBe(2);
-    expect(await countRows("submissions", "status='draft'")).toBe(1);
-    const rows = await pglite.query<{ status: string }>("SELECT status FROM submissions WHERE id=$1", [draft.submissionId]);
-    expect(rows.rows[0]?.status).toBe("draft");
+    expect(await countRows("submissions", "status='draft'")).toBe(0);
+  });
+
+  // The cap refuses to open one more draft, never to reopen the one a speaker is
+  // already writing. A slot can disappear under them — an organizer restores a
+  // withdrawn abstract, or the cap is lowered mid-CFP — and half-written work
+  // plus its SESS code has to stay reachable, not vanish behind the wall page.
+  it("still resumes an open draft after the speaker's slots fill up", async () => {
+    await pglite.query("DELETE FROM submissions");
+    const draft = await upsertDraft(eventId, speaker, openForm, 1);
+    for (const code of [9001, 9002]) {
+      await pglite.query(
+        `INSERT INTO submissions(id,event_id,form_id,form_version,code,status,source,title,submitter_contact_id,submitted_at)
+         VALUES(gen_random_uuid(),$1,$2,1,$3,'pending','cfp','Already submitted',$4, now())`,
+        [eventId, openForm, code, speaker],
+      );
+    }
+
+    const resumed = await upsertDraft(eventId, speaker, openForm, 1);
+    expect(resumed.submissionId).toBe(draft.submissionId);
+    expect(resumed.code).toBe(draft.code);
+
+    // Opening a *new* draft at the cap is still refused.
+    await pglite.query("DELETE FROM submissions WHERE status='draft'");
+    const error = await upsertDraft(eventId, speaker, openForm, 1).catch((thrown: unknown) => thrown);
+    expect(isAppError(error) && error.code).toBe("LIMIT_REACHED");
   });
 
   it("promotes a draft in place, keeping the code the speaker was shown", async () => {

@@ -9,6 +9,7 @@ import {
   bulkAgendaPromotionResultSchema,
   cleanAnswersSchema,
   contactIdSchema,
+  criterionValueSchema,
   eventIdSchema,
   idem,
   plainTextLength,
@@ -44,6 +45,11 @@ describe("frozen contracts", () => {
     expect(plainTextLength("<p>👩🏽‍💻</p>")).toBe(4);
     expect(plainTextLength('<span title=">">x</span>')).toBe(1);
     expect(LIMITS.TITLE).toBe(255);
+  });
+
+  it("caps a written criterion answer at the ceiling its textarea enforces", () => {
+    expect(criterionValueSchema.safeParse({ kind: "text", value: "x".repeat(LIMITS.REVIEW_TEXT) }).success).toBe(true);
+    expect(criterionValueSchema.safeParse({ kind: "text", value: "x".repeat(LIMITS.REVIEW_TEXT + 1) }).success).toBe(false);
   });
 
   it("rejects duplicate clean-answer compound keys", () => {

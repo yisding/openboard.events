@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  LIMITS,
   criterionIdSchema,
   criterionKindSchema,
   criterionValueSchema,
@@ -146,7 +147,7 @@ export const reviewInputSchema = z.object({
   submissionId: submissionIdSchema,
   overallScore: z.number().nullable().default(null),
   criterionScores: z.record(criterionIdSchema, z.union([z.number(), criterionValueSchema])).default({}),
-  comment: z.string().trim().max(2000).nullable().default(null),
+  comment: z.string().trim().max(LIMITS.REVIEW_TEXT).nullable().default(null),
 });
 export type ReviewInput = z.infer<typeof reviewInputSchema>;
 
@@ -198,6 +199,17 @@ export type PlanDTO = {
   reviewers: ReviewerProgress[];
   /** Plan-level progress: submissions with a finished review, over the round's own scope. */
   progress: { scored: number; total: number };
+  /**
+   * Whether any review has been recorded against this round.
+   *
+   * `overall_score` is computed when a review is saved and never recomputed, so
+   * the moment the first one lands the round's arithmetic is frozen:
+   * `assertScoringShapeEditable` refuses any later edit to the scale, the set of
+   * criteria, or a criterion's kind, weight, bounds or option scores. The editor
+   * carries this so it can lock those fields on open rather than let an
+   * organizer fill them in and collect a 409.
+   */
+  hasReviews: boolean;
   updatedAt: string;
 };
 

@@ -47,7 +47,7 @@ import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { Button, Field, Modal, Select, StatusBadge, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
-import { BUILDER_STEPS, type BuilderEvent, type BuilderField, type BuilderForm, type BuilderSection, type BuilderStep, type FormPatch } from "./builder-types";
+import { BUILDER_STEPS, mapsToLabel, type BuilderEvent, type BuilderField, type BuilderForm, type BuilderSection, type BuilderStep, type FormPatch } from "./builder-types";
 import { mergeUnsavedBuilderEdits, tryCompileBuilderSnapshot, type BuilderDirtyTarget } from "./form-builder-state";
 import { formAvailability, formAvailabilityActionCopy, formAvailabilityActionLabel, type FormAvailabilityAction } from "./lib/form-open";
 // M13b: the visibility editor, live preview, and routing panel are that
@@ -87,6 +87,60 @@ const addableTypes: Array<{ type: (typeof COMMITTED_FIELD_TYPES)[number]; label:
   { type: "url", label: "Website", description: "Validated web address" },
   { type: "file", label: "File upload", description: "PDF, slides, or document" },
 ];
+
+/**
+ * Questions whose conditional visibility reads `fieldId`. The server refuses to
+ * delete a referenced question (`server/guards.ts`), but its message is a
+ * compiler diagnostic naming field ids — so the builder names the dependent
+ * questions before the organizer commits to the delete.
+ */
+export function visibilityDependents(form: BuilderForm, fieldId: string): BuilderField[] {
+  return form.sections
+    .flatMap((section) => section.fields)
+    .filter((candidate) => candidate.id !== fieldId
+      && (candidate.visibility?.conditions ?? []).some((condition) => condition.sourceFieldId === fieldId));
+}
+
+export function questionLabelList(fields: BuilderField[]): string {
+  const labels = fields.map((field) => `“${field.label}”`);
+  if (labels.length <= 1) return labels.join("");
+  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
+  return `${labels.slice(0, -1).join(", ")}, and ${labels.at(-1)}`;
+}
+
+/**
+ * Re-pair a re-typed option list with the ids it already had, the same way the
+ * server's `reconcileFreeformOptions` does: exact label first, then whatever is
+ * left over in order.
+ *
+ * The Options textarea used to rebuild this list by *array index*, while its
+ * own hint promises "existing option ids are preserved" and the server matches
+ * by label. Deleting a line therefore slid every id up one: an unsaved list
+ * `[Workshop(id1), Talk(id2)]` with the Workshop line removed became
+ * `id1 -> "Talk"`, and a visibility rule built against that local list (the
+ * inspector hands it straight to the condition editor, which stores
+ * `option.id`) persisted `id1` — still Workshop on the server. The rule then
+ * means the opposite of what was picked, and nothing errors.
+ *
+ * Blank entries are kept here so pressing Enter does not delete the line being
+ * typed; `saveField` is what drops them before they reach the API.
+ */
+export function repairedOptionList(
+  existing: readonly { id: string; label: string }[],
+  labels: readonly string[],
+): Array<{ id: string; label: string }> {
+  const unused = [...existing];
+  return labels.map((label, index) => {
+    // A blank line never claims an existing id. Otherwise an Enter pressed
+    // mid-list would consume the next option's id and hand it to nothing,
+    // pushing every id below it onto the wrong label — the same mis-pairing
+    // this function exists to prevent.
+    if (!label.trim()) return { id: `draft-${index}`, label };
+    const exact = unused.findIndex((option) => option.label === label);
+    const picked = exact >= 0 ? unused.splice(exact, 1)[0] : unused.shift();
+    return picked ? { ...picked, label } : { id: `draft-${index}`, label };
+  });
+}
 
 export function withRequiredSpeakerRole(roles: BuilderForm["participantRoles"]): BuilderForm["participantRoles"] {
   return roles.map((role) => role.role === "speaker" && !role.enabled ? { ...role, enabled: true } : role);
@@ -213,8 +267,10 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
   const [participantStepRecovery, setParticipantStepRecovery] = useState<ParticipantStepRecovery | null>(null);
   const [pendingAvailabilityAction, setPendingAvailabilityAction] = useState<FormAvailabilityAction | null>(null);
   const [pendingDelete, setPendingDelete] = useState<BuilderField | null>(null);
+  const [pendingStep, setPendingStep] = useState<BuilderStep | null>(null);
   const [compactInspector, setCompactInspector] = useState(false);
   const dirtyRevisions = useRef(new Map<BuilderDirtyTarget, number>());
+  const railRef = useRef<HTMLElement | null>(null);
   const newQuestionDraftDirty = adding && (newLabel.trim().length > 0 || newType !== "text");
   const [routingDraftDirty, setRoutingDraftDirty] = useState(false);
   const hasUnsavedWork = dirty || newQuestionDraftDirty;
@@ -242,6 +298,29 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
     return () => media.removeEventListener("change", sync);
   }, []);
 
+  // Below 768px the step rail becomes one horizontally scrolling strip, and
+  // six steps do not fit. Advancing a step there would otherwise leave the
+  // active tab hanging off the edge, half-drawn. Only the rail's own
+  // scrollLeft moves; the rail is sticky, so scrolling any ancestor to reach
+  // it would drag the page out from under the organizer.
+  useEffect(() => {
+    const rail = railRef.current;
+    const active = rail?.querySelector<HTMLElement>("button.active");
+    if (!rail || !active) return;
+    const margin = 8; // The rail's own padding, kept as breathing room at either end.
+    const overshootLeft = rail.scrollLeft - (active.offsetLeft - margin);
+    const overshootRight = active.offsetLeft + active.offsetWidth + margin - (rail.scrollLeft + rail.clientWidth);
+    const left = overshootLeft > 0 ? active.offsetLeft - margin
+      : overshootRight > 0 ? rail.scrollLeft + overshootRight
+      : null;
+    if (left === null) return;
+    // No `behavior` on purpose: the default defers to the rail's CSS
+    // scroll-behavior, which the prefers-reduced-motion block can turn off. A
+    // literal "smooth" here would animate past that preference.
+    if (typeof rail.scrollTo === "function") rail.scrollTo({ left });
+    else rail.scrollLeft = left;
+  }, [step]);
+
   // Effective availability can change while this long-lived editor stays
   // mounted. Wake at the next opening/closing boundary so the badge and
   // lifecycle action never describe yesterday's state.
@@ -265,8 +344,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
     setDirty(true);
   }
 
-  function setStep(next: BuilderStep) {
-    if (next === step) return;
+  function goToStep(next: BuilderStep) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("step", next);
     const destination = `${pathname}?${params.toString()}`;
@@ -279,6 +357,36 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
     }, { destination });
     if (routingDraftDirty) runGuarded(performStep);
     else performStep();
+  }
+
+  /** Exactly what a publish from this step would write, and nothing else. */
+  function stepHasUnpublishedEdits(candidate: BuilderStep) {
+    if (dirtyRevisions.current.has(`step:${candidate}`)) return true;
+    if (candidate !== "abstract" && candidate !== "participant") return false;
+    const stepSection = form.sections.find((item) => item.key === candidate);
+    return stepSection !== undefined && dirtyRevisions.current.has(`section:${stepSection.id}`);
+  }
+
+  // Publishing writes one step at a time, so walking the wizard forward with
+  // unpublished edits behind you leaves them out of every later version —
+  // silently, until someone notices the deadline never took effect. Ask here,
+  // where the step is still on screen and one click still publishes it.
+  function setStep(next: BuilderStep) {
+    if (next === step) return;
+    if (stepHasUnpublishedEdits(step)) {
+      setPendingStep(next);
+      return;
+    }
+    goToStep(next);
+  }
+
+  async function publishThenStep() {
+    if (!pendingStep || busy) return;
+    const next = pendingStep;
+    await saveStep();
+    if (stepHasUnpublishedEdits(step)) return;
+    setPendingStep(null);
+    goToStep(next);
   }
 
   function closeAddQuestion() {
@@ -491,7 +599,12 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
       key: field.key,
       fieldType: field.fieldType,
       required: field.required,
-      optionLabels: field.options.map((option) => option.label),
+      // Blank lines are legitimate while typing (pressing Enter before the
+      // next option) but the route rejects them — `z.string().trim().min(1)` —
+      // as a generic "Request validation failed", which silently discarded the
+      // label, help-text and maxChars edits in the same patch. The portal
+      // sibling and the server's own reconcile both already strip them.
+      optionLabels: field.options.map((option) => option.label.trim()).filter(Boolean),
       visibility: field.visibility,
       mapsTo: field.mapsTo,
     };
@@ -689,6 +802,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
   }
 
   const section = form.sections.find((candidate) => candidate.key === (step === "participant" ? "participant" : "abstract"));
+  const pendingDeleteDependents = pendingDelete ? visibilityDependents(form, pendingDelete.id) : [];
   const availabilityActionCopy = pendingAvailabilityAction
     ? formAvailabilityActionCopy(pendingAvailabilityAction, persistedAvailabilityInput, availabilityNow)
     : null;
@@ -699,7 +813,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
         <div className="builder-edit-actions" role="group" aria-label="Form editing actions">
           {availability === "live" && <Button variant="secondary" aria-label="Copy live form link" title="Copy live form link" onClick={() => void copyLink()}><Copy size={16} /> <span className="builder-action-label">Copy live link</span></Button>}
           <Link className="button button-secondary" aria-label="Preview form" title="Preview form" target="_blank" rel="noreferrer" href={`/events/${event.id}/forms/${form.id}/preview`}><Eye size={16} /> <span className="builder-action-label">Preview</span></Link>
-          <Button id="publish-form-version" aria-label="Publish the current step as a new immutable form version" title="Publish the current step as a new immutable form version" disabled={busy || participantStepRecovery !== null} onClick={() => void saveStep()}><Save size={16} /> <span className="builder-action-label">{busy ? "Publishing…" : "Publish version"}</span></Button>
+          <Button className="builder-publish-action" id="publish-form-version" aria-label="Publish the current step as a new immutable form version" title="Publish the current step as a new immutable form version" disabled={busy || participantStepRecovery !== null} onClick={() => void saveStep()}><Save size={16} /> <span className="builder-action-label">{busy ? "Publishing…" : "Publish version"}</span></Button>
         </div>
         <div className="builder-lifecycle-actions" role="group" aria-label="Form availability">
           <span>Availability</span>
@@ -716,7 +830,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
         </div>
       </div>
     </header>
-    <div className="builder-layout"><aside className="builder-rail"><span>BUILD YOUR FORM</span>{stepMeta.map((item, index) => { const Icon = item.icon; return <button key={item.id} className={step === item.id ? "active" : ""} onClick={() => setStep(item.id)}><i>{index + 1}</i><Icon size={17} /><b>{item.label}</b>{form.currentVersion > index && <Check size={14} />}</button>; })}<div className="builder-completeness"><div><span>Published snapshots</span><b>{form.currentVersion}</b></div><small>Every publish creates a new immutable version.</small></div></aside>
+    <div className="builder-layout"><aside className="builder-rail" ref={railRef}><span>BUILD YOUR FORM</span>{stepMeta.map((item, index) => { const Icon = item.icon; return <button key={item.id} className={step === item.id ? "active" : ""} onClick={() => setStep(item.id)}><i>{index + 1}</i><Icon size={17} /><b>{item.label}</b>{form.currentVersion > index && <Check size={14} />}</button>; })}<div className="builder-completeness"><div><span>Published snapshots</span><b>{form.currentVersion}</b></div><small>Every publish creates a new immutable version.</small></div></aside>
       <div className="builder-canvas">
         {availabilityRecovery && <div className="locked-banner" role="alert"><AlertTriangle size={17} /><div><b>Form status is unconfirmed</b><span>{formAvailabilityRecoveryMessage(availabilityRecovery.action)}</span></div><Button size="sm" variant="secondary" disabled={busy} onClick={() => void checkCurrentAvailability()}>{busy ? "Confirming…" : "Confirm current status"}</Button></div>}
         {participantStepRecovery && <div className="locked-banner" role="alert"><AlertTriangle size={17} /><div><b>Participant save is unconfirmed</b><span>{PARTICIPANT_STEP_RECOVERY_MESSAGE}</span></div><Button size="sm" variant="secondary" disabled={busy} onClick={() => void confirmParticipantStep()}>{busy ? "Confirming…" : "Confirm participant save"}</Button></div>}
@@ -727,7 +841,9 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
         {(step === "abstract" || step === "participant") && section && <FieldsStep section={section} participant={step === "participant"} form={form} selected={selected?.fieldId ?? null} onSelect={(fieldId) => setSelected({ sectionId: section.id, fieldId })} onSectionChange={(patch) => applySection(section.id, patch)} onFormChange={applyLocal} onAdd={() => setAdding(true)} onMove={(fieldId, delta) => void moveField(section, fieldId, delta)} onRoutingDraftStateChange={handleRoutingDraftStateChange} />}
         {step === "settings" && <SettingsStep event={event} form={form} onChange={applyLocal} />}
         {step === "notifications" && <NotificationsStep form={form} onChange={applyLocal} />}
-        <footer className="builder-footer"><Button variant="secondary" disabled={step === "setup"} onClick={() => setStep(BUILDER_STEPS[Math.max(0, BUILDER_STEPS.indexOf(step) - 1)] ?? step)}>Back</Button><a className="builder-publish-link" href="#publish-form-version">Publish this step from the header <ArrowUp size={14} aria-hidden="true" /></a><Button variant="secondary" disabled={step === "notifications"} onClick={() => setStep(BUILDER_STEPS[Math.min(BUILDER_STEPS.length - 1, BUILDER_STEPS.indexOf(step) + 1)] ?? step)}>Next</Button></footer>
+        {/* The ends of the wizard drop Back/Next rather than showing them
+            disabled: a dead control still reads as somewhere left to go. */}
+        <footer className="builder-footer">{step !== BUILDER_STEPS[0] && <Button variant="secondary" onClick={() => setStep(BUILDER_STEPS[Math.max(0, BUILDER_STEPS.indexOf(step) - 1)] ?? step)}>Back</Button>}<a className="builder-publish-link" href="#publish-form-version">Publish this step from the header <ArrowUp size={14} aria-hidden="true" /></a>{step !== BUILDER_STEPS[BUILDER_STEPS.length - 1] && <Button variant="secondary" onClick={() => setStep(BUILDER_STEPS[Math.min(BUILDER_STEPS.length - 1, BUILDER_STEPS.indexOf(step) + 1)] ?? step)}>Next</Button>}</footer>
       </div>
       <aside className="builder-inspector">{selectedField ? <FieldInspector field={selectedField} form={form} onChange={(patch) => applyField(selectedField.id, patch)} onSave={() => void saveField(selectedField)} onDelete={() => setPendingDelete(selectedField)} busy={busy} /> : (step === "abstract" || step === "participant") && liveSnapshot ? <LiveBuilderPreview snapshot={liveSnapshot} /> : <MockBuilderPreview form={form} step={step} />}</aside>
     </div>
@@ -750,6 +866,18 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
       </div>
     </Modal>}
     <Modal open={adding} onClose={closeAddQuestion} title="Add a question" description="Choose one of the eight supported response types." footer={<><Button variant="secondary" onClick={closeAddQuestion}>Cancel</Button><Button disabled={!newLabel.trim() || busy} onClick={() => void addField()}>Add question</Button></>}><div className="form-stack"><Field label="Question label" required><input autoFocus required value={newLabel} onChange={(current) => setNewLabel(current.target.value)} placeholder="What would you like to ask?" /></Field><Field label="Response type" group><div className="type-grid">{addableTypes.map((item) => <button type="button" aria-pressed={newType === item.type} key={item.type} className={newType === item.type ? "active" : ""} onClick={() => setNewType(item.type)}><span>{typeIcon(item.type)}</span><div><b>{item.label}</b><small>{item.description}</small></div>{newType === item.type && <CircleCheck size={16} />}</button>)}</div></Field></div></Modal>
+    <Modal
+      open={pendingStep !== null}
+      onClose={busy ? () => undefined : () => setPendingStep(null)}
+      title="Publish this step before leaving it?"
+      dismissible={!busy}
+      footer={<>
+        <Button variant="secondary" disabled={busy} onClick={() => { const next = pendingStep; setPendingStep(null); if (next) goToStep(next); }}>Continue without publishing</Button>
+        <Button disabled={busy} onClick={() => void publishThenStep()}>{busy ? "Publishing…" : "Publish and continue"}</Button>
+      </>}
+    >
+      <div className="long-copy">Each publish saves the step you are on, so your changes to {stepMeta.find((item) => item.id === step)?.label} are not in the form yet. They stay in the builder until you publish them from this step.</div>
+    </Modal>
     <ConfirmDialog
       open={pendingAvailabilityAction !== null}
       title={availabilityActionCopy?.title ?? "Change form availability?"}
@@ -763,8 +891,11 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
     <ConfirmDialog
       open={pendingDelete !== null}
       title={pendingDelete ? `Delete “${pendingDelete.label}”?` : "Delete question?"}
-      body="This question and its draft configuration will be permanently removed."
+      body={pendingDeleteDependents.length > 0
+        ? `Conditional visibility on ${questionLabelList(pendingDeleteDependents)} depends on this question. Remove ${pendingDeleteDependents.length === 1 ? "that rule" : "those rules"} first, then delete this question.`
+        : "This question and its draft configuration will be permanently removed."}
       confirmLabel="Delete question"
+      confirmDisabled={pendingDeleteDependents.length > 0}
       onConfirm={async () => { if (pendingDelete) await deleteField(pendingDelete); }}
       onCancel={() => setPendingDelete(null)}
     />
@@ -780,7 +911,7 @@ function WelcomeStep({ form, onChange }: { form: BuilderForm; onChange: (patch: 
 }
 
 function FieldsStep({ section, participant, form, selected, onSelect, onSectionChange, onFormChange, onAdd, onMove, onRoutingDraftStateChange }: { section: BuilderSection; participant: boolean; form: BuilderForm; selected: string | null; onSelect: (fieldId: string) => void; onSectionChange: (patch: Partial<BuilderSection>) => void; onFormChange: (patch: FormPatch) => void; onAdd: () => void; onMove: (fieldId: string, delta: -1 | 1) => void; onRoutingDraftStateChange: (dirty: boolean) => void }) {
-  return <section className="builder-step"><header><div className="step-number">{participant ? 4 : 3}</div><div><h2>{participant ? "Participant information" : "Submission information"}</h2><p>{participant ? "Collect speaker and co-speaker information." : "Build the submission your review team will score."}</p></div></header><div className="builder-card form-stack"><Field label="Section title" required hint={`${section.title.length}/255`}><input required maxLength={255} value={section.title} onChange={(current) => onSectionChange({ title: current.target.value })} /></Field><Field label="Page heading" required hint={`${section.pageHeading.length}/15`}><input required maxLength={15} value={section.pageHeading} onChange={(current) => onSectionChange({ pageHeading: current.target.value })} /></Field><Field label="Description and instructions"><RichTextEditor ariaLabel={`${participant ? "Participant" : "Submission"} description and instructions`} value={section.descriptionHtml} onChange={(descriptionHtml) => onSectionChange({ descriptionHtml })} maxChars={5000} /></Field></div><div className="builder-card field-section"><div className="section-heading"><div><h3>Form questions</h3><p>{section.fields.length} live questions</p></div></div><div className="builder-fields">{section.fields.map((field, index) => <div className={selected === field.id ? "selected builder-field-row" : "builder-field-row"} key={field.id}><button type="button" className="field-row-main" onClick={() => onSelect(field.id)}><span className="field-type-icon">{typeIcon(field.fieldType)}</span><div><b>{field.label}{field.required && <em>*</em>}</b><small>{typeLabel(field.fieldType)}{field.visibility ? " · Conditional" : ""}</small></div>{field.locked && <LockKeyhole size={14} className="lock" />}</button><button type="button" className="icon-button" aria-label={`Move ${field.label} up`} disabled={index === 0 || busyLock(form)} onClick={() => onMove(field.id, -1)}><ArrowUp size={14} /></button><button type="button" className="icon-button" aria-label={`Move ${field.label} down`} disabled={index === section.fields.length - 1 || busyLock(form)} onClick={() => onMove(field.id, 1)}><ArrowDown size={14} /></button></div>)}</div><Button variant="ghost" className="add-question" disabled={form.hasNonDraftSubmissions} onClick={onAdd}><Plus size={16} /> Add question</Button>
+  return <section className="builder-step"><header><div className="step-number">{participant ? 4 : 3}</div><div><h2>{participant ? "Participant information" : "Submission information"}</h2><p>{participant ? "Collect speaker and co-speaker information." : "Build the submission your review team will score."}</p></div></header><div className="builder-card form-stack"><Field label="Section title" required hint={`${section.title.length}/255`}><input required maxLength={255} value={section.title} onChange={(current) => onSectionChange({ title: current.target.value })} /></Field><Field label="Page heading" required hint={`${section.pageHeading.length}/15`}><input required maxLength={15} value={section.pageHeading} onChange={(current) => onSectionChange({ pageHeading: current.target.value })} /></Field><Field label="Description and instructions"><RichTextEditor ariaLabel={`${participant ? "Participant" : "Submission"} description and instructions`} value={section.descriptionHtml} onChange={(descriptionHtml) => onSectionChange({ descriptionHtml })} maxChars={5000} /></Field></div><div className="builder-card field-section"><div className="section-heading"><div><h3>Form questions</h3><p>{section.fields.length} live question{section.fields.length === 1 ? "" : "s"}</p></div></div><div className="builder-fields">{section.fields.map((field, index) => <div className={selected === field.id ? "selected builder-field-row" : "builder-field-row"} key={field.id}><button type="button" className="field-row-main" onClick={() => onSelect(field.id)}><span className="field-type-icon">{typeIcon(field.fieldType)}</span><div><b>{field.label}{field.required && <em>*</em>}</b><small>{typeLabel(field.fieldType)}{field.visibility ? " · Conditional" : ""}</small></div>{field.locked && <LockKeyhole size={14} className="lock" />}</button><button type="button" className="icon-button" aria-label={`Move ${field.label} up`} disabled={index === 0 || busyLock(form)} onClick={() => onMove(field.id, -1)}><ArrowUp size={14} /></button><button type="button" className="icon-button" aria-label={`Move ${field.label} down`} disabled={index === section.fields.length - 1 || busyLock(form)} onClick={() => onMove(field.id, 1)}><ArrowDown size={14} /></button></div>)}</div><Button variant="ghost" className="add-question" disabled={form.hasNonDraftSubmissions} onClick={onAdd}><Plus size={16} /> Add question</Button>
   {/* M13b/M24: routing rules stamp a Track/Tags on submit, which only means
       something for a CFP submission — portal forms (context='portal') never
       show this panel (plan/modules/M13b-rules-ui.md "Portal forms" guardrail). */}
@@ -810,8 +941,22 @@ function FieldInspector({ field, form, onChange, onSave, onDelete, busy }: { fie
     {["text", "textarea", "richtext"].includes(field.fieldType) && <Field label="Maximum characters"><input type="number" min={1} value={field.maxChars ?? ""} onChange={(current) => onChange({ maxChars: current.target.value ? Number(current.target.value) : null })} /></Field>}
     <div className="inline-setting"><div><b>Required</b><small>Speakers must answer this question.</small></div><Switch label={`Require ${field.label}`} checked={field.required} disabled={field.locked || lockedStructure} onClick={() => onChange({ required: !field.required })} /></div>
     <Field label="Blind review" hint={field.locked ? "Locked identity fields are always hidden from anonymized reviewers." : "Anonymized rounds show only the answers marked as submission content. Anything left as identity is withheld."}><Select disabled={field.locked} value={field.reviewVisibility} onChange={(current) => onChange({ reviewVisibility: current.target.value as ReviewVisibility })}><option value="identity">Identity — hide from anonymized reviewers</option><option value="content">Submission content — show to anonymized reviewers</option></Select></Field>
-    {["dropdown", "multiselect"].includes(field.fieldType) && <Field label="Options" hint={lockedStructure ? "Options are locked after the first submission." : field.mapsTo === "submission.track_id" ? "One existing event track per line; bindings are validated on save." : field.mapsTo === "submission.format_id" ? "One existing session format per line; bindings are validated on save." : "One option per line; existing option ids are preserved."}><textarea disabled={lockedStructure} value={field.options.map((option) => option.label).join("\n")} onChange={(current) => onChange({ options: current.target.value.split("\n").map((label, index) => ({ ...(field.options[index] ?? { id: `draft-${index}` }), label })) })} /></Field>}
-    {!field.locked && <Field label="Maps to"><Select disabled={lockedStructure} value={field.mapsTo ?? ""} onChange={(current) => onChange({ mapsTo: (current.target.value || null) as MapsToTarget | null })}><option value="">No system mapping</option>{MAPS_TO_TARGETS.map((target) => <option key={target} value={target}>{target}</option>)}</Select></Field>}
+    {["dropdown", "multiselect"].includes(field.fieldType) && <Field label="Options" hint={lockedStructure ? "Options are locked after the first submission." : field.mapsTo === "submission.track_id" ? "One existing event track per line; bindings are validated on save." : field.mapsTo === "submission.format_id" ? "One existing session format per line; bindings are validated on save." : "One option per line; existing option ids are preserved."}><textarea disabled={lockedStructure} value={field.options.map((option) => option.label).join("\n")} onChange={(current) => onChange({ options: repairedOptionList(field.options, current.target.value.split("\n")) })} /></Field>}
+    {/* Locked identity questions keep this control visible but read-only: the
+        mapping is the reason they cannot be deleted or remapped, so hiding it
+        left the refusal unexplained. */}
+    {(!field.locked || field.mapsTo) && <Field
+      label="Maps to"
+      hint={field.locked
+        ? "Locked to this system field, so this question can’t be remapped or removed."
+        : "Where this answer lands on the submission or the speaker profile."}
+    >
+      <Select disabled={field.locked || lockedStructure} value={field.mapsTo ?? ""} onChange={(current) => onChange({ mapsTo: (current.target.value || null) as MapsToTarget | null })}>
+        <option value="">No system mapping</option>
+        <optgroup label="Submission">{MAPS_TO_TARGETS.filter((target) => target.startsWith("submission.")).map((target) => <option key={target} value={target}>{mapsToLabel(target)}</option>)}</optgroup>
+        <optgroup label="Speaker">{MAPS_TO_TARGETS.filter((target) => target.startsWith("contact.")).map((target) => <option key={target} value={target}>{mapsToLabel(target)}</option>)}</optgroup>
+      </Select>
+    </Field>}
     {/* Visibility is a structural change (guards.ts `fieldPatchIsStructural`)
         and is rejected server-side once the form has non-draft submissions —
         matching the locked hint already used above for Options. */}

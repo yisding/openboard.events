@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PlanDTO } from "../types";
 import { PlanEditor } from "./plan-editor";
+import type { EventMember } from "./plans-view";
 import { settle } from "@tests/support/react";
 
 const routerMock = vi.hoisted(() => ({ refresh: vi.fn() }));
@@ -62,11 +63,12 @@ function plan(status: PlanDTO["status"]): PlanDTO {
       scored: 1,
     }],
     progress: { scored: 1, total: 1 },
+    hasReviews: false,
     updatedAt: "2026-08-13T12:00:00.000Z",
   };
 }
 
-const MEMBERS = [
+const MEMBERS: EventMember[] = [
   { userId: REVIEWER_ID, name: "Ada Lovelace", email: "ada@example.com", role: "reviewer" },
   { userId: SECOND_REVIEWER_ID, name: "Grace Hopper", email: "grace@example.com", role: "reviewer" },
 ];
@@ -87,6 +89,7 @@ async function renderEditor(currentPlan: PlanDTO) {
         members={MEMBERS}
         nextRound={2}
         timezone="America/Los_Angeles"
+        onSaved={vi.fn()}
         onClose={onClose}
       />,
     );

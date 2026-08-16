@@ -6,7 +6,9 @@ import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { eventIdSchema } from "@/shared/contracts";
+import type { QuickAddedSpeaker } from "@/shared/ui/app/speaker-quick-add";
 import { agendaKeys } from "../hooks/keys";
+import { withQuickAddedSpeakers } from "../store";
 import { SessionFormDialog } from "./session-form-dialog";
 import { settle } from "@tests/support/react";
 
@@ -63,8 +65,10 @@ function buttonNamed(name: string): HTMLButtonElement | undefined {
     .find((button) => button.textContent?.trim() === name);
 }
 
+/** Stands in for the agenda page, which owns the quick-added contacts. */
 function Harness() {
   const [open, setOpen] = useState(true);
+  const [added, setAdded] = useState<QuickAddedSpeaker[]>([]);
   return (
     <>
       {!open && <button type="button" onClick={() => setOpen(true)}>Open session dialog</button>}
@@ -82,7 +86,8 @@ function Harness() {
         rooms={[]}
         tracks={[]}
         formats={[]}
-        speakers={[]}
+        speakers={withQuickAddedSpeakers([], added)}
+        onSpeakerAdded={(speaker) => setAdded((current) => [...current, speaker])}
       />
     </>
   );
@@ -300,5 +305,49 @@ describe("manual session creation recovery", () => {
 
     expect(String(fetchMock.mock.calls[1]?.[1]?.body)).toBe(firstBody);
     expect(buttonNamed("Open session dialog")).toBeDefined();
+  });
+});
+
+describe("session dialog speaker picker semantics", () => {
+  // Same class as the Placement checkbox above it: each speaker checkbox owns
+  // its own <label>, so a <label> wrapping the set nests them. That is invalid
+  // HTML, it labels only the first checkbox, and the name HTML-AAM computes for
+  // it is every *other* speaker's name run together.
+  it("names the speaker checkboxes as one group instead of nesting their labels", async () => {
+    await act(async () => root.render(
+      <QueryClientProvider client={queryClient}>
+        <SessionFormDialog
+          open
+          onClose={() => undefined}
+          session={null}
+          defaultDay={null}
+          eventId={eventId}
+          event={{
+            timezone: "America/Los_Angeles",
+            startsAt: "2026-09-15T16:00:00.000Z",
+            endsAt: "2026-09-17T01:00:00.000Z",
+          }}
+          rooms={[]}
+          tracks={[]}
+          formats={[]}
+          speakers={[
+            { contactId: "a5300000-0000-4000-8000-000000000001" as never, name: "Ada Lovelace" },
+            { contactId: "a5300000-0000-4000-8000-000000000002" as never, name: "Grace Hopper" },
+          ]}
+          onSpeakerAdded={() => undefined}
+        />
+      </QueryClientProvider>,
+    ));
+    await settle();
+
+    expect(container.querySelectorAll("label label")).toHaveLength(0);
+    const group = container.querySelector('[role="group"][aria-label="Speakers"]');
+    expect(group).not.toBeNull();
+    expect(group?.textContent).toContain("Ada Lovelace");
+    expect(group?.textContent).toContain("Grace Hopper");
+    const named = [...container.querySelectorAll("label")]
+      .filter((label) => label.textContent?.trim() === "Ada Lovelace");
+    expect(named).toHaveLength(1);
+    expect(named[0]?.querySelector('input[type="checkbox"]')).not.toBeNull();
   });
 });

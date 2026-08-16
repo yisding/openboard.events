@@ -1,10 +1,12 @@
 import { and, eq, sql, type SQL } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { contacts } from "@/db/schema";
+import { MAX_PAGE_NUMBER } from "@/shared/lib/page-query";
 // The `In` variant, not the barrel's `listLog`: this whole read threads a
 // single `dbOrTx` through every query (contact, submissions, tasks, comms) so
 // a PGlite test can exercise it end to end without a live Neon connection.
 import { listLogIn } from "@/features/comms/index.log";
+import { avatarColorFor } from "./shell";
 // The client-safe barrel: it re-exports `toPortalStatus` straight off
 // `server/guards.ts` with no path back through `server/mutations.ts` (which
 // imports `updateContactFields` from this feature's own barrel). Importing the
@@ -49,7 +51,7 @@ export function contactSpeakerRecord(row: ContactSpeakerRow): SpeakerRecord {
     website: row.websiteUrl ?? "",
     linkedin: row.linkedinUrl ?? "",
     avatar: `${firstInitial}${lastInitial}`.toUpperCase() || "?",
-    avatarColor: "#007454",
+    avatarColor: avatarColorFor(row.id),
     hasHeadshot: row.headshotFileId !== null,
     confirmation: row.confirmation,
     profileCompletion: Math.round((completed / 6) * 100),
@@ -246,12 +248,23 @@ function contactFilterClauses(eventId: EventId, filters: ContactFilters): SQL[] 
   return clauses;
 }
 
-/** Sorting by `openTasks` puts nulls (never-assigned contacts) last, in either direction. */
+/**
+ * Sorting by `openTasks` puts nulls (never-assigned contacts) last, in either
+ * direction.
+ *
+ * Every branch ends on `c.id` because this feeds `LIMIT/OFFSET`. `nameSort` is
+ * `lower(name-or-email)`, which two contacts can share — two speakers both
+ * called "John Smith", or a contact with no name whose email matches another's.
+ * Postgres may break that tie differently per execution, so a tied pair
+ * straddling a page boundary can put one contact on both pages and the other on
+ * neither, while `total` still counts them both. `getOutstandingTasksViewIn` in
+ * this same module already ends its order on `c.id ASC` for exactly this reason.
+ */
 function contactOrderClause(sort: ContactFilters["sort"], dir: ContactFilters["dir"]): SQL {
   const direction = dir === "desc" ? sql`DESC` : sql`ASC`;
-  if (sort === "openTasks") return sql`so.open_count ${direction} NULLS LAST, "nameSort" ASC`;
-  if (sort === "confirmation") return sql`c.confirmation_status ${direction}, "nameSort" ASC`;
-  return sql`"nameSort" ${direction}`;
+  if (sort === "openTasks") return sql`so.open_count ${direction} NULLS LAST, "nameSort" ASC, c.id ASC`;
+  if (sort === "confirmation") return sql`c.confirmation_status ${direction}, "nameSort" ASC, c.id ASC`;
+  return sql`"nameSort" ${direction}, c.id ASC`;
 }
 
 export async function listContactsIn(
@@ -259,8 +272,13 @@ export async function listContactsIn(
   eventId: EventId,
   filters: ContactFilters = {},
 ): Promise<{ rows: ContactListRow[]; total: number }> {
-  const pageSize = Math.min(Math.max(filters.pageSize ?? 25, 1), 100);
-  const page = Math.max(filters.page ?? 1, 1);
+  // `Math.max`/`Math.min` read as sanitizers, but neither excludes a fraction,
+  // a NaN or an Infinity — and this pair feeds `LIMIT/OFFSET` directly, where
+  // Postgres refuses a fractional bigint rather than rounding it. Both entry
+  // points parse the page with `.int()` today; truncating here is what stops a
+  // third caller reintroducing that 500 by trusting the clamp already written.
+  const pageSize = Math.min(Math.max(Math.trunc(filters.pageSize ?? 25) || 25, 1), 100);
+  const page = Math.min(Math.max(Math.trunc(filters.page ?? 1) || 1, 1), MAX_PAGE_NUMBER);
   const where = sql.join(contactFilterClauses(eventId, filters), sql` AND `);
   const order = contactOrderClause(filters.sort, filters.dir);
 

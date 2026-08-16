@@ -28,6 +28,13 @@ const migrationEmailCompliance = readFileSync(new URL("../../drizzle/0007_email_
 // M43 added `events.organization_id`, and the export loads the event through
 // the same Drizzle select — same reason as the line above.
 const migrationTenancy = readFileSync(new URL("../../drizzle/0010_organization_tenancy.sql", import.meta.url), "utf8");
+// First Fair added `events.is_demo`. Drizzle names every mapped column on an
+// insert and on a bare `select()`, so this fixture needs 0044 even though it
+// never touches a demo event — the same reason the tenancy migration is here.
+// 0044 also widens 0023's milestone CHECK, so that migration has to be present
+// for the ALTER to find a constraint to replace.
+const migrationOnboardingMilestones = readFileSync(new URL("../../drizzle/0023_onboarding_milestones.sql", import.meta.url), "utf8");
+const migrationDemoEvents = readFileSync(new URL("../../drizzle/0047_demo_events_and_tour.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("e1000000-0000-4000-8000-000000000001");
 const capEventId = eventIdSchema.parse("e1000000-0000-4000-8000-000000000002");
@@ -43,6 +50,8 @@ describe("submissions CSV export", () => {
     await pglite.exec(migrationReviewOps);
     await pglite.exec(migrationEmailCompliance);
     await pglite.exec(migrationTenancy);
+    await pglite.exec(migrationOnboardingMilestones);
+    await pglite.exec(migrationDemoEvents);
     db = drizzle(pglite, { schema }) as unknown as DbOrTx;
 
     for (const [id, slug, timezone] of [
@@ -111,7 +120,7 @@ describe("submissions CSV export", () => {
     // Code, Status, Source, Title — the guarded title is the fourth field.
     // toCsv's own field-value tests already cover the exact escaping; here
     // the point is only that the guard actually reaches a DB-sourced field.
-    expect(dataLine.startsWith("SESS-302,pending,Manual,'=cmd|")).toBe(true);
+    expect(dataLine.startsWith("SESS-302,Pending review,Manual,'=cmd|")).toBe(true);
   });
 
   it("formats Submitted At / Notified At in the event's own zone, and leaves an un-submitted field empty, not the string 'null'", async () => {

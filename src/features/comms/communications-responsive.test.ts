@@ -14,25 +14,57 @@ function cssBlockAt(css: string, start: number): string {
 }
 
 describe("communications activity table responsive styles", () => {
-  it("uses the compact readable table through 1024px and restores the full table above it", () => {
+  it("discloses the activity log's columns progressively at the canonical breakpoints", () => {
     const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
-    // The compact table used to live in a `max-width:899px` query. T5 allows
-    // only 480/768/1024/1280, so it now sits in the ≤1024 block. There are
-    // several ≤1024 blocks, so anchor on a rule unique to this one and walk
+    // The ladder used to live in a `max-width:899px` query. T5 allows only
+    // 480/768/1024/1280, so it now sits in the ≤1024 and ≤768 blocks. There
+    // are several of each, so anchor on a rule unique to this one and walk
     // back to the query that opens it rather than taking the first match.
-    const anchor = css.indexOf(".comms-table{width:100%!important;table-layout:fixed}");
-    expect(anchor).toBeGreaterThanOrEqual(0);
-    const start = css.lastIndexOf("@media", anchor);
-    expect(start).toBeGreaterThanOrEqual(0);
-    expect(css.startsWith("@media(max-width:1024px)", start)).toBe(true);
+    // The class hooks themselves are guarded against deletion by
+    // components/comms-log-table.test.tsx, which renders the real table.
+    const tabletAnchor = css.indexOf(".data-table th.comms-log-col-provider");
+    expect(tabletAnchor).toBeGreaterThanOrEqual(0);
+    const tabletStart = css.lastIndexOf("@media", tabletAnchor);
+    expect(css.startsWith("@media (max-width: 1024px)", tabletStart)).toBe(true);
+    const tabletBlock = cssBlockAt(css, tabletStart);
+    expect(tabletBlock).toContain(".data-table td.comms-log-col-provider");
+    expect(tabletBlock).toContain(".data-table td.comms-log-col-created");
+    // Subject is the widest cell in the row, so it leaves at the same rung
+    // rather than squeezing the recipient — and it is capped, not free, on the
+    // desktop rung above, or one long reminder subject sets the whole layout.
+    expect(tabletBlock).toContain(".data-table td.comms-log-col-subject");
+    expect(css).toContain(".data-table td.comms-log-col-subject>span{display:block;max-width:");
+    // Recipient, Template, Status and Sent survive the tablet step.
+    expect(tabletBlock).not.toContain("comms-log-col-recipient");
+    expect(tabletBlock).not.toContain("comms-log-col-template");
+    expect(tabletBlock).not.toContain("comms-log-col-sent");
 
-    const tabletBlock = cssBlockAt(css, start);
-    expect(tabletBlock).toContain(".comms-table{width:100%!important;table-layout:fixed}");
-    expect(tabletBlock).toContain(".comms-table th:nth-child(3),.comms-table td:nth-child(3),.comms-table th:nth-child(5),.comms-table td:nth-child(5){display:none}");
-    expect(tabletBlock).toContain(".comms-table th:first-child{width:38%}");
-    expect(tabletBlock).toContain(".comms-table th:nth-child(4){width:68px}");
-    expect(tabletBlock).toContain(".comms-table th:last-child{width:48px}");
-    expect(tabletBlock).toContain(".comms-table .submission-title-cell b,.comms-table .submission-title-cell span{white-space:nowrap}");
+    const mobileAnchor = css.indexOf(".data-table th.comms-log-col-template");
+    expect(mobileAnchor).toBeGreaterThanOrEqual(0);
+    const mobileStart = css.lastIndexOf("@media", mobileAnchor);
+    expect(css.startsWith("@media (max-width: 768px)", mobileStart)).toBe(true);
+    const mobileBlock = cssBlockAt(css, mobileStart);
+    // The shared 240px floor alone is wider than the phone column the row has
+    // to fit in, so the recipient cell must escape it here — and escape it with
+    // a *cap*, not `max-width:none`. `overflow:hidden` never shrinks a box's
+    // intrinsic width, so a nowrap address kept asking an auto-layout table for
+    // its full measured width and the row grew past `.table-scroll` instead of
+    // ellipsising.
+    expect(mobileBlock).toContain(".data-table td.comms-log-col-recipient .submission-title-cell { min-width: 0;");
+    expect(mobileBlock).toContain("max-width: clamp(");
+    expect(mobileBlock).not.toContain("max-width: none");
+
+    // ≤480 is the ladder's last rung: at 390px the 44px selection column, three
+    // cells of padding, the recipient and the status chip already fill the row,
+    // so the send time — which the row's detail drawer repeats — goes.
+    const phoneAnchor = css.indexOf(".data-table th.comms-log-col-sent");
+    expect(phoneAnchor).toBeGreaterThanOrEqual(0);
+    const phoneStart = css.lastIndexOf("@media", phoneAnchor);
+    expect(css.startsWith("@media (max-width: 480px)", phoneStart)).toBe(true);
+    expect(cssBlockAt(css, phoneStart)).toContain(".data-table td.comms-log-col-sent { display: none; }");
+
+    // Status is never hidden: it is what the tab exists to show.
+    expect(css).not.toContain("comms-log-col-status");
     expect(css).not.toContain("@media(max-width:899px)");
     expect(css).not.toContain("@media(max-width:900px)");
   });
@@ -45,7 +77,7 @@ describe("communications activity table responsive styles", () => {
 
   it("stacks the reminder editor and its actions at the canonical mobile breakpoint", () => {
     const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
-    const tabletAnchor = css.lastIndexOf(".reminder-rules-editor .reminder-rule{grid-template-columns:minmax(0,1fr) 160px}");
+    const tabletAnchor = css.lastIndexOf(".reminder-rules-editor .reminder-rule{grid-template-columns:minmax(0,1fr) 160px auto}");
     const anchor = css.lastIndexOf(".reminder-rules-editor .reminder-rule{grid-template-columns:1fr}");
     expect(anchor).toBeGreaterThanOrEqual(0);
     expect(anchor).toBeGreaterThan(tabletAnchor);
@@ -75,7 +107,6 @@ describe("communications activity table responsive styles", () => {
     expect(source).toContain('role="tablist"');
     expect(source).toContain('role="tabpanel"');
     expect(source).toContain("tabIndex={tab === entry.id ? 0 : -1}");
-    expect(source).toContain('event.key === "ArrowRight"');
-    expect(source).toContain('event.key === "ArrowLeft"');
+    expect(source).toContain("moveRovingTab(event, TAB_IDS, entry.id, selectTab)");
   });
 });

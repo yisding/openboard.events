@@ -18,7 +18,7 @@ import {
   type TagDTO,
   type TrackDTO,
 } from "@/shared/contracts";
-import { Button, EmptyState } from "@/shared/ui/ui-kit";
+import { Button, ColorWell, EmptyState } from "@/shared/ui/ui-kit";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { useToast } from "@/shared/ui/toast";
@@ -48,6 +48,22 @@ function dtoSchemaFor(kind: VocabKind): ZodType<VocabItem> {
     case "tags": return tagDtoSchema;
   }
 }
+
+/**
+ * What a deletion actually costs, named per kind — D4 wants the confirm to
+ * describe the real consequence, not a shared boilerplate. Rooms are the reason
+ * this is a map: they are never referenced by submissions or routing rules the
+ * way tracks and formats are, so the "becomes uncategorized / routing rule
+ * soft-disabled" line is simply false for them. What a room delete really does
+ * is strand the sessions placed in it, which the agenda's own save is what
+ * finally tells their speakers about.
+ */
+const DELETE_CONSEQUENCE: Record<VocabKind, string> = {
+  tracks: "Submissions using it will become uncategorized. Any routing rule that named it stays but is soft-disabled — deleting it here does not touch routing rules.",
+  formats: "Submissions using it will become uncategorized. Any routing rule that named it stays but is soft-disabled — deleting it here does not touch routing rules.",
+  rooms: "Sessions in this room lose their room assignment. A published, timed session also advances its schedule revision, and its speakers are notified the next time that session is saved. Rooms are never used by submissions or routing rules.",
+  tags: "Submissions tagged with it will lose the tag.",
+};
 
 const COPY: Record<VocabKind, { title: string; addLabel: string; empty: string; emptyHint: string }> = {
   tracks: {
@@ -116,8 +132,7 @@ function Row({
         </button>
       )}
       {hasColor(item) && (
-        <input
-          type="color"
+        <ColorWell
           value={color}
           disabled={mutationDisabled}
           className="vocab-color"
@@ -421,11 +436,7 @@ export function VocabTab({ eventId, kind, initialItems }: { eventId: EventId; ki
       <ConfirmDialog
         open={pendingDelete !== null && deleteRecovery === null}
         title={`Delete ${pendingDelete?.name ?? "this item"}?`}
-        body={
-          kind === "tags"
-            ? "Submissions tagged with it will lose the tag."
-            : "Submissions using it will become uncategorized. Any routing rule that named it stays but is soft-disabled — deleting it here does not touch routing rules."
-        }
+        body={DELETE_CONSEQUENCE[kind]}
         confirmLabel="Delete"
         onConfirm={() => void confirmDelete()}
         onCancel={() => { if (!mutationLocked) setPendingDelete(null); }}

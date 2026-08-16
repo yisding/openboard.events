@@ -88,28 +88,31 @@ describe("speaker status selection accessibility", () => {
     expect(html).toContain('role="group" aria-label="Speaker confirmation status"');
     expect(html.match(/aria-pressed="true"/g)).toHaveLength(1);
     expect(html.match(/aria-pressed="false"/g)).toHaveLength(2);
-    expect(html).toMatch(/aria-pressed="true" class="active"[^>]*>confirmed<\/button>/);
+    expect(html).toMatch(/aria-pressed="true" class="active"[^>]*>Confirmed<\/button>/);
+    // The buttons speak the same authored vocabulary as the badge beside them.
+    expect(html).toContain(">Awaiting confirmation</button>");
   });
 
   it("reports a newly selected status from the pressed-state control", async () => {
     const onChange = vi.fn();
     await act(async () => root.render(<SpeakerStatusOptions
       label="Speaker pipeline status"
-      options={["ready", "needs_assets"]}
+      options={["ready", "overdue"]}
       value="ready"
       onChange={onChange}
     />));
 
-    const needsAssets = [...container.querySelectorAll<HTMLButtonElement>("button")]
-      .find((button) => button.textContent === "needs assets");
-    if (!needsAssets) throw new Error("Missing needs assets status option");
-    await act(async () => needsAssets.click());
-    expect(onChange).toHaveBeenCalledWith("needs_assets");
+    const overdue = [...container.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === "Overdue");
+    if (!overdue) throw new Error("Missing overdue status option");
+    await act(async () => overdue.click());
+    expect(onChange).toHaveBeenCalledWith("overdue");
   });
 
   it("renders counted combinable filters and preserves the rest of the roster URL when they change", async () => {
     await act(async () => root.render(<SpeakersAdminView
       eventId="event-1"
+      timezone="America/Los_Angeles"
       rows={[]}
       total={84}
       filterCounts={{ all: 84, accepted: 31, missingEither: 12, missingBio: 7, missingHeadshot: 9 }}

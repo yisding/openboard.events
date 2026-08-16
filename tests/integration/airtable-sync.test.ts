@@ -44,7 +44,7 @@ const SECRET = "airtable-integration-test-secret-at-least-32-bytes";
 const FAKE_PAT = "patFAKE0000000000000000INTEGRATIONTEST";
 
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
-const migration45 = readFileSync(new URL("../../drizzle/0045_airtable_connections.sql", import.meta.url), "utf8");
+const migration52 = readFileSync(new URL("../../drizzle/0052_airtable_connections.sql", import.meta.url), "utf8");
 
 const captureErrorMock = vi.hoisted(() => vi.fn());
 vi.mock("@/shared/lib/error-tracking", () => ({ captureError: captureErrorMock }));
@@ -307,7 +307,7 @@ async function countRows(sql: string, params: unknown[]): Promise<number> {
 beforeAll(async () => {
   pglite = new PGlite();
   await pglite.exec(migration0);
-  await pglite.exec(migration45);
+  await pglite.exec(migration52);
   db = drizzle(pglite, { schema }) as unknown as DbOrTx;
   vi.stubEnv("SESSION_SECRET", SECRET);
 }, 60_000);

@@ -1,4 +1,5 @@
 import { daysToEvent } from "@/shared/lib/time";
+import { formOpenState } from "@/features/forms/index.availability";
 import type { MyTaskDTO, PortalSubmissionRow } from "@/features/portal";
 
 /**
@@ -51,11 +52,29 @@ export function computePortalHero(input: {
   const task = mostUrgentTask(input.myTasks);
   if (task) return { kind: "task", task };
 
-  // A resumable draft: has a form (not a manually-created row) and that
-  // form's window has not closed. Withdrawn/expired drafts are not "the next
-  // step" — they are dead ends, and pointing a speaker at one reads as a bug.
+  // A resumable draft: has a form (not a manually-created row) and that form is
+  // actually open. Withdrawn/expired drafts are not "the next step" — they are
+  // dead ends, and pointing a speaker at one reads as a bug.
+  //
+  // Testing `closesAt` alone only covered half of that. The authority is
+  // `status = 'open' AND …` (0038_form_open_wall_clock.sql), so an organizer
+  // using "Stop accepting submissions" on a CFP with no close date flips
+  // `status` and leaves `closes_at` NULL — and every speaker with a draft got a
+  // primary "Resume your submission" call to action that lands on
+  // `FormClosedNotice`. Ask `formOpenState`, the shared twin of
+  // `is_form_open()`, which the edit gate already uses.
   const now = input.now ?? new Date();
-  const draft = input.submissions.find((row) => row.status === "Draft" && row.formId !== null && (!row.formClosesAt || new Date(row.formClosesAt) > now));
+  const nowIso = now.toISOString();
+  const draft = input.submissions.find((row) => row.status === "Draft"
+    && row.formId !== null
+    // Submitter-only. `listMySubmissions` joins through
+    // `submission_participants`, so a co-speaker's list includes the
+    // submitter's draft — but the edit gate requires
+    // `submitterContactId = contactId` and answers NOT_FOUND. Without this a
+    // co-speaker's *only* primary call to action was "Resume your submission",
+    // bouncing to "isn't open for editing" on every single load.
+    && row.isPrimary
+    && formOpenState({ status: row.formStatus, opensAt: row.formOpensAt, closesAt: row.formClosesAt }, nowIso).open);
   if (draft) {
     return {
       kind: "draft",

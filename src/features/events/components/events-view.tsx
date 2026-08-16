@@ -14,9 +14,16 @@ export function EventsView({ events, user, createHref, hasOrganizations, nowIso 
     <main className="events-index">
       <header className="events-index-header">
         <Brand dark />
-        <div>
+        {/* Who you are, then the way out — in that order, and as one bordered
+            cluster. The sign-out control was a borderless ghost sitting to the
+            *left* of an avatar that does nothing when pressed, which is the
+            one place people look for it: organizers read the pair as a label
+            beside a badge and reported the screen as having no way to log out
+            at all. */}
+        <div className="events-index-account">
+          <span className="header-avatar" aria-hidden="true">{initials}</span>
+          <span className="events-index-account-name">{accountName}</span>
           <SignOutButton kind="admin" />
-          <span className="header-avatar" aria-label={`Signed in as ${accountName}`} title={accountName}>{initials}</span>
         </div>
       </header>
       <section className="events-index-content">

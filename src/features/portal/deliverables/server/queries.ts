@@ -132,6 +132,12 @@ export async function listDeliverablesIn(
       AND (
         ${search}::text IS NULL
         OR c.first_name ILIKE '%' || ${search} || '%' OR c.last_name ILIKE '%' || ${search} || '%'
+        -- The Speaker column renders the concatenation and the box is labelled
+        -- "Search speaker, request, or session", so copying a name out of the
+        -- table has to match it. Matching the parts separately meant "Ada
+        -- Lovelace" found nothing and every tab badge dropped to 0.
+        -- listSubmissionsIn already concatenates for exactly this reason.
+        OR btrim(c.first_name || ' ' || c.last_name) ILIKE '%' || ${search} || '%'
         OR c.email ILIKE '%' || ${search} || '%' OR s.title ILIKE '%' || ${search} || '%'
         OR r.title ILIKE '%' || ${search} || '%'
       )
@@ -188,6 +194,12 @@ export async function getDeliverableStateCountsIn(
       AND (
         ${search}::text IS NULL
         OR c.first_name ILIKE '%' || ${search} || '%' OR c.last_name ILIKE '%' || ${search} || '%'
+        -- The Speaker column renders the concatenation and the box is labelled
+        -- "Search speaker, request, or session", so copying a name out of the
+        -- table has to match it. Matching the parts separately meant "Ada
+        -- Lovelace" found nothing and every tab badge dropped to 0.
+        -- listSubmissionsIn already concatenates for exactly this reason.
+        OR btrim(c.first_name || ' ' || c.last_name) ILIKE '%' || ${search} || '%'
         OR c.email ILIKE '%' || ${search} || '%' OR s.title ILIKE '%' || ${search} || '%'
         OR r.title ILIKE '%' || ${search} || '%'
       )

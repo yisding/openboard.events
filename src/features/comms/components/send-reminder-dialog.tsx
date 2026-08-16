@@ -6,6 +6,7 @@ import type { OpenAssignmentRow } from "@/features/comms";
 import { isAppError, isDefinitiveWriteFailure } from "@/shared/lib/errors";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { Dash } from "@/shared/ui/app/dash";
+import { TzTime } from "@/shared/ui/app/tz-time";
 import { Button, Modal } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { useOpenAssignments, useSendReminderNow } from "../hooks/use-send-reminder";
@@ -46,11 +47,21 @@ export function SendReminderDialog({
   eventId,
   contactId,
   contactName,
+  timezone,
   onClose,
 }: {
   eventId: EventId;
   contactId: ContactId;
   contactName: string;
+  /**
+   * The event's zone. A task's `dueAt` is written as the last millisecond of a
+   * *date in this zone*, so rendering the raw instant is off by a calendar day
+   * for any negative-offset event: a due date of 2026-11-01 in
+   * `America/Los_Angeles` stores 2026-11-02T06:59:59.999Z, and this dialog
+   * printed that literal ISO string — a day later than the date the organizer
+   * set. Every other renderer of the same field uses `TzTime`.
+   */
+  timezone: string;
   onClose: () => void;
 }) {
   const { toast } = useToast();
@@ -137,7 +148,12 @@ export function SendReminderDialog({
               <li key={`${assignment.taskId}:${assignment.submissionId ?? "-"}`}>
                 <div>
                   <b>{assignment.taskName}</b>
-                  <span><Dash value={assignment.submissionCode} /> · due <Dash value={assignment.dueAt} /></span>
+                  <span>
+                    <Dash value={assignment.submissionCode} /> · due{" "}
+                    {assignment.dueAt
+                      ? <TzTime instant={assignment.dueAt} tz={timezone} style="date" />
+                      : <Dash value={null} />}
+                  </span>
                 </div>
                 <Button size="sm" variant="secondary" disabled={sendReminder.isPending} onClick={() => beginAttempt(assignment)}>
                   {sentAssignmentKey === assignmentKey(assignment) ? "Sent" : "Send reminder"}

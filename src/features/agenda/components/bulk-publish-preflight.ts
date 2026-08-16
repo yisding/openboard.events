@@ -4,6 +4,13 @@ import { isDefinitiveWriteFailure } from "@/shared/lib/errors";
 export type BulkPublishPreflight = {
   candidates: ScheduledSessionDTO[];
   unscheduled: ScheduledSessionDTO[];
+  /**
+   * Candidates whose abstract is no longer accepted. Publishing them is
+   * allowed — the organizer may be about to re-accept the abstract — but the
+   * confirm dialog must stop promising they "will become visible", because
+   * `published_sessions_v` will not carry them.
+   */
+  notPublic: ScheduledSessionDTO[];
   emailFanout: number;
   conflictCount: number;
 };
@@ -52,6 +59,9 @@ export function bulkPublishPreflight(
   return {
     candidates,
     unscheduled,
+    notPublic: candidates.filter((session) => (
+      session.linkedSubmission !== null && session.linkedSubmission.status !== "accepted"
+    )),
     emailFanout: candidates
       .filter((session) => session.startsAt !== null && session.endsAt !== null)
       .reduce((total, session) => total + session.speakerIds.length, 0),

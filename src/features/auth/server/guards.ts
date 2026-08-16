@@ -83,10 +83,17 @@ export const authenticatedAuth = (): HandlerGuard => async () => {
 
 export const publicAuth = (): HandlerGuard => async () => null;
 
+/**
+ * The speaker is the actor; the organizer impersonating them, when there is
+ * one, is the accountable identity. Both cross the auth boundary — a portal
+ * mutation route that only ever learned the contact id could not record who
+ * really pressed the button, so "Open portal as Ada" left no trace anywhere
+ * that Ada had not acted for herself.
+ */
 export const portalAuth = (): HandlerGuard => async (_request, eventId) => {
   if (!eventId) throw new AppError("VALIDATION", "eventId route parameter is required");
   const session = await requirePortalByEventId(eventId);
-  return { actorId: session.contactId, role: "portal" };
+  return { actorId: session.contactId, role: "portal", impersonatedByUserId: session.impersonatedByUserId };
 };
 
 function stringParam(params: RouteParams, key: string): string | null {

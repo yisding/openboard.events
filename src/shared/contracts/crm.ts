@@ -22,6 +22,7 @@ import {
   sessionIdSchema,
   userIdSchema,
 } from "./ids";
+import { LIMITS } from "./limits";
 
 /**
  * M55 — organization-level speaker CRM contracts. Additive only: nothing
@@ -69,8 +70,8 @@ export const createOrganizationContactInputSchema = z.object({
   email: z.string().trim().toLowerCase().pipe(z.email()),
   firstName: z.string().trim().max(120).optional(),
   lastName: z.string().trim().max(120).optional(),
-  company: z.string().trim().max(160).optional(),
-  jobTitle: z.string().trim().max(160).optional(),
+  company: z.string().trim().max(LIMITS.JOB_TITLE).optional(),
+  jobTitle: z.string().trim().max(LIMITS.JOB_TITLE).optional(),
   linkedinUrl: z.union([z.url(), z.literal("")]).optional(),
   twitterUrl: z.union([z.url(), z.literal("")]).optional(),
   websiteUrl: z.union([z.url(), z.literal("")]).optional(),
@@ -80,8 +81,8 @@ export type CreateOrganizationContactInput = z.infer<typeof createOrganizationCo
 export const updateOrganizationContactInputSchema = z.object({
   firstName: z.string().trim().max(120).optional(),
   lastName: z.string().trim().max(120).optional(),
-  company: z.string().trim().max(160).nullable().optional(),
-  jobTitle: z.string().trim().max(160).nullable().optional(),
+  company: z.string().trim().max(LIMITS.JOB_TITLE).nullable().optional(),
+  jobTitle: z.string().trim().max(LIMITS.JOB_TITLE).nullable().optional(),
   linkedinUrl: z.union([z.url(), z.literal(""), z.null()]).optional(),
   twitterUrl: z.union([z.url(), z.literal(""), z.null()]).optional(),
   websiteUrl: z.union([z.url(), z.literal(""), z.null()]).optional(),
@@ -91,6 +92,15 @@ export const updateOrganizationContactInputSchema = z.object({
 }).refine((input) => Object.keys(input).length > 0, { message: "Provide at least one field to update" });
 export type UpdateOrganizationContactInput = z.infer<typeof updateOrganizationContactInputSchema>;
 
+/** A `{ key: exactValue }` map read against a contact's inline `custom_fields`
+ * JSON (keyed by the field definition's `key`). Every entry must match
+ * exactly, so entries AND together and AND with every other filter field. An
+ * equality-only slice by design: ranges/operators can layer on later without
+ * changing this stored shape. Shared by the directory and segment filters so
+ * both feed the one predicate builder in `listOrganizationContactsIn`. */
+export const crmCustomFieldFilterSchema = z.record(z.string().min(1), z.string().trim().min(1).max(2_000));
+export type CrmCustomFieldFilter = z.infer<typeof crmCustomFieldFilterSchema>;
+
 export const directoryFilterSchema = z.object({
   search: z.string().trim().max(200).optional(),
   tagIds: z.array(crmTagIdSchema).min(1).optional(),
@@ -98,6 +108,9 @@ export const directoryFilterSchema = z.object({
   hasEventLink: z.boolean().optional(),
   pipelineStage: z.array(crmPipelineStageSchema).min(1).optional(),
   source: z.array(crmContactSourceSchema).min(1).optional(),
+  // Same `{ key: exactValue }` custom-field equality the segment filter uses;
+  // both feed the one predicate builder in `listOrganizationContactsIn`.
+  customFields: crmCustomFieldFilterSchema.optional(),
   limit: z.number().int().min(1).max(200).default(50),
   offset: z.number().int().min(0).default(0),
 });
@@ -306,13 +319,17 @@ export type CrmMergeAuditDetailDTO = z.infer<typeof crmMergeAuditDetailDtoSchema
 
 /** AND semantics across every provided field, same convention M46's
  * `speakerSegmentFilterSchema` uses one scope down. `tagIds` requires ALL
- * listed tags present (not any); every other array field is ANY-of. */
+ * listed tags present (not any); every other array field is ANY-of.
+ * `customFields` (see `crmCustomFieldFilterSchema`) ANDs an exact value per
+ * field with everything else — a tag AND a custom-field value resolves to
+ * exactly the contacts carrying both. */
 export const crmSegmentFilterSchema = z.object({
   search: z.string().trim().max(200).optional(),
   tagIds: z.array(crmTagIdSchema).min(1).optional(),
   eventIds: z.array(eventIdSchema).min(1).optional(),
   pipelineStage: z.array(crmPipelineStageSchema).min(1).optional(),
   source: z.array(crmContactSourceSchema).min(1).optional(),
+  customFields: crmCustomFieldFilterSchema.refine((map) => Object.keys(map).length > 0, { message: "Select at least one custom field to filter on" }).optional(),
 });
 export type CrmSegmentFilter = z.infer<typeof crmSegmentFilterSchema>;
 

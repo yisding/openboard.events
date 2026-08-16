@@ -6,10 +6,11 @@ import Page from "./page";
 
 Object.assign(globalThis, { React });
 
-const { requireAdminMock, listContactsMock, getSpeakerFilterCountsMock } = vi.hoisted(() => ({
+const { requireAdminMock, listContactsMock, getSpeakerFilterCountsMock, getEventMock } = vi.hoisted(() => ({
   requireAdminMock: vi.fn(),
   listContactsMock: vi.fn(),
   getSpeakerFilterCountsMock: vi.fn(),
+  getEventMock: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -18,6 +19,7 @@ vi.mock("next/navigation", () => ({
   }),
 }));
 vi.mock("@/features/auth", () => ({ requireAdmin: requireAdminMock }));
+vi.mock("@/features/events", () => ({ getEvent: getEventMock }));
 vi.mock("@/features/portal", () => ({
   getSpeakerFilterCounts: getSpeakerFilterCountsMock,
   listContacts: listContactsMock,
@@ -46,6 +48,7 @@ const render = () => Page({ params: Promise.resolve({ eventId }), searchParams: 
 describe("speaker roster page guard", () => {
   beforeEach(() => {
     requireAdminMock.mockReset();
+    getEventMock.mockReset().mockResolvedValue({ id: eventId, timezone: "America/Los_Angeles" });
     listContactsMock.mockReset().mockResolvedValue({ rows: [], total: 0 });
     getSpeakerFilterCountsMock.mockReset().mockResolvedValue({
       all: 0,
@@ -65,6 +68,7 @@ describe("speaker roster page guard", () => {
     await expect(render()).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(requireAdminMock).toHaveBeenCalledWith(eventId, "organizer");
     expect(listContactsMock).not.toHaveBeenCalled();
+    expect(getEventMock).not.toHaveBeenCalled();
   });
 
   it("still serves an organizer", async () => {

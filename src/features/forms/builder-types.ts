@@ -17,6 +17,36 @@ import type { FormAvailability } from "./lib/form-open";
 export const BUILDER_STEPS = ["setup", "welcome", "abstract", "participant", "settings", "notifications"] as const;
 export type BuilderStep = (typeof BUILDER_STEPS)[number];
 
+/**
+ * What each system mapping is called on screen. `MAPS_TO_TARGETS` are storage
+ * paths (`contact.headshot_file_id`); organizers choose destinations by the
+ * names the rest of the product already uses. `Record<MapsToTarget, string>`
+ * makes a new target without a name a type error.
+ */
+export const MAPS_TO_LABELS: Record<MapsToTarget, string> = {
+  "submission.title": "Session title",
+  "submission.description_html": "Abstract",
+  "submission.track_id": "Track",
+  "submission.format_id": "Session format",
+  "submission.level": "Level",
+  "submission.language": "Language",
+  "contact.first_name": "First name",
+  "contact.last_name": "Last name",
+  "contact.email": "Email",
+  "contact.bio_html": "Biography",
+  "contact.company": "Company",
+  "contact.job_title": "Job title",
+  "contact.pronouns": "Pronouns",
+  "contact.headshot_file_id": "Headshot",
+  "contact.linkedin_url": "LinkedIn",
+  "contact.twitter_url": "Twitter/X",
+  "contact.website_url": "Website",
+};
+
+export function mapsToLabel(target: MapsToTarget): string {
+  return MAPS_TO_LABELS[target];
+}
+
 export type BuilderEvent = {
   id: string;
   name: string;

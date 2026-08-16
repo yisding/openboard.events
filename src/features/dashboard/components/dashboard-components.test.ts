@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { formatInZone } from "@/shared/lib/time";
+import { formatInZone, zoneAbbreviation } from "@/shared/lib/time";
 import type { EventId } from "@/shared/contracts";
 import { copyPublicFormLink, nextFormAvailabilityRefreshMs } from "@/features/forms/index.client";
 import { EMPTY_FIXTURE_OVERVIEW, FIXTURE_OVERVIEW } from "../__fixtures__/overview";
@@ -77,6 +77,75 @@ describe("dashboard components", () => {
     expect(statusIndex).toBeLessThan(formProgressIndex);
   });
 
+  /**
+   * First Fair (design §3.9, §3.6). A demo dashboard has one onboarding voice
+   * on it, and it is the tutorial's. The milestone banner and the launch guide
+   * both exist to activate a *real* event, so both stand down — and the slot
+   * the launch guide vacates is where a paused tour offers itself back.
+   */
+  it("hands the demo dashboard's guidance slot to the tour and silences the other two nudges", () => {
+    const render = (
+      overview: typeof FIXTURE_OVERVIEW,
+      tour?: Parameters<typeof DashboardTabsView>[0]["tour"],
+    ) => renderToStaticMarkup(React.createElement(
+      ToastProvider,
+      null,
+      React.createElement(DashboardTabsView, {
+        eventId: overview.event.id as EventId,
+        firstName: "Maya",
+        initialTab: "today",
+        live: false,
+        overview,
+        ...(tour ? { tour } : {}),
+      }),
+    ));
+
+    // A real event keeps both nudges exactly as they were.
+    expect(render(FIXTURE_OVERVIEW)).toContain("dashboard-milestones");
+    expect(render(EMPTY_FIXTURE_OVERVIEW)).toContain("dashboard-activation");
+    expect(render(FIXTURE_OVERVIEW)).not.toContain("Guided tour · paused");
+
+    expect(render(FIXTURE_OVERVIEW, { isDemo: true }), "the milestone banner activates a real event, and this is not one")
+      .not.toContain("dashboard-milestones");
+    expect(render(EMPTY_FIXTURE_OVERVIEW, { isDemo: true }), "the launch guide stands down too — the tour owns this slot")
+      .not.toContain("dashboard-activation");
+
+    const paused = render(FIXTURE_OVERVIEW, {
+      isDemo: true,
+      resume: {
+        chapter: "the-grid",
+        stepId: "grid.place",
+        chapterLabel: "Chapter 7 of 11 — The grid",
+        percent: 62,
+        resumeHref: `/events/${FIXTURE_OVERVIEW.event.id}/agenda?view=day`,
+      },
+    });
+    expect(paused).toContain("Guided tour · paused");
+    expect(paused).toContain("Chapter 7 of 11 — The grid");
+    expect(paused).not.toContain("dashboard-milestones");
+
+    /**
+     * The other way a tutorial owes the organizer this card: the row still
+     * says `active`, but its step is one this build cannot show, so the coach
+     * has nothing to draw and the dashboard is the only surface left. Silence
+     * there reads as "the tour is gone", which is the one thing it is not.
+     */
+    const stranded = render(FIXTURE_OVERVIEW, {
+      isDemo: true,
+      resume: {
+        chapter: "the-grid",
+        stepId: "grid.place",
+        chapterLabel: "Chapter 7 of 11 — The grid",
+        percent: 62,
+        resumeHref: `/events/${FIXTURE_OVERVIEW.event.id}/agenda?view=day`,
+        stranded: true,
+      },
+    });
+    expect(stranded).toContain("Guided tour · waiting for you");
+    expect(stranded).toContain("not in this version of the tour any more");
+    expect(stranded).toContain("Pick the tour back up");
+  });
+
   it("renders every designed empty state without invalid percentages", () => {
     const speakerHtml = renderToStaticMarkup(React.createElement(SpeakerTrackingPanel, { overview: EMPTY_FIXTURE_OVERVIEW }));
     const todayHtml = renderToStaticMarkup(React.createElement(TodayPanel, { overview: EMPTY_FIXTURE_OVERVIEW, firstName: "Maya" }));
@@ -104,15 +173,23 @@ describe("dashboard components", () => {
     for (const item of FIXTURE_OVERVIEW.attention) {
       expect(html).toContain(`href="${item.href}"`);
     }
-    // Ranked by count, most urgent first: the fixture's counts are 3, 7, 2 for
-    // unscheduled/awaiting-decision/missing-assets, so "awaiting a decision"
-    // (7) leads and "missing a bio or headshot" (2) trails.
+    // The to-do rows stay ranked by count, most urgent first: the fixture's
+    // counts are 3, 7, 2 for unscheduled/awaiting-decision/missing-assets, so
+    // "awaiting a decision" (7) leads them and "missing a bio or headshot" (2)
+    // trails.
     const decisionIndex = html.indexOf("awaiting a decision");
     const unscheduledIndex = html.indexOf("still need a time slot");
     const missingIndex = html.indexOf("missing a bio or headshot");
     expect(decisionIndex).toBeGreaterThan(-1);
     expect(decisionIndex).toBeLessThan(unscheduledIndex);
     expect(unscheduledIndex).toBeLessThan(missingIndex);
+    // MTP-07 §1.5 — but the rank-0 row is not a to-do, and its count of 1 is
+    // the smallest in the fixture. It still leads the whole list, and it is the
+    // row the tour pins.
+    const hiddenIndex = html.indexOf("missing from the public schedule");
+    expect(hiddenIndex).toBeGreaterThan(-1);
+    expect(hiddenIndex).toBeLessThan(decisionIndex);
+    expect(html.indexOf('data-tour="dashboard.attention-row"')).toBeLessThan(decisionIndex);
   });
 
   it("guides a new event from form creation through its first submitted proposal", () => {
@@ -269,6 +346,21 @@ describe("dashboard components", () => {
     expect(`${topHtml}${overdueHtml}`).not.toContain(`/speakers/${contactId}`);
   });
 
+  it("names the event timezone on every overdue deadline", () => {
+    const row = FIXTURE_OVERVIEW.speakerTracking.overdue[0];
+    if (!row) throw new Error("Dashboard fixture must contain an overdue task");
+    const { timezone } = FIXTURE_OVERVIEW.event;
+    const html = renderToStaticMarkup(React.createElement(OverdueList, {
+      eventId: FIXTURE_OVERVIEW.event.id,
+      timezone,
+      rows: FIXTURE_OVERVIEW.speakerTracking.overdue,
+    }));
+
+    // Nothing else on the dashboard names the zone, and "overdue" is a claim
+    // the reader checks against a clock.
+    expect(html).toContain(`${formatInZone(row.dueAt, timezone, { dateStyle: "medium", timeStyle: "short" })} ${zoneAbbreviation(row.dueAt, timezone)}`);
+  });
+
   it("opens each recent submission directly in the abstracts drawer", () => {
     const html = renderToStaticMarkup(React.createElement(RecentSubmissionsTable, {
       eventId: FIXTURE_OVERVIEW.event.id,
@@ -279,7 +371,30 @@ describe("dashboard components", () => {
     for (const row of FIXTURE_OVERVIEW.recentSubmissions) {
       expect(html).toContain(`/events/${FIXTURE_OVERVIEW.event.id}/abstracts?submission=${row.id}`);
     }
-    expect(html).toContain("Open submission");
+    // The whole row is the affordance, so its label is for assistive tech
+    // only — rendered inline it ran onto the end of every title
+    // ("Fast inferenceOpen submission") and pushed the title out of the cell.
+    expect(html).toContain('<span class="sr-only">Open submission</span>');
+  });
+
+  it("dates recent submissions the way the abstracts table it links to does", () => {
+    const row = FIXTURE_OVERVIEW.recentSubmissions[0];
+    if (!row?.submittedAt) throw new Error("Dashboard fixture must contain a submitted proposal");
+    const { timezone } = FIXTURE_OVERVIEW.event;
+    const html = renderToStaticMarkup(React.createElement(RecentSubmissionsTable, {
+      eventId: FIXTURE_OVERVIEW.event.id,
+      timezone,
+      rows: FIXTURE_OVERVIEW.recentSubmissions,
+    }));
+
+    // The date on the primary line with the time and zone underneath — the
+    // `style="date" secondary="time"` cell the Abstracts table renders for
+    // this same field. No weekday, spelled-out month or seconds: nothing else
+    // in the product shows them, and they made this the widest column here.
+    const zone = zoneAbbreviation(row.submittedAt, timezone);
+    const date = formatInZone(row.submittedAt, timezone, "date").replace(` ${zone}`, "");
+    expect(html).toContain(`${date}<small>${formatInZone(row.submittedAt, timezone, "time")}</small>`);
+    expect(html).not.toMatch(/August|:\d\d:\d\d\s/);
   });
 
   it("honors a valid requested dashboard tab and falls back otherwise", () => {

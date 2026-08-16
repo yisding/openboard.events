@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, gt, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
-import { adminAuthEmailOutbox } from "@/db/schema";
+import { adminAuthEmailOutbox, events, organizationInvitations } from "@/db/schema";
 import { organizationInvitationIdSchema, type TemplateKey, type UserId } from "@/shared/contracts";
 import { AppError, isAppError } from "@/shared/lib/errors";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
@@ -44,6 +44,33 @@ const TEMPLATES: Record<AdminAuthTemplateKey, {
     outro: "If this was not you, you can ignore this email — your password has not changed.",
   },
 };
+
+/**
+ * First Fair — the demo mail barrier's **second** outbox.
+ *
+ * `admin_auth_email_outbox` is drained by this module, not by the comms
+ * dispatcher, so `buildContext`'s `events.is_demo` guard never sees a row that
+ * lands here. Reviewer invitations are event-scoped and therefore the one
+ * template key that can name a demo event, and `inviteEventReviewerIn` already
+ * refuses those at the writer. This is the symmetric barrier behind it: the
+ * product's claim is "no email ever leaves the building", and a claim that
+ * depends on exactly one writer remembering is not a rail.
+ *
+ * The reason text is duplicated from `@/features/comms`'s
+ * `DEMO_MAIL_SKIP_REASON` rather than imported: `comms -> auth` already exists,
+ * and the reverse edge would be a feature cycle. `check-source-invariants.ts`
+ * pins the literal in both files so they cannot drift apart.
+ */
+const DEMO_MAIL_SKIP_REASON = "demo event — mail is never delivered";
+
+async function namesDemoEventIn(dbOrTx: DbOrTx, invitationId: string): Promise<boolean> {
+  const [row] = await dbOrTx.select({ isDemo: events.isDemo })
+    .from(organizationInvitations)
+    .innerJoin(events, eq(events.id, organizationInvitations.eventId))
+    .where(eq(organizationInvitations.id, invitationId))
+    .limit(1);
+  return row?.isDemo === true;
+}
 
 function requiredSecret(env: RuntimeEnv): string {
   if (!env.SESSION_SECRET) throw new AppError("INTERNAL", "SESSION_SECRET is required for admin auth mail");
@@ -97,7 +124,20 @@ function redactCredentials(value: string): string {
     // A preserved auth destination can itself contain an invitation token.
     // URLSearchParams encodes its `?token=` delimiter inside `next`; redact
     // that second bearer value from persisted rendered history as well.
-    .replace(/((?:%3f|%26)token%3d)[^"'&\s<%]+/giu, "$1[redacted]");
+    //
+    // The delimiter is matched at any encoding depth (`%(?:25)*3f`). Password
+    // reset encodes `next` exactly once, so `%3Ftoken%3D` was all this pattern
+    // ever saw — and that is the only shape the existing test fixture builds.
+    // Verification mail encodes twice: `existingSignupVerificationCallback`
+    // (better-auth.ts:109) already percent-encodes `next`, and the whole
+    // `callbackURL` is encoded again by `URLSearchParams` at better-auth.ts:197
+    // (Better Auth's own signup path does the same), producing
+    // `next%3D%252Fjoin%253Ftoken%253D<raw>`. A single-depth pattern missed it,
+    // so every invited-but-unverified user's confirmation mail persisted a live
+    // `/join` bearer token in `body_rendered_html` — the one value the sealed
+    // payload is nulled on send (`:319`) specifically to avoid retaining — until
+    // retention blanked the body 90 days later.
+    .replace(/((?:%(?:25)*3f|%(?:25)*26)token%(?:25)*3d)[^"'&\s<%]+/giu, "$1[redacted]");
 }
 
 export async function sendAdminAuthEmailIn(
@@ -256,6 +296,16 @@ async function deliver(dbOrTx: DbOrTx, row: OutboxRow, env: RuntimeEnv, sender: 
   if (suppressed) {
     return skipRow(dbOrTx, row, "recipient suppressed after bounce or complaint", retainFallback);
   }
+  // Above the allowlist and above the sealed payload, for the same reason
+  // `buildContext` puts its copy there: a demo row must never open a
+  // credential or consult a provider, whatever the environment is configured
+  // to do. See `DEMO_MAIL_SKIP_REASON` above.
+  if (row.templateKey === "organization_invited") {
+    const invited = organizationInvitationIdSchema.safeParse(row.idempotencyKey.split(":")[2]);
+    if (invited.success && await namesDemoEventIn(dbOrTx, invited.data)) {
+      return skipRow(dbOrTx, row, DEMO_MAIL_SKIP_REASON);
+    }
+  }
   if (!isEmailAllowed(row.recipientEmail, env)) {
     return skipRow(dbOrTx, row, "not in EMAIL_ALLOWLIST", retainFallback);
   }
@@ -383,7 +433,7 @@ export function getAdminAuthFallbackLink(email: string): Promise<string | null> 
 export async function recordAdminAuthEmailSuppressionIn(
   dbOrTx: DbOrTx,
   args: { providerMessageId: string; reason: "bounce" | "complaint" },
-): Promise<boolean> {
+): Promise<{ recipientEmail: string } | null> {
   const [updated] = await dbOrTx.update(adminAuthEmailOutbox).set({
     status: args.reason === "bounce" ? "bounced" : "complained",
     suppressedAt: sql`now()`,
@@ -391,10 +441,15 @@ export async function recordAdminAuthEmailSuppressionIn(
     eq(adminAuthEmailOutbox.providerMessageId, args.providerMessageId),
     eq(adminAuthEmailOutbox.status, "sent"),
   )).returning();
-  return Boolean(updated);
+  // The address goes back to the caller so it can also be suppressed for the
+  // comms outbox. This one is only about *this* table: it flips the row's status
+  // and starts its 30-day ageing window, and nothing here writes
+  // `contact_suppressions`, so on its own a bounce here never stopped a single
+  // event email.
+  return updated ? { recipientEmail: updated.recipientEmail } : null;
 }
 
-export function recordAdminAuthEmailSuppression(args: { providerMessageId: string; reason: "bounce" | "complaint" }): Promise<boolean> {
+export function recordAdminAuthEmailSuppression(args: { providerMessageId: string; reason: "bounce" | "complaint" }): Promise<{ recipientEmail: string } | null> {
   return recordAdminAuthEmailSuppressionIn(db, args);
 }
 

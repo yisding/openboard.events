@@ -4,8 +4,15 @@ import type { EventDTO, MemberRole } from "@/shared/contracts";
 import { eventManagementHref } from "@/features/events/access";
 import { eventInitials } from "@/shared/lib/event-label";
 import { formatDateRangeInZone } from "@/shared/lib/time";
+import { StatusBadge } from "@/shared/ui/ui-kit";
 
-export function EventCard({ event, eventRole }: { event: EventDTO; eventRole: MemberRole | null }) {
+/**
+ * First Fair (design §5.1) — `isDemo` is deliberately a prop the caller
+ * supplies, never a field read off `event` itself: `EventDTO`/`eventDtoSchema`
+ * is CP1-frozen, so the org-home listing that knows which event is the demo
+ * passes it down explicitly instead of widening the DTO.
+ */
+export function EventCard({ event, eventRole, isDemo = false }: { event: EventDTO; eventRole: MemberRole | null; isDemo?: boolean }) {
   const managementHref = eventManagementHref(event.id, eventRole);
   return (
     <article className={`event-card${managementHref ? "" : " event-card-locked"}`}>
@@ -20,6 +27,7 @@ export function EventCard({ event, eventRole }: { event: EventDTO; eventRole: Me
       <div className="event-card-body">
         <div className="event-card-title">
           <h2>{event.name}</h2>
+          {isDemo && <StatusBadge value="demo" />}
         </div>
         <div className="event-meta">
           <span>

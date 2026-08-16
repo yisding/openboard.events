@@ -43,6 +43,11 @@ disagree about what is published. Zero unconfirmed speakers, zero draft/unschedu
 | `GET /api/v1/events/{slug}/speakers` | `published_speakers_v` | same |
 | `GET /api/v1/events/{slug}/schedule/ics?session=` | `buildPublicScheduleIcs` (`published_sessions_v`) | `no-store` — a calendar file, not JSON |
 
+Every speaker in `/schedule` and `/speakers` carries a `name` alongside the raw `firstName` /
+`lastName`. **`name` is the field to render**: those two columns default to `''` for a contact
+created from a submission or an invitation, so joining them yourself produces a blank byline, while
+`name` is the same `Unnamed speaker` fallback the public schedule and speaker gallery show.
+
 `/schedule/ics` is the only v1 route that does not answer the JSON envelope: it returns a
 `text/calendar` attachment. `?session=<id>` may repeat or be comma-separated; omitted means the
 whole published schedule.
@@ -113,7 +118,8 @@ Each row: `{ code, title, status, kind, track, tags, submitterEmail, speakers, s
 - `?status=` narrows to one non-draft status (`pending`, `accept_queue`, `decline_queue`, `accepted`,
   `declined`, `withdrawn`). `?status=draft` is rejected with `400 VALIDATION` and lists the allowed
   values in `error.message` — there is no way to ask this endpoint for drafts.
-- `?limit=` defaults to 50 and is **clamped** to 200, never rejected, for an over-large value.
+- `?limit=` defaults to 50 and is **clamped** to 200, never rejected, for an over-large value. It must
+  be at least 1 — `limit=0` is rejected with `400 VALIDATION` rather than answering an empty page.
 - `?cursor=` is the numeric token identifying the last row of the previous creation-ordered page —
   always take it from `.meta.nextCursor` rather than comparing codes or using a row's display-form
   `code` (`SESS-42`), which is rejected as a cursor. Public codes are intentionally non-sequential.

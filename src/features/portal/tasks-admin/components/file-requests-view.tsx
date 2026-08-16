@@ -9,7 +9,7 @@ import { Button, EmptyState, Field, Modal } from "@/shared/ui/ui-kit";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { useToast } from "@/shared/ui/toast";
 import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
-import { DEFAULT_ACCEPTED_EXTENSIONS } from "../constants";
+import { DEFAULT_ACCEPTED_EXTENSIONS, FILE_REQUEST_MAX_SIZE_MB } from "../constants";
 import type { FileRequestDTO } from "../server/queries";
 import { taskMutation } from "./task-mutation";
 
@@ -62,7 +62,7 @@ export function FileRequestsView({
 
   const open = creating || editing !== null;
   const dirty = open && editorDraftChanged(draft, baseline);
-  useUnsavedWorkGuard(dirty);
+  const releaseUnsavedWork = useUnsavedWorkGuard(dirty);
 
   function startCreate() {
     if (saving) return;
@@ -104,13 +104,23 @@ export function FileRequestsView({
           instructionsHtml: draft.instructionsHtml,
           acceptedExtensions: draft.acceptedExtensions.split(",").map((extension) => extension.trim()).filter(Boolean),
           maxSizeMb: draft.maxSizeMb,
+          // The version this editor was opened against. Without it the save was
+          // a blind overwrite, so two organizers with the drawer open both
+          // succeeded and the second silently reverted the first.
+          ...(editing ? { expectedUpdatedAt: editing.updatedAt } : {}),
         })),
       }, "That file request could not be saved");
+      // A lost compare-and-swap arrives here as "This file request changed since
+      // you opened it", and the editor stays open so nothing typed is lost.
       if (!result.ok) { toast(result.message, { kind: "error" }); return; }
       const saved = result.payload?.data;
       if (!saved) { toast("That file request was saved, but its response could not be read", { kind: "error" }); return; }
       toast(draft.id ? "File request updated" : "File request created");
       setBaseline(draft);
+      // Same reason as the task editor: `onChanged` refreshes the list, and a
+      // baseline reset that only lands on the next render leaves the guard
+      // armed across that refresh.
+      releaseUnsavedWork();
       discardEditor();
       await onChanged({ kind: "saved", request: saved });
     } finally {
@@ -190,7 +200,7 @@ export function FileRequestsView({
               <input value={draft.acceptedExtensions} onChange={(event) => setDraft((current) => ({ ...current, acceptedExtensions: event.target.value }))} placeholder="pdf, ppt, pptx" />
             </Field>
             <Field label="Max size (MB)">
-              <input type="number" min={1} max={5000} value={draft.maxSizeMb} onChange={(event) => setDraft((current) => ({ ...current, maxSizeMb: Number(event.target.value) || 1 }))} />
+              <input type="number" min={1} max={FILE_REQUEST_MAX_SIZE_MB} value={draft.maxSizeMb} onChange={(event) => setDraft((current) => ({ ...current, maxSizeMb: Number(event.target.value) || 1 }))} />
             </Field>
           </div>
         </div>

@@ -137,6 +137,29 @@ describe("decide and notify", () => {
     expect(isAppError(error) && error.code).toBe("STALE_STATUS");
   });
 
+  // The unpublished count is the one public consequence the organizer is asked
+  // to trust. Nothing clears `sessions.status` when a decision is reversed, so
+  // the count has to look at where the row came from, not just where it is.
+  it("reports a talk pulled from the public schedule once, not on every later move", async () => {
+    await insert(toAccept, "accepted");
+    await pglite.query(
+      `INSERT INTO sessions(event_id,submission_id,title,slug,status,starts_at,ends_at)
+       VALUES($1,$2,'Proposal 11','proposal-11','published', now(), now() + interval '30 minutes')`,
+      [eventId, toAccept],
+    );
+
+    const reversed = await transitionStatus(eventId, [toAccept], "pending", "accepted");
+    expect(reversed.changed).toEqual([toAccept]);
+    expect(reversed.unpublished).toBe(1);
+
+    // The session row is still 'published'; this move changes nothing publicly.
+    const again = await transitionStatus(eventId, [toAccept], "decline_queue", "pending");
+    expect(again.changed).toEqual([toAccept]);
+    expect(again.unpublished).toBe(0);
+
+    await pglite.query("DELETE FROM sessions WHERE event_id = $1", [eventId]);
+  });
+
   it("finalizes both queues and sends exactly one email each", async () => {
     await insert(toAccept, "accept_queue");
     await insert(toDecline, "decline_queue");
@@ -189,6 +212,7 @@ describe("decide and notify", () => {
       declined: 1,
       emailsQueued: 2,
       skippedNoRecipient: 1,
+      alreadyNotified: 0,
     });
     expect(preview.queueRevision).not.toBe("empty");
     expect(preview.samples.map((sample) => sample.decision)).toEqual(["accepted", "declined"]);
@@ -284,11 +308,69 @@ describe("decide and notify", () => {
     expect(keys.some((key) => key.endsWith(":1"))).toBe(true);
   });
 
+  // Sending twice is deliberate, so the preflight has to disclose it: an
+  // organizer correcting a mis-decision must know the speaker will be told
+  // again before they press send.
+  it("tells the preflight which queued submissions have already been notified", async () => {
+    await insert(toAccept, "accept_queue");
+    await notifyQueues(eventId);
+    await transitionStatus(eventId, [toAccept], "pending", "accepted");
+    await transitionStatus(eventId, [toAccept], "decline_queue", "pending");
+    await insert(toDecline, "decline_queue");
+
+    const preview = await previewNotifyQueuesIn(tx, eventId);
+
+    expect(preview).toMatchObject({ declined: 2, emailsQueued: 2, alreadyNotified: 1 });
+  });
+
   it("auto-confirms an accepted speaker, because there is no confirm button", async () => {
     await insert(toAccept, "accept_queue");
     await notifyQueues(eventId);
     const rows = await pglite.query<{ confirmation_status: string }>("SELECT confirmation_status FROM contacts WHERE id=$1", [speaker]);
     expect(rows.rows[0]?.confirmation_status).toBe("confirmed");
+  });
+
+  it("never promotes a declined speaker back into the public gallery", async () => {
+    // Only `unconfirmed` is promoted — an organizer who set someone to
+    // `declined` has said the opposite. `confirmSubmissionParticipantsIn`
+    // enforces that in SQL, but the submitter-is-presenter fallback beside it
+    // used the unguarded `updateContactFields`, an unconditional
+    // `declined -> confirmed` overwrite that restored the person to
+    // `published_speakers_v` — and so to the schedule, ICS feed and embed.
+    await pglite.query("UPDATE contacts SET confirmation_status='declined' WHERE id=$1", [speaker]);
+    await pglite.query("DELETE FROM submission_participants WHERE submission_id=$1", [toAccept]);
+    await insert(toAccept, "accept_queue");
+    await notifyQueues(eventId);
+
+    const rows = await pglite.query<{ confirmation_status: string }>("SELECT confirmation_status FROM contacts WHERE id=$1", [speaker]);
+    expect(rows.rows[0]?.confirmation_status).toBe("declined");
+
+  });
+
+  it("confirms an accepted speaker in the same statement as the acceptance", async () => {
+    // A direct move to `accepted` skips `notifyQueues` entirely, and the
+    // confirm used to be a second round trip after the status UPDATE. A
+    // transient failure between them left talks accepted with speakers still
+    // unconfirmed — sessions publishing with empty speaker arrays — and nothing
+    // reconciles it: re-running the accept finds the rows already accepted, so
+    // `changed` is empty and the confirm never re-runs.
+    await pglite.query("UPDATE contacts SET confirmation_status='unconfirmed' WHERE id=$1", [speaker]);
+    await insert(toAccept, "pending");
+    await pglite.query(
+      "INSERT INTO submission_participants(event_id,submission_id,contact_id,is_primary,sort_order) VALUES($1,$2,$3,true,0)",
+      [eventId, toAccept, speaker],
+    );
+    await transitionStatus(eventId, [submissionIdSchema.parse(toAccept)], "accepted", "pending");
+
+    const rows = await pglite.query<{ confirmation_status: string }>("SELECT confirmation_status FROM contacts WHERE id=$1", [speaker]);
+    expect(rows.rows[0]?.confirmation_status).toBe("confirmed");
+
+    // And that path respects `declined` too.
+    await pglite.query("UPDATE contacts SET confirmation_status='declined' WHERE id=$1", [speaker]);
+    await transitionStatus(eventId, [submissionIdSchema.parse(toAccept)], "pending", "accepted");
+    await transitionStatus(eventId, [submissionIdSchema.parse(toAccept)], "accepted", "pending");
+    const after = await pglite.query<{ confirmation_status: string }>("SELECT confirmation_status FROM contacts WHERE id=$1", [speaker]);
+    expect(after.rows[0]?.confirmation_status).toBe("declined");
   });
 
   it("confirms every participant, so a co-speaker is not published off the session", async () => {

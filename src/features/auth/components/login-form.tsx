@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { ArrowRight, LockKeyhole, Mail } from "lucide-react";
 import { Button } from "@/shared/ui/ui-kit";
-import { authPathWithNext, safeInternalPath } from "../safe-next";
+import { authPathWithNext, googleSignupPath, safeInternalPath } from "../safe-next";
 import { AuthPasswordField } from "./auth-password-field";
 import { GoogleMark } from "./google-mark";
 
@@ -16,8 +16,33 @@ type LoginFormProps = {
 export function googleSignInErrorMessage(code: string | null): string {
   if (!code) return "";
   return code === "signup_disabled"
-    ? "We couldn’t find an Openboard account for that Google address."
+    ? "No Openboard account uses that Google address yet."
     : "Google sign-in did not finish. Try again or continue with email.";
+}
+
+/**
+ * What a rejected `POST /api/auth/sign-in` actually means.
+ *
+ * The throttle in `api/auth/[...action]/route.ts` answers `429 RATE_LIMITED`
+ * *before* the password is ever verified, so calling that "Invalid email or
+ * password" tells the one person who typed the right password the one thing
+ * guaranteed to send them to the reset flow instead of waiting. Same for a
+ * 5xx: nothing was checked, so nothing about the credentials is known.
+ *
+ * The duration names the *ceiling*, not the typical case. Three limiters can
+ * produce this 429 and they clear at wildly different speeds — the burst keys
+ * in a second, the isolate budget immediately — but `registerLoginAttempt`
+ * sets `blockedUntil = now + LOGIN_WINDOW_MS` (`auth/server/admin.ts`), which
+ * is 15 minutes, and that is the one a locked-out organizer is most likely
+ * sitting behind. "A few minutes" sent them back at minute three to read the
+ * identical sentence and learn nothing from it.
+ */
+export function signInErrorMessage(status: number, code?: string): string {
+  if (code === "RATE_LIMITED" || status === 429) {
+    return "Too many sign-in attempts. Your password was not checked — wait up to 15 minutes, then try again.";
+  }
+  if (status >= 500) return "Sign-in is temporarily unavailable. Try again in a moment.";
+  return "Invalid email or password";
 }
 
 export function LoginForm({ googleEnabled = false }: LoginFormProps) {
@@ -25,6 +50,7 @@ export function LoginForm({ googleEnabled = false }: LoginFormProps) {
   const searchParams = useSearchParams();
   const requestedNext = searchParams.get("next");
   const signupHref = authPathWithNext("/signup", requestedNext);
+  const googleSignupHref = googleSignupPath(requestedNext);
   const forgotPasswordHref = authPathWithNext("/login/forgot", requestedNext);
   const [pending, setPending] = useState<"password" | "google" | null>(null);
   const [error, setError] = useState(() => googleSignInErrorMessage(searchParams.get("error")));
@@ -84,7 +110,7 @@ export function LoginForm({ googleEnabled = false }: LoginFormProps) {
           setUnverifiedEmail(email);
           return;
         }
-        setError("Invalid email or password");
+        setError(signInErrorMessage(response.status, body?.error?.code));
         return;
       }
       router.replace(safeInternalPath(searchParams.get("next")));
@@ -136,9 +162,20 @@ export function LoginForm({ googleEnabled = false }: LoginFormProps) {
     </>}
     <label className="field"><span>Email address</span><div className="input-icon"><Mail size={16} /><input name="email" autoComplete="email" required type="email" /></div></label>
     <AuthPasswordField id="login-password" name="password" label="Password" autoComplete="current-password" minLength={8} />
-    {error && <p className="field-error" role="alert">
-      {error}{googleSignupRequired && <> <Link href={signupHref}>Create your workspace</Link> to continue.</>}
-    </p>}
+    {error && <p className="field-error" role="alert">{error}</p>}
+    {/* Signing in never creates an account — the workspace has to be named
+        first. Rather than dead-ending a brand-new organizer on an error, hand
+        that same Google address straight to the signup step that can finish
+        the job. */}
+    {googleSignupRequired && <>
+      <aside className="auth-help auth-signup-path">
+        <b>Every Google account can start one</b>
+        <span>Name your organization and Google finishes creating the workspace — no password to invent.</span>
+      </aside>
+      <Link className="button button-secondary button-lg google-signin" href={googleSignupHref}>
+        <GoogleMark /> Create your workspace with Google
+      </Link>
+    </>}
     {unverifiedEmail && (verificationSent
       ? <p className="auth-inline-success" role="status">A fresh confirmation link is on its way.</p>
       : <Button variant="secondary" disabled={resending} onClick={resendVerification} type="button">{resending ? "Sending…" : "Resend confirmation email"}</Button>)}

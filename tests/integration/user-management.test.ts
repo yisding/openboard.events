@@ -55,6 +55,10 @@ const MIGRATIONS = [
   "0016_speaker_moments",
   "0022_admin_auth_email_outbox", "0025_platform_invitation_email",
   "0029_event_reviewer_invitations", "0041_stable_user_contact_links",
+  // First Fair: `events.is_demo`, which the reviewer-invitation demo barrier
+  // reads on both the writer and the dispatcher side. 0023 comes with it
+  // because 0044 widens that table's milestone CHECK.
+  "0023_onboarding_milestones", "0047_demo_events_and_tour",
 ];
 
 const eventId = eventIdSchema.parse("e4400000-0000-4000-8000-000000000001");
@@ -327,6 +331,25 @@ describe("M44 user management", () => {
 
         const audits = await listOrganizationAuditLogIn(db, org.id);
         expect(audits.filter((entry) => entry.action === "member.invited")).toHaveLength(2);
+
+        // Once it expires it stops being pending. The token is already dead —
+        // `pendingOrganizationInvitationByTokenIn` requires `expires_at > now()`
+        // and the outbox revalidates before sending — but this list kept showing
+        // the row under "Pending invitations" with a past expiry date beside it,
+        // and the write-recovery path stated it as fact. The owner believed
+        // access was still coming while the invitee's link 400s. The
+        // event-scoped sibling query has always filtered this.
+        await pglite.query(
+          "UPDATE organization_invitations SET expires_at = now() - interval '1 day' WHERE id=$1",
+          [first.invitation.id],
+        );
+        expect(await listPendingOrganizationInvitationsIn(db, org.id)).toEqual([]);
+
+        // Re-inviting the same address refreshes that row's expiry, so nothing
+        // is stranded by hiding it.
+        const revived = await inviteForTest(org.id, ownerId, { email: "new.person@example.com", role: "reviewer" });
+        expect(revived.invitation.id).toBe(first.invitation.id);
+        expect(await listPendingOrganizationInvitationsIn(db, org.id)).toHaveLength(1);
       } finally {
         await pglite.query("UPDATE events SET organization_id=$1 WHERE id=$2", [organizationIdSchema.parse("d3fa0000-0000-4000-8000-000000000001"), eventId]);
         await pglite.query("DELETE FROM organizations WHERE id=$1", [org.id]);
@@ -435,6 +458,26 @@ describe("M44 user management", () => {
       } finally {
         await pglite.query("DELETE FROM events WHERE id=$1", [invitedEventId]);
         await pglite.query("DELETE FROM organizations WHERE id=$1", [org.id]);
+      }
+    });
+
+    it("does not list a session that expired, under a heading that says active", async () => {
+      // Retention keeps an `admin_sessions` row for 30 days *after* it expires,
+      // so an expired sign-in sat under "Active sessions — every device
+      // currently signed in as you" for a month, with a past date in its
+      // Expires column, a live Revoke button, and a place in the "Signed out of
+      // N sessions" count. The organization invitation list next door fixed
+      // exactly this shape.
+      await pglite.query(
+        "INSERT INTO admin_sessions(user_id,token,expires_at) VALUES($1,'sess-expired', now() - interval '1 day'),($1,'sess-live', now() + interval '1 day')",
+        [ownerId],
+      );
+      try {
+        const sessions = await listAdminSessionsIn(db, ownerId, null);
+        expect(sessions.map((session) => session.id)).toHaveLength(1);
+        expect(sessions.every((session) => new Date(session.expiresAt) > new Date())).toBe(true);
+      } finally {
+        await pglite.query("DELETE FROM admin_sessions WHERE token IN ('sess-expired','sess-live')");
       }
     });
 
@@ -696,6 +739,60 @@ describe("M44 user management", () => {
         expect(skipped).toMatchObject({ status: "skipped", error: "organization invitation is no longer pending" });
         expect(skipped?.secretPayloadCiphertext).toBeNull();
       } finally {
+        await pglite.query("DELETE FROM organizations WHERE id=$1", [org.id]);
+      }
+    });
+
+    /**
+     * First Fair — the *second* outbox. `buildContext`'s `is_demo` guard only
+     * covers `communication_logs`; a reviewer invitation is written to
+     * `admin_auth_email_outbox` and drained here, so the demo barrier needs
+     * its own two halves on this path: a writer that refuses, and a dispatcher
+     * that would refuse anyway.
+     */
+    it("never sends a reviewer invitation for a demo event, from either end", async () => {
+      const org = await createOrganizationIn(db, ownerId, { name: "Demo Mail Co", slug: "demo-mail-co" });
+      const demoEventId = eventIdSchema.parse("e4400000-0000-4000-8000-000000000097");
+      await pglite.query(
+        `INSERT INTO events(id,organization_id,name,slug,starts_at,ends_at,is_demo)
+         VALUES($1,$2,'AI Engineer World''s Fair 2026','demo-mail-co-demo','2026-10-15T16:00:00Z','2026-10-17T01:00:00Z',true)`,
+        [demoEventId, org.id],
+      );
+      await pglite.query("INSERT INTO event_members(user_id,event_id,role) VALUES($1,$2,'owner')", [ownerId, demoEventId]);
+      const sendEnv = parseEnv({
+        ...env,
+        EMAIL_MODE: "send",
+        EMAIL_FALLBACK_UI: "0",
+        EMAIL_FROM: "Openboard <hello@example.com>",
+        RESEND_API_KEY: "re_test",
+      });
+      try {
+        // The writer refuses, loudly, rather than minting a row that would
+        // vanish into the log with a reason nobody reads.
+        await expect(testDb.transaction((tx) => inviteEventReviewerIn(
+          tx as unknown as TxDb,
+          demoEventId,
+          ownerId,
+          { email: "real.stranger@example.com" },
+          sendEnv,
+        ))).rejects.toMatchObject({ code: "VALIDATION" });
+        expect(await db.select().from(adminAuthEmailOutbox)
+          .where(eq(adminAuthEmailOutbox.recipientEmail, "real.stranger@example.com"))).toEqual([]);
+
+        // And the dispatcher refuses behind it: an invitation naming a demo
+        // event that reached the outbox some other way — an older build, a
+        // future writer — still never reaches the provider.
+        const { invitation } = await inviteForTest(org.id, ownerId, { email: "smuggled@example.com", role: "reviewer" });
+        await pglite.query("UPDATE organization_invitations SET event_id=$2 WHERE id=$1", [invitation.id, demoEventId]);
+        const sender = vi.fn().mockResolvedValue("must-not-send");
+        const stats = await dispatchAdminAuthEmailOutboxIn(db, 10, { env: sendEnv, sender });
+        expect(stats).toMatchObject({ claimed: 1, sent: 0, skipped: 1 });
+        expect(sender).not.toHaveBeenCalled();
+        const [skipped] = await db.select().from(adminAuthEmailOutbox)
+          .where(eq(adminAuthEmailOutbox.recipientEmail, "smuggled@example.com"));
+        expect(skipped).toMatchObject({ status: "skipped", error: "demo event — mail is never delivered" });
+      } finally {
+        await pglite.query("DELETE FROM events WHERE id=$1", [demoEventId]);
         await pglite.query("DELETE FROM organizations WHERE id=$1", [org.id]);
       }
     });

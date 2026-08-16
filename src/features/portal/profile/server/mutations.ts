@@ -20,6 +20,12 @@ import { getSpeakerProfileIn, type SpeakerProfileDTO } from "./queries";
  * The bio's `.refine()` uses `plainTextLength` — the exact function the client
  * counter (`RichTextEditor`) calls — so the count that renders red and the
  * count that rejects the save can never drift (R12).
+ *
+ * `jobTitle`/`company` share `LIMITS.JOB_TITLE` with every other writer of
+ * those `contacts` columns (the speaker roster and CRM contracts). A tighter
+ * cap here would make a longer value an organizer already saved — or a CSV
+ * import brought in — reject every subsequent profile save, since the form
+ * sends both fields on every save whether or not they changed.
  */
 export const profilePatchSchema = z.object({
   bioHtml: z.string().max(20000).optional(),
@@ -29,6 +35,8 @@ export const profilePatchSchema = z.object({
   lastName: z.string().max(100).optional(),
   pronouns: z.string().max(50).optional(),
   gender: z.string().max(50).optional(),
+  jobTitle: z.string().trim().max(LIMITS.JOB_TITLE).optional(),
+  company: z.string().trim().max(LIMITS.JOB_TITLE).optional(),
   headshotFileId: fileIdSchema.nullable().optional(),
   linkedinUrl: z.url().max(500).nullable().optional(),
   twitterUrl: z.url().max(500).nullable().optional(),
@@ -133,6 +141,11 @@ export async function updateProfileIn(
   if (patch.lastName !== undefined) contactPatch.lastName = patch.lastName;
   if (patch.pronouns !== undefined) contactPatch.pronouns = patch.pronouns;
   if (patch.gender !== undefined) contactPatch.gender = patch.gender;
+  // `|| null` like `contactPatchFrom` and the CRM writer: clearing a field from
+  // the portal stores NULL, not `''`, so an empty value reads the same wherever
+  // it was cleared from.
+  if (patch.jobTitle !== undefined) contactPatch.jobTitle = patch.jobTitle || null;
+  if (patch.company !== undefined) contactPatch.company = patch.company || null;
   if (patch.headshotFileId !== undefined) contactPatch.headshotFileId = patch.headshotFileId;
   if (patch.linkedinUrl !== undefined) contactPatch.linkedinUrl = patch.linkedinUrl;
   if (patch.twitterUrl !== undefined) contactPatch.twitterUrl = patch.twitterUrl;

@@ -5,7 +5,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
 import { commLogIdSchema, contactIdSchema, eventIdSchema, taskIdSchema, type CommLogId } from "@/shared/contracts";
-import { EVENT_EDITABLE_TEMPLATE_KEYS } from "./templates";
+import { DEFAULT_TEMPLATES, EVENT_EDITABLE_TEMPLATE_KEYS } from "./templates";
 import { isAppError } from "@/shared/lib/errors";
 import {
   getLogDetailIn,
@@ -91,6 +91,42 @@ describe("comms admin mutations", () => {
       // M44 team invitations render fixed copy from the admin outbox, so a
       // rail row for them would be a control that changes nothing.
       expect(keys).not.toContain("organization_invited");
+    });
+
+    // An event seeded before a template key existed had no row for it, and the
+    // whole Communications page went down rather than showing the default.
+    it("backfills a missing template with its built-in default instead of failing the page", async () => {
+      await pglite.query("DELETE FROM email_templates WHERE event_id=$1 AND key='submission_received'", [eventId]);
+      await pglite.query("UPDATE email_templates SET subject='Edited by the organizer' WHERE event_id=$1 AND key='task_reminder'", [eventId]);
+
+      const rows = await listTemplatesIn(tx, eventId);
+
+      expect(rows.map((row) => row.key)).toEqual(EVENT_EDITABLE_TEMPLATE_KEYS);
+      expect(rows.find((row) => row.key === "submission_received")?.subject).toBe(DEFAULT_TEMPLATES.submission_received.subject);
+      // The backfill only fills gaps — edited copy on the keys that do exist
+      // must survive it untouched.
+      expect(rows.find((row) => row.key === "task_reminder")?.subject).toBe("Edited by the organizer");
+      // A backfilled row is real, so the optimistic-concurrency save path has
+      // something to compare against.
+      const restored = rows.find((row) => row.key === "submission_received");
+      if (!restored) throw new Error("expected the backfilled row");
+      const saved = await saveTemplateIn(tx, eventId, "submission_received", {
+        subject: "We got it",
+        bodyHtml: "<p>Thanks</p>",
+        enabled: true,
+        expectedUpdatedAt: restored.updatedAt,
+      });
+      expect(saved.subject).toBe("We got it");
+    });
+
+    // Removing a rung is a deliberate act; reading the templates must not undo it.
+    it("leaves the reminder ladder alone while backfilling templates", async () => {
+      await pglite.query("DELETE FROM email_templates WHERE event_id=$1 AND key='portal_login'", [eventId]);
+      await pglite.query("DELETE FROM reminder_rules WHERE event_id=$1", [eventId]);
+
+      await listTemplatesIn(tx, eventId);
+
+      expect(await listReminderRulesIn(tx, eventId)).toEqual([]);
     });
 
     it("rejects attempts to edit a platform authentication template", async () => {
@@ -282,6 +318,33 @@ describe("comms admin mutations", () => {
       expect(detail.attempts).toBe(1);
       expect(detail.providerMessageId).toBe("resend_123");
       expect(typeof detail.previewFallback).toBe("boolean");
+    });
+
+    // The log stores only the HTML part, so the detail sheet's plain-text view
+    // is derived here — with the same `stripHtml(html, { keepLinkTargets })`
+    // that built the alternative the recipient was actually sent, so a link's
+    // destination survives instead of leaving a label pointing nowhere.
+    it("derives the text/plain alternative of the stored body, keeping link destinations", async () => {
+      const logId = "e0000000-0000-4000-8000-000000000051";
+      await pglite.query(
+        `INSERT INTO communication_logs(id,event_id,contact_id,template_key,idempotency_key,status,subject_rendered,body_rendered_html,attempts)
+         VALUES($1,$2,$3,'task_reminder','key-2','sent','Two tasks due','<p>Hi Ada</p><ul><li>Headshot</li><li>Bio</li></ul><p><a href="https://portal.example.com/x">Open your portal</a></p>',1)`,
+        [logId, eventId, speakerId],
+      );
+      const detail = await getLogDetailIn(tx, eventId, logId as CommLogId);
+      expect(detail.bodyRenderedText).toBe("Hi Ada\nHeadshot\nBio\n\nOpen your portal (https://portal.example.com/x)");
+    });
+
+    it("reports no text alternative for a row whose body was never captured", async () => {
+      const logId = "e0000000-0000-4000-8000-000000000052";
+      await pglite.query(
+        `INSERT INTO communication_logs(id,event_id,contact_id,template_key,idempotency_key,status,attempts)
+         VALUES($1,$2,$3,'task_reminder','key-3','failed',1)`,
+        [logId, eventId, speakerId],
+      );
+      const detail = await getLogDetailIn(tx, eventId, logId as CommLogId);
+      expect(detail.bodyRenderedHtml).toBeNull();
+      expect(detail.bodyRenderedText).toBeNull();
     });
 
     it("404s for a real row belonging to another event, and for an id that exists nowhere", async () => {

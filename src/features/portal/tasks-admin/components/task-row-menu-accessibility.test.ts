@@ -23,6 +23,34 @@ const task = {
   counts: { completed: 2, open: 3, overdue: 1 },
 } as AdminTaskDTO;
 
+describe("the task row menu's escape from its clipped panel", () => {
+  const source = readFileSync(new URL("./tasks-admin-view.tsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../../../../app/globals.css", import.meta.url), "utf8");
+
+  // The row lives in `.data-panel{overflow:clip}`, whose clip box ends at the
+  // last row's bottom border because `.panel` has no padding. An absolutely
+  // positioned menu at top:100% was painted outside it and never drawn — on the
+  // last task row Delete was unreachable by any means, the menu being the row's
+  // only entry point, and `clip` is not a scroll container.
+  it("opens the menu outside the panel that would clip it", () => {
+    expect(css).toContain(".data-panel{overflow:clip");
+    expect(source).toContain("createPortal((");
+    expect(source).toContain("), document.body)}");
+    expect(source).toContain('popoverPosition(\n      "bottom-end",');
+    expect(source).toMatch(/position: "fixed", \.\.\.position/u);
+    expect(source).not.toContain('position: "absolute", right: 0, top: "100%"');
+  });
+
+  it("keeps a portalled menu dismissable and anchored", () => {
+    // Once portalled the menu is not a descendant of the row, so the
+    // outside-pointerdown check needs its own ref or the first item click
+    // would dismiss the menu before it fired.
+    expect(source).toContain("menuRef.current?.contains(target)");
+    // Fixed coordinates are measured once, so a scroll has to close it.
+    expect(source).toContain('window.addEventListener("scroll", onScroll, true)');
+  });
+});
+
 describe("task row menu accessibility", () => {
   it("names the popup trigger and exposes its collapsed state", () => {
     const html = renderToStaticMarkup(React.createElement(TaskRowMenu, {
@@ -58,7 +86,7 @@ describe("task row menu accessibility", () => {
     const saved = { ...task, name: "Upload final slides" } as TaskDTO;
     expect(mergeSavedTask([task], saved)).toEqual([{ ...saved, counts: task.counts }]);
     const created = { ...saved, id: "00000000-0000-4000-8000-000000000002" } as TaskDTO;
-    expect(mergeSavedTask([task], created)[1]).toEqual({ ...created, counts: { completed: 0, open: 0, overdue: 0 } });
+    expect(mergeSavedTask([task], created)[1]).toEqual({ ...created, counts: { completed: 0, open: 0, overdue: 0, recorded: 0 } });
   });
 
   it("applies authoritative file-request saves and deletes before refresh", () => {

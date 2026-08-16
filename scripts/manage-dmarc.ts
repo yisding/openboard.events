@@ -1,16 +1,9 @@
 import { basename } from "node:path";
+import { cloudflareRequest } from "./lib/cloudflare";
 
 export const DMARC_ZONE_NAME = "openboard.events";
 export const DMARC_FROM_DOMAIN = "mail.openboard.events";
 export const CLOUDFLARE_RUA_DOMAIN = "dmarc-reports.cloudflare.net";
-
-type CloudflareError = { code?: number; message?: string };
-
-type CloudflareEnvelope<T> = {
-  success: boolean;
-  result?: T;
-  errors?: CloudflareError[];
-};
 
 type DnsRecord = {
   id?: string;
@@ -197,27 +190,6 @@ export function summarizeDmarcStatus(status: CloudflareDmarcStatus): {
     approvedSources: status.approved_sources ?? [],
     record: record.content,
   };
-}
-
-async function cloudflareRequest<T>(
-  apiToken: string,
-  path: string,
-  init?: RequestInit,
-): Promise<T> {
-  const response = await fetch(new URL(`/client/v4/${path}`, "https://api.cloudflare.com"), {
-    ...init,
-    headers: {
-      authorization: `Bearer ${apiToken}`,
-      ...(init?.body === undefined ? {} : { "content-type": "application/json" }),
-      ...init?.headers,
-    },
-  });
-  const payload = await response.json().catch(() => null) as CloudflareEnvelope<T> | null;
-  if (!response.ok || !payload?.success || payload.result === undefined) {
-    const errors = payload?.errors?.map((error) => `${error.code ?? "unknown"}: ${error.message ?? "unknown"}`).join(", ");
-    throw new Error(`Cloudflare API request failed (${response.status})${errors ? `: ${errors}` : ""}`);
-  }
-  return payload.result;
 }
 
 export function validateZoneId(zoneId: string | undefined): string {

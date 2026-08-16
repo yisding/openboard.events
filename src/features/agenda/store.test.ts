@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { roomIdSchema, scheduledSessionDtoSchema, type ScheduledSessionDTO } from "@/shared/contracts";
-import { createSessionDefaultDay, defaultScheduledRange, eventDayKeys, scheduledNeedingRoom } from "./store";
+import { contactIdSchema, roomIdSchema, scheduledSessionDtoSchema, type ScheduledSessionDTO } from "@/shared/contracts";
+import { createSessionDefaultDay, defaultScheduledRange, eventDayKeys, nameLookup, scheduledNeedingRoom, withQuickAddedSpeakers } from "./store";
 
 const event = {
   timezone: "America/Los_Angeles",
@@ -77,6 +77,54 @@ describe("defaultScheduledRange", () => {
     });
   });
 
+  it("does not propose the previous day when the selected day has no midnight", () => {
+    // The same hazard f659e7ea fixed on the server's day bounds, still live on
+    // this client-side floor: `America/Havana` jumps 00:00 to 01:00 on
+    // 2026-03-08, so `zonedInputToUtc("2026-03-08T00:00:00")` resolved
+    // *backwards* to 2026-03-07 23:00. When the fallback branch picked that
+    // floor, the create dialog proposed a session on the day before the one the
+    // organizer had selected. The first real instant of 2026-03-08 in Havana is
+    // 01:00 local — 05:00Z — and the proposal must never start before it.
+    expect(defaultScheduledRange({
+      timezone: "America/Havana",
+      startsAt: "2026-03-07T14:00:00.000Z",
+      endsAt: "2026-03-08T05:20:00.000Z",
+    }, "2026-03-08", 30 * 60_000)).toEqual({
+      startsAt: "2026-03-08T05:00:00.000Z",
+      endsAt: "2026-03-08T05:20:00.000Z",
+    });
+  });
+
+  it("uses the day's first real instant when the event's opening clock is skipped on it", () => {
+    // An event opening at 00:30 local has no 00:30 on a day the clock jumps
+    // 00:00 to 01:00, and resolving that wall time backwards would place the
+    // proposal on the previous evening. 01:00 local — 05:00Z — is the honest
+    // opening for that day.
+    expect(defaultScheduledRange({
+      timezone: "America/Havana",
+      startsAt: "2026-03-07T05:30:00.000Z",
+      endsAt: "2026-03-08T16:00:00.000Z",
+    }, "2026-03-08", 30 * 60_000)).toEqual({
+      startsAt: "2026-03-08T05:00:00.000Z",
+      endsAt: "2026-03-08T05:30:00.000Z",
+    });
+  });
+
+  it("keeps every calendar day when the clock springs forward mid-event", () => {
+    // Stepping the cursor by 24 hours of absolute milliseconds moves the local
+    // time-of-day forward an hour across a spring-forward, so a cursor starting
+    // late in the evening rolls past midnight twice and the loop skipped a whole
+    // day. This is what builds the Day view's tab list — a session scheduled on
+    // 2026-03-08 had no tab to appear on at all — and `dayWindowsIn` mirrors it,
+    // so the planner reported every session it wanted to place there as having
+    // no legal slot.
+    expect(eventDayKeys("2026-03-08T04:30:00.000Z", "2026-03-09T16:00:00.000Z", "America/New_York")).toEqual([
+      "2026-03-07",
+      "2026-03-08",
+      "2026-03-09",
+    ]);
+  });
+
   it("does not expose a zero-length day when the event ends at local midnight", () => {
     const midnightEvent = {
       timezone: "America/Los_Angeles",
@@ -109,5 +157,28 @@ describe("scheduledNeedingRoom", () => {
       "d5000000-0000-4000-8000-000000000001",
       "d5000000-0000-4000-8000-000000000002",
     ]);
+  });
+});
+
+describe("withQuickAddedSpeakers", () => {
+  const contactId = (suffix: string) => contactIdSchema.parse(`d5100000-0000-4000-8000-0000000000${suffix}`);
+
+  it("names a contact the server render has not caught up with yet", () => {
+    const merged = withQuickAddedSpeakers([], [{ contactId: String(contactId("01")), name: "Amara Osei" }]);
+
+    expect(nameLookup({ rooms: [], tracks: [], speakers: merged }).speakers([String(contactId("01"))]))
+      .toEqual(["Amara Osei"]);
+  });
+
+  it("lets the server's copy win once it arrives, and never lists a contact twice", () => {
+    const known = [{ contactId: contactId("01"), name: "Amara Osei" }];
+    const added = [
+      { contactId: String(contactId("01")), name: "amara@example.com" },
+      { contactId: String(contactId("02")), name: "Ken Adeyemi" },
+      { contactId: String(contactId("02")), name: "Ken Adeyemi" },
+    ];
+
+    expect(withQuickAddedSpeakers(known, added).map((speaker) => speaker.name))
+      .toEqual(["Amara Osei", "Ken Adeyemi"]);
   });
 });

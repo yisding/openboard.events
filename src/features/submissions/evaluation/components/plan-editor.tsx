@@ -8,6 +8,10 @@ import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
 import { editorDraftChanged, requestGuardedEditorClose } from "@/shared/ui/app/modal-editor-guard";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, Drawer, Field, Select, Switch } from "@/shared/ui/ui-kit";
+// The same authored words the role badge renders on the team page, so the
+// reviewer picker cannot invent a second name for a role — and never shows the
+// database's own lowercase key.
+import { statusBadgeLabel } from "@/shared/ui/status-badge";
 import { useToast } from "@/shared/ui/toast";
 import { assignmentLockGuidance, assignmentLockReason, nextAssignmentLockRefreshMs } from "../assignment-writability";
 import type { PlanDTO } from "../types";
@@ -85,6 +89,45 @@ function parseOptions(text: string, existing: PlanDTO["criteria"][number]["optio
       score: score === null || Number.isNaN(score) ? null : score,
     };
   });
+}
+
+/**
+ * The server's rule for a criterion's weight (`positive().max(100)`), stated
+ * where it is typed. Without it the only feedback on a 0 is a round trip
+ * answering "Request validation failed", which names neither the field nor the
+ * criterion — with a dozen inputs on screen the organizer has to guess.
+ */
+export function criterionWeightError(criterion: Pick<CriterionDraft, "kind" | "weight">): string | undefined {
+  if (criterion.kind === "text") return undefined;
+  const valid = Number.isFinite(criterion.weight) && criterion.weight > 0 && criterion.weight <= 100;
+  return valid ? undefined : "Weight has to be above 0 and at most 100 — it is relative, so 2 counts twice as much as 1";
+}
+
+/**
+ * The server applies its weight rule to every kind, but the Weight input is
+ * disabled for written feedback, so a value it would refuse can only be left
+ * over from the type the criterion was switched away from — and the organizer
+ * has no field to fix it in. Send the neutral 1 instead of collecting a 400.
+ */
+export function outgoingCriterionWeight(criterion: Pick<CriterionDraft, "kind" | "weight">): number {
+  if (criterion.kind !== "text") return criterion.weight;
+  return criterionWeightError({ kind: "numeric", weight: criterion.weight }) ? 1 : criterion.weight;
+}
+
+/**
+ * A whole number typed into a round's number boxes, or nothing at all.
+ *
+ * `Number("")` is 0 and `Number("1e")` is NaN, so clearing Scale high to retype
+ * it put a 0 in the draft, and a half-typed entry put a NaN — which
+ * `JSON.stringify` writes as `null`, and the save then refuses for a value the
+ * organizer never chose. Ignoring the keystroke leaves the box showing what was
+ * typed while the draft keeps the last number that parsed, so an organizer who
+ * clears a box and clicks away still saves the round they were looking at.
+ */
+export function typedNumber(value: string): number | null {
+  if (value.trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function draftFrom(plan: PlanDTO): PlanDraft {
@@ -214,7 +257,7 @@ function TrackScope({
 }
 
 export type PlanReviewerSaveResult =
-  | { ok: true; planId: string }
+  | { ok: true; planId: string; plan: PlanDTO | null }
   | {
       ok: false;
       kind: "response" | "transport";
@@ -224,20 +267,25 @@ export type PlanReviewerSaveResult =
     };
 
 /** Two-stage round saves can be retried safely: once the round write succeeds,
- * its id is retained and later attempts run only the reviewer replacement. */
+ * its id is retained and later attempts run only the reviewer replacement.
+ *
+ * Both writes answer with the round they produced. The later one wins, and a
+ * retry that skips the round write still comes back whole through the reviewer
+ * response — so the caller always has the round as it now stands, or an honest
+ * null when neither write was in a position to say. */
 export async function completePlanAndReviewerSave(
   pendingReviewerPlanId: string | null,
-  savePlan: () => Promise<EvaluationRequestResult<{ planId: string }>>,
-  saveReviewers: (planId: string) => Promise<EvaluationRequestResult<unknown>>,
+  savePlan: () => Promise<EvaluationRequestResult<{ planId: string; plan?: PlanDTO }>>,
+  saveReviewers: (planId: string) => Promise<EvaluationRequestResult<{ plan?: PlanDTO }>>,
 ): Promise<PlanReviewerSaveResult> {
   const planResult = pendingReviewerPlanId
-    ? { ok: true as const, data: { planId: pendingReviewerPlanId } }
+    ? { ok: true as const, data: { planId: pendingReviewerPlanId, plan: undefined } }
     : await savePlan();
   if (!planResult.ok) return { ...planResult, pendingReviewerPlanId: null };
 
   const reviewerResult = await saveReviewers(planResult.data.planId);
   return reviewerResult.ok
-    ? { ok: true, planId: planResult.data.planId }
+    ? { ok: true, planId: planResult.data.planId, plan: reviewerResult.data.plan ?? planResult.data.plan ?? null }
     : { ...reviewerResult, pendingReviewerPlanId: planResult.data.planId };
 }
 
@@ -248,6 +296,7 @@ export function PlanEditor({
   members,
   nextRound,
   timezone,
+  onSaved,
   onClose,
 }: {
   eventId: string;
@@ -258,6 +307,8 @@ export function PlanEditor({
   nextRound: number;
   /** The event's zone. A round window is read and written in it, never in the organizer's. */
   timezone: string;
+  /** The round as the write left it, so the list behind this drawer agrees with the toast. */
+  onSaved: (plan: PlanDTO) => void;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -295,6 +346,17 @@ export function PlanEditor({
   const reviewerRecoveryRequired = pendingReviewerPlanId !== null
     && (reviewerLockConflict || assignmentLock !== null);
   const assignmentSaveBlocked = assignmentEditsChanged && assignmentLock !== null;
+  const criteriaInvalid = draft.criteria.some((criterion) => criterionWeightError(criterion) !== undefined);
+  /**
+   * The round's arithmetic is frozen from the first review onwards — see
+   * `assertScoringShapeEditable`, which answers a 409 to any edit of the scale,
+   * the set of criteria, or a criterion's kind, weight, bounds or option
+   * scores. The organizer used to find that out only after filling the fields
+   * in and pressing Save. Labels and the required flag stay editable, because
+   * the server takes them: a criterion may be reworded without re-valuing a
+   * single stored verdict.
+   */
+  const scoringLocked = authoritativePlan?.hasReviews === true;
 
   useUnsavedWorkGuard(dirty);
 
@@ -420,7 +482,7 @@ export function PlanEditor({
         criteria: draft.criteria.map((criterion) => ({
           id: criterion.id,
           label: criterion.label,
-          weight: criterion.weight,
+          weight: outgoingCriterionWeight(criterion),
           kind: criterion.kind,
           required: criterion.required,
           options: criterion.kind === "select"
@@ -433,13 +495,16 @@ export function PlanEditor({
       };
       const result = await completePlanAndReviewerSave(
         pendingReviewerPlanId,
-        () => evaluationRequest<{ planId: string }>(
+        () => evaluationRequest<{ planId: string; plan?: PlanDTO }>(
           persistedPlanId ? `/api/internal/evaluation/${eventId}/plans/${persistedPlanId}` : `/api/internal/evaluation/${eventId}/plans`,
           { method: persistedPlanId ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
           "That round did not save",
         ),
+        // The reviewer replacement answers with the whole round rather than a
+        // wrapper; naming it `plan` here is what lets either write be the one
+        // that reports the round back.
         (savedPlanId) => reviewerAssignmentsChanged
-          ? evaluationRequest<unknown>(`/api/internal/evaluation/${eventId}/plans/${savedPlanId}/reviewers`, {
+          ? evaluationRequest<PlanDTO>(`/api/internal/evaluation/${eventId}/plans/${savedPlanId}/reviewers`, {
               method: "PUT",
               headers: { "content-type": "application/json" },
               body: JSON.stringify({
@@ -449,6 +514,7 @@ export function PlanEditor({
                 })),
               }),
             }, "The round saved, but its reviewers did not")
+              .then((result) => result.ok ? { ok: true as const, data: { plan: result.data } } : result)
           : Promise.resolve({ ok: true as const, data: {} }),
       );
       if (!result.ok) {
@@ -458,6 +524,10 @@ export function PlanEditor({
         if (result.pendingReviewerPlanId) router.refresh();
         return;
       }
+      // Same bargain as the assignment drawer: the round the write produced
+      // reaches the list now, and the refresh below is free to overwrite it
+      // with the next server snapshot.
+      if (result.plan) onSaved(result.plan);
       toast(persistedPlanId ? `${draft.name} updated` : `${draft.name} created`);
       onClose();
       router.refresh();
@@ -504,15 +574,31 @@ export function PlanEditor({
 
         <div className="evaluation-field-row evaluation-number-row">
           <Field label="Round">
-            <input type="number" min={1} value={draft.round} onChange={(event) => patch({ round: Number(event.target.value) })} />
+            <input type="number" min={1} value={draft.round} onChange={(event) => {
+              const round = typedNumber(event.target.value);
+              if (round !== null) patch({ round });
+            }} />
           </Field>
           <Field label="Scale low">
-            <input type="number" min={0} value={draft.scaleMin} onChange={(event) => patch({ scaleMin: Number(event.target.value) })} />
+            <input type="number" min={0} value={draft.scaleMin} disabled={scoringLocked} onChange={(event) => {
+              const scaleMin = typedNumber(event.target.value);
+              if (scaleMin !== null) patch({ scaleMin });
+            }} />
           </Field>
           <Field label="Scale high">
-            <input type="number" min={1} value={draft.scaleMax} onChange={(event) => patch({ scaleMax: Number(event.target.value) })} />
+            <input type="number" min={1} value={draft.scaleMax} disabled={scoringLocked} onChange={(event) => {
+              const scaleMax = typedNumber(event.target.value);
+              if (scaleMax !== null) patch({ scaleMax });
+            }} />
           </Field>
         </div>
+        {scoringLocked && (
+          <p className="portal-note" role="status">
+            <b>This round already has reviews, so its scale and criteria are fixed.</b> Every stored score was worked
+            out with them and is never recalculated. Renaming a criterion or changing whether it is required still
+            saves; for a different scale or a different set of criteria, create the next round.
+          </p>
+        )}
 
         <TrackScope
           label="Track scope"
@@ -571,66 +657,90 @@ export function PlanEditor({
             With no criteria a reviewer gives one score. With criteria they answer each; numbers and scored choices make the
             weighted mean, written feedback never does, and a review counts as finished once every required criterion is answered.
           </p>
-          {draft.criteria.map((criterion, index) => (
-            <div className="evaluation-field-row evaluation-criterion-row" key={criterion.id ?? `new-${index}`}>
-              <Field label="Label">
-                <input
-                  value={criterion.label}
-                  onChange={(event) => patch({
-                    criteria: draft.criteria.map((entry, position) => position === index ? { ...entry, label: event.target.value } : entry),
-                  })}
-                />
-              </Field>
-              <Field label="Type">
-                <Select
-                  value={criterion.kind}
-                  onChange={(event) => patch({
-                    criteria: draft.criteria.map((entry, position) => position === index ? { ...entry, kind: event.target.value as CriterionKind } : entry),
-                  })}
-                >
-                  <option value="numeric">Number on the scale</option>
-                  <option value="select">Choice</option>
-                  <option value="text">Written feedback</option>
-                </Select>
-              </Field>
-              <Field label="Weight" {...(criterion.kind === "text" ? { hint: "Written feedback never enters the mean" } : {})}>
-                <input
-                  type="number" min={1} step={1} value={criterion.weight} disabled={criterion.kind === "text"}
-                  onChange={(event) => patch({
-                    criteria: draft.criteria.map((entry, position) => position === index ? { ...entry, weight: Number(event.target.value) } : entry),
-                  })}
-                />
-              </Field>
-              <Field label="Required">
-                <input
-                  type="checkbox" checked={criterion.required}
-                  aria-label={`${criterion.label || "Criterion"} is required`}
-                  onChange={(event) => patch({
-                    criteria: draft.criteria.map((entry, position) => position === index ? { ...entry, required: event.target.checked } : entry),
-                  })}
-                />
-              </Field>
-              <Button
-                variant="ghost"
-                aria-label={`Remove ${criterion.label || "criterion"}`}
-                onClick={() => patch({ criteria: draft.criteria.filter((_, position) => position !== index) })}
-              >
-                <Trash2 size={15} />
-              </Button>
-              {criterion.kind === "select" && (
-                <Field label="Choices" hint="One per line as “Label:score”. Leave the score off for a choice that is recorded but never averaged.">
-                  <textarea
-                    value={criterion.optionsText}
+          {scoringLocked && (
+            <p className="portal-note" role="status">
+              This round already has reviews: labels and the required flag are still yours to change, the rest of a criterion is not.
+            </p>
+          )}
+          {draft.criteria.map((criterion, index) => {
+            const weightError = criterionWeightError(criterion);
+            const weightErrorId = `evaluation-criterion-weight-error-${criterion.id ?? `new-${index}`}`;
+            return (
+              <div className="evaluation-field-row evaluation-criterion-row" key={criterion.id ?? `new-${index}`}>
+                <Field label="Label">
+                  <input
+                    value={criterion.label}
                     onChange={(event) => patch({
-                      criteria: draft.criteria.map((entry, position) => position === index ? { ...entry, optionsText: event.target.value } : entry),
+                      criteria: draft.criteria.map((entry, position) => position === index ? { ...entry, label: event.target.value } : entry),
                     })}
-                    placeholder={"Strong accept:5\nAccept:4\nNot applicable"}
                   />
                 </Field>
-              )}
-            </div>
-          ))}
-          <Button variant="secondary" onClick={() => patch({ criteria: [...draft.criteria, { id: null, label: "", weight: 1, kind: "numeric", required: true, optionsText: "" }] })}>
+                <Field label="Type">
+                  <Select
+                    value={criterion.kind}
+                    disabled={scoringLocked}
+                    onChange={(event) => patch({
+                      criteria: draft.criteria.map((entry, position) => position === index ? { ...entry, kind: event.target.value as CriterionKind } : entry),
+                    })}
+                  >
+                    <option value="numeric">Number on the scale</option>
+                    <option value="select">Choice</option>
+                    <option value="text">Written feedback</option>
+                  </Select>
+                </Field>
+                <Field
+                  label="Weight"
+                  error={weightError}
+                  errorId={weightErrorId}
+                  {...(criterion.kind === "text" ? { hint: "Written feedback never enters the mean" } : {})}
+                >
+                  <input
+                    // The disabled input shows what will actually be sent, not
+                    // the stale value left over from the kind the criterion was
+                    // switched away from: a written-feedback row displaying 0
+                    // while the payload carries the normalized 1 is the UI
+                    // narrating a number the server never receives.
+                    type="number" min={1} max={100} step={1} value={outgoingCriterionWeight(criterion)} disabled={scoringLocked || criterion.kind === "text"}
+                    aria-invalid={weightError ? true : undefined}
+                    aria-describedby={weightError ? weightErrorId : undefined}
+                    onChange={(event) => patch({
+                      criteria: draft.criteria.map((entry, position) => position === index ? { ...entry, weight: Number(event.target.value) } : entry),
+                    })}
+                  />
+                </Field>
+                <Field label="Required">
+                  <input
+                    type="checkbox" checked={criterion.required}
+                    aria-label={`${criterion.label || "Criterion"} is required`}
+                    onChange={(event) => patch({
+                      criteria: draft.criteria.map((entry, position) => position === index ? { ...entry, required: event.target.checked } : entry),
+                    })}
+                  />
+                </Field>
+                <Button
+                  variant="ghost"
+                  disabled={scoringLocked}
+                  aria-label={`Remove ${criterion.label || "criterion"}`}
+                  onClick={() => patch({ criteria: draft.criteria.filter((_, position) => position !== index) })}
+                >
+                  <Trash2 size={15} />
+                </Button>
+                {criterion.kind === "select" && (
+                  <Field label="Choices" hint="One per line as “Label:score”. Leave the score off for a choice that is recorded but never averaged.">
+                    <textarea
+                      value={criterion.optionsText}
+                      disabled={scoringLocked}
+                      onChange={(event) => patch({
+                        criteria: draft.criteria.map((entry, position) => position === index ? { ...entry, optionsText: event.target.value } : entry),
+                      })}
+                      placeholder={"Strong accept:5\nAccept:4\nNot applicable"}
+                    />
+                  </Field>
+                )}
+              </div>
+            );
+          })}
+          <Button variant="secondary" disabled={scoringLocked} onClick={() => patch({ criteria: [...draft.criteria, { id: null, label: "", weight: 1, kind: "numeric", required: true, optionsText: "" }] })}>
             <Plus size={15} /> Add criterion
           </Button>
         </section>
@@ -648,7 +758,7 @@ export function PlanEditor({
                 <div key={member.userId} className="reviewer-assignment">
                   <label>
                     <input type="checkbox" checked={Boolean(assignment)} onChange={() => toggleReviewer(member.userId)} />
-                    <b>{member.name || member.email}</b> <small>{member.role}</small>
+                    <b>{member.name || member.email}</b> <small>{statusBadgeLabel(member.role)}</small>
                   </label>
                   {assignment && (
                     <TrackScope
@@ -671,7 +781,7 @@ export function PlanEditor({
         </p>
         <div className="drawer-actions">
           <Button variant="secondary" disabled={saving || loadingLatest} onClick={closeEditor}>Cancel</Button>
-          <Button disabled={saving || loadingLatest || reviewerRecoveryRequired || assignmentSaveBlocked || draft.name.trim() === ""} onClick={save}>
+          <Button disabled={saving || loadingLatest || reviewerRecoveryRequired || assignmentSaveBlocked || criteriaInvalid || draft.name.trim() === ""} onClick={save}>
             {saving ? "Saving…" : reviewerRecoveryRequired ? "Load latest to continue" : pendingReviewerPlanId ? "Retry reviewer assignments" : persistedPlanId ? "Save round" : "Create round"}
           </Button>
         </div>

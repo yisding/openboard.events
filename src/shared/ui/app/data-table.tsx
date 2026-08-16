@@ -16,7 +16,9 @@ import {
   type VisibilityState,
 } from "@tanstack/react-table";
 import { ChevronDown, ChevronUp, Columns3 } from "lucide-react";
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { popoverPosition } from "./popover-position";
 import { Dash } from "./dash";
 import { BulkActionBar } from "./bulk-action-bar";
 
@@ -158,6 +160,27 @@ export function nullsLast<TData>(
   return String(a).localeCompare(String(b), undefined, { numeric: true });
 }
 
+/**
+ * The column picker opens into `document.body` rather than beside its button,
+ * because the toolbar sits inside `.data-panel{overflow:clip}` — a clip box that
+ * ends at the last row. On a short or filtered table the bottom of the checkbox
+ * list was painted outside it and never drawn, and `clip` is not a scroll
+ * container, so the only way to reach a hidden column was to widen the result
+ * set until the panel grew tall enough.
+ *
+ * `clearance` is what `popoverPosition` reserves to keep the panel inside the
+ * viewport's bottom edge before it has rendered, so it counts the worst case:
+ * every row at the 44px touch height the small-viewport rules give it, plus the
+ * panel's own padding.
+ */
+const PICKER_WIDTH = 200;
+const PICKER_ROW_HEIGHT = 44;
+const PICKER_PADDING = 16;
+
+export function pickerClearance(rows: number): number {
+  return Math.max(1, rows) * PICKER_ROW_HEIGHT + PICKER_PADDING;
+}
+
 export function defaultRowId<Row>(row: Row, index: number): string {
   if (typeof row === "object" && row !== null && "id" in row) {
     const id = (row as { id?: unknown }).id;
@@ -245,6 +268,7 @@ export function DataTable<Row>({
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
   const [localPagination, setLocalPagination] = useState<PaginationState>({ pageIndex: 0, pageSize });
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerPosition, setPickerPosition] = useState<CSSProperties | null>(null);
   const [selectionStatus, setSelectionStatus] = useState("");
   const previousSelectionCount = useRef(0);
   const pickerId = useId();
@@ -346,8 +370,22 @@ export function DataTable<Row>({
 
   const rows = table.getRowModel().rows;
   const allRows = table.getPrePaginationRowModel().rows;
-  const previousDataRef = useRef(data);
-  const dataChanged = previousDataRef.current !== data;
+  // Identity of the *rows*, not of the array holding them. Any parent that
+  // updates a row in place — `.map()` returning a new array to bump one row's
+  // comment count, or an RSC refetch handing back the same rows in a fresh
+  // array — produced a new reference, and a new reference used to clear the
+  // whole selection. An organizer who had selected forty rows for a bulk action
+  // and then opened one of them to reply lost the selection with no message.
+  //
+  // Comparing ids keeps the resets that matter: a filter or a page of different
+  // rows changes the key, and the pruning effect below still drops any selected
+  // id that has genuinely left the data.
+  const rowIdentityKey = useMemo(
+    () => data.map((row, index) => (getRowId ?? defaultRowId)(row, index)).join("\u0000"),
+    [data, getRowId],
+  );
+  const previousDataRef = useRef(rowIdentityKey);
+  const dataChanged = previousDataRef.current !== rowIdentityKey;
   const canSelectAllRows = !serverPagination
     && !dataChanged
     && dataTableCanSelectAllRows(allRows.length, allRowsSelection);
@@ -358,11 +396,11 @@ export function DataTable<Row>({
     setActiveSelectionScope("page");
   }, [activeSelectionScope, canSelectAllRows]);
   useEffect(() => {
-    if (previousDataRef.current === data) return;
-    previousDataRef.current = data;
+    if (previousDataRef.current === rowIdentityKey) return;
+    previousDataRef.current = rowIdentityKey;
     setActiveSelectionScope("page");
     setRowSelection({});
-  }, [data]);
+  }, [rowIdentityKey]);
   // Page-local remains the default. An explicitly bounded all-row caller uses
   // the complete pre-pagination model instead, so its selected ids survive a
   // local page change but are still pruned as soon as data/filter eligibility
@@ -412,7 +450,15 @@ export function DataTable<Row>({
     setActiveSelectionScope("page");
     setRowSelection({});
   };
-  useEffect(() => onSelectionChange?.(selectedRows), [selectedRows, onSelectionChange]);
+  // A ref, not a dependency, for the same reason as `rowsRef` above: a caller
+  // that passes an inline arrow gets a fresh identity on every one of its
+  // renders, so keeping the callback in the dep array would re-notify "the
+  // selection changed" when it did not — stomping any state the caller set from
+  // its own bulk bar (M-fix: the agenda confirm dialog was cleared on the very
+  // render that opened it).
+  const onSelectionChangeRef = useRef(onSelectionChange);
+  onSelectionChangeRef.current = onSelectionChange;
+  useEffect(() => onSelectionChangeRef.current?.(selectedRows), [selectedRows]);
   useEffect(() => {
     const next = selectionAnnouncement(
       previousSelectionCount.current,
@@ -423,6 +469,36 @@ export function DataTable<Row>({
     previousSelectionCount.current = selectedRows.length;
     if (next) setSelectionStatus(next);
   }, [allRowsSelection, selectedRows.length, selectionScope]);
+
+  const hideable = table.getAllLeafColumns().filter((column) => column.getCanHide() && column.id !== "select");
+  const hideableCount = hideable.length;
+
+  // Measured before paint, because the portalled panel is `position: fixed` and
+  // has no coordinates of its own until this runs.
+  useEffect(() => {
+    if (!pickerOpen) { setPickerPosition(null); return; }
+    const anchor = pickerButtonRef.current?.getBoundingClientRect();
+    if (!anchor) return;
+    setPickerPosition(popoverPosition(
+      "bottom-end",
+      anchor,
+      { width: window.innerWidth, height: window.innerHeight },
+      { width: PICKER_WIDTH, clearance: pickerClearance(hideableCount) },
+    ));
+  }, [hideableCount, pickerOpen]);
+
+  useEffect(() => {
+    if (!pickerOpen) return;
+    // Fixed coordinates are measured once, so a scroll would leave the panel
+    // floating away from the button it belongs to.
+    const closeOnScroll = () => setPickerOpen(false);
+    window.addEventListener("scroll", closeOnScroll, true);
+    window.addEventListener("resize", closeOnScroll);
+    return () => {
+      window.removeEventListener("scroll", closeOnScroll, true);
+      window.removeEventListener("resize", closeOnScroll);
+    };
+  }, [pickerOpen]);
 
   useEffect(() => {
     if (!pickerOpen) return;
@@ -457,7 +533,6 @@ export function DataTable<Row>({
     };
   }, [pickerOpen]);
 
-  const hideable = table.getAllLeafColumns().filter((column) => column.getCanHide() && column.id !== "select");
 
   return (
     <section className="data-panel">
@@ -483,13 +558,14 @@ export function DataTable<Row>({
               >
                 <Columns3 size={14} /> Columns
               </button>
-              {pickerOpen && (
+              {pickerOpen && pickerPosition && createPortal((
                 <div
                   ref={pickerPanelRef}
                   id={pickerPanelId}
                   className="column-picker"
                   role="group"
                   aria-labelledby={pickerButtonId}
+                  style={pickerPosition}
                 >
                   {hideable.map((column) => (
                     <label key={column.id}>
@@ -502,7 +578,7 @@ export function DataTable<Row>({
                     </label>
                   ))}
                 </div>
-              )}
+              ), document.body)}
             </div>
           )}
         </div>
@@ -590,7 +666,10 @@ export function DataTable<Row>({
               : rows.map((row) => (
                 <tr
                   key={row.id}
-                  className={row.getIsSelected() ? "selected" : undefined}
+                  // `clickable` is set in the same condition that attaches the
+                  // handler, so the pointer cursor and hover tint cannot promise
+                  // a row action the row does not have.
+                  className={[onRowClick ? "clickable" : "", row.getIsSelected() ? "selected" : ""].filter(Boolean).join(" ") || undefined}
                   {...(onRowClick
                     ? {
                         onClick: () => onRowClick(row.original),

@@ -56,15 +56,16 @@ describe("signup check-inbox recovery", () => {
     expect(html).toContain('href="/signup?next=%2Fjoin%3Ftoken%3Dinvite-123"');
   });
 
-  it("presents the non-production activation link as demo access", async () => {
-    getAdminAuthFallbackLinkMock.mockResolvedValue("http://localhost:3000/api/auth/verify-email?token=demo-token");
+  it("names the environment whose mail restriction stranded this address", async () => {
+    getAdminAuthFallbackLinkMock.mockResolvedValue("http://localhost:3000/api/auth/verify-email?token=fallback-token");
     const html = renderToStaticMarkup(await CheckEmailPage({
-      searchParams: Promise.resolve({ email: "demo@example.com" }),
+      searchParams: Promise.resolve({ email: "tester@example.com" }),
     }));
 
-    expect(html).toContain("Demo access");
-    expect(html).toContain("Email delivery is limited in this environment.");
+    expect(html).toContain("Test environment");
+    expect(html).toContain("Mail delivery is restricted here");
     expect(html).toContain("Confirm email and continue");
+    expect(html).not.toContain("Demo access");
     expect(html).not.toContain("Development / fallback mode");
   });
 

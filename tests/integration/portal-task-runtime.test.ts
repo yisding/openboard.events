@@ -258,6 +258,41 @@ describe("portal task runtime", () => {
     expect(slides.find((task) => task.submissionId === talkTwo)?.completed).toBe(false);
   });
 
+  /**
+   * "Open portal as Ada" is a real organizer power, and every action taken
+   * inside it used to be recorded as Ada's own — `completed_by_user_id` stayed
+   * null, so nothing anywhere said an admin had acted on her behalf. The
+   * speaker is still the owner of the work (`contact_id`); the organizer is now
+   * the actor of record beside it.
+   */
+  it("attributes an impersonated completion to the organizer, and an ordinary one to nobody", async () => {
+    const actorOf = async (task: string) => (await pglite.query<{ completed_by_user_id: string | null }>(
+      "SELECT completed_by_user_id FROM task_completions WHERE task_id=$1 AND contact_id=$2", [task, ada],
+    )).rows[0]?.completed_by_user_id ?? null;
+
+    await completeTaskManual(eventId, ada, headshotTask, null, organizerUserId);
+    expect(await actorOf(headshotTask)).toBe(organizerUserId);
+
+    await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, deck, organizerUserId);
+    expect(await actorOf(slidesTask)).toBe(organizerUserId);
+    // The speaker replaces the file themselves: the ON CONFLICT DO UPDATE
+    // repoints the completion at the new upload and the actor of record moves
+    // with it — back to nobody, since this time no organizer was behind it.
+    await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, replacementDeck);
+    expect(await actorOf(slidesTask)).toBeNull();
+
+    await completeTaskViaResponse(eventId, ada, profileTask, null, validAnswers(), undefined, organizerUserId);
+    expect(await actorOf(profileTask)).toBe(organizerUserId);
+  });
+
+  it("leaves a speaker's own completion attributed to nobody but themselves", async () => {
+    await completeTaskManual(eventId, ada, headshotTask, null);
+    const row = await pglite.query<{ completed_by_user_id: string | null }>(
+      "SELECT completed_by_user_id FROM task_completions WHERE task_id=$1", [headshotTask],
+    );
+    expect(row.rows[0]?.completed_by_user_id).toBeNull();
+  });
+
   it("idempotent-complete: treats a double-click as one completion", async () => {
     await completeTaskManual(eventId, ada, headshotTask, null);
     await completeTaskManual(eventId, ada, headshotTask, null);
@@ -490,6 +525,70 @@ describe("portal task runtime", () => {
     expect(form.answers[shirtField]).toBeUndefined();
   });
 
+  it("prefills a level dropdown with the option carrying the stored label", async () => {
+    // `submission.level` is stored as the option's *label* — `pipeline.ts`
+    // writes `chosen?.label` — and every place the field is authored makes it a
+    // dropdown. Handing the raw string to a choice control rendered the box
+    // blank while leaving the stale value in client state, so pressing Submit
+    // failed with "Use the expected answer type" on a control the speaker sees
+    // as empty. The two lines beside it already resolved track and format
+    // correctly; level was missed.
+    const levelField = "c4000000-0000-4000-8000-000000000059";
+    // Re-parsed rather than pushed onto the cloned array: the snapshot's field
+    // ids are branded, and the schema is what mints them.
+    const levelSnapshot = formSnapshotSchema.parse({
+      ...structuredClone(PORTAL_SNAPSHOT),
+      version: 4,
+      sections: PORTAL_SNAPSHOT.sections.map((section, index) => (index === 0
+        ? {
+          ...structuredClone(section),
+          fields: [
+            ...structuredClone(section.fields),
+            {
+              id: levelField, key: "level", label: "Session level", type: "dropdown", required: false, locked: false,
+              maxChars: null, helpText: "", visibility: null, mapsTo: "submission.level",
+              options: [{ id: "lvl-beg", label: "Beginner" }, { id: "lvl-adv", label: "Advanced" }],
+            },
+          ],
+        }
+        : structuredClone(section))),
+    });
+    await pglite.query("INSERT INTO form_versions(event_id,form_id,version,snapshot) VALUES($1,$2,4,$3::jsonb)", [eventId, formId, JSON.stringify(levelSnapshot)]);
+    await pglite.query("UPDATE forms SET current_version=4 WHERE id=$1", [formId]);
+    await pglite.query("UPDATE submissions SET level='Beginner' WHERE id=$1", [talkOne]);
+
+    const form = await getTaskForm(eventId, ada, formId, talkOne);
+    expect(form.answers[levelField]).toEqual({ t: "opt", v: "lvl-beg" });
+
+    // A stored label with no matching option leaves the control empty rather
+    // than seeding it with something the dropdown cannot represent.
+    await pglite.query("UPDATE submissions SET level='Intermediate' WHERE id=$1", [talkOne]);
+    expect((await getTaskForm(eventId, ada, formId, talkOne)).answers[levelField]).toBeUndefined();
+
+    await pglite.query("UPDATE forms SET current_version=1 WHERE id=$1", [formId]);
+    await pglite.query("DELETE FROM form_versions WHERE form_id=$1 AND version=4", [formId]);
+    await pglite.query("UPDATE submissions SET level=NULL WHERE id=$1", [talkOne]);
+  });
+
+  it("refuses a submit pinned to a form version the organizer has replaced", async () => {
+    // Without the pin, publishing a new required question mid-fill turned the
+    // speaker's submit into a 400 whose `fieldErrors` name a field id their
+    // snapshot does not contain: nothing renders it, the focus-first-invalid
+    // selector matches nothing, and the toast says "Some answers need fixing"
+    // with no visible error anywhere. Nothing on that page refetches on
+    // failure, so only a manual browser reload recovered.
+    const stale = await completeTaskViaResponse(eventId, ada, profileTask, null, validAnswers(), 99)
+      .catch((thrown: unknown) => thrown);
+    expect(isAppError(stale) && stale.code).toBe("FORM_VERSION_STALE");
+    // And it carries the fresh snapshot, which is what the client re-renders from.
+    expect(isAppError(stale) && (stale.details as { version?: number } | undefined)?.version).toBe(1);
+
+    // The current version still completes, and an omitted version keeps an
+    // older page working.
+    await completeTaskViaResponse(eventId, ada, profileTask, null, validAnswers(), 1);
+    await completeTaskViaResponse(eventId, ada, profileTask, null, validAnswers());
+  });
+
   it("shows a saved answer over the column it was derived from", async () => {
     await pglite.query("UPDATE contacts SET bio_html = '<p>Stale.</p>' WHERE id = $1", [ada]);
     await completeTaskViaResponse(eventId, ada, profileTask, null, validAnswers({ [bioField]: { t: "s", v: "<p>Fresher.</p>" } }));
@@ -497,6 +596,26 @@ describe("portal task runtime", () => {
     expect(form.answers[bioField]).toEqual({ t: "s", v: "<p>Fresher.</p>" });
     // The shirt size is not on any column, so only the saved response has it.
     expect(form.answers[shirtField]).toEqual({ t: "opt", v: "m" });
+  });
+
+  it("clears a mapped column when the speaker empties its answer", async () => {
+    // `emit` used to return `undefined` for an emptied field, and
+    // `JSON.stringify` drops an undefined value's key — so the server could not
+    // tell "cleared" from "never touched". The key vanished from
+    // `form_responses.answers` too, so the prefill overlay fell back to the
+    // stale column: the speaker reopened the task and their old bio was back,
+    // while the public gallery had never stopped showing it.
+    await pglite.query("UPDATE contacts SET bio_html = '<p>Old bio.</p>' WHERE id = $1", [ada]);
+    await completeTaskViaResponse(eventId, ada, profileTask, null, validAnswers({ [bioField]: { t: "s", v: "" } }));
+
+    const cleared = await pglite.query<{ bio_html: string | null }>("SELECT bio_html FROM contacts WHERE id = $1", [ada]);
+    // NULL, not "": every other writer of these nullable columns stores NULL for
+    // "not set", and that is what `missing_assets_v` and the gallery test.
+    expect(cleared.rows[0]?.bio_html).toBeNull();
+
+    // And reopening shows it empty rather than resurrecting the column.
+    const form = await getTaskForm(eventId, ada, formId, null);
+    expect(form.answers[bioField]).toEqual({ t: "s", v: "" });
   });
 
   it("shows an organizer who completed a task and what they sent", async () => {

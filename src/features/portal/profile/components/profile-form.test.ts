@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SpeakerProfileDTO } from "@/features/portal";
-import { profileTextChanged, profileTextDraft } from "./profile-form";
+import { patchProfile, profileTextChanged, profileTextDraft } from "./profile-form";
 
 const profile: SpeakerProfileDTO = {
   contactId: "contact_1",
@@ -13,6 +13,8 @@ const profile: SpeakerProfileDTO = {
   honorific: null,
   pronouns: null,
   gender: null,
+  jobTitle: null,
+  company: null,
   headshotFileId: null,
   headshotUrl: null,
   linkedinUrl: null,
@@ -67,11 +69,63 @@ describe("speaker profile unsaved-work guard", () => {
     expect(guard).not.toContain("restorationDirection");
   });
 
-  it("guards the owned impersonation return without breaking modified clicks", () => {
+  it("exits impersonation from a button, so no link gesture can skip the sign-out", () => {
     const banner = readFileSync(new URL("../../../auth/components/impersonation-banner.tsx", import.meta.url), "utf8");
 
-    expect(banner).toContain("data-unsaved-guard-owned");
-    expect(banner).toContain("event.metaKey || event.ctrlKey");
-    expect(banner).toContain("router.push(backHref)");
+    expect(banner).toContain('<button type="button"');
+    // An anchor would let cmd/middle-click reach the admin URL with the
+    // impersonated portal session still live.
+    expect(banner).not.toContain("<Link");
+    expect(banner).toContain("runGuarded(");
+    expect(banner).toContain("window.location.assign(backHref)");
+  });
+
+  it("ends the impersonated portal session before returning to admin", () => {
+    const banner = readFileSync(new URL("../../../auth/components/impersonation-banner.tsx", import.meta.url), "utf8");
+
+    expect(banner).toContain('fetch("/api/internal/auth/portal/logout"');
+    // The return navigation only happens once the session row is gone.
+    expect(banner.indexOf("if (!response.ok)")).toBeLessThan(banner.indexOf("window.location.assign(backHref)"));
+  });
+});
+
+describe("patchProfile error reading", () => {
+  const payload = { firstName: "Ada" } as Parameters<typeof patchProfile>[1];
+
+  function respond(body: unknown, status = 400) {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(body), {
+      status,
+      headers: { "content-type": "application/json" },
+    })));
+  }
+
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("reads field errors from where the envelope actually puts them", async () => {
+    // `errorEnvelope` puts a zod failure's `fieldErrors` at the *top level* of
+    // `error`; `data` is `AppError.details`, a different constructor argument.
+    // Reading `error.data.fieldErrors` therefore never found anything, so
+    // `setFieldErrors` only ever received nothing and all eight
+    // `error={fieldErrors.*}` slots — plus the focus-first-invalid effect —
+    // were dead. A speaker over a field's limit got a bare "Request validation
+    // failed" toast with nothing highlighted, across twelve inputs.
+    respond({ error: { code: "VALIDATION", message: "Request validation failed", fieldErrors: { company: "Too long" } } });
+    await expect(patchProfile("evt", payload)).resolves.toMatchObject({
+      ok: false,
+      fieldErrors: { company: "Too long" },
+    });
+  });
+
+  it("still reads the nested shape an AppError's details can carry", async () => {
+    respond({ error: { code: "VALIDATION", message: "Nope", data: { fieldErrors: { headshotFileId: "Pick a smaller image" } } } });
+    await expect(patchProfile("evt", payload)).resolves.toMatchObject({
+      fieldErrors: { headshotFileId: "Pick a smaller image" },
+    });
+  });
+
+  it("reports the message alone when there are no field errors", async () => {
+    respond({ error: { code: "INTERNAL", message: "Unexpected server error" } });
+    const result = await patchProfile("evt", payload);
+    expect(result).toEqual({ ok: false, message: "Unexpected server error" });
   });
 });

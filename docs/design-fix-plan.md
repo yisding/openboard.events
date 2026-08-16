@@ -12,6 +12,13 @@ Ordering principle: outright defects first (they are cheap and erode trust faste
 two systemic passes (type scale, semantic color), then per-screen work. Phases are independently
 shippable; each should land as its own PR referencing this document.
 
+> **Note (2026-08-15):** the screenshots this plan cites as evidence were captured in August
+> 2026 against the seeded sandbox event. `docs/screenshots/` has since been recaptured against
+> the First Fair demo conference, and two files were renamed (`abstracts-list.png` →
+> `submissions-list.png`, `public-schedule.png` → `public-agenda.png`). The citations below
+> describe what those images showed when the finding was raised, not what the current files
+> show.
+
 ---
 
 ## Phase 0 — Outright defects (fix before any polish)

@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, GripVertical, Wand2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { MAX_BULK_AGENDA_PROMOTIONS, type AcceptedForSchedulingRow, type BulkAgendaPromotionResult, type EventId, type SubmissionId } from "@/shared/contracts";
+import { formatCode } from "@/features/submissions/index.client";
 import { isAppError } from "@/shared/lib/errors";
 import { Button } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
@@ -11,6 +12,7 @@ import { agendaKeys } from "../hooks/keys";
 import { useSessionMutations } from "../hooks/use-session-mutations";
 import type { AgendaViewProps } from "../index.client";
 import { nameLookup, unscheduled } from "../store";
+import { AbstractDivergenceChip } from "./abstract-divergence-chip";
 import { AutoPlaceDialog } from "./auto-place-dialog";
 
 type PromotionFailure = { submissionId: string; title: string; message: string };
@@ -147,9 +149,9 @@ function PromotionQueue({ eventId, accepted, promotedOnly = false }: {
                     checked={selected.has(String(row.submissionId))}
                     disabled={promoteBatch.isPending || (!selected.has(String(row.submissionId)) && selected.size >= MAX_BULK_AGENDA_PROMOTIONS)}
                     onChange={() => toggle(row.submissionId)}
-                    aria-label={`Select abstract ${row.code}: ${row.title}`}
+                    aria-label={`Select abstract ${formatCode(row.code)}: ${row.title}`}
                   />
-                  <span><small>#{row.code}</small><b>{row.title}</b></span>
+                  <span><small>{formatCode(row.code)}</small><b>{row.title}</b></span>
                 </label>
               ))}
             </div>
@@ -159,11 +161,28 @@ function PromotionQueue({ eventId, accepted, promotedOnly = false }: {
   );
 }
 
-/** Accepted abstracts are a separate intake queue, not a second unscheduled-session tray. */
+/**
+ * Accepted abstracts are a separate intake queue, not a second
+ * unscheduled-session tray — and an empty intake queue is not a panel.
+ *
+ * The Day view gave this column ~220px whether or not it held anything, and
+ * "nothing left to promote" is the *normal* state of a healthy event, not an
+ * edge case: it is exactly where the demo lands after the tour's publish step.
+ * So a fifth of the width sat on the word `0` while the grid — the thing the
+ * screen is for — showed two of five rooms behind a horizontal scroll.
+ *
+ * Rendering nothing rather than an empty-state line, because the line said
+ * only what the absence says. `.agenda-workspace` hands the track back with
+ * `:not(:has())`, so the grid claims the width nobody is using.
+ */
 export function ReadyToPromoteTray({ eventId, accepted }: {
   eventId: EventId;
   accepted: AcceptedForSchedulingRow[];
 }) {
+  // The same predicate `PromotionQueue` filters on. Computed here too rather
+  // than pushed down, because the decision is whether the column exists at
+  // all, and a component cannot un-render its own parent's grid track.
+  if (!accepted.some((row) => !row.alreadyPromoted)) return null;
   return (
     <aside className="unscheduled-tray promotion-tray" aria-label="Accepted abstracts ready to promote">
       <PromotionQueue eventId={eventId} accepted={accepted} promotedOnly />
@@ -206,6 +225,7 @@ export function UnscheduledTray({ eventId, event, sessions, accepted, rooms, tra
             <div>
               <b>{session.title}</b>
               <span>{track?.name ?? "No track"}{sessionSpeakers.length > 0 ? ` · ${sessionSpeakers.join(", ")}` : ""}</span>
+              <AbstractDivergenceChip session={session} />
             </div>
             <ArrowRight size={14} aria-hidden />
           </button>

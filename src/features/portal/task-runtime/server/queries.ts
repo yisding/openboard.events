@@ -231,7 +231,23 @@ export async function getTaskFormIn(
       case "contact.job_title": value = text(contactRow?.jobTitle); break;
       case "submission.title": value = text(submissionRow?.title); break;
       case "submission.description_html": value = text(submissionRow?.description_html); break;
-      case "submission.level": value = text(submissionRow?.level); break;
+      // `submission.level` is stored as the option's *label* — `pipeline.ts`
+      // writes `chosen?.label` — and every place the field is authored makes it
+      // a dropdown, so the prefill has to come back through the option carrying
+      // that label, exactly like track and format below. Handing the raw string
+      // to a choice control rendered the box blank while leaving the stale value
+      // in client state, so pressing Submit failed with "Use the expected answer
+      // type" on a control the speaker sees as empty.
+      case "submission.level": {
+        const stored = submissionRow?.level?.trim();
+        const option = stored
+          ? field.options.find((entry) => entry.label.trim().toLocaleLowerCase() === stored.toLocaleLowerCase())
+          : undefined;
+        value = option
+          ? { t: "opt", v: option.id }
+          : (field.type === "dropdown" || field.type === "multiselect" ? undefined : text(submissionRow?.level));
+        break;
+      }
       // A dropdown answer is an option id, not the vocabulary id stored on the
       // row, so the prefill has to come back through the option that carries it.
       case "submission.track_id": {
@@ -329,10 +345,18 @@ export async function listTaskCompletionsIn(
       WHERE event_id = ${eventId} AND (form_id, version) IN (${sql.join(pairs, sql`, `)})
     `);
     for (const row of snapshots.rows ?? []) {
-      const snapshot = formSnapshotSchema.parse(row.snapshot);
+      // Same degradation the two answer reads in this module already use: a
+      // stored version that has drifted from the snapshot contract costs its
+      // own labels, not the organizer's whole view of who completed the task.
+      // A bare `parse` here took every row down for one unreadable version.
+      const snapshot = formSnapshotSchema.safeParse(row.snapshot);
+      if (!snapshot.success) {
+        log({ level: "warn", msg: "portal.task.snapshot_unreadable", requestId: row.form_id, feature: "portal", eventId });
+        continue;
+      }
       labels.set(
         `${row.form_id}:${row.version}`,
-        new Map(snapshot.sections.flatMap((section) => section.fields).map((field) => [field.id as string, field.label])),
+        new Map(snapshot.data.sections.flatMap((section) => section.fields).map((field) => [field.id as string, field.label])),
       );
     }
   }

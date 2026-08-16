@@ -8,6 +8,7 @@ import {
   createFieldIn,
   createFormIn,
   deleteFieldIn,
+  deleteFormIn,
   duplicateFormIn,
   getFormForBuilderIn,
   listFormsIn,
@@ -371,6 +372,176 @@ describe("database-backed form builder", () => {
       expect(withField.sections.flatMap((section) => section.fields)).toHaveLength(1);
       expect(withField.currentVersion).toBe(3);
     });
+  });
+
+  it("refuses to delete a form whose autosaved drafts carry answers, instead of a raw FK failure", async () => {
+    const form = await createFormIn(database, eventId, { internalName: "Draft-bearing CFP", kind: "abstract", collectParticipants: false });
+    const field = required(form.sections.flatMap((s) => s.fields)[0], "seeded field");
+
+    const contactId = "cf000000-0000-4000-8000-0000000000f1";
+    const submissionId = "cf000000-0000-4000-8000-0000000000f2";
+    await pglite.query(
+      "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,'drafter@example.com','Dee','Rafter')",
+      [contactId, eventId],
+    );
+    await pglite.query(
+      `INSERT INTO submissions(id,event_id,form_id,code,status,source,title,submitter_contact_id)
+       VALUES($1,$2,$3,910000001,'draft','cfp','Half-written',$4)`,
+      [submissionId, eventId, form.id, contactId],
+    );
+    await pglite.query(
+      "INSERT INTO submission_answers(event_id,submission_id,field_id,value) VALUES($1,$2,$3,'\"typed something\"'::jsonb)",
+      [eventId, submissionId, field.id],
+    );
+
+    // `hasNonDraftSubmissionsIn` filters `status <> 'draft'` and so never saw
+    // this. But `form_fields` cascades from `forms` while
+    // `submission_answers.field_id -> form_fields` carries no ON DELETE, and
+    // `submissions.form_id` is SET NULL, so the draft survives the delete and
+    // its answers hold a dangling field id: the DELETE raised a raw FK 500 on
+    // a form someone had merely started filling in.
+    const blocked = await deleteFormIn(database, eventId, form.id).catch((thrown: unknown) => thrown);
+    expect(isAppError(blocked) && blocked.code).toBe("CONFLICT");
+    expect(isAppError(blocked) && blocked.message).toContain("saved answers");
+    expect((await pglite.query("SELECT id FROM forms WHERE id=$1", [form.id])).rows).toHaveLength(1);
+
+    // An empty draft really is deletable: its row takes the SET NULL cleanly.
+    await pglite.query("DELETE FROM submission_answers WHERE submission_id=$1", [submissionId]);
+    await deleteFormIn(database, eventId, form.id);
+    expect((await pglite.query("SELECT id FROM forms WHERE id=$1", [form.id])).rows).toHaveLength(0);
+
+    await pglite.query("DELETE FROM submissions WHERE id=$1", [submissionId]);
+    await pglite.query("DELETE FROM contacts WHERE id=$1", [contactId]);
+  });
+
+  it("refuses a visibility rule built against an option that was never saved", async () => {
+    const source = await createFormIn(database, eventId, { internalName: "Placeholder CFP", kind: "abstract", collectParticipants: false });
+    const section = required(source.sections[0], "abstract section");
+    let form = await createFieldIn(
+      database, eventId, source.id,
+      { sectionId: section.id, label: "Delivery style", fieldType: "dropdown" },
+      source.updatedAt,
+    );
+    const format = required(form.sections.flatMap((s) => s.fields).find((field) => field.label === "Delivery style"), "format field");
+    form = await createFieldIn(
+      database, eventId, source.id,
+      { sectionId: section.id, label: "Workshop length", fieldType: "text" },
+      form.updatedAt,
+    );
+    const dependent = required(form.sections.flatMap((s) => s.fields).find((field) => field.label === "Workshop length"), "dependent field");
+
+    // The builder mints `draft-N` for an option line with no saved id to claim,
+    // and the inspector's source list comes from live builder state — so an
+    // organizer who typed a new option and clicked straight over to another
+    // question could pick it. `conditionSchema.value` is a plain string and
+    // `compileFormSnapshot` validates only condition *ordering*, so this saved
+    // silently: the server then minted a real UUID for the option while the rule
+    // kept `draft-2`, leaving the dependent question hidden on the public form
+    // forever with nothing to see but "Shown when Format is draft-2".
+    const refused = await updateFieldIn(
+      database, eventId, source.id, dependent.id,
+      { visibility: { match: "all", conditions: [{ sourceFieldId: format.id, op: "eq", value: "draft-2" }] } },
+      form.updatedAt,
+    ).catch((thrown: unknown) => thrown);
+    expect(isAppError(refused) && refused.code).toBe("VALIDATION");
+    expect(isAppError(refused) && refused.message).toContain("Workshop length");
+
+    // A rule naming a real option still saves.
+    const realOption = required(
+      required(form.sections.flatMap((s) => s.fields).find((field) => field.id === format.id), "format field").options[0],
+      "an existing option",
+    );
+    form = await updateFieldIn(
+      database, eventId, source.id, dependent.id,
+      { visibility: { match: "all", conditions: [{ sourceFieldId: format.id, op: "eq", value: realOption.id }] } },
+      form.updatedAt,
+    );
+    expect(form.sections.flatMap((s) => s.fields).find((field) => field.id === dependent.id)?.visibility?.conditions[0]?.value).toBe(realOption.id);
+  });
+
+  it("refuses an option deletion that would orphan another question's visibility rule", async () => {
+    const source = await createFormIn(database, eventId, { internalName: "Orphan CFP", kind: "abstract", collectParticipants: false });
+    const section = required(source.sections[0], "abstract section");
+    let form = await createFieldIn(
+      database, eventId, source.id,
+      { sectionId: section.id, label: "Delivery style", fieldType: "dropdown" },
+      source.updatedAt,
+    );
+    const format = required(form.sections.flatMap((s) => s.fields).find((field) => field.label === "Delivery style"), "format field");
+    form = await updateFieldIn(database, eventId, source.id, format.id, { optionLabels: ["Talk", "Workshop"] }, form.updatedAt);
+    const workshop = required(
+      required(form.sections.flatMap((s) => s.fields).find((field) => field.id === format.id), "format field").options[1],
+      "workshop option",
+    );
+    form = await createFieldIn(
+      database, eventId, source.id,
+      { sectionId: section.id, label: "Workshop length", fieldType: "text" },
+      form.updatedAt,
+    );
+    const dependent = required(form.sections.flatMap((s) => s.fields).find((field) => field.label === "Workshop length"), "dependent field");
+    form = await updateFieldIn(
+      database, eventId, source.id, dependent.id,
+      { visibility: { match: "all", conditions: [{ sourceFieldId: format.id, op: "eq", value: workshop.id }] } },
+      form.updatedAt,
+    );
+
+    // Removing Workshop leaves that rule holding a vanished option id: `eq`
+    // then never matches, so "Workshop length" is unreachable on the public
+    // form forever. Nothing validated the condition's *value* against the
+    // source field's options, and nothing recomputed other fields' rules when
+    // options changed — the save just succeeded silently.
+    const orphaning = await updateFieldIn(database, eventId, source.id, format.id, { optionLabels: ["Talk"] }, form.updatedAt)
+      .catch((thrown: unknown) => thrown);
+    expect(isAppError(orphaning) && orphaning.code).toBe("VALIDATION");
+    expect(isAppError(orphaning) && orphaning.message).toContain("Workshop length");
+
+    // Unrelated option edits are untouched: adding one, and renaming in place.
+    form = await updateFieldIn(database, eventId, source.id, format.id, { optionLabels: ["Talk", "Workshop", "Panel"] }, form.updatedAt);
+    expect(form.sections.flatMap((s) => s.fields).find((field) => field.id === format.id)?.options).toHaveLength(3);
+  });
+
+  it("carries the per-speaker submission limit into a duplicate", async () => {
+    const source = await createFormIn(database, eventId, { internalName: "Capped CFP", kind: "abstract", collectParticipants: false });
+    const capped = await updateFormIn(database, eventId, source.id, { submissionLimit: 1 }, source.updatedAt);
+    expect(capped.submissionLimit).toBe(1);
+
+    // The copy dropped it, and `public-form.ts` then falls back to the
+    // event-wide `submissionCapPerUser` — so a form limited to one proposal
+    // per speaker duplicated into one accepting the event default. It is a
+    // setting, not part of the submissions/analytics trail the copy is
+    // documented as leaving behind.
+    const copy = await duplicateFormIn(database, eventId, source.id);
+    expect(copy.submissionLimit).toBe(1);
+  });
+
+  it("keeps a track-mapped question editable after its track is renamed", async () => {
+    const source = await createFormIn(database, eventId, { internalName: "Mapped CFP", kind: "abstract", collectParticipants: false });
+    // The seeded CFP already carries the one track-mapped question a form is
+    // allowed (`assertUniqueMapsTo`), which is the field this is about.
+    let form = source;
+    const trackField = required(
+      form.sections.flatMap((s) => s.fields).find((field) => field.mapsTo === "submission.track_id"),
+      "track field",
+    );
+    expect(trackField.options.map((option) => option.label)).toContain("AI Agents");
+
+    await pglite.query("UPDATE tracks SET name='AI & ML' WHERE event_id=$1 AND name='AI Agents'", [eventId]);
+
+    // Nothing propagates a rename into `form_fields.options[].label`, and
+    // `updateFieldIn` re-runs the mapped-option reconcile on *every* patch to
+    // this field — with the stale stored labels, since the patch does not
+    // touch options. Resolving by label alone made this throw
+    // `"AI Agents" is not an event track`, permanently: the question could
+    // never be saved again until every label was retyped by hand.
+    form = await updateFieldIn(database, eventId, source.id, trackField.id, { helpText: "Pick one" }, form.updatedAt);
+
+    const healed = required(form.sections.flatMap((s) => s.fields).find((field) => field.id === trackField.id), "track field");
+    expect(healed.helpText).toBe("Pick one");
+    // The stored label follows the rename rather than staying stale.
+    expect(healed.options.map((option) => option.label)).toContain("AI & ML");
+    expect(healed.options.map((option) => option.label)).not.toContain("AI Agents");
+
+    await pglite.query("UPDATE tracks SET name='AI Agents' WHERE event_id=$1 AND name='AI & ML'", [eventId]);
   });
 
   it("re-points a duplicated form's conditional rules at the copy's own fields", async () => {

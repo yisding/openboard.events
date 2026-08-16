@@ -1,8 +1,8 @@
-import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as schema from "@/db/schema";
+import { applyProductMigrations } from "../../../../scripts/lib/product-migrations";
 
 /**
  * The three unauthenticated `/api/v1` public DTO routes, driven as deployed
@@ -14,18 +14,19 @@ import * as schema from "@/db/schema";
  * appearing here cannot be walked back. The DTOs are written out column by
  * column rather than spread from the row, and this test is what keeps that
  * true when the underlying view gains a column.
+ *
+ * Migrations run through the full journal (`applyProductMigrations`) rather
+ * than a hand-picked subset: this test used to cherry-pick four migration
+ * files by name, which is exactly the kind of list a later migration (First
+ * Fair's `0044`, adding `events.is_demo`) breaks silently the moment any
+ * route it exercises starts selecting the new column.
  */
-const migration0 = readFileSync(new URL("../../../../drizzle/0000_init.sql", import.meta.url), "utf8");
-const migration1 = readFileSync(new URL("../../../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
-const migrationReviewOps = readFileSync(new URL("../../../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
-// `checkV1RateLimit` hits `rate_limit_buckets` on every one of these routes;
-// without this migration each call 500s before any DTO assertion runs.
-const migrationRateLimits = readFileSync(new URL("../../../../drizzle/0005_rate_limits.sql", import.meta.url), "utf8");
 
 const EVENT_ID = "b0000000-0000-4000-8000-000000000001";
 const SLUG = "public-dto-event";
 const SPEAKER_CONFIRMED = "b0000000-0000-4000-8000-000000000010";
 const SPEAKER_UNCONFIRMED = "b0000000-0000-4000-8000-000000000011";
+const SPEAKER_NAMELESS = "b0000000-0000-4000-8000-000000000012";
 const SESSION_PUBLISHED = "b0000000-0000-4000-8000-000000000020";
 const SESSION_DRAFT = "b0000000-0000-4000-8000-000000000021";
 const ROOM_ID = "b0000000-0000-4000-8000-000000000030";
@@ -57,10 +58,7 @@ function request(path: string) {
 
 describe("api/v1 public DTO routes", () => {
   beforeAll(async () => {
-    await pglite.exec(migration0);
-    await pglite.exec(migration1);
-    await pglite.exec(migrationReviewOps);
-    await pglite.exec(migrationRateLimits);
+    await applyProductMigrations(pglite);
 
     await pglite.query(
       `INSERT INTO events(id,name,slug,timezone,starts_at,ends_at,website_url,location)
@@ -80,6 +78,12 @@ describe("api/v1 public DTO routes", () => {
       "INSERT INTO contacts(id,event_id,email,first_name,last_name,confirmation_status) VALUES($1,$2,'unconfirmed@example.com','Grace','Hopper','unconfirmed')",
       [SPEAKER_UNCONFIRMED, EVENT_ID],
     );
+    // The ordinary state of a contact created from a submission or an
+    // invitation: `first_name`/`last_name` default to ''.
+    await pglite.query(
+      "INSERT INTO contacts(id,event_id,email,first_name,last_name,confirmation_status) VALUES($1,$2,'nameless@example.com','','','confirmed')",
+      [SPEAKER_NAMELESS, EVENT_ID],
+    );
 
     await pglite.query(
       `INSERT INTO sessions(id,event_id,title,slug,description_html,starts_at,ends_at,status,room_id,track_id,format_id)
@@ -94,6 +98,7 @@ describe("api/v1 public DTO routes", () => {
 
     await pglite.query("INSERT INTO session_speakers(event_id,session_id,contact_id,sort_order) VALUES($1,$2,$3,0)", [EVENT_ID, SESSION_PUBLISHED, SPEAKER_CONFIRMED]);
     await pglite.query("INSERT INTO session_speakers(event_id,session_id,contact_id,sort_order) VALUES($1,$2,$3,1)", [EVENT_ID, SESSION_PUBLISHED, SPEAKER_UNCONFIRMED]);
+    await pglite.query("INSERT INTO session_speakers(event_id,session_id,contact_id,sort_order) VALUES($1,$2,$3,2)", [EVENT_ID, SESSION_PUBLISHED, SPEAKER_NAMELESS]);
   }, 60_000);
 
   afterAll(async () => {
@@ -105,10 +110,13 @@ describe("api/v1 public DTO routes", () => {
     expect(response.status).toBe(200);
     const payload = await response.json() as { data: Record<string, unknown> };
     expect(Object.keys(payload.data).sort()).toEqual([
-      "endsAt", "id", "location", "name", "slug", "startsAt", "timezone", "websiteUrl",
+      "endsAt", "id", "isDemo", "location", "name", "slug", "startsAt", "timezone", "websiteUrl",
     ]);
     expect(payload.data.slug).toBe(SLUG);
     expect(payload.data.websiteUrl).toBe("https://example.test");
+    // First Fair (design §5.1) — additive on the resource, false for every
+    // event this test ever inserts.
+    expect(payload.data.isDemo).toBe(false);
   });
 
   it("404s an unknown slug instead of synthesizing an event", async () => {
@@ -131,7 +139,8 @@ describe("api/v1 public DTO routes", () => {
       "descriptionHtml", "endsAt", "format", "id", "room", "speakers", "startsAt", "title", "track", "trackColor",
     ]);
     const speakerIds = payload.data.flatMap((session) => session.speakers).map((speaker) => speaker.id);
-    expect(speakerIds).toEqual([SPEAKER_CONFIRMED]);
+    expect(speakerIds).toEqual([SPEAKER_CONFIRMED, SPEAKER_NAMELESS]);
+    expect(speakerIds).not.toContain(SPEAKER_UNCONFIRMED);
     expect(payload.meta.event).toMatchObject({ slug: SLUG, timezone: "America/Los_Angeles" });
   });
 
@@ -142,12 +151,31 @@ describe("api/v1 public DTO routes", () => {
       data: Array<Record<string, unknown> & { id: string }>;
       meta: { count: number };
     };
-    expect(payload.data.map((speaker) => speaker.id)).toEqual([SPEAKER_CONFIRMED]);
+    // Ordered by last name: the nameless contact's '' sorts first.
+    expect(payload.data.map((speaker) => speaker.id)).toEqual([SPEAKER_NAMELESS, SPEAKER_CONFIRMED]);
     expect(Object.keys(payload.data[0] ?? {}).sort()).toEqual([
-      "bioHtml", "company", "firstName", "headshotUrl", "id", "lastName", "linkedin", "title", "twitter", "website",
+      "bioHtml", "company", "firstName", "headshotUrl", "id", "lastName", "linkedin", "name", "title", "twitter", "website",
     ]);
     expect(JSON.stringify(payload.data)).not.toContain("@example.com");
-    expect(payload.meta.count).toBe(1);
+    expect(payload.meta.count).toBe(2);
+  });
+
+  it("names a nameless speaker the way the public pages do, on both DTOs", async () => {
+    const speakers = await getSpeakers(request(`/events/${SLUG}/speakers`), context(SLUG));
+    const speakerPayload = await speakers.json() as { data: Array<{ id: string; name: string; firstName: string; lastName: string }> };
+    const nameless = speakerPayload.data.find((speaker) => speaker.id === SPEAKER_NAMELESS);
+    // A consumer joining the raw columns would print a blank card; `name` is
+    // the same fallback `/e/<slug>/speakers` renders.
+    expect(nameless?.firstName).toBe("");
+    expect(nameless?.lastName).toBe("");
+    expect(nameless?.name).toBe("Unnamed speaker");
+    expect(speakerPayload.data.find((speaker) => speaker.id === SPEAKER_CONFIRMED)?.name).toBe("Ada Lovelace");
+
+    const schedule = await getSchedule(request(`/events/${SLUG}/schedule`), context(SLUG));
+    const schedulePayload = await schedule.json() as { data: Array<{ speakers: Array<{ id: string; name: string }> }> };
+    const scheduled = schedulePayload.data.flatMap((session) => session.speakers);
+    expect(scheduled.find((speaker) => speaker.id === SPEAKER_NAMELESS)?.name).toBe("Unnamed speaker");
+    expect(scheduled.find((speaker) => speaker.id === SPEAKER_CONFIRMED)?.name).toBe("Ada Lovelace");
   });
 
   it("serves the public DTOs with a shared-cacheable, cross-origin header set", async () => {

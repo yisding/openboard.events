@@ -190,7 +190,7 @@ describe("shared UI spacing regressions", () => {
     expect(css).toContain(".landing-links .button-primary svg { display: none; }");
     expect(css).toContain(".landing-mobile-nav { display: block; }");
     expect(home).toContain("<LandingMobileNav");
-    for (const label of ["Platform", "Why Openboard", "View sample CFP", "Sign in"]) {
+    for (const label of ["Platform", "Why Openboard", "Sample call for speakers", "Sign in"]) {
       expect(mobileNav).toContain(label);
     }
     expect(mobileNav).toContain('event.key !== "Escape"');
@@ -199,6 +199,226 @@ describe("shared UI spacing regressions", () => {
     );
     expect(css).toContain(
       ".hero .eyebrow { width: fit-content; max-width: 100%; line-height: 1.35; justify-content: center; }",
+    );
+  });
+
+  it("lets a table panel shrink below its own table, so the scroller can scroll", () => {
+    // .data-panel is a grid item on the settings pages. Without min-width:0 the
+    // default min-width:auto floors it at the min-content width of a table that
+    // sets white-space:nowrap — so the panel outgrew the viewport, .table-scroll
+    // was never narrower than its content and never scrolled, and overflow:clip
+    // cut the trailing columns off with no way to reach them. On /account/sessions
+    // that hid the IP address, both timestamps, and the Revoke button on a phone.
+    expect(css).toContain(".data-panel{overflow:clip;min-width:0}");
+    expect(css).toContain(".table-scroll");
+  });
+
+  it("keeps a grid's track list matching the children its component renders", () => {
+    // Both of these declared more tracks than the markup fills, so a child landed
+    // in a slot meant for something else.
+    const conditionRow = read("./forms/components/builder/condition-row.tsx");
+    const cfpSteps = read("./forms/components/cfp-steps.tsx");
+
+    // The value control is conditional, so the row is three children as often as
+    // four; the remove button counts back from the end instead of flowing.
+    expect(conditionRow).toContain('className="icon-button condition-row__remove"');
+    expect(css).toContain(".condition-row__remove{grid-column:-2}");
+    // ...into a 36px track, which is the width .icon-button actually is.
+    expect(css).toContain(".condition-row__controls{display:grid;grid-template-columns:1fr 1fr 1fr 36px");
+
+    // The add-participant button renders a title and a description and no icons.
+    expect(css).toMatch(/\.add-cospeaker \{[^}]*grid-template-columns: 1fr;/u);
+    expect(cfpSteps).toContain("<small>Include another person on this submission.</small>");
+  });
+
+  it("makes a disabled icon button look disabled, and stops it lighting up", () => {
+    // Without both halves a disabled .icon-button was pixel-identical to a live
+    // one and still took the hover treatment, so "Previous" on the first review
+    // item read as a control that had simply failed to respond.
+    expect(css).toContain(".icon-button:hover:not(:disabled) {");
+    expect(css).toContain(".icon-button:disabled { opacity: .55; cursor: not-allowed; }");
+  });
+
+  it("uses the button primitive for text-labelled actions, not the 36px icon box", () => {
+    const dialog = read("./agenda/components/session-form-dialog.tsx");
+
+    // "Restore"/"Restoring…" is a word, not a glyph: .icon-button is a fixed
+    // 36x36 box, so the label spilled outside its own hit area and border.
+    expect(dialog).toContain('<Button\n                    size="sm"\n                    variant="ghost"');
+    expect(dialog).not.toContain('className="icon-button"');
+  });
+
+  it("leaves the builder rail's scroll motion where reduced-motion can reach it", () => {
+    const builder = read("./forms/form-builder.tsx");
+
+    // A literal behavior:"smooth" in scrollTo() outruns the preference; the
+    // stylesheet's prefers-reduced-motion block already forces scroll-behavior
+    // to auto on everything, so the decision belongs in CSS.
+    expect(css).toMatch(/\.builder-rail \{[^}]*scroll-behavior: smooth;/u);
+    expect(builder).toContain("rail.scrollTo({ left })");
+    expect(builder).not.toContain('behavior: "smooth"');
+  });
+
+  it("bounds floating and clipped surfaces so their tails stay reachable", () => {
+    const profile = read("./portal/profile/components/profile-form.tsx");
+    const builder = read("./forms/form-builder.tsx");
+
+    // position:fixed: anything past the bottom edge cannot be scrolled to.
+    expect(css).toMatch(/\.tour-coach \{[^}]*max-height: calc\(100vh - 24px\);[^}]*overflow-y: auto;/u);
+    // The card's height is the session's duration and its overflow is hidden,
+    // so an unclamped title displaced the time label instead of truncating.
+    expect(css).toContain(".dv-session-card b{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;");
+    // One input, two heights (40px and 44px): centre it rather than offset it.
+    expect(css).toContain(".input-icon>svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);");
+    // The ellipsis is part of the truncation, not decoration on every preview.
+    expect(profile).toContain("characters.length > 140 ?");
+    expect(profile).not.toContain("${plainTextPreview(bioHtml)}\u2026");
+    expect(builder).toContain('live question{section.fields.length === 1 ? "" : "s"}');
+  });
+
+  it("lets the recovery banner stack instead of pushing the page sideways", () => {
+    // Icon + paragraph + two nowrap buttons has a min-content width of ~376px,
+    // so on a 360px screen the banner stopped shrinking and moved the document
+    // instead — putting its own recovery actions 47px off the right edge. It is
+    // shared by eight surfaces, including the only way out of an unconfirmed
+    // session revoke or event-access grant.
+    expect(css).toContain(".locked-banner{display:grid;grid-template-columns:auto minmax(0,1fr)");
+    expect(css).toContain(".locked-banner>.button{grid-column:1/-1;width:100%}");
+  });
+
+  it("styles the two lists that were rendering browser defaults", () => {
+    const taskDetail = read("./portal/task-runtime/components/task-detail.tsx");
+    const filesAdmin = read("./portal/deliverables/components/files-admin-view.tsx");
+    const sessionDialog = read("./agenda/components/session-form-dialog.tsx");
+    const logSheet = read("./comms/components/log-detail-sheet.tsx");
+
+    // .portal-uploads had three call sites and no rule at all: bullets, with the
+    // icon, filename, timestamp and badge run together on one line.
+    for (const source of [taskDetail, filesAdmin, sessionDialog]) {
+      expect(source).toContain('className="portal-uploads"');
+    }
+    expect(css).toContain(".portal-uploads{list-style:none;");
+    expect(css).toContain(".portal-uploads>li{display:flex;");
+    // The middle takes the truncation so a long filename cannot push the badge out.
+    expect(css).toContain(".portal-uploads>li>span,.portal-uploads>li>a{flex:1;min-width:0;");
+
+    // The message detail's dl rendered as default indented pairs.
+    expect(logSheet).toContain('className="comm-detail"');
+    expect(css).toContain(".comm-detail dl{display:grid;");
+    expect(css).toContain(".comm-detail dl>div{display:flex;justify-content:space-between;");
+  });
+
+  it("keeps the Files filter strip on one row like every other list toolbar", () => {
+    const filesAdmin = read("./portal/deliverables/components/files-admin-view.tsx");
+    const speakersAdmin = read("./portal/components/speakers-admin/speakers-admin-view.tsx");
+
+    // The base rule is `select{width:100%}`, so an unclassed filter in the one
+    // toolbar that wraps takes a flex basis of the whole row: three filters,
+    // three 1106px-wide stacked lines. `.compact-select` is the idiom the rest
+    // of the app's list toolbars already use.
+    expect(speakersAdmin).toContain('className="compact-select"');
+    // Every select inside the strip, rather than a fixed count of them: a
+    // fourth filter added the same way should keep this green, and one added
+    // without the class should not.
+    const toolbarStart = filesAdmin.indexOf('className="data-toolbar files-data-toolbar"');
+    const toolbarEnd = filesAdmin.indexOf('<span className="row-count">', toolbarStart);
+    expect(toolbarStart).toBeGreaterThan(-1);
+    expect(toolbarEnd).toBeGreaterThan(toolbarStart);
+    const toolbar = filesAdmin.slice(toolbarStart, toolbarEnd);
+    const filters = toolbar.match(/<Select\b/gu) ?? [];
+    expect(filters.length).toBeGreaterThanOrEqual(3);
+    expect(toolbar.match(/<Select className="compact-select"/gu)).toHaveLength(filters.length);
+    expect(css).toContain(".compact-select{width:auto;");
+    // Its options are event data, not a fixed vocabulary, so one long file
+    // request title must not become the whole toolbar.
+    expect(css).toContain(".files-data-toolbar .compact-select{max-width:190px}");
+  });
+
+  it("keeps short session cards, the bulk bar's Clear, and the mobile nav honest", () => {
+    const bulkBar = read("../shared/ui/app/bulk-action-bar.tsx");
+    const shell = read("./shell/admin-shell.tsx");
+
+    // A sub-22-minute session gets one 16px grid row, and the card clips its own
+    // overflow — so an absolutely positioned conflict badge was the thing cut.
+    expect(css).toContain(".dv-session-card--compact .dv-session-card-conflict-icon,.dv-session-card--single-line .dv-session-card-conflict-icon{position:static;");
+
+    // `trailing` renders after Clear whenever a decision is queued to notify, so
+    // :last-child dressed Send as the quiet button and Clear as the loud one.
+    expect(bulkBar).toContain('className="bulk-bar-clear"');
+    expect(css).toContain(".bulk-bar>.bulk-bar-clear{");
+    expect(css).not.toContain(".bulk-bar>button:last-child{");
+
+    // The nav is an overlay, not a <dialog>, so nothing stopped the page behind
+    // it from scrolling under a drag on the scrim.
+    expect(css).toMatch(/\.sidebar-nav \{[^}]*overscroll-behavior: contain;/u);
+    expect(shell).toContain('document.documentElement.style.overflow = "hidden"');
+    expect(shell).toContain("document.documentElement.style.overflow = overflow;");
+  });
+
+  it("lets the announce bundle's copy rows shrink to the dialog they sit in", () => {
+    // Every value is a URL, `.announce-copy-row code` is nowrap, and a grid
+    // item's default min-width is its min-content — so the section grew to the
+    // longest per-speaker share link and carried its Copy button outside the
+    // modal. The floors are what let the existing ellipsis fire.
+    expect(css).toContain(".announce-bundle{display:grid;gap:24px;min-width:0}");
+    expect(css).toContain(".announce-bundle>section{min-width:0}");
+    expect(css).toContain(".announce-speaker-links>li{min-width:0}");
+    expect(css).toContain(".announce-copy-row>div{flex:1;min-width:0}");
+  });
+
+  it("gives the submissions title column a floor, not just a ceiling", () => {
+    const table = read("./submissions/components/abstracts-table.tsx");
+
+    // Auto table layout satisfies every nowrap column first and hands the
+    // deficit to the only column that wraps; a max-width alone collapsed it to
+    // its longest word.
+    expect(table).toContain('meta: { className: "abstracts-title-column" }');
+    // Not `abstracts-col-*`: that namespace is the responsive disclosure
+    // ladder, and abstracts-table.test.ts pins Title out of it.
+    expect(table).not.toContain("abstracts-col-title");
+    expect(css).toContain(
+      ".data-table th.abstracts-title-column,.data-table td.abstracts-title-column{width:340px;min-width:280px}",
+    );
+    // Title and description share the clamp: one 300-character probe title
+    // wrapped to twelve lines and set the row height on its own. The title half
+    // is scoped to this column — `.submission-title-cell` is also the comms log
+    // recipient, suppressions and the agenda list view, and the ≤768px comms
+    // override below depends on that `b` staying a block box for its ellipsis.
+    expect(css).toContain(
+      ".abstracts-title-column .submission-title-cell b,.submission-title-cell span{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere}",
+    );
+    // …and the clamp never reaches a bare `.submission-title-cell b`, which is
+    // how it would find the other four tables again.
+    expect(css).not.toMatch(/(?<!\.abstracts-title-column )\.submission-title-cell b[,{][^{}]*display:-webkit-box/u);
+  });
+
+  it("keeps a table toolbar's search from being squeezed by its filters", () => {
+    expect(css).toContain(".data-toolbar>.table-search{flex:0 0 280px}");
+    expect(css).toContain(".data-toolbar>.filter-button{min-width:0}");
+    // T5 allows max-width breakpoints only, so the phone shape is an override
+    // rather than a min-width band.
+    expect(css).toContain(".data-toolbar>.table-search{flex:1 1 100%}");
+    expect(css).not.toMatch(/@media\(min-width/u);
+  });
+
+  // MTP-07 §1.5 — both unscheduled trays style every descendant span of their
+  // row at (0,1,1), which outranks the chip's own (0,1,0) rules: without a
+  // scoped restatement the danger chip renders as a full-width muted-grey block
+  // on its red background, in the two surfaces the mark matters most.
+  it("keeps the abstract-divergence chip's tone and shape inside both unscheduled trays", () => {
+    const tray = read("./agenda/components/unscheduled-tray.tsx");
+    const panel = read("./agenda/components/day-view/unscheduled-panel.tsx");
+    expect(tray).toContain("<AbstractDivergenceChip session={session} />");
+    expect(panel).toContain("<AbstractDivergenceChip session={session} />");
+    // The tone rides on a custom property, so the scoped rules re-assert one
+    // declaration instead of duplicating the red/amber pair.
+    expect(css).toContain(".agenda-divergence-chip--danger{--divergence-ink:var(--red);background:var(--red-soft)}");
+    expect(css).toContain(".agenda-divergence-chip--warning{--divergence-ink:var(--amber);background:var(--amber-soft)}");
+    expect(css).toContain(
+      ".unscheduled-tray>button .agenda-divergence-chip,.dv-unscheduled-card .agenda-divergence-chip{display:inline-flex;margin-top:4px;color:var(--divergence-ink)}",
+    );
+    expect(css).toContain(
+      ".unscheduled-tray>button .agenda-divergence-chip>span,.dv-unscheduled-card .agenda-divergence-chip>span{display:inline;margin-top:0;color:inherit}",
     );
   });
 

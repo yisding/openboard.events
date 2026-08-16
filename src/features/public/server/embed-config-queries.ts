@@ -100,21 +100,33 @@ export function getPublicEmbedConfig(
 
 /**
  * Reads the config row, creating a default (enabled, no style overrides) row
- * on first visit. The check-then-insert here is a known, accepted race for a
- * single-admin hackathon demo (M33 work order Step 2) — two admins opening
- * the settings page for the very first time simultaneously could create two
- * rows; `findRow`'s `ORDER BY created_at LIMIT 1` keeps reads deterministic
- * either way.
+ * on first visit.
+ *
+ * The check-then-insert is a race, and it used to be an accepted one: two
+ * admins opening the settings page for the very first time both inserted, and
+ * the loser of that race was handed *its own* row by `.returning()` while
+ * every reader — `findRow`, and through it `isEmbedEnabledIn`, the public
+ * route's kill switch — resolved the earliest one. Every toggle they made
+ * looked saved and changed nothing anybody would serve, the kill switch
+ * included.
+ *
+ * Two halves close it. `drizzle/0049` makes the duplicate unrepresentable, so
+ * the losing INSERT is a no-op rather than a second row; and the answer comes
+ * from `findRow` afterwards rather than from the insert, so it is the row that
+ * won either way. The ordering in `findRow` stays as the belt to this braces —
+ * it costs nothing and it is what makes the constraint's own backfill safe to
+ * describe.
  */
 export async function getOrCreateEmbedConfigIn(dbOrTx: DbOrTx, eventId: EventId, contentType: CanonicalEmbedContentType): Promise<EmbedConfigDTO> {
   const existing = await findRow(dbOrTx, eventId, contentType);
   if (existing) return toDto(existing);
-  const [inserted] = await dbOrTx
+  await dbOrTx
     .insert(embeds)
     .values({ eventId, contentType, name: DEFAULT_EMBED_NAME[contentType], enabled: true, style: {}, filters: {} })
-    .returning();
-  if (!inserted) throw new AppError("INTERNAL", "Could not create the embed config");
-  return toDto(inserted);
+    .onConflictDoNothing({ target: [embeds.eventId, embeds.contentType] });
+  const created = await findRow(dbOrTx, eventId, contentType);
+  if (!created) throw new AppError("INTERNAL", "Could not create the embed config");
+  return toDto(created);
 }
 export const getOrCreateEmbedConfig = (eventId: EventId, contentType: CanonicalEmbedContentType): Promise<EmbedConfigDTO> =>
   getOrCreateEmbedConfigIn(db, eventId, contentType);
@@ -136,7 +148,7 @@ export async function getOrCreateSpeakerListConfigIn(dbOrTx: DbOrTx, eventId: Ev
   const existing = await findRow(dbOrTx, eventId, "speaker_list");
   if (existing) return toDto(existing);
   const legacy = await findRow(dbOrTx, eventId, "speaker_gallery");
-  const [inserted] = await dbOrTx
+  await dbOrTx
     .insert(embeds)
     .values({
       eventId,
@@ -146,7 +158,9 @@ export async function getOrCreateSpeakerListConfigIn(dbOrTx: DbOrTx, eventId: Ev
       style: legacy?.style ?? {},
       filters: legacy?.filters ?? {},
     })
-    .returning();
+    .onConflictDoNothing({ target: [embeds.eventId, embeds.contentType] });
+  // Same two halves as above, for the same reason.
+  const inserted = await findRow(dbOrTx, eventId, "speaker_list");
   if (!inserted) throw new AppError("INTERNAL", "Could not create the embed config");
   return toDto(inserted);
 }

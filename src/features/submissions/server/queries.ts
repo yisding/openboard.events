@@ -34,6 +34,12 @@ export type SubmissionStatusHistoryEntry = {
 /** Strips markup for the list's preview column; the detail view renders the HTML. */
 const DESCRIPTION_PLAIN = sql`nullif(btrim(regexp_replace(coalesce(s.description_html, ''), '<[^>]*>', ' ', 'g')), '')`;
 
+/** `%`, `_` and `\` are characters an organizer typed, not wildcards: without
+ *  this, searching "%" returns the whole event and the tab counts agree with it.
+ *  Backslash is already LIKE's default escape character, so the patterns below
+ *  need no `ESCAPE` clause — and writing one in a template literal is a trap. */
+const escapeLike = (term: string) => term.replace(/[\\%_]/g, "\\$&");
+
 function whereClause(
   eventId: EventId,
   filters: Omit<SubmissionFilters, "page" | "pageSize" | "sort">,
@@ -55,7 +61,7 @@ function whereClause(
   if (filters.search) {
     // Code, title and speaker name are the three things an organizer types into
     // a search box; matching only the title makes the box feel broken.
-    const like = `%${filters.search.toLowerCase()}%`;
+    const like = `%${escapeLike(filters.search.toLowerCase())}%`;
     clauses.push(sql`(
       lower(s.title) LIKE ${like}
       OR s.code::text LIKE ${like}
@@ -106,7 +112,12 @@ async function selectRows(
       sc.email AS "submitterEmail",
       nullif(btrim(coalesce(sc.first_name, '') || ' ' || coalesce(sc.last_name, '')), '') AS "submitterName",
       COALESCE((
-        SELECT json_agg(json_build_object('contactId', c.id, 'name', btrim(c.first_name || ' ' || c.last_name), 'isPrimary', sp.is_primary)
+        -- A contact is allowed to have no name yet: an organizer can add one by
+        -- address alone, and a form need not ask for one. The Speakers column
+        -- joins these with ", ", so an empty name rendered as "Ada Lovelace, "
+        -- — a row that looks broken rather than one that names who it can. Fall
+        -- back to the address, which is what the drawer already shows.
+        SELECT json_agg(json_build_object('contactId', c.id, 'name', COALESCE(nullif(btrim(c.first_name || ' ' || c.last_name), ''), c.email), 'isPrimary', sp.is_primary)
                         ORDER BY sp.is_primary DESC, sp.sort_order)
         FROM submission_participants sp
         JOIN contacts c ON c.id = sp.contact_id AND c.event_id = sp.event_id

@@ -50,16 +50,22 @@ const COUNTS: Record<SubmissionStatus | "all", number> = {
   draft: 0,
 };
 
-function renderTable(rows: SubmissionListRow[], status: SubmissionStatus | "all" = "all", view: SubmissionView = "all"): string {
+function renderTable(
+  rows: SubmissionListRow[],
+  status: SubmissionStatus | "all" = "all",
+  view: SubmissionView = "all",
+  total = rows.length,
+): string {
   return renderToStaticMarkup(
     React.createElement(AbstractsTable, {
+      eventId: "00000000-0000-4000-8000-000000000001",
       rows,
       counts: COUNTS,
       view,
       status,
       search: "",
       timezone: "America/Los_Angeles",
-      total: rows.length,
+      total,
       filteredTotal: rows.length,
       page: 1,
       pageSize: 25,
@@ -105,6 +111,33 @@ describe("AbstractsTable workflow navigation", () => {
   });
 });
 
+// An organizer on an event with submissions must never be told there are none:
+// the first-run empty state belongs to a genuinely empty event, and every other
+// zero-row table has to name the filter that emptied it.
+describe("AbstractsTable empty states", () => {
+  it("explains an empty workflow tab instead of claiming the event has no submissions", () => {
+    const html = renderTable([], "all", "ready_to_notify", 24);
+
+    expect(html).toContain("Nothing is queued for notification");
+    expect(html).not.toContain("No submissions yet");
+  });
+
+  it("names the exact status that emptied the table, with a way back to the whole tab", () => {
+    const html = renderTable([], "withdrawn", "decided", 24);
+
+    expect(html).toContain("Nothing has that status");
+    expect(html).toContain("Withdrawn” right now");
+    expect(html).not.toContain("No submissions yet");
+  });
+
+  it("points a first-run event at the form that has to exist before a submission can arrive", () => {
+    const html = renderTable([], "all", "needs_decision", 0);
+
+    expect(html).toContain("No submissions yet");
+    expect(html).toContain('href="/events/00000000-0000-4000-8000-000000000001/forms"');
+  });
+});
+
 // PR #106 Codex finding: the T5 responsive disclosure ladder in globals.css
 // (`.data-table th.abstracts-col-*`) targets classes that only exist if
 // DataTable actually stamps them from these column definitions — a silent
@@ -142,5 +175,18 @@ describe("AbstractsTable responsive column hooks", () => {
     // <th>.
     const trackCellIndex = html.lastIndexOf('class="abstracts-col-track"');
     expect(html.slice(trackCellIndex, trackCellIndex + 200)).toContain("track-chip");
+  });
+});
+
+describe("AbstractsTable title cell", () => {
+  it("keeps the whole of a clamped title reachable without opening the drawer", () => {
+    const long = "Why ".repeat(80) + "agents fail";
+    const html = renderTable([{ ...ROW, title: long }]);
+
+    // A 320-character title wrapped to twelve lines and made its row twelve
+    // times taller than every other one. The clamp itself is CSS (pinned in
+    // `ui-spacing-regressions.test.ts`); what the markup has to guarantee is
+    // that the two lines a reader can see are not all there is.
+    expect(html).toContain(`<b title="${long}">`);
   });
 });

@@ -4,6 +4,15 @@ import { editorDraftChanged, requestGuardedEditorClose } from "@/shared/ui/app/m
 
 describe("evaluation plan editor lifecycle", () => {
   const source = readFileSync(new URL("./plan-editor.tsx", import.meta.url), "utf8");
+  const plansViewSource = readFileSync(new URL("./plans-view.tsx", import.meta.url), "utf8");
+
+  it("gives every round its own editor instance so a save cannot target the previous one", () => {
+    // The editor captures the plan id it PATCHes in mount-time state; a shared
+    // instance would carry it into the next round the organizer opens.
+    expect(source).toContain("useState<string | null>(plan?.id ?? null)");
+    expect(plansViewSource).toContain('key={editing?.id ?? "new"}');
+    expect(plansViewSource).toContain("<AssignmentDrawer key={assigning.id}");
+  });
 
   it("derives dirty state from the authoritative baseline and protects partial saves", () => {
     expect(source).toContain("const [baseline, setBaseline] = useState<PlanDraft>");

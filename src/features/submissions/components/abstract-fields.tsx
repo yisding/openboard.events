@@ -1,5 +1,7 @@
 "use client";
 
+import { useId } from "react";
+import { plainTextLength } from "@/shared/contracts";
 import type { SubmissionVocabulary } from "@/features/submissions";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
@@ -48,11 +50,23 @@ function orNull(value: string): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+/**
+ * A rich text editor round-trips an empty document as `<p></p>`, so a
+ * description that was never written and one whose text was deleted are the
+ * same absence. Comparing the markup instead would call an untouched drawer
+ * dirty — and the unsaved-work guard that follows teaches organizers to hit
+ * "Discard changes" reflexively — and would store an empty paragraph in a
+ * column whose "no description" value is NULL.
+ */
+function richTextOrNull(value: string): string | null {
+  return plainTextLength(value) === 0 ? null : orNull(value);
+}
+
 export function toCreateBody(values: AbstractFieldValues, status: string): Record<string, unknown> {
   return {
     status,
     title: values.title.trim(),
-    descriptionHtml: orNull(values.descriptionHtml),
+    descriptionHtml: richTextOrNull(values.descriptionHtml),
     trackId: orNull(values.trackId),
     formatId: orNull(values.formatId),
     level: orNull(values.level),
@@ -73,7 +87,8 @@ export function toCreateBody(values: AbstractFieldValues, status: string): Recor
 export function toPatch(values: AbstractFieldValues, original: AbstractFieldValues): Record<string, unknown> {
   const patch: Record<string, unknown> = {};
   if (values.title !== original.title) patch.title = values.title.trim();
-  if (values.descriptionHtml !== original.descriptionHtml) patch.descriptionHtml = orNull(values.descriptionHtml);
+  const description = richTextOrNull(values.descriptionHtml);
+  if (description !== richTextOrNull(original.descriptionHtml)) patch.descriptionHtml = description;
   if (values.trackId !== original.trackId) patch.trackId = orNull(values.trackId);
   if (values.formatId !== original.formatId) patch.formatId = orNull(values.formatId);
   if (values.level !== original.level) patch.level = orNull(values.level);
@@ -105,10 +120,19 @@ export function AbstractFields({
     onChange({ ...values, [key]: value });
   };
 
+  // Every control is named twice: a `name` a form tool can read, and an `id`
+  // its label points at. The ids are scoped to this instance because the same
+  // eleven fields render in the Add drawer and in the detail drawer, and two
+  // controls sharing an id would send a click on one form's label to the other.
+  const scope = useId();
+  const fieldId = (name: string) => `${scope}-${name}`;
+
   return (
     <div className="form-stack">
-      <Field label="Session title" required hint={`${values.title.length}/255`}>
+      <Field label="Session title" htmlFor={fieldId("title")} required hint={`${values.title.length}/255`}>
         <input
+          id={fieldId("title")}
+          name="title"
           value={values.title}
           maxLength={255}
           disabled={disabled}
@@ -117,7 +141,12 @@ export function AbstractFields({
         />
       </Field>
 
-      <Field label="Description">
+      {/* `group`, not a label: the editor's control is a `contenteditable`,
+          which no `<label>` can be associated with. Wrapping it labelled the
+          first labelable thing inside instead — the toolbar's Bold button — so
+          clicking the word "Description" toggled bold. The textbox carries its
+          own accessible name. */}
+      <Field label="Description" group>
         <RichTextEditor
           value={values.descriptionHtml}
           onChange={(next) => set("descriptionHtml", next)}
@@ -126,30 +155,32 @@ export function AbstractFields({
         />
       </Field>
 
-      <Field label="Track">
-        <Select value={values.trackId} disabled={disabled} onChange={(event) => set("trackId", event.target.value)}>
+      <Field label="Track" htmlFor={fieldId("track")}>
+        <Select id={fieldId("track")} name="trackId" value={values.trackId} disabled={disabled} onChange={(event) => set("trackId", event.target.value)}>
           <option value="">No track</option>
           {vocabulary.tracks.map((track) => <option key={track.id} value={track.id}>{track.name}</option>)}
         </Select>
       </Field>
 
-      <Field label="Format">
-        <Select value={values.formatId} disabled={disabled} onChange={(event) => set("formatId", event.target.value)}>
+      <Field label="Format" htmlFor={fieldId("format")}>
+        <Select id={fieldId("format")} name="formatId" value={values.formatId} disabled={disabled} onChange={(event) => set("formatId", event.target.value)}>
           <option value="">No format</option>
           {vocabulary.formats.map((format) => <option key={format.id} value={format.id}>{format.name}</option>)}
         </Select>
       </Field>
 
-      <Field label="Level">
-        <input value={values.level} disabled={disabled} onChange={(event) => set("level", event.target.value)} placeholder="Beginner, Intermediate…" />
+      <Field label="Level" htmlFor={fieldId("level")}>
+        <input id={fieldId("level")} name="level" value={values.level} disabled={disabled} onChange={(event) => set("level", event.target.value)} placeholder="Beginner, Intermediate…" />
       </Field>
 
-      <Field label="Language">
-        <input value={values.language} disabled={disabled} onChange={(event) => set("language", event.target.value)} placeholder="English" />
+      <Field label="Language" htmlFor={fieldId("language")}>
+        <input id={fieldId("language")} name="language" value={values.language} disabled={disabled} onChange={(event) => set("language", event.target.value)} placeholder="English" />
       </Field>
 
-      <Field label="Capacity">
+      <Field label="Capacity" htmlFor={fieldId("capacity")}>
         <input
+          id={fieldId("capacity")}
+          name="capacity"
           value={values.capacity}
           disabled={disabled}
           inputMode="numeric"
@@ -158,19 +189,19 @@ export function AbstractFields({
         />
       </Field>
 
-      <Field label="Client session ID" hint="The id this session carries in your own systems.">
-        <input value={values.clientSessionId} disabled={disabled} onChange={(event) => set("clientSessionId", event.target.value)} />
+      <Field label="Client session ID" htmlFor={fieldId("client-session-id")} hint="The id this session carries in your own systems.">
+        <input id={fieldId("client-session-id")} name="clientSessionId" value={values.clientSessionId} disabled={disabled} onChange={(event) => set("clientSessionId", event.target.value)} />
       </Field>
 
       {/* Both instants are entered and shown in the event's zone, with its label
           on screen — an organizer in another zone cannot set a start an hour off
           without seeing it. */}
-      <Field label="Starts at">
-        <DateTimePicker value={values.startsAt} onChange={(next) => set("startsAt", next)} tz={timezone} disabled={disabled} />
+      <Field label="Starts at" htmlFor={fieldId("starts-at")}>
+        <DateTimePicker id={fieldId("starts-at")} value={values.startsAt} onChange={(next) => set("startsAt", next)} tz={timezone} disabled={disabled} />
       </Field>
 
-      <Field label="Ends at">
-        <DateTimePicker value={values.endsAt} onChange={(next) => set("endsAt", next)} tz={timezone} disabled={disabled} />
+      <Field label="Ends at" htmlFor={fieldId("ends-at")}>
+        <DateTimePicker id={fieldId("ends-at")} value={values.endsAt} onChange={(next) => set("endsAt", next)} tz={timezone} disabled={disabled} />
       </Field>
 
       {vocabulary.tags.length > 0 && (

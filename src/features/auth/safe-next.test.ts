@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { authenticatedAuthDestination, authPathWithNext, safeInternalPath } from "./safe-next";
+import {
+  authenticatedAuthDestination,
+  authPathWithNext,
+  googleSignupPath,
+  requestsGoogleSignup,
+  safeInternalPath,
+} from "./safe-next";
 
 describe("safeInternalPath", () => {
   it("keeps internal paths with query strings and fragments", () => {
@@ -36,6 +42,24 @@ describe("authPathWithNext", () => {
   it("drops external and protocol-relative destinations", () => {
     expect(authPathWithNext("/signup", "https://attacker.example/steal")).toBe("/signup");
     expect(authPathWithNext("/signup", "//attacker.example/steal")).toBe("/signup");
+  });
+});
+
+describe("googleSignupPath", () => {
+  it("opens the Google signup step and keeps the pending destination", () => {
+    expect(googleSignupPath("/join?token=invite-123"))
+      .toBe("/signup?next=%2Fjoin%3Ftoken%3Dinvite-123&provider=google");
+    expect(googleSignupPath(null)).toBe("/signup?provider=google");
+  });
+
+  it("drops a destination it would not redirect to anyway", () => {
+    expect(googleSignupPath("https://attacker.example/steal")).toBe("/signup?provider=google");
+  });
+
+  it("recognises only its own handoff", () => {
+    expect(requestsGoogleSignup(new URLSearchParams(googleSignupPath("/organizations").split("?")[1]))).toBe(true);
+    expect(requestsGoogleSignup(new URLSearchParams("next=%2Forganizations"))).toBe(false);
+    expect(requestsGoogleSignup(new URLSearchParams("provider=github"))).toBe(false);
   });
 });
 

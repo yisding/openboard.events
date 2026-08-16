@@ -1,7 +1,8 @@
 "use client";
 
 import { Inbox } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { ColumnDef, SortingState } from "@tanstack/react-table";
 import { formatCode } from "@/features/submissions/index.client";
 import type { SubmissionFilters, SubmissionView } from "@/features/submissions";
@@ -10,6 +11,7 @@ import { ColorChip } from "@/shared/ui/app/color-chip";
 import { DataTable, nullsLast, type DataTableProps } from "@/shared/ui/app/data-table";
 import { Dash } from "@/shared/ui/app/dash";
 import { TzTime } from "@/shared/ui/app/tz-time";
+import { statusBadgeLabel } from "@/shared/ui/status-badge";
 import { Button, EmptyState, StatusBadge } from "@/shared/ui/ui-kit";
 
 /**
@@ -45,6 +47,32 @@ const EXACT_STATUSES_BY_VIEW: Record<SubmissionView, SubmissionStatus[]> = {
   all: ["draft"],
 };
 
+/**
+ * An empty table has three different meanings and the organizer needs to know
+ * which one: nothing matched the search, this stage of the workflow is simply
+ * clear, or the event has genuinely never received a submission. Telling an
+ * organizer with 24 submissions that there are none — and pointing them at the
+ * CFP form — is the failure this map exists to prevent.
+ */
+const EMPTY_STATE_BY_VIEW: Record<SubmissionView, { title: string; description: string }> = {
+  needs_decision: {
+    title: "Nothing needs a decision",
+    description: "New submissions land here for review as speakers send them.",
+  },
+  ready_to_notify: {
+    title: "Nothing is queued for notification",
+    description: "Stage decisions from Needs decision, then send them from here.",
+  },
+  decided: {
+    title: "No decisions yet",
+    description: "Accepted, declined and withdrawn submissions collect here.",
+  },
+  all: {
+    title: "No submissions yet",
+    description: "Publish a CFP form and share its link — submissions land here as speakers complete it.",
+  },
+};
+
 const SORTING_BY_QUERY: Record<SubmissionFilters["sort"], SortingState[number]> = {
   newest: { id: "submitted", desc: true },
   oldest: { id: "submitted", desc: false },
@@ -67,6 +95,7 @@ function submissionSortFromTable(state: SortingState): SubmissionFilters["sort"]
 }
 
 export function AbstractsTable({
+  eventId,
   rows,
   counts,
   view,
@@ -88,6 +117,7 @@ export function AbstractsTable({
   selectAllEpoch,
   renderSelectionBar,
 }: {
+  eventId: string;
   rows: SubmissionListRow[];
   counts: Record<SubmissionStatus | "all", number>;
   view: SubmissionView;
@@ -122,6 +152,30 @@ export function AbstractsTable({
     ? "All submissions"
     : `All ${activeWorkflow?.label.toLowerCase() ?? "statuses"}`;
 
+  // An event with no submissions at all reads as first-run whatever filter is
+  // set; past that, the empty table has to name the filter that emptied it.
+  const emptyState: { title: string; description: string; action?: ReactNode } = total === 0
+    ? {
+      ...EMPTY_STATE_BY_VIEW.all,
+      // A brand-new event has nowhere to send speakers yet, so the first-run
+      // state carries the route that fixes that rather than naming a form the
+      // organizer has not built.
+      action: <Link className="button button-primary" href={`/events/${eventId}/forms`}>Open forms</Link>,
+    }
+    : search
+      ? {
+        title: "Nothing matches that search",
+        description: `${total} submission${total === 1 ? "" : "s"} exist in total — clear the search to see them.`,
+        action: <Button onClick={() => { setDraftSearch(""); onFilter({ search: "" }); }}>Clear search</Button>,
+      }
+      : status !== "all"
+        ? {
+          title: "Nothing has that status",
+          description: `No submission in this event is marked “${statusBadgeLabel(status)}” right now.`,
+          action: <Button onClick={() => onFilter({ view, status: "all" })}>{exactStatusAllLabel}</Button>,
+        }
+        : EMPTY_STATE_BY_VIEW[view];
+
   const columns = useMemo<Array<ColumnDef<SubmissionListRow, unknown>>>(() => [
     {
       id: "code",
@@ -133,9 +187,23 @@ export function AbstractsTable({
       id: "title",
       header: "Title",
       accessorKey: "title",
+      // `.data-table` is `table-layout:auto` and every other column is
+      // `white-space:nowrap`, so auto layout satisfies them first and hands the
+      // whole deficit to the one column that can wrap — this one, which also
+      // carries the description. Without a width of its own it collapsed to
+      // roughly its longest word (measured: 111px, in a 192px-tall row). The
+      // class is the seam the stylesheet needs to give the column a floor. It is
+      // deliberately outside the `abstracts-col-*` namespace: that one belongs
+      // to the T5 responsive disclosure ladder, whose members are the columns
+      // mobile hides, and Title is never one of them.
+      meta: { className: "abstracts-title-column" },
       cell: ({ row }) => (
-        <div className="submission-title-cell">
-          <b>{row.original.title}</b>
+        // First Fair: the tour needs to point at the first proposal. The `<tr>`
+        // belongs to the shared DataTable and the whole table sits behind a
+        // QueryBoundary, so the lead row's title cell carries the anchor —
+        // which is also the part of the row a spotlight should frame.
+        <div className="submission-title-cell" {...(row.index === 0 ? { "data-tour": "abstracts.row" } : {})}>
+          <b title={row.original.title}>{row.original.title}</b>
           <Dash value={row.original.descriptionPlain}>
             <span>{row.original.descriptionPlain?.slice(0, 120)}</span>
           </Dash>
@@ -263,6 +331,10 @@ export function AbstractsTable({
             onSubmit={(event) => { event.preventDefault(); onFilter({ search: draftSearch }); }}
           >
             <input
+              // The one field on this screen inside a real `<form>`: without a
+              // name it is the unidentifiable control browser form tooling
+              // complains about, even though `aria-label` names it for people.
+              name="search"
               value={draftSearch}
               onChange={(event) => setDraftSearch(event.target.value)}
               placeholder="Search code, title or speaker"
@@ -270,16 +342,7 @@ export function AbstractsTable({
             />
           </form>
         }
-        empty={
-          <EmptyState
-            icon={<Inbox size={20} />}
-            title={search ? "Nothing matches that search" : "No submissions yet"}
-            description={search
-              ? `${total} submission${total === 1 ? "" : "s"} exist in total — clear the search to see them.`
-              : "Submissions appear here as speakers complete the CFP form."}
-            {...(search ? { action: <Button onClick={() => { setDraftSearch(""); onFilter({ search: "" }); }}>Clear search</Button> } : {})}
-          />
-        }
+        empty={<EmptyState icon={<Inbox size={20} />} {...emptyState} />}
       />
     </>
   );

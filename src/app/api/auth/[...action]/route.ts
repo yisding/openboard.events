@@ -13,7 +13,7 @@ import { getEnv } from "@/shared/lib/env";
 import { log } from "@/shared/lib/log";
 import { assertSameOrigin } from "@/shared/server/csrf";
 import { checkRateLimit, clientIp } from "@/shared/server/rate-limit";
-import { beginGoogleSignup, confirmAdminEmail, handleAdminAuthGet, handleSocialSignIn } from "./_lib";
+import { beginGoogleSignup, confirmAdminEmail, handleAdminAuthGet, handleSocialSignIn, wrapBetterAuthError } from "./_lib";
 
 /**
  * Admin auth endpoints.
@@ -83,6 +83,14 @@ async function betterAuthSignIn(request: NextRequest, credentials: z.infer<typeo
     if (result.status === 403 && body?.code === "EMAIL_NOT_VERIFIED") {
       return NextResponse.json({ error: { code: "EMAIL_NOT_VERIFIED", message: "Confirm your email before signing in" } }, { status: 403 });
     }
+    // Better Auth runs its own limiter *inside* this handler, and it is on by
+    // default in production (`rateLimit.enabled ?? isProduction`) with a
+    // built-in `/sign-in*` rule of 3 per 10s — stricter, and therefore earlier,
+    // than our own durable throttle at attempt 6. Its 429 body carries only
+    // `message`, never a `code`, so collapsing it into `unauthorized()` told
+    // the one organizer who had just typed the right password that it was
+    // wrong. Same defect this route's own 429 was fixed for, one layer down.
+    if (result.status === 429) return credentialRateLimited();
     return unauthorized();
   }
   return withCookies(result, { data: { signedIn: true } }, 200);
@@ -247,11 +255,15 @@ function parseJson(raw: string): unknown {
 async function throttledBetterAuthPost(request: NextRequest): Promise<Response> {
   const raw = await request.text();
   const parsed = signInSchema.safeParse(parseJson(raw));
-  const forwarded = () => betterAuthHandler(new Request(request.url, {
+  // Better Auth's native rejection shape is `{ code, message }`; re-shape it to
+  // the app envelope so this endpoint answers one grammar whether the throttle
+  // or Better Auth itself refused. `credentialAttempt`'s `acceptedCredentialResponse`
+  // already reads either shape, so wrapping first is safe.
+  const forwarded = async () => wrapBetterAuthError(await betterAuthHandler(new Request(request.url, {
     method: "POST",
     headers: request.headers,
     body: raw,
-  }));
+  })));
   if (!parsed.success) return forwarded();
   return credentialAttempt(request, parsed.data.email, forwarded);
 }

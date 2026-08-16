@@ -62,6 +62,7 @@ export const STATUS_BADGES = {
   duplicate: { label: "Duplicate", tone: "warning" },
   error: { label: "Error", tone: "danger" },
 
+  current_device: { label: "This device", tone: "success" },
   owner: { label: "Owner", tone: "neutral" },
   organizer: { label: "Organizer", tone: "neutral" },
   reviewer: { label: "Reviewer", tone: "neutral" },
@@ -70,6 +71,11 @@ export const STATUS_BADGES = {
   active: { label: "Active", tone: "success" },
   past_due: { label: "Past due", tone: "warning" },
   canceled: { label: "Canceled", tone: "neutral" },
+
+  // First Fair. Neutral on purpose: a demo event is not a warning, a state or
+  // an outcome — it is a fact about which conference you are looking at, and
+  // it must read the same in the topbar, the switcher and the event grid.
+  demo: { label: "Demo", tone: "neutral" },
 
   manual: { label: "Manual", tone: "neutral" },
   form: { label: "Form response", tone: "neutral" },
@@ -83,6 +89,14 @@ export const STATUS_BADGES = {
 } as const satisfies Record<string, StatusBadgeDefinition>;
 
 export type StatusBadgeValue = keyof typeof STATUS_BADGES;
+
+/** The same authored label a badge would render, for the places that need the
+ * words without the chip — a timeline sentence, a CSV cell, a search result's
+ * secondary line. Going through here keeps those surfaces from inventing a
+ * second vocabulary for a status the badge already names. */
+export function statusBadgeLabel(value: StatusBadgeValue): string {
+  return STATUS_BADGES[value].label;
+}
 
 /** Speaker-facing APIs intentionally return display labels after hiding the
  * two internal decision queues. Keep that boundary, then translate its closed

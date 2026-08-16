@@ -15,6 +15,7 @@ import { DataTable } from "@/shared/ui/app/data-table";
 import { Dash } from "@/shared/ui/app/dash";
 import { useFlowKeyboardNav } from "@/shared/ui/app/use-flow-keyboard-nav";
 import { Button, EmptyState, PageHeader, Select, StatusBadge } from "@/shared/ui/ui-kit";
+import { statusBadgeLabel } from "@/shared/ui/status-badge";
 import { useToast } from "@/shared/ui/toast";
 import { SpeakerBulkEmailDialog } from "./speaker-bulk-email-dialog";
 import { SpeakerCreateDialog } from "./speaker-create-dialog";
@@ -50,6 +51,7 @@ function initialsFor(row: ContactListRow): string {
  */
 export function SpeakersAdminView({
   eventId,
+  timezone,
   rows,
   total,
   filterCounts,
@@ -63,6 +65,7 @@ export function SpeakersAdminView({
   dir,
 }: {
   eventId: string;
+  timezone: string;
   rows: ContactListRow[];
   total: number;
   filterCounts: SpeakerFilterCounts;
@@ -236,6 +239,9 @@ export function SpeakersAdminView({
       header: "Submissions",
       accessorKey: "submissionCount",
       enableSorting: false,
+      // T5 disclosure ladder (design-system.md) — the lowest-priority column
+      // here: a bare count the speaker drawer repeats. Hidden at ≤1024.
+      meta: { className: "speakers-col-submissions" },
       cell: ({ row }) => <span className="session-count">{row.original.submissionCount}</span>,
     },
     {
@@ -252,6 +258,11 @@ export function SpeakersAdminView({
       id: "missing",
       header: "Missing",
       enableSorting: false,
+      // Second disclosure stage, at ≤768: the "Bio missing" / "Headshot
+      // missing" filters above the table already surface this signal, and the
+      // drawer names it per speaker. Speaker, Confirmation and Tasks (the
+      // column the bulk-remind action reads) stay at every width.
+      meta: { className: "speakers-col-missing" },
       cell: ({ row }) => {
         const { missingBio, missingHeadshot } = row.original;
         if (!missingBio && !missingHeadshot) return <Dash />;
@@ -354,7 +365,7 @@ export function SpeakersAdminView({
               onChange={(event) => setParams({ confirmation: event.target.value === "all" ? null : event.target.value })}
             >
               <option value="all">All confirmations</option>
-              {CONFIRMATION_STATUSES.map((status) => <option key={status} value={status}>{status.charAt(0).toUpperCase()}{status.slice(1)}</option>)}
+              {CONFIRMATION_STATUSES.map((status) => <option key={status} value={status}>{statusBadgeLabel(status)}</option>)}
             </Select>
             <span className="row-count">{total} shown</span>
           </>
@@ -363,12 +374,22 @@ export function SpeakersAdminView({
           <EmptyState
             icon={<Users size={20} />}
             title={q || accepted || missing || confirmation ? "Nothing matches these filters" : "No speakers yet"}
-            description={q || accepted || missing || confirmation ? "Try clearing a filter or search term." : "Contacts appear here once a submission names them as a speaker."}
+            // An empty roster is not a waiting state: the two toolbar actions
+            // above fill it now, and a published CFP fills it on its own. Name
+            // both rather than describing only the passive half.
+            description={q || accepted || missing || confirmation
+              ? "Try clearing a filter or search term."
+              : "Add a speaker or import a CSV to start the roster — contacts also appear here as submissions name them."}
           />
         }
       />
 
-      <SpeakerCreateDialog eventId={eventId} open={createOpen} onClose={() => { setCreateOpen(false); router.refresh(); }} />
+      {/* No `router.refresh()` here. A successful add navigates to the new
+          speaker's detail page, and a refresh of the roster started in the same
+          tick raced that navigation: the address bar advanced while this page
+          stayed on screen, so the toast said "added" over a roster that never
+          showed the row. Cancelling changes nothing to refresh. */}
+      <SpeakerCreateDialog eventId={eventId} open={createOpen} onClose={() => setCreateOpen(false)} />
       <SpeakerImportDialog eventId={eventId} open={importOpen} onClose={() => setImportOpen(false)} />
       {bulkEmailOpen && (
         <SpeakerBulkEmailDialog
@@ -383,6 +404,7 @@ export function SpeakersAdminView({
       {openRow && (
         <SpeakerFlowDrawer
           eventId={eventId}
+          timezone={timezone}
           row={openRow}
           onClose={() => { if (!reminderRecovery.blocked) setOpenContactId(null); }}
           nav={{

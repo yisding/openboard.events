@@ -30,10 +30,12 @@ import {
 } from "../participant-step";
 import {
   assertMapsToMatchesTarget,
+  assertNoNewlyOrphanedVisibility,
   assertNotLockedField,
   assertStructuralAllowed,
   assertUniqueFieldKey,
   assertUniqueMapsTo,
+  assertVisibilityValuesResolve,
   fieldPatchIsStructural,
 } from "./guards";
 import { getFormForBuilderIn, hasNonDraftSubmissionsIn } from "./builder-queries";
@@ -198,7 +200,11 @@ function cfpAuthoringRows(formId: FormId, trackRows: { id: string; name: string 
     form: { id: formId, context: "cfp", version: 1 },
     sections: [
       { id: abstractId, key: "abstract", title: "Tell us about your submission", pageHeading: "Submission", descriptionHtml: "", sortOrder: 0 },
-      { id: participantId, key: "participant", title: "Tell us about you", pageHeading: "Participant", descriptionHtml: "", sortOrder: 1 },
+      // "Participant" is the data model's word, not the submitter's. This
+      // step collects the people who would stand up and give the talk, and
+      // saying so is the difference between a heading and a label — an
+      // organizer reading a fresh form could not tell what the step was for.
+      { id: participantId, key: "participant", title: "Tell us about the speaker", pageHeading: "Speaker", descriptionHtml: "", sortOrder: 1 },
     ],
     fields: [
       authored(abstractId, "title", "Title", "text", 0, { required: true, locked: true, maxChars: 255, mapsTo: "submission.title" }),
@@ -271,7 +277,17 @@ export async function createFormIn(dbOrTx: DbOrTx, eventId: EventId, input: Crea
     ],
     createdAt: now,
     updatedAt: now,
-  }).onConflictDoNothing({ target: forms.id }).returning();
+    // No arbiter. `ON CONFLICT (id)` only absorbs a violation of *that* index,
+    // and `forms` carries a second one — `UNIQUE (id, event_id)`
+    // (0000_init.sql:150). Two genuinely concurrent stable creates of the same
+    // id can trip the composite index first, and the DO NOTHING never applies:
+    // the insert raises, and a create that this path exists to make idempotent
+    // fails with a raw 500 instead of converging on the row the other attempt
+    // wrote. Untargeted is not looser here — every unique index on `forms` is
+    // keyed on `id`, so any row it could collide with is the same form — and it
+    // no longer depends on which index Postgres happens to check first. (PGlite
+    // is single-connection, so this only ever reproduced on native Postgres.)
+  }).onConflictDoNothing().returning();
   const [storedForm] = await dbOrTx.select({
     eventId: forms.eventId,
     context: forms.context,
@@ -680,10 +696,28 @@ async function reconcileOptions(
     ? await dbOrTx.select({ id: tracks.id, name: tracks.name }).from(tracks).where(eq(tracks.eventId, eventId))
     : await dbOrTx.select({ id: sessionFormats.id, name: sessionFormats.name }).from(sessionFormats).where(eq(sessionFormats.eventId, eventId));
   const byLabel = new Map(vocabulary.map((row) => [row.name.trim().toLocaleLowerCase(), row]));
+  const byId = new Map(vocabulary.map((row) => [row.id, row]));
   const seenBindings = new Set<string>();
 
+  const boundIdFor = (label: string): string | null => {
+    const existing = field.options.find((option) => option.label.trim().toLocaleLowerCase() === label.toLocaleLowerCase());
+    return (mapsTo === "submission.track_id" ? existing?.trackId : existing?.formatId) ?? null;
+  };
+
   return labels.map((label) => label.trim()).filter(Boolean).map((label) => {
-    const row = byLabel.get(label.toLocaleLowerCase());
+    // Label first, then the binding the stored option already carries. Nothing
+    // propagates a track or format rename into `form_fields.options[].label`,
+    // and `updateFieldIn` re-runs this reconcile on *every* patch to a mapped
+    // field — feeding it the stale stored labels even when the patch never
+    // touched options. Resolving by label alone therefore meant renaming a
+    // track permanently bricked the question bound to it: editing that
+    // question's help text failed with `"AI" is not an event track`, and it
+    // could never be saved again until every label was retyped by hand. The
+    // id lookup below already existed for the identity half of this; it just
+    // sat behind the throw. Adopting `row.name` heals the stored label as a
+    // side effect, so the rename propagates on the next save.
+    const row = byLabel.get(label.toLocaleLowerCase())
+      ?? ((bound) => (bound ? byId.get(bound) : undefined))(boundIdFor(label));
     if (!row) {
       const kind = mapsTo === "submission.track_id" ? "track" : "session format";
       throw new AppError("VALIDATION", `“${label}” is not an event ${kind}. Choose an existing ${kind} before saving.`);
@@ -718,6 +752,7 @@ export async function updateFieldIn(dbOrTx: DbOrTx, eventId: EventId, formId: Fo
   const nextOptions = isOptions && (patch.optionLabels !== undefined || nextMapsTo === "submission.track_id" || nextMapsTo === "submission.format_id")
     ? await reconcileOptions(dbOrTx, eventId, field, patch.optionLabels ?? field.options.map((option) => option.label), nextMapsTo, nextType)
     : isOptions ? field.options : [];
+  assertNoNewlyOrphanedVisibility(fields, field.id, field.options, nextOptions);
   const updated: BuilderField = {
     ...field,
     key: nextKey,
@@ -737,6 +772,11 @@ export async function updateFieldIn(dbOrTx: DbOrTx, eventId: EventId, formId: Fo
     ...form,
     sections: form.sections.map((section) => ({ ...section, fields: section.fields.map((candidate) => candidate.id === field.id ? updated : candidate) })),
   };
+  // Only when the patch supplies a rule, so a form already carrying a dangling
+  // one stays editable rather than having every unrelated edit blocked.
+  if (patch.visibility !== undefined) {
+    assertVisibilityValuesResolve(allFields(hypothetical), updated);
+  }
   const snapshot = nextSnapshot(hypothetical);
   const now = new Date();
   await touchFormIn(dbOrTx, eventId, form, expectedUpdatedAt, now);
@@ -849,6 +889,13 @@ export async function duplicateFormIn(dbOrTx: DbOrTx, eventId: EventId, formId: 
     kind: source.kind,
     collectParticipants: source.collectParticipants,
     targetType: source.targetType,
+    // A per-speaker cap is a setting, not part of the submissions/analytics
+    // trail this copy deliberately leaves behind — and the docstring above
+    // enumerates what it omits, which never included this. Dropping it made the
+    // copy silently fall back to the event-wide `submissionCapPerUser`
+    // (`public-form.ts`), so a form limited to one proposal per speaker
+    // duplicated into one that accepts the event default.
+    submissionLimit: source.submissionLimit,
     showWelcome: source.showWelcome,
     welcomeHtml: source.welcomeHtml,
     successHtml: source.successHtml,
@@ -936,6 +983,24 @@ export async function deleteFormIn(dbOrTx: DbOrTx, eventId: EventId, formId: For
   `);
   if (Number((hasResponses.rows ?? [])[0]?.n ?? 0) > 0) {
     throw new AppError("CONFLICT", "This form has collected responses and cannot be deleted.");
+  }
+  // Autosaved drafts are invisible to `hasNonDraftSubmissionsIn`, which filters
+  // `status <> 'draft'` — but their answers are not harmless. `form_fields`
+  // cascades from `forms`, while `submission_answers.field_id -> form_fields`
+  // carries no ON DELETE at all, and `submissions.form_id` is SET NULL so the
+  // draft rows survive the delete. The DELETE below therefore raised a raw FK
+  // 500 on a form someone had merely started filling in — the exact outcome the
+  // route's own doc comment says this precheck exists to prevent.
+  //
+  // Keyed on answers rather than on drafts, because an empty draft really is
+  // deletable: its `submissions` row cleanly takes the SET NULL.
+  const hasAnswers = await dbOrTx.execute<{ n: number }>(sql`
+    SELECT count(*)::int AS n FROM submission_answers a
+    JOIN form_fields f ON f.id = a.field_id AND f.event_id = a.event_id
+    WHERE f.event_id = ${eventId} AND f.form_id = ${formId}
+  `);
+  if (Number((hasAnswers.rows ?? [])[0]?.n ?? 0) > 0) {
+    throw new AppError("CONFLICT", "This form has saved answers and cannot be deleted. Duplicate it if you need a fresh copy to edit.");
   }
   const result = await dbOrTx.execute<{ id: string }>(sql`
     DELETE FROM forms WHERE id = ${formId} AND event_id = ${eventId} RETURNING id

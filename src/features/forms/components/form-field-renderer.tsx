@@ -152,7 +152,15 @@ function Input({
 }) {
   const uploadEventId = useFormUploadEventId();
   const text = value?.t === "s" ? value.v : "";
-  const emit = (next: string) => onChange(next === "" ? undefined : { t: "s", v: next });
+  // An emptied field emits an explicit empty answer, not `undefined`.
+  // `JSON.stringify` drops an undefined value's key entirely, so the server
+  // could not tell "the speaker cleared this" from "the speaker never touched
+  // it": the key vanished from `form_responses.answers` too, and the prefill
+  // overlay fell straight back to the stale column. Clearing Company in a
+  // portal task and reopening it showed "Acme" again, and the public gallery
+  // still said Acme. `isEmpty` still treats this as empty, so a required field
+  // is refused exactly as before.
+  const emit = (next: string) => onChange({ t: "s", v: next });
   const controlProps = {
     required: field.required || undefined,
     "aria-invalid": invalid || undefined,
@@ -243,8 +251,11 @@ function Input({
   }
 }
 
-export function toRichTextAnswer(html: string): AnswerValue | undefined {
-  return plainTextLength(html) === 0 ? undefined : { t: "s", v: html };
+export function toRichTextAnswer(html: string): AnswerValue {
+  // Same reason as `emit` above: an emptied editor has to reach the server as a
+  // clear rather than as an absent key. The empty string, not the editor's
+  // leftover `<p></p>`, so nothing downstream mistakes markup for content.
+  return plainTextLength(html) === 0 ? { t: "s", v: "" } : { t: "s", v: html };
 }
 
 export type { FieldId };

@@ -2,10 +2,20 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { PublicAgenda } from "@/features/public/public-agenda";
 import { PublicBuildMarker } from "@/features/public/public-build-marker";
-import { getPublishedSchedule } from "@/features/public/server/public-queries";
+import { getPublicEventIsDemo, getPublishedSchedule } from "@/features/public/server/public-queries";
 import { getEnv } from "@/shared/lib/env";
 
-export const metadata: Metadata = { title: "Agenda" };
+/**
+ * First Fair (design §6.3) — converted from a static `metadata` const because
+ * a static export cannot read the event row. `robots: { index: false }` is
+ * the demo's public-exposure rail: fabricated speakers never enter a search
+ * index, even once Chapter 8 publishes the agenda.
+ */
+export async function generateMetadata({ params }: { params: Promise<{ eventSlug: string }> }): Promise<Metadata> {
+  const { eventSlug } = await params;
+  const isDemo = await getPublicEventIsDemo(eventSlug);
+  return { title: "Agenda", ...(isDemo ? { robots: { index: false, follow: false } } : {}) };
+}
 
 /** Same cache contract as every other public surface — see sessions/page.tsx. */
 export const revalidate = 60;

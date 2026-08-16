@@ -16,6 +16,7 @@ import {
 import { Dash } from "@/shared/ui/app/dash";
 import { FlowNavControls } from "@/shared/ui/app/flow-nav-controls";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
+import { SkeletonText } from "@/shared/ui/app/skeleton";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, Drawer, StatusBadge } from "@/shared/ui/ui-kit";
@@ -277,6 +278,12 @@ export function SubmissionDrawer({
       setDetail((current) => current && { ...current, title: values.title });
       toast("Submission saved");
       router.refresh();
+    } catch {
+      // A dropped connection rejects rather than answering, so none of the
+      // branches above run. Without this the button just flips back to "Save
+      // changes" and nothing says the edit was never written.
+      if (active.current.eventId !== request.eventId || active.current.submissionId !== request.submissionId) return;
+      setSaveFeedback({ kind: "error", message: "Could not reach the server. This abstract was not saved." });
     } finally {
       // Same rule as above, for the same reason: if the drawer has moved on,
       // `busy` now belongs to whatever is saving *there* and this request has no
@@ -304,9 +311,7 @@ export function SubmissionDrawer({
         </div>
       )}
       {!detail && loadState.status === "loading" && (
-        <p className="portal-note" role="status">
-          {loadState.purpose === "stale" ? "Loading the latest version…" : "Loading submission…"}
-        </p>
+        <SkeletonText lines={6} label={loadState.purpose === "stale" ? "Loading the latest version…" : "Loading submission…"} />
       )}
       {detail && (
         <div className="submission-drawer">

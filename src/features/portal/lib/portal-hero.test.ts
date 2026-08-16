@@ -39,6 +39,8 @@ function submission(overrides: Partial<PortalSubmissionRow>): PortalSubmissionRo
     submittedAt: null,
     updatedAt: NOW.toISOString(),
     formClosesAt: null,
+    formStatus: "open",
+    formOpensAt: null,
     ...overrides,
   };
 }
@@ -87,6 +89,28 @@ describe("computePortalHero", () => {
   it("does not offer a draft whose form has already closed", () => {
     const expired = submission({ status: "Draft", formClosesAt: "2026-08-01T00:00:00Z" });
     const hero = computePortalHero({ showCelebration: false, submissions: [expired], myTasks: [], timezone: TZ, now: NOW });
+    expect(hero.kind).toBe("quiet");
+  });
+
+  it("does not offer a draft on a form the organizer closed by hand", () => {
+    // "Stop accepting submissions" on a CFP with no close date flips `status`
+    // and leaves `closes_at` NULL. Gating on `closesAt` alone therefore showed
+    // every speaker with a draft a primary "Resume your submission" call to
+    // action that lands on `FormClosedNotice`.
+    const closedByAdmin = submission({ status: "Draft", formStatus: "closed", formClosesAt: null });
+    const hero = computePortalHero({ showCelebration: false, submissions: [closedByAdmin], myTasks: [], timezone: TZ, now: NOW });
+    expect(hero.kind).toBe("quiet");
+  });
+
+  it("does not offer a draft on a form that has not opened yet", () => {
+    const scheduled = submission({ status: "Draft", formOpensAt: "2026-09-01T00:00:00Z" });
+    const hero = computePortalHero({ showCelebration: false, submissions: [scheduled], myTasks: [], timezone: TZ, now: NOW });
+    expect(hero.kind).toBe("quiet");
+  });
+
+  it("does not offer a co-speaker the submitter's draft, which they cannot open", () => {
+    const someoneElses = submission({ status: "Draft", isPrimary: false });
+    const hero = computePortalHero({ showCelebration: false, submissions: [someoneElses], myTasks: [], timezone: TZ, now: NOW });
     expect(hero.kind).toBe("quiet");
   });
 

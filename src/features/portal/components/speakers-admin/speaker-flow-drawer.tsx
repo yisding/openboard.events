@@ -7,8 +7,8 @@ import type { ContactListRow, SpeakerDetailDTO } from "@/features/portal";
 import { participantRoleLabel } from "../../lib/participant-role";
 import { SendReminderDialog } from "@/features/comms/index.client";
 import { eventIdSchema } from "@/shared/contracts";
-import { Dash } from "@/shared/ui/app/dash";
 import { FlowNavControls } from "@/shared/ui/app/flow-nav-controls";
+import { TzTime } from "@/shared/ui/app/tz-time";
 import { Button, Drawer, StatusBadge } from "@/shared/ui/ui-kit";
 import { SpeakerHeadshot } from "./speaker-headshot";
 
@@ -30,11 +30,13 @@ function initialsFor(name: string, email: string): string {
  */
 export function SpeakerFlowDrawer({
   eventId,
+  timezone,
   row,
   nav,
   onClose,
 }: {
   eventId: string;
+  timezone: string;
   row: ContactListRow;
   nav?: { index: number; total: number; onPrev?: (() => void) | undefined; onNext?: (() => void) | undefined };
   onClose: () => void;
@@ -99,7 +101,11 @@ export function SpeakerFlowDrawer({
               {detail && detail.tasks.length === 0 && <p className="long-copy">No onboarding tasks assigned yet.</p>}
               {detail?.tasks.map((task) => (
                 <div className="mini-session" key={task.taskId}>
-                  <span className="mini-session-meta"><Dash value={task.dueAt} /></span>
+                  {/* The same rendering as the full profile's Tasks list: a
+                      raw `<Dash>` printed the stored ISO instant
+                      ("2026-08-14T00:00:00.000Z") in the viewer's face and in
+                      no timezone anyone reads. */}
+                  <span className="mini-session-meta">{task.dueAt ? <TzTime instant={task.dueAt} tz={timezone} style="date" /> : "No due date"}</span>
                   <b>{task.name}</b>
                   <StatusBadge value={task.completed ? "complete" : task.overdue ? "overdue" : "open"} />
                 </div>
@@ -113,6 +119,12 @@ export function SpeakerFlowDrawer({
 
             <section>
               <h3>Submissions</h3>
+              {/* Opens on row data so the section is never a bare heading while
+                  the detail fetch is in flight. `error` is announced once, by
+                  the Tasks section above, so it renders here as plain copy. */}
+              <p className="long-copy">{row.submissionCount} on this event.</p>
+              {error && <p className="portal-note">{error}</p>}
+              {!detail && !error && <p className="portal-note">Loading…</p>}
               {detail && detail.submissions.length === 0 && <p className="long-copy">No submissions from this contact.</p>}
               {detail?.submissions.map((submission) => (
                 <Link key={submission.submissionId} className="mini-session" href={`/events/${eventId}/abstracts?submission=${submission.submissionId}`}>
@@ -136,6 +148,7 @@ export function SpeakerFlowDrawer({
           eventId={eventIdSchema.parse(eventId)}
           contactId={row.contactId}
           contactName={row.name}
+          timezone={timezone}
           onClose={() => setReminding(false)}
         />
       )}

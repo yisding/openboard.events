@@ -50,7 +50,55 @@ export function parseCsv(text: string): string[][] {
   // still buffered (no final newline, or the file was empty) is one more row
   // — unless it is the single empty field an empty file parses to.
   if (field.length > 0 || row.length > 0) endRow();
-  return rows.filter((cells) => !(cells.length === 1 && cells[0] === ""));
+  // Trailing only, as documented. Dropping blank rows *anywhere* compacted the
+  // array, and `readSpeakerCsvRows` derives its 1-based `rowNumber` from the
+  // index of that compacted array — so one blank separator line at row 40 of a
+  // 200-row export shifted every reported row number below it by one, and the
+  // error CSV an organizer downloads pointed them at the wrong record. An
+  // interior blank row is kept here and skipped, still counted, by the reader.
+  while (rows.length > 0) {
+    const last = rows[rows.length - 1];
+    if (last && last.length === 1 && last[0] === "") rows.pop();
+    else break;
+  }
+  return rows;
+}
+
+function quoteCsvCell(value: string): string {
+  return /[",\r\n]/u.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
+}
+
+/**
+ * Writes organizer corrections back into one column of the uploaded file,
+ * keyed by the `rowNumber` the import preview reports (1-based, header
+ * included — exactly what `readSpeakerCsvRows` emits and what the preview
+ * table shows).
+ *
+ * The import's own `csvText` stays the single source of truth: fixing a
+ * rejected email in the preview edits the *file*, and re-previewing then
+ * re-validates it through the same server path as the original upload, so a
+ * correction can never take a shortcut around validation. The header row is
+ * never a target, and a row shorter than the mapped column is padded rather
+ * than shifting its other cells.
+ */
+export function applyCsvCellEdits(csvText: string, columnIndex: number, edits: Record<number, string>): string {
+  const rows = parseCsv(csvText);
+  let changed = false;
+  for (const [key, value] of Object.entries(edits)) {
+    const rowIndex = Number(key) - 1;
+    const cells = rows[rowIndex];
+    if (rowIndex < 1 || !cells) continue;
+    while (cells.length <= columnIndex) cells.push("");
+    cells[columnIndex] = value;
+    changed = true;
+  }
+  if (!changed) return csvText;
+  return rows.map((cells) => cells.map(quoteCsvCell).join(",")).join("\r\n");
+}
+
+/** A row the file contains but that carries no data at all — a separator line. */
+function isBlankRow(cells: string[]): boolean {
+  return cells.every((cell) => cell.trim() === "");
 }
 
 export type SpeakerCsvRowResult = {
@@ -73,12 +121,15 @@ const emailSchema = z.string().trim().toLowerCase().pipe(z.email());
  */
 export function readSpeakerCsvRows(rows: string[][], mapping: SpeakerCsvColumnMapping): SpeakerCsvRowResult[] {
   const [, ...dataRows] = rows;
-  return dataRows.map((cells, index): SpeakerCsvRowResult => {
+  // Blank separator lines are skipped but still counted, so `rowNumber` keeps
+  // meaning what the docstring on the field says: the line a spreadsheet shows.
+  return dataRows.flatMap((cells, index): SpeakerCsvRowResult[] => {
+    if (isBlankRow(cells)) return [];
     const rowNumber = index + 2; // +1 for the header, +1 to go from 0-based
     const rawEmail = cells[mapping.email]?.trim() ?? "";
-    if (!rawEmail) return { rowNumber, email: null, values: {}, error: "Missing email" };
+    if (!rawEmail) return [{ rowNumber, email: null, values: {}, error: "Missing email" }];
     const parsedEmail = emailSchema.safeParse(rawEmail);
-    if (!parsedEmail.success) return { rowNumber, email: null, values: {}, error: `Invalid email "${rawEmail}"` };
+    if (!parsedEmail.success) return [{ rowNumber, email: null, values: {}, error: `Invalid email "${rawEmail}"` }];
     const values: Partial<Record<SpeakerCsvField, string>> = {};
     for (const field of SPEAKER_CSV_FIELDS) {
       const columnIndex = mapping.fields[field];
@@ -86,6 +137,6 @@ export function readSpeakerCsvRows(rows: string[][], mapping: SpeakerCsvColumnMa
       const raw = cells[columnIndex]?.trim() ?? "";
       if (raw) values[field] = raw;
     }
-    return { rowNumber, email: parsedEmail.data, values, error: null };
+    return [{ rowNumber, email: parsedEmail.data, values, error: null }];
   });
 }

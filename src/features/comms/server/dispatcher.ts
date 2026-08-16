@@ -128,7 +128,10 @@ async function processRow(
     ...row,
     calendarCancellationSnapshot: cancellationJob?.snapshot ?? null,
   };
-  let context = await buildContext(deliveryRow, dbOrTx, env);
+  // The template is loaded *before* the context so `buildContext` can see the
+  // body it is building vars for, and mint a portal magic link only when that
+  // body actually carries the token. Nothing here depended on the old order —
+  // the template read is a plain lookup by (event, key).
   const [template] = await dbOrTx.select({ subject: emailTemplates.subject, bodyHtml: emailTemplates.bodyHtml, enabled: emailTemplates.enabled })
     .from(emailTemplates).where(and(eq(emailTemplates.eventId, row.eventId), eq(emailTemplates.key, row.templateKey))).limit(1);
   if (!template) throw new Error("email template was not found");
@@ -136,6 +139,7 @@ async function processRow(
     await markSkipped(dbOrTx, row, "template disabled");
     return "skipped";
   }
+  let context = await buildContext(deliveryRow, dbOrTx, env, { subject: template.subject, bodyHtml: template.bodyHtml });
   let invite: PreparedInvite | null = null;
   if (scheduleTemplate) {
     if (!deliveryRow.sessionId && deliveryRow.calendarCancellationSnapshot === null) {

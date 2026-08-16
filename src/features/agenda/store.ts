@@ -1,5 +1,5 @@
 import type { ConflictDTO, EventId, RoomDTO, ScheduledSessionDTO, SessionId, TrackDTO } from "@/shared/contracts";
-import { eventDayKey, hourMinuteInZone, zonedInputToUtc } from "@/shared/lib/time";
+import { eventDayKey, hourMinuteInZone, shiftDayKey, startOfDayInTz, wallTimeExistsInZone, zonedInputToUtc } from "@/shared/lib/time";
 import type { AgendaVocabulary, SpeakerOption } from "./server/queries";
 
 /**
@@ -49,13 +49,16 @@ export function eventDayKeys(startsAt: string, endsAt: string, timezone: string)
   // that instant belongs to no schedulable time on the ending date, so using
   // the preceding millisecond avoids rendering an empty, zero-duration tab.
   const last = eventDayKey(Math.max(startsAtMs, endsAtMs - 1), timezone);
-  let cursor = startsAtMs;
-  const limit = endsAtMs + 2 * 24 * 60 * 60 * 1000;
-  for (let guard = 0; guard < 64 && cursor <= limit; guard += 1) {
-    const key = eventDayKey(cursor, timezone);
-    if (!keys.includes(key)) keys.push(key);
+  // By calendar day key, not by 24 hours of absolute milliseconds: across a
+  // spring-forward the local time-of-day gains an hour, so a cursor starting
+  // late in the evening rolls past midnight twice and the loop skips a whole
+  // day. This is what builds the Day view's tab list, so a session scheduled on
+  // the skipped date had no tab to appear on at all.
+  let key = eventDayKey(startsAtMs, timezone);
+  for (let guard = 0; guard < 64; guard += 1) {
+    keys.push(key);
     if (key === last) break;
-    cursor += 24 * 60 * 60 * 1000;
+    key = shiftDayKey(key, 1);
   }
   return keys;
 }
@@ -84,10 +87,22 @@ export function defaultScheduledRange(
   let candidateStartMs = eventStartMs;
   let selectedDayStartMs = eventStartMs;
   if (selectedDay && validDays.includes(selectedDay)) {
+    // `startOfDayInTz`, not `T00:00:00` — the hazard `wallTimeExistsInZone`
+    // documents and f659e7ea fixed on the server's own day bounds. In a zone
+    // whose clock jumps forward at midnight that wall time does not exist and
+    // `zonedInputToUtc` resolves it *backwards* into the previous day, so this
+    // floor landed on the day before the one the organizer selected.
+    selectedDayStartMs = startOfDayInTz(selectedDay, event.timezone).getTime();
+    // The event's opening clock can be skipped on this particular day for the
+    // same reason — an event opening at 00:30 has no 00:30 on a day the clock
+    // jumps 00:00 to 01:00 — and resolving backwards would propose a session on
+    // the previous day. The first real instant of the selected day is the
+    // honest answer whenever that opening time does not occur on it.
     const { hour, minute } = hourMinuteInZone(event.startsAt, event.timezone);
     const localStart = `${selectedDay}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00`;
-    candidateStartMs = zonedInputToUtc(localStart, event.timezone).getTime();
-    selectedDayStartMs = zonedInputToUtc(`${selectedDay}T00:00:00`, event.timezone).getTime();
+    candidateStartMs = wallTimeExistsInZone(localStart, event.timezone)
+      ? zonedInputToUtc(localStart, event.timezone).getTime()
+      : selectedDayStartMs;
   }
 
   let startsAtMs = Math.max(candidateStartMs, eventStartMs);
@@ -156,6 +171,40 @@ export function scheduledNeedingRoom(
     session.startsAt !== null
     && session.endsAt !== null
     && (session.roomId === null || !roomIds.has(String(session.roomId))));
+}
+
+/**
+ * The event's speakers, plus the ones created from inside the session dialog
+ * since this page was rendered.
+ *
+ * `speakers` is server-rendered vocabulary: a contact quick-added a second ago
+ * is not in it until the next navigation, while the session that was saved with
+ * that contact arrives through the live session cache immediately. Every view
+ * resolves speaker *names* through `nameLookup`, which drops an id it cannot
+ * name — so without this the row the organizer just created showed an em-dash
+ * under SPEAKERS until a full reload, for a speaker they had just typed in.
+ *
+ * Merged rather than appended blindly: the server list wins once it catches up,
+ * so a refreshed contact does not appear twice under two spellings of its name.
+ */
+export function withQuickAddedSpeakers(
+  known: readonly SpeakerOption[],
+  added: readonly { contactId: string; name: string }[],
+): SpeakerOption[] {
+  const seen = new Set(known.map((speaker) => String(speaker.contactId)));
+  const merged: SpeakerOption[] = [...known];
+  for (const speaker of added) {
+    // Quick-add is idempotent on email, so adding the same address twice
+    // answers with the same contact id both times.
+    if (seen.has(speaker.contactId)) continue;
+    seen.add(speaker.contactId);
+    // The id is the contact row the server has just created and echoed back.
+    // Re-validating it here would turn a successful create into a thrown
+    // exception inside a click handler, so it is trusted as the branded id it
+    // already is.
+    merged.push({ ...speaker, contactId: speaker.contactId as SpeakerOption["contactId"] });
+  }
+  return merged;
 }
 
 export type NameLookup = {

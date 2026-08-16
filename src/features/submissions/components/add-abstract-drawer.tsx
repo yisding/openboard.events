@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { SubmissionVocabulary } from "@/features/submissions";
 import { formatCode } from "@/features/submissions/index.client";
 import { SpeakerQuickAdd, type QuickAddedSpeaker } from "@/shared/ui/app/speaker-quick-add";
@@ -66,6 +66,9 @@ export function AddAbstractDrawer({
   const router = useRouter();
   const { toast } = useToast();
   const { runGuarded } = useGuardedAction();
+  // Scoped like `AbstractFields`: this drawer and the detail drawer can be
+  // mounted at once, so a hand-written id would collide across the two.
+  const statusFieldId = `${useId()}-status`;
   const [values, setValues] = useState<AbstractFieldValues>(EMPTY_ABSTRACT_FIELDS);
   const [status, setStatus] = useState<string>("pending");
   const [busy, setBusy] = useState(false);
@@ -217,8 +220,8 @@ export function AddAbstractDrawer({
     >
       {error && <p className="portal-note" role="alert">{error}</p>}
       <div className="form-stack">
-        <Field label="Status">
-          <Select value={status} disabled={busy || recoveryRequired} onChange={(event) => setStatus(event.target.value)}>
+        <Field label="Status" htmlFor={statusFieldId}>
+          <Select id={statusFieldId} name="status" value={status} disabled={busy || recoveryRequired} onChange={(event) => setStatus(event.target.value)}>
             {STATUSES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </Select>
         </Field>
@@ -227,8 +230,14 @@ export function AddAbstractDrawer({
             had no participant fields at all, so it produced an abstract
             attributed to nobody. The speaker can also be created here, because
             on a fresh event there is nobody to pick yet. */}
+        {/* `group` for the same reason as the agenda's session dialog: the
+            control is a list of checkboxes that each own a <label>, and a
+            <label> wrapping them is invalid HTML — it labelled only the first
+            checkbox, with an accessible name built from every *other* speaker's
+            name. */}
         <Field
           label="Speakers"
+          group
           hint={participantIds.length > 1
             ? "The first one selected is the primary speaker."
             : "Who is giving this talk. Someone who never applied can be added here."}

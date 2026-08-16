@@ -20,6 +20,11 @@ const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.me
 const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
 const migrationTenancy = readFileSync(new URL("../../drizzle/0010_organization_tenancy.sql", import.meta.url), "utf8");
 const migrationBilling = readFileSync(new URL("../../drizzle/0012_billing_scaffold.sql", import.meta.url), "utf8");
+// First Fair — `countOrganizationEventsIn` now filters on `events.is_demo`, so
+// the entitlement layer this suite exercises needs the column. 0044 widens
+// 0023's milestone CHECK, which is why the milestone table comes along too.
+const migrationOnboardingMilestones = readFileSync(new URL("../../drizzle/0023_onboarding_milestones.sql", import.meta.url), "utf8");
+const migrationDemoEvents = readFileSync(new URL("../../drizzle/0047_demo_events_and_tour.sql", import.meta.url), "utf8");
 
 /**
  * M49 — billing scaffold. Event rows are inserted directly with raw SQL
@@ -46,6 +51,8 @@ describe("billing scaffold (M49)", () => {
     await pglite.exec(migration1);
     await pglite.exec(migrationTenancy);
     await pglite.exec(migrationBilling);
+    await pglite.exec(migrationOnboardingMilestones);
+    await pglite.exec(migrationDemoEvents);
     db = drizzle(pglite, { schema }) as unknown as DbOrTx;
 
     // Raw SQL, not `db.insert(schema.users)`: the TS schema's `users` table

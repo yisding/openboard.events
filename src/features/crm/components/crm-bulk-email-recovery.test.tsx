@@ -261,3 +261,68 @@ describe("CRM partial-batch recovery", () => {
     restoreSetItem();
   });
 });
+
+describe("CRM segment cap", () => {
+  it("refuses to send a truncated audience instead of quietly emailing the first 2,000", async () => {
+    // `resolveCrmSegmentIn` caps ids at MAX_SEGMENT_RECIPIENTS and reports
+    // `capped`. The dialog used to hardcode `capped: false`, so a 2,500-contact
+    // segment sent to the first 2,000 and reported success — the other 500
+    // appeared in no error list, no skip count and no failure state.
+    // `canSendBulkMessage` exists to block exactly that, and the comms surface
+    // has always passed the real value.
+    const recipient = { id: "d1000000-0000-4000-8000-000000000001", name: "Ada", email: "ada@example.com" };
+    const preview = {
+      recipientEmail: recipient.email,
+      recipientName: recipient.name,
+      subject: "CRM update",
+      bodyHtml: "<p>Hello</p>",
+      bodyText: "Hello",
+    };
+    apiMock.mockResolvedValue({ queued: 0, alreadyQueued: 0, skipped: 0, errors: [], preview });
+    await act(async () => root.render(<CrmBulkEmailDialog
+      organizationId={organizationId}
+      open
+      recipients={[recipient]}
+      capped
+      onClose={vi.fn()}
+    />));
+
+    const subject = container.querySelector<HTMLInputElement>('input[placeholder="A note for you"]');
+    const body = container.querySelector<HTMLTextAreaElement>("textarea");
+    if (!subject || !body) throw new Error("Compose fields were not rendered");
+    await change(subject, "CRM update");
+    await change(body, "<p>Hello</p>");
+    await act(async () => { buttonNamed("Refresh preview")?.click(); });
+
+    // Even with a current preview, Send stays disabled while the audience is
+    // truncated — the same gate `bulk-send-tab` applies.
+    expect(buttonNamed("Send to 1")?.disabled).toBe(true);
+  });
+
+  it("still sends a segment that resolved in full", async () => {
+    const recipient = { id: "d1000000-0000-4000-8000-000000000002", name: "Grace", email: "grace@example.com" };
+    const preview = {
+      recipientEmail: recipient.email,
+      recipientName: recipient.name,
+      subject: "CRM update",
+      bodyHtml: "<p>Hello</p>",
+      bodyText: "Hello",
+    };
+    apiMock.mockResolvedValue({ queued: 0, alreadyQueued: 0, skipped: 0, errors: [], preview });
+    await act(async () => root.render(<CrmBulkEmailDialog
+      organizationId={organizationId}
+      open
+      recipients={[recipient]}
+      onClose={vi.fn()}
+    />));
+
+    const subject = container.querySelector<HTMLInputElement>('input[placeholder="A note for you"]');
+    const body = container.querySelector<HTMLTextAreaElement>("textarea");
+    if (!subject || !body) throw new Error("Compose fields were not rendered");
+    await change(subject, "CRM update");
+    await change(body, "<p>Hello</p>");
+    await act(async () => { buttonNamed("Refresh preview")?.click(); });
+    await waitForEnabledButton("Send to 1");
+    expect(buttonNamed("Send to 1")?.disabled).toBe(false);
+  });
+});

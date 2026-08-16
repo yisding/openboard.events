@@ -28,6 +28,22 @@ const VALUE_REQUIRED_OPS = new Set<ConditionOp>(["eq", "neq", "in", "not_in"]);
  */
 const MULTI_VALUE_OPS = new Set<ConditionOp>(["in", "not_in"]);
 
+/**
+ * Options the server has actually saved an id for.
+ *
+ * The builder mints `draft-N` placeholders for option lines with no saved id to
+ * claim yet, and `FieldInspector` builds its source list from live builder
+ * state — so an unsaved option could be picked here and stored as
+ * `condition.value`. The server then minted a real UUID for the option while
+ * the rule kept the placeholder, leaving the dependent question permanently
+ * hidden (or, with "is not", permanently shown) with nothing refused and
+ * nothing to see but "Shown when Format is draft-2" after a reload. The server
+ * refuses that now; this keeps it out of reach in the first place.
+ */
+function savedOptions(field: { options: readonly { id: string; label: string }[] }): { id: string; label: string }[] {
+  return field.options.filter((option) => !option.id.startsWith("draft-"));
+}
+
 /** Whether this field/operator pair holds a set of option ids or a single value. */
 function wantsArray(op: ConditionOp, field: ConditionSourceField | undefined): boolean {
   return field?.fieldType === "multiselect" && MULTI_VALUE_OPS.has(op);
@@ -166,12 +182,12 @@ export function ConditionRow({
         {requiresValue && sourceField && optionPicker === "one" && (
           <Select aria-label="Value" disabled={disabled} value={scalarValue(condition.value)} onChange={(event) => changeScalarValue(event.target.value)}>
             <option value="" disabled>Choose an option</option>
-            {sourceField.options.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+            {savedOptions(sourceField).map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
           </Select>
         )}
         {requiresValue && sourceField && optionPicker === "many" && (
           <div className="condition-row__chips chip-picker" role="group" aria-label="Value">
-            {sourceField.options.map((option) => {
+            {savedOptions(sourceField).map((option) => {
               const selected = Array.isArray(condition.value) && condition.value.includes(option.id);
               return (
                 <button
@@ -196,7 +212,7 @@ export function ConditionRow({
             placeholder="Value to match"
           />
         )}
-        <button type="button" className="icon-button" aria-label="Remove condition" disabled={disabled || !removable} onClick={onRemove}>
+        <button type="button" className="icon-button condition-row__remove" aria-label="Remove condition" disabled={disabled || !removable} onClick={onRemove}>
           <X size={14} />
         </button>
       </div>

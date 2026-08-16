@@ -49,8 +49,8 @@ describe("authenticated control names", () => {
 
     for (const path of ["./crm/components/crm-import-dialog.tsx", "./portal/components/speakers-admin/speaker-import-dialog.tsx"]) {
       const source = readFileSync(new URL(path, import.meta.url), "utf8");
-      expect(source, path).toContain('<Field label="CSV file" required>');
-      expect(source, path).toContain('accept=".csv,text/csv" required');
+      expect(source, path).toContain('<Field label="CSV file" required group>');
+      expect(source, path).toContain('<LocalFilePicker accept=".csv,text/csv" label="Choose a CSV file"');
     }
   });
 
@@ -66,6 +66,26 @@ describe("authenticated control names", () => {
       const source = parse(path);
       expect(openings(source, tag).some((node) => attribute(source, node, "aria-label") === label), path).toBe(true);
     }
+  });
+
+  it("names the guided tour's icon-only and quiet controls", () => {
+    // First Fair (design §8.7). The coach card and its pill are the only
+    // chrome the tutorial adds, and three of their controls are an icon or a
+    // few words of lowercase text — precisely the shape that ends up as an
+    // unnamed button. These strings are also the tour's exit routes, so a
+    // keyboard or screen-reader user who wants out has to be able to find
+    // them by name.
+    const coach = parse("../shared/ui/app/guided-tour/coach.tsx");
+    for (const label of ['"Pause the tour"', '"Resume the tour"', '"Hide the tour pill"']) {
+      expect(openings(coach, "button").some((node) => attribute(coach, node, "aria-label") === label), label).toBe(true);
+    }
+
+    // The two quiet text controls are named by their own content, so they are
+    // pinned as literals rather than as labels.
+    const coachSource = readFileSync(new URL("../shared/ui/app/guided-tour/coach.tsx", import.meta.url), "utf8");
+    expect(coachSource).toContain(">Show me how</button>");
+    expect(coachSource).toContain(">Skip this</button>");
+    expect(coachSource).toContain(">Finish the tour for good</button>");
   });
 
   it("names icon-only form-builder back links", () => {

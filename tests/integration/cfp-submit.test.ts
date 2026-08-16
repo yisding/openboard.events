@@ -335,10 +335,54 @@ describe("CFP submit, end to end through the server path", () => {
           },
         ],
       }).catch((thrown: unknown) => thrown);
-      expect(isAppError(disabled) && disabled.code).toBe("VALIDATION");
+      // FORM_VERSION_STALE rather than VALIDATION: `participant_roles` lives on
+      // the `forms` row and not in the compiled snapshot, so disabling a role
+      // produces a byte-identical snapshot that the version gate waves through.
+      // A wizard that rendered while the role was enabled therefore hit a plain
+      // VALIDATION, which it classifies as ordinary and retries forever with no
+      // stale-reload path. The rejection itself is unchanged — nothing is
+      // written either way — but the speaker now gets the recovery the wizard
+      // already knows how to perform.
+      expect(isAppError(disabled) && disabled.code).toBe("FORM_VERSION_STALE");
       expect((await pglite.query<{ count: number }>("SELECT count(*)::int AS count FROM submissions")).rows[0]?.count).toBe(0);
     } finally {
       await pglite.query("UPDATE forms SET participant_roles=$2::jsonb WHERE id=$1", [formId, JSON.stringify(DEFAULT_PARTICIPANT_ROLES)]);
+    }
+  });
+
+  it("refuses a submit whose co-speakers the form no longer collects, rather than dropping them", async () => {
+    // `collect_participants` is not in the snapshot either, and turning it off
+    // is allowed until the form has non-draft submissions — exactly the window
+    // the first submitter is in. `submittedParticipants` then collapsed to the
+    // submitter alone: every co-speaker the client sent was silently discarded,
+    // no participant answers were kept, `mapped.contact` was empty so first and
+    // last name were never written, and the speaker saw "Thank you — your
+    // submission is in".
+    await pglite.query("UPDATE forms SET collect_participants=false WHERE id=$1", [formId]);
+    try {
+      const stale = await submitCfpForm({
+        eventId,
+        formId,
+        contactId: speaker,
+        formVersion: 1,
+        answers: answers(),
+        participants: [
+          { clientId: "primary", email: "ada@example.com", role: "speaker", isPrimary: true, sortOrder: 0, answers: answers() },
+          { clientId: "co-1", email: "grace@example.com", role: "co_speaker", isPrimary: false, sortOrder: 1, answers: answers({ [field("email").id]: text("grace@example.com") }) },
+        ],
+      }).catch((thrown: unknown) => thrown);
+      expect(isAppError(stale) && stale.code).toBe("FORM_VERSION_STALE");
+      // Carrying the fresh snapshot, which is what the wizard re-renders from.
+      expect(isAppError(stale) && (stale.details as { version?: number } | undefined)?.version).toBe(1);
+      expect((await pglite.query<{ count: number }>("SELECT count(*)::int AS count FROM submissions")).rows[0]?.count).toBe(0);
+
+      // A submit that sends no participants is unaffected: that is what a form
+      // which does not collect them is supposed to receive.
+      const fine = await submitCfpForm({ eventId, formId, contactId: speaker, formVersion: 1, answers: answers() });
+      expect(fine.submissionId).toBeTruthy();
+      await pglite.query("DELETE FROM submissions");
+    } finally {
+      await pglite.query("UPDATE forms SET collect_participants=true WHERE id=$1", [formId]);
     }
   });
 
@@ -467,6 +511,131 @@ describe("CFP submit, end to end through the server path", () => {
       [existing],
     );
     expect(profile.rows[0]).toEqual({ first_name: "Existing", last_name: "Speaker", company: "Original Co" });
+  });
+
+  // The other half of that rule. A brand-new co-speaker has no profile to
+  // protect, and withholding the name the submitter typed left them showing as
+  // a bare email address in the abstracts list, the drawer and their own portal
+  // — beside the very answers that spelled the name out.
+  it("gives a brand-new co-speaker the name the submitter typed", async () => {
+    await pglite.query("DELETE FROM contacts WHERE email='grace@example.com'");
+
+    await submitCfpForm({
+      eventId,
+      formId,
+      contactId: speaker,
+      formVersion: 1,
+      answers: answers(),
+      participants: [
+        { clientId: "primary", email: "ada@example.com", role: "speaker", isPrimary: true, sortOrder: 0, answers: answers() },
+        {
+          clientId: "co-1",
+          email: "grace@example.com",
+          role: "co_speaker",
+          isPrimary: false,
+          sortOrder: 1,
+          answers: answers({
+            [field("first_name").id]: text("Grace"),
+            [field("last_name").id]: text("Hopper"),
+            [field("email").id]: text("grace@example.com"),
+            [field("company").id]: text("Harvard"),
+          }),
+        },
+      ],
+    });
+
+    const profile = await pglite.query<{ first_name: string; last_name: string; company: string | null }>(
+      "SELECT first_name,last_name,company FROM contacts WHERE event_id=$1 AND email='grace@example.com'",
+      [eventId],
+    );
+    expect(profile.rows[0]).toEqual({ first_name: "Grace", last_name: "Hopper", company: "Harvard" });
+  });
+
+  // The shape the QA sweep actually hit: the wizard autosaves, so by the time
+  // submit runs, `saveDraftAnswers` has already created the co-speaker's
+  // contact from their email. A "was this row created just now?" test would
+  // have said no and left them nameless exactly as before.
+  it("names a co-speaker whose contact the draft autosave already created", async () => {
+    await pglite.query("DELETE FROM contacts WHERE email='grace@example.com'");
+    const draft = await upsertDraft(eventId, speaker, formId, 1);
+    const coSpeakerAnswers = answers({
+      [field("first_name").id]: text("Grace"),
+      [field("last_name").id]: text("Hopper"),
+      [field("email").id]: text("grace@example.com"),
+    });
+    await saveCfpDraft({
+      eventId,
+      formId,
+      contactId: speaker,
+      formVersion: 1,
+      answers: { [field("title").id]: text("Caching at the edge") },
+      participants: [{ clientId: "co-1", email: "grace@example.com", role: "co_speaker", isPrimary: false, sortOrder: 1, answers: coSpeakerAnswers }],
+    });
+
+    const autosaved = await pglite.query<{ first_name: string }>(
+      "SELECT first_name FROM contacts WHERE event_id=$1 AND email='grace@example.com'",
+      [eventId],
+    );
+    expect(autosaved.rows[0]?.first_name).toBe("");
+
+    await submitCfpForm({
+      eventId,
+      formId,
+      contactId: speaker,
+      formVersion: 1,
+      draftSubmissionId: draft.submissionId,
+      answers: answers(),
+      participants: [
+        { clientId: "primary", email: "ada@example.com", role: "speaker", isPrimary: true, sortOrder: 0, answers: answers() },
+        { clientId: "co-1", email: "grace@example.com", role: "co_speaker", isPrimary: false, sortOrder: 1, answers: coSpeakerAnswers },
+      ],
+    });
+
+    const profile = await pglite.query<{ first_name: string; last_name: string }>(
+      "SELECT first_name,last_name FROM contacts WHERE event_id=$1 AND email='grace@example.com'",
+      [eventId],
+    );
+    expect(profile.rows[0]).toEqual({ first_name: "Grace", last_name: "Hopper" });
+  });
+
+  it("fills only the gaps in a co-speaker profile that already has a name", async () => {
+    const partial = contactIdSchema.parse("f0000000-0000-4000-8000-000000000007");
+    await pglite.query(
+      `INSERT INTO contacts(id,event_id,email,first_name,last_name,company)
+       VALUES($1,$2,'partial@example.com','Known','Speaker',NULL)
+       ON CONFLICT (event_id,email) DO UPDATE SET first_name='Known',last_name='Speaker',company=NULL`,
+      [partial, eventId],
+    );
+
+    await submitCfpForm({
+      eventId,
+      formId,
+      contactId: speaker,
+      formVersion: 1,
+      answers: answers(),
+      participants: [
+        { clientId: "primary", email: "ada@example.com", role: "speaker", isPrimary: true, sortOrder: 0, answers: answers() },
+        {
+          clientId: "co-partial",
+          email: "partial@example.com",
+          role: "co_speaker",
+          isPrimary: false,
+          sortOrder: 1,
+          answers: answers({
+            [field("first_name").id]: text("Renamed"),
+            [field("last_name").id]: text("Bysomeone"),
+            [field("email").id]: text("partial@example.com"),
+            [field("company").id]: text("Newly Told Co"),
+          }),
+        },
+      ],
+    });
+
+    const profile = await pglite.query<{ first_name: string; last_name: string; company: string | null }>(
+      "SELECT first_name,last_name,company FROM contacts WHERE id=$1",
+      [partial],
+    );
+    expect(profile.rows[0]).toEqual({ first_name: "Known", last_name: "Speaker", company: "Newly Told Co" });
   });
 
   it("rejects a primary mapped email that contradicts the authenticated identity", async () => {
@@ -694,6 +863,45 @@ describe("CFP submit, end to end through the server path", () => {
     expect(stored.rows[0]?.value.v).toBe("Analytical Engines");
   });
 
+  it("writes through a contact mapping placed on an abstract-section field", async () => {
+    // `createFieldIn` accepts a `contact.*` mapping on any field, and the
+    // builder's Maps-to select offers every target regardless of section — but
+    // `submitCfpForm` read only `mapped.submission` and dropped
+    // `mapped.contact`, so an organizer who put "Job title" on the Submission
+    // step watched every speaker answer it while `contacts.job_title` stayed
+    // NULL forever. The portal task runtime applies the whole snapshot's
+    // contact map, so the two runtimes disagreed about the same authoring
+    // choice.
+    //
+    // The mapping moves rather than being added: every `contact.*` target is
+    // already claimed by the participant section, and `assertUniqueMapsTo`
+    // allows only one live field per target.
+    const abstractMapped = structuredClone(GOLDEN_SNAPSHOT) as typeof GOLDEN_SNAPSHOT;
+    abstractMapped.version = 7;
+    const notes = abstractMapped.sections.flatMap((section) => section.fields).find((candidate) => candidate.key === "notes");
+    const participantSection = abstractMapped.sections.find((candidate) => candidate.key === "participant");
+    if (!notes || !participantSection) throw new Error("golden snapshot shape changed");
+    notes.mapsTo = "contact.job_title";
+    participantSection.fields = participantSection.fields.filter((candidate) => candidate.key !== "job_title");
+    await pglite.query(
+      "INSERT INTO form_versions(event_id,form_id,version,snapshot) VALUES($1,$2,7,$3::jsonb)",
+      [eventId, formId, JSON.stringify(abstractMapped)],
+    );
+
+    await submitCfpForm({
+      eventId,
+      formId,
+      contactId: speaker,
+      formVersion: 7,
+      answers: answers({ [notes.id]: text("Countess of Lovelace") }),
+    });
+
+    const profile = await pglite.query<{ job_title: string | null }>(
+      "SELECT job_title FROM contacts WHERE id=$1", [speaker],
+    );
+    expect(profile.rows[0]?.job_title).toBe("Countess of Lovelace");
+  });
+
   it("rolls back submission creation when the profile update fails", async () => {
     await pglite.query("ALTER TABLE contacts DROP CONSTRAINT IF EXISTS contacts_reject_test_name");
     await pglite.query("ALTER TABLE contacts ADD CONSTRAINT contacts_reject_test_name CHECK (first_name <> 'ROLLBACK')");
@@ -715,7 +923,11 @@ describe("CFP submit, end to end through the server path", () => {
 
   it("persists incomplete draft answers and returns them when the draft is resumed", async () => {
     await pglite.query("DELETE FROM contacts WHERE email='draft-co@example.com'");
-    await upsertDraft(eventId, speaker, formId, 1);
+    // `created` is what the wizard gates its profile prefill on: seeding the
+    // speaker's contact details on a resume would put back a mapped answer they
+    // cleared on purpose, on every reload.
+    const started = await upsertDraft(eventId, speaker, formId, 1);
+    expect(started.created).toBe(true);
     await saveCfpDraft({
       eventId,
       formId,
@@ -737,6 +949,7 @@ describe("CFP submit, end to end through the server path", () => {
     });
 
     const resumed = await upsertDraft(eventId, speaker, formId, 1);
+    expect(resumed.created).toBe(false);
     expect(resumed.answers).toEqual({ [field("title").id]: text("A work in progress") });
     expect(resumed.participants).toHaveLength(1);
     expect(resumed.participants[0]).toMatchObject({ email: "draft-co@example.com", role: "co_speaker", sortOrder: 1 });

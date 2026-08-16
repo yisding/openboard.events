@@ -65,7 +65,17 @@ export type UsageAgainstLimit = z.infer<typeof usageAgainstLimitSchema>;
 export const organizationBillingSummaryDtoSchema = z.object({
   plan: billingPlanDtoSchema,
   subscription: organizationSubscriptionDtoSchema,
-  usage: z.object({ events: usageAgainstLimitSchema }),
+  usage: z.object({
+    events: usageAgainstLimitSchema,
+    /**
+     * First Fair — demo events, which `countOrganizationEventsIn` deliberately
+     * leaves out of `events.used`. Carried as its own number rather than
+     * folded into the total so the billing page can say why the count looks
+     * lower than the event list does, instead of leaving the organizer to
+     * guess. Defaulted, so a caller written before demos existed still parses.
+     */
+    demoEvents: z.int().nonnegative().default(0),
+  }),
   counters: z.array(organizationUsageCounterDtoSchema),
 });
 export type OrganizationBillingSummaryDTO = z.infer<typeof organizationBillingSummaryDtoSchema>;

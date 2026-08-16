@@ -3,6 +3,7 @@ import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { eventDtoSchema, organizationIdSchema, trackDtoSchema } from "@/shared/contracts";
+import { EVENT_TYPES } from "@/features/events/index.schemas";
 import { AppError } from "@/shared/lib/errors";
 import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
 import { cfpDeadlineForWeeksBefore, createAndReconcileOnboardingTrack, createOrPublishOnboardingForm, defaultCfpDeadline, deleteAndReconcileOnboardingTrack, OnboardingStepHeading, OnboardingWizard, preferredTimeZone, resolveCfpDeadline, retainOnboardingEventCreateFields, saveOnboardingEvent } from "./onboarding-wizard";
@@ -46,8 +47,20 @@ describe("onboarding organization access", () => {
   });
 
   it("marks the existing slug as required when correcting an event", () => {
-    expect(wizard).toContain('required={Boolean(event)} hint={event ? "Used in your public URLs — changing it means existing CFP links will stop working"');
+    expect(wizard).toContain('required={Boolean(event)} hint={event ? "Used in your public URLs — changing it means existing call-for-speakers links will stop working"');
     expect(wizard).toContain('name="slug" required={Boolean(event)}');
+  });
+
+  it("refuses an end that is not after the start before it costs a round trip", () => {
+    // `createEventIn` has always rejected this; the wizard let the organizer
+    // pick it, press Create event, and wait to be told. On the create path a
+    // definitive failure also clears the retained field set, so the refusal
+    // read as the form having simply not gone anywhere.
+    const guard = wizard.indexOf("if (!(Date.parse(endsAt) > Date.parse(startsAt)))");
+    const request = wizard.indexOf("const saved = await saveOnboardingEvent(");
+    expect(guard).toBeGreaterThan(0);
+    expect(guard).toBeLessThan(request);
+    expect(wizard).toContain('fail("The end must be after the start", { endsAt: "Ends must be after starts" })');
   });
 
   it("does not advance while a track mutation is still being saved", () => {
@@ -118,6 +131,13 @@ describe("OnboardingWizard event step accessibility", () => {
     expect(html).toContain('id="onboarding-event-ends-at"');
     expect(html).toMatch(/<option value="America\/Los_Angeles" selected="">[^<]*Los Angeles<\/option>/);
     expect(html).not.toContain('>America/Los_Angeles</option>');
+    // Only the selected zone is server-rendered. The list and every label come
+    // from the *rendering runtime's* ICU data, and the runtime that renders the
+    // HTML is never the browser that hydrates it — three of the ~419 labels
+    // already disagree between Node and Chromium, React needs one, and its
+    // answer is to throw the server tree away and re-render the whole wizard.
+    // The control is disabled until `hydrated`, so nothing is lost by waiting.
+    expect(html.match(/<option /gu) ?? []).toHaveLength(EVENT_TYPES.length + 1);
     expect(html).toContain('type="submit"');
     expect(html).toContain('aria-current="step"');
     expect(html).toContain('class="sr-only">Step 1: Event details</h2>');

@@ -1,7 +1,6 @@
 import type { EmbedStyle } from "@/features/public/embed-config-types";
 import { DEFAULT_EMBED_OPTIONS, type EmbedOptions } from "@/features/public/public-event-shell";
-
-const ACCENT_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+import { ACCENT_HEX_RE } from "@/shared/lib/brand-color";
 
 /**
  * Embed appearance comes from the saved `embeds.style` row, not the iframe
@@ -26,6 +25,6 @@ export function resolveEmbedOptions(style: EmbedStyle): EmbedOptions {
   return {
     theme: style.theme === "dark" ? "dark" : "light",
     header: style.showHeader ?? DEFAULT_EMBED_OPTIONS.header,
-    accent: ACCENT_RE.test(accent) ? accent : DEFAULT_EMBED_OPTIONS.accent,
+    accent: ACCENT_HEX_RE.test(accent) ? accent : DEFAULT_EMBED_OPTIONS.accent,
   };
 }

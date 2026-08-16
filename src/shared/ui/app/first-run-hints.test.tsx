@@ -1,7 +1,7 @@
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
-import { FirstRunHints, Hint, hintPopoverPosition, hintSkipKey, hintStorageKey, readSeenHintIds } from "./first-run-hints";
+import { FirstRunHints, Hint, hintSkipKey, hintStorageKey, readSeenHintIds } from "./first-run-hints";
 
 Object.assign(globalThis, { React });
 
@@ -41,29 +41,8 @@ describe("hint seen-state storage", () => {
   });
 });
 
-describe("hint popover placement", () => {
-  const viewport = { width: 1280, height: 800 };
-
-  it("opens to the right of a sidebar beacon, roughly top-aligned", () => {
-    const style = hintPopoverPosition("right", { top: 200, right: 230, bottom: 224, left: 206 }, viewport);
-    expect(style).toEqual({ left: 240, top: 192 });
-  });
-
-  it("right-aligns a bottom-end card under its anchor", () => {
-    const style = hintPopoverPosition("bottom-end", { top: 20, right: 1240, bottom: 52, left: 1100 }, viewport);
-    expect(style).toEqual({ left: 1240 - 264, top: 62 });
-  });
-
-  it("never leaves the viewport, even for anchors at the edges", () => {
-    const cramped = { width: 320, height: 480 };
-    const style = hintPopoverPosition("bottom", { top: 440, right: 316, bottom: 470, left: 300 }, cramped);
-    const left = Number(style.left);
-    const top = Number(style.top);
-    expect(left).toBeGreaterThanOrEqual(12);
-    expect(left + 264).toBeLessThanOrEqual(cramped.width);
-    expect(top).toBeLessThanOrEqual(cramped.height - 190);
-  });
-});
+/* The popover geometry moved to `popover-position.ts` when the guided tour
+   became its second consumer; its cases live in `popover-position.test.ts`. */
 
 describe("hint rendering", () => {
   it("draws no beacon on the server pass, only the wrapped UI", () => {

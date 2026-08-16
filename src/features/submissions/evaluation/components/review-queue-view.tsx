@@ -3,11 +3,13 @@
 import { ClipboardCheck, Lock, ShieldOff, Star } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { LIMITS } from "@/shared/contracts";
 import type { CriterionSpec, CriterionValue, CriterionValues, ReviewWindow, SubmissionDetailDTO } from "@/shared/contracts";
 import { formatCode } from "@/features/submissions/index.client";
 import { SubmissionAnswers } from "@/features/submissions/components/submission-answers";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { FlowNavControls } from "@/shared/ui/app/flow-nav-controls";
+import { SkeletonText } from "@/shared/ui/app/skeleton";
 import { formatTzTime } from "@/shared/ui/app/tz-time";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, EmptyState, Field, PageHeader, ProgressBar, Select, StatusBadge } from "@/shared/ui/ui-kit";
@@ -424,7 +426,7 @@ export function ReviewQueueView({
 
               <div className="review-detail-body">
                 {detailError && <p className="portal-note" role="alert">{detailError}</p>}
-                {!detail && !detailError && <p className="portal-note">Loading the submission…</p>}
+                {!detail && !detailError && <SkeletonText lines={5} label="Loading the submission…" />}
                 {detail && (
                   <section className="submitted-answers">
                     <h2>What the speaker submitted</h2>
@@ -461,10 +463,15 @@ export function ReviewQueueView({
                   <>
                     {plan.criteria.map((criterion) => {
                       const value = draft.values[criterion.id];
+                      // Every criterion states its arithmetic, including the
+                      // ones weighted 1. Suppressing the default made an
+                      // unequally weighted round read as "one criterion counts,
+                      // the other does not" — and the weighted mean is the
+                      // number the committee decides on.
                       const hint = [
-                        criterion.weight === 1 || criterion.kind === "text" ? "" : `Weight ${criterion.weight}`,
+                        criterion.kind === "text" ? "Not scored" : `Weight ${criterion.weight}`,
                         criterion.required ? "Required" : "Optional",
-                      ].filter(Boolean).join(" · ");
+                      ].join(" · ");
                       return (
                         <Field
                           key={criterion.id}
@@ -511,7 +518,7 @@ export function ReviewQueueView({
                           {criterion.kind === "text" && (
                             <textarea
                               value={value?.kind === "text" ? value.value : ""}
-                              maxLength={2000}
+                              maxLength={LIMITS.REVIEW_TEXT}
                               onChange={(event) => setValue(criterion.id, event.target.value === "" ? undefined : { kind: "text", value: event.target.value })}
                               placeholder="Your written answer"
                             />
@@ -532,7 +539,7 @@ export function ReviewQueueView({
                 <Field label="Private notes" hint="Only organizers and reviewers can see this.">
                   <textarea
                     value={draft.comment}
-                    maxLength={2000}
+                    maxLength={LIMITS.REVIEW_TEXT}
                     onChange={(event) => setDraft((current) => ({ ...current, comment: event.target.value }))}
                     placeholder="What stood out? Any concerns?"
                   />

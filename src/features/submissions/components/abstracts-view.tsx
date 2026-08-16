@@ -10,6 +10,7 @@ import { useGuardedAction } from "@/shared/ui/app/unsaved-work-guard";
 import { useFlowKeyboardNav } from "@/shared/ui/app/use-flow-keyboard-nav";
 import { Button, PageHeader } from "@/shared/ui/ui-kit";
 import { AbstractsTable } from "./abstracts-table";
+import { withDecidedRows, type AbstractsListSnapshot } from "./abstract-decision-fold";
 import { AddAbstractDrawer } from "./add-abstract-drawer";
 import { abstractAllMatchingHref, abstractSelectionScope } from "./abstract-matching-selection";
 import { DecisionBar } from "./decision-bar";
@@ -22,8 +23,8 @@ import { SubmissionDrawer } from "./submission-drawer";
  */
 export function AbstractsView({
   eventId,
-  rows,
-  counts,
+  rows: serverRows,
+  counts: serverCounts,
   view,
   status,
   search,
@@ -33,7 +34,7 @@ export function AbstractsView({
   page,
   pageSize,
   sort,
-  queued,
+  queued: serverQueued,
   vocabulary,
   speakers,
   canEdit,
@@ -64,6 +65,33 @@ export function AbstractsView({
   const router = useRouter();
   const params = useSearchParams();
   const { runGuarded } = useGuardedAction();
+  /**
+   * The rows, tab counts and queue depth on screen: seeded from the server and
+   * folded forward by the decision bar's writes.
+   *
+   * `router.refresh()` on its own left this table showing the statuses the bar
+   * had just changed — "1 moved" over a row still reading "Pending review",
+   * with Ready to notify still 0, until the organizer reloaded by hand. The
+   * transition endpoint already answers with the ids it moved, so the rows are
+   * corrected the moment the mutation succeeds and the next server snapshot
+   * still has the last word.
+   */
+  const [list, setList] = useState<AbstractsListSnapshot>(
+    () => ({ rows: serverRows, counts: serverCounts, queued: serverQueued }),
+  );
+  useEffect(() => setList((current) => current.rows === serverRows
+      && current.counts === serverCounts
+      && current.queued === serverQueued
+    // Already the current server snapshot — including on mount, where
+    // re-seeding would only cost a second render.
+    ? current
+    : { rows: serverRows, counts: serverCounts, queued: serverQueued }),
+    [serverRows, serverCounts, serverQueued]);
+  const { rows, counts, queued } = list;
+  const applyDecision = useCallback(
+    (changedIds: string[], to: SubmissionStatus) => setList((current) => withDecidedRows(current, changedIds, to)),
+    [],
+  );
   const [openId, setOpenId] = useState<string | null>(null);
   const [drawerBusy, setDrawerBusy] = useState(false);
   // `?add=1` is how the agenda's "Add an invited talk" hands the organizer
@@ -174,6 +202,7 @@ export function AbstractsView({
         }
       />
       <AbstractsTable
+        eventId={eventId}
         rows={rows}
         counts={counts}
         view={view}
@@ -213,6 +242,7 @@ export function AbstractsView({
                   request: () => startSelectingAllMatching(() => router.push(matchingHref, { scroll: false })),
                 },
               } : {})}
+              onMoved={applyDecision}
               onDone={clearTableSelection}
             />;
           },

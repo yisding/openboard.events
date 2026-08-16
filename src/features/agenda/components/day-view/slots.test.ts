@@ -4,11 +4,14 @@ import {
   clampResize,
   computeGridRange,
   gridRowCount,
+  LANE_MIN_WIDTH_PX,
   localWallTimeAt,
   minutesFromDayStartInZone,
   wallClockDurationMinutes,
   minutesToGridRow,
   pixelDeltaToSlotDelta,
+  ROOM_MIN_WIDTH_PX,
+  roomTrackSize,
   SLOT_ROW_HEIGHT_PX,
 } from "./slots";
 
@@ -104,6 +107,31 @@ describe("minutesToGridRow / gridRowCount", () => {
 
   it("counts a 10-hour range as 40 rows of 15 minutes", () => {
     expect(gridRowCount({ gridStartMinutes: 8 * 60, gridEndMinutes: 18 * 60 })).toBe(40);
+  });
+});
+
+describe("roomTrackSize", () => {
+  it("keeps a quiet room in the single-column width family", () => {
+    expect(roomTrackSize(1)).toBe(`minmax(${ROOM_MIN_WIDTH_PX}px, 1fr)`);
+  });
+
+  it("gives every lane of a double-booked room its own readable floor", () => {
+    expect(roomTrackSize(2)).toBe(`minmax(${2 * LANE_MIN_WIDTH_PX}px, 2fr)`);
+    expect(roomTrackSize(3)).toBe(`minmax(${3 * LANE_MIN_WIDTH_PX}px, 3fr)`);
+  });
+
+  it("keeps the lane floor wide enough that a conflict card's title is not truncated", () => {
+    // The contract e2e/agenda-schedule.spec.ts pins: both cards of the seeded
+    // side-by-side room conflict show their titles whole (`scrollWidth <=
+    // clientWidth`). A lane card is half its column minus 8px, and spends
+    // ~34px of that on borders, padding and the conflict-icon gutter, so the
+    // seeded ~250px title needs a floor in this range, not the 160px family.
+    expect(2 * LANE_MIN_WIDTH_PX / 2 - 8 - 34).toBeGreaterThanOrEqual(250);
+  });
+
+  it("treats a degenerate lane count as a single lane", () => {
+    expect(roomTrackSize(0)).toBe(roomTrackSize(1));
+    expect(roomTrackSize(-2)).toBe(roomTrackSize(1));
   });
 });
 

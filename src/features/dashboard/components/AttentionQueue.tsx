@@ -1,17 +1,22 @@
 import Link from "next/link";
-import { ArrowRight, CalendarClock, ClipboardCheck, UserX } from "lucide-react";
+import { ArrowRight, CalendarClock, ClipboardCheck, EyeOff, UserX } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { DashboardOverview } from "../index";
 
 type AttentionCode = DashboardOverview["attention"][number]["code"];
 
 const MESSAGES: Record<AttentionCode, (count: number) => string> = {
+  // Not "needs scheduling" language: this row is about a session the agenda
+  // already calls published while the public schedule leaves it out, because
+  // its abstract was withdrawn or its decision reversed.
+  hidden_published: (count) => `${count} published ${count === 1 ? "session is" : "sessions are"} missing from the public schedule`,
   unscheduled_accepted: (count) => `${count} accepted ${count === 1 ? "session still needs" : "sessions still need"} a time slot`,
   awaiting_decision: (count) => `${count} session ${count === 1 ? "submission is" : "submissions are"} awaiting a decision`,
   missing_assets: (count) => `${count} accepted ${count === 1 ? "speaker is" : "speakers are"} missing a bio or headshot`,
 };
 
 const ICONS: Record<AttentionCode, LucideIcon> = {
+  hidden_published: EyeOff,
   unscheduled_accepted: CalendarClock,
   awaiting_decision: ClipboardCheck,
   missing_assets: UserX,
@@ -24,12 +29,22 @@ const ICONS: Record<AttentionCode, LucideIcon> = {
  * order so the row order never jitters between polls), and the row itself is
  * the link — no separate "view" affordance, no cap-and-"+N more". The test
  * for every item here is "can the user click it and act?" (experience-design
- * §Surfacing 1); `attention`'s three codes already satisfy that by
+ * §Surfacing 1); `attention`'s codes already satisfy that by
  * construction, since each carries a pre-filtered `href`.
+ *
+ * MTP-07 §1.5 — one exception to most-waiting-first: a row the query ranks 0
+ * describes something that is *already wrong* (a published session the public
+ * schedule has dropped), not something still to do. Its realistic count is 1
+ * while the to-do rows sit at 5–20, so sorting on count alone would bury it
+ * last; it leads instead, and the to-do rows keep the designed order among
+ * themselves.
  */
 export function AttentionQueue({ items }: { items: DashboardOverview["attention"] }) {
   if (items.length === 0) return null;
-  const ranked = [...items].sort((a, b) => b.count - a.count);
+  const alreadyWrong = (item: DashboardOverview["attention"][number]) => (item.rank === 0 ? 0 : 1);
+  const ranked = [...items].sort((a, b) => (
+    alreadyWrong(a) - alreadyWrong(b) || b.count - a.count || a.rank - b.rank
+  ));
   return (
     <section className="dashboard-attention-queue" aria-labelledby="dashboard-attention-title">
       <header><h2 id="dashboard-attention-title">Needs attention</h2></header>
@@ -38,7 +53,11 @@ export function AttentionQueue({ items }: { items: DashboardOverview["attention"
           const Icon = ICONS[item.code];
           return (
             <li key={item.code}>
-              <Link href={item.href}>
+              {/* First Fair: the queue mounts lazily inside `WidgetBoundary
+                  name="attention"`, so there is no selector the tour can wait
+                  on. Only the lead row is pinned — that is the one the tutorial
+                  points at, and it is the row that carries the argument. */}
+              <Link href={item.href} {...(index === 0 ? { "data-tour": "dashboard.attention-row" } : {})}>
                 <span className="dashboard-rank">{index + 1}</span>
                 <Icon size={15} aria-hidden="true" />
                 <span>{MESSAGES[item.code](item.count)}</span>

@@ -41,6 +41,11 @@ function failureToasts(source: ts.SourceFile): ts.CallExpression[] {
       calls.push(...toastCalls(node.block, source));
       return;
     }
+    // `.catch(() => { … })` is the same recovery path as a catch clause written
+    // out; without this the promise-chain form escapes the audit entirely.
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === "catch") {
+      for (const handler of node.arguments) calls.push(...toastCalls(handler, source));
+    }
     if (ts.isIfStatement(node) && isResponseFailureCondition(node.expression)) {
       calls.push(...toastCalls(node.thenStatement, source));
     }
@@ -67,10 +72,16 @@ describe("audited mutation failure toasts", () => {
       ["./airtable/components/AirtableSettingsPanel.tsx", 10],
       ["./airtable/components/ConnectDialog.tsx", 7],
       ["./auth/components/sessions-panel.tsx", 8],
-      ["./dashboard/components/ApiKeysPanel.tsx", 5],
+      ["./dashboard/components/ApiKeysPanel.tsx", 7],
       ["./forms/components/builder/routing-rules-panel.tsx", 4],
       ["./organizations/components/team-panel.tsx", 12],
-      ["./portal/resources/components/resource-page-editor.tsx", 4],
+      ["./portal/resources/components/resource-page-editor.tsx", 3],
+      ["./billing/components/billing-panel.tsx", 1],
+      ["./events/components/branding-panel.tsx", 1],
+      ["./portal/components/home/add-to-calendar-button.tsx", 1],
+      ["./portal/components/speakers-admin/speaker-detail-view.tsx", 6],
+      ["./portal/components/speakers-admin/speaker-roster-panels.tsx", 5],
+      ["./portal/tasks-admin/components/task-matrix-drawer.tsx", 1],
     ] as const) {
       const source = parse(path);
       const calls = failureToasts(source);

@@ -158,6 +158,34 @@ describe("abstracts queries", () => {
     expect((await listSubmissionsIn(db, eventId, filters({ search: "grace" }))).total).toBe(2);
   });
 
+  // A search box takes characters, not a LIKE pattern: "%" used to match every
+  // row in the event, and the tab counts agreed with it.
+  it("treats LIKE metacharacters in the search term as literal text", async () => {
+    expect((await listSubmissionsIn(db, eventId, filters({ search: "%" }))).total).toBe(0);
+    expect((await listSubmissionsIn(db, eventId, filters({ search: "_" }))).total).toBe(0);
+    expect((await getStatusCountsIn(db, eventId, { search: "%", trackId: null, tagId: null, pageSize: 25, sort: "newest" })).all).toBe(0);
+  });
+
+  // The other half of the same rule: escaping the term must not stop a title
+  // that really contains "%" or "_" from being found by typing it.
+  it("still finds a title whose text contains % and _", async () => {
+    const literal = submissionIdSchema.parse("a1000000-0000-4000-8000-000000000035");
+    await pglite.query(
+      `INSERT INTO submissions(id,event_id,form_id,form_version,code,status,source,title,submitter_contact_id,submitted_at)
+       VALUES($1,$2,$3,1,105,'pending','cfp','Scaling to 100% uptime with grpc_v2',$4, now())`,
+      [literal, eventId, formId, speaker],
+    );
+    try {
+      expect((await listSubmissionsIn(db, eventId, filters({ search: "100%" }))).rows.map((row) => row.code)).toEqual([105]);
+      expect((await listSubmissionsIn(db, eventId, filters({ search: "grpc_v2" }))).rows.map((row) => row.code)).toEqual([105]);
+      // "_" is a wildcard only if the escape is live: "grpcXv2" must not match.
+      expect((await listSubmissionsIn(db, eventId, filters({ search: "grpcXv2" }))).total).toBe(0);
+      expect((await getStatusCountsIn(db, eventId, { search: "100%", trackId: null, tagId: null, pageSize: 25, sort: "newest" })).all).toBe(1);
+    } finally {
+      await pglite.query("DELETE FROM submissions WHERE id = $1", [literal]);
+    }
+  });
+
   it("filters by status, track and tag", async () => {
     expect((await listSubmissionsIn(db, eventId, filters({ status: "accepted" }))).total).toBe(1);
     expect((await listSubmissionsIn(db, eventId, filters({ trackId }))).total).toBe(1);
@@ -256,6 +284,24 @@ describe("abstracts queries", () => {
     expect(detail.answerPanel.formVersion).toBe(1);
     expect(detail.answerPanel.snapshot?.version).toBe(1);
     expect(detail.answerPanel.answers).toHaveLength(1);
+  });
+
+  // The Speakers column joins these names with ", ", so a contact who has no
+  // name yet used to turn the cell into "Ada Lovelace, ".
+  it("names a speaker by their address when the contact has no name yet", async () => {
+    const nameless = "a1000000-0000-4000-8000-000000000022";
+    await pglite.query("INSERT INTO contacts(id,event_id,email) VALUES($1,$2,'nameless@example.com')", [nameless, eventId]);
+    await pglite.query(
+      "INSERT INTO submission_participants(event_id,submission_id,contact_id,is_primary,sort_order) VALUES($1,$2,$3,false,1)",
+      [eventId, withdrawn, nameless],
+    );
+    try {
+      const [row] = (await listSubmissionsIn(db, eventId, filters({ search: "archived" }))).rows;
+      expect(row?.speakers.map((speakerRow) => speakerRow.name)).toEqual(["nameless@example.com"]);
+    } finally {
+      await pglite.query("DELETE FROM submission_participants WHERE contact_id = $1", [nameless]);
+      await pglite.query("DELETE FROM contacts WHERE id = $1", [nameless]);
+    }
   });
 
   it("refuses a submission from another event", async () => {

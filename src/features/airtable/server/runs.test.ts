@@ -9,7 +9,7 @@ import { claimSyncRunIn, finishSyncRunIn, listSyncRunsIn, reapExpiredSyncRunsIn 
 import { emptySyncRunStats } from "../schemas";
 
 const migration0 = readFileSync(new URL("../../../../drizzle/0000_init.sql", import.meta.url), "utf8");
-const migration45 = readFileSync(new URL("../../../../drizzle/0045_airtable_connections.sql", import.meta.url), "utf8");
+const migration52 = readFileSync(new URL("../../../../drizzle/0052_airtable_connections.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("a17b0000-0000-4000-8000-0000000000e1");
 const trackId = "a17b0000-0000-4000-8000-0000000000a1";
@@ -23,7 +23,7 @@ describe("Airtable sync-run lifecycle (M39)", () => {
   beforeAll(async () => {
     pglite = new PGlite();
     await pglite.exec(migration0);
-    await pglite.exec(migration45);
+    await pglite.exec(migration52);
     db = drizzle(pglite, { schema }) as unknown as DbOrTx;
     await pglite.query(
       "INSERT INTO events(id,name,slug,timezone,starts_at,ends_at) VALUES($1,'E','e1','UTC','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')",

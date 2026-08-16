@@ -1,5 +1,9 @@
 export type { CommLogFilters } from "./server/queries";
 export { listLog } from "./server/queries";
+// The one sentence a demo event's delivery log is allowed to give as a reason.
+// Exported so demo provisioning stamps the same string the live dispatcher
+// stamps, instead of a fourth paraphrase of the same barrier.
+export { DEMO_MAIL_SKIP_REASON } from "./server/context";
 export { commsKeys } from "./hooks/keys";
 export { dispatchOutbox } from "./server/dispatcher";
 export { renderTemplate, renderTemplateContent, validateTemplateBody } from "./server/render";
@@ -23,7 +27,7 @@ export { nudgeOutbox } from "./server/triggers";
 // payload parsing (server/webhook.ts) and the suppression write it drives
 // (server/suppression.ts). Consumed by src/app/api/webhooks/resend/route.ts.
 export { parseResendWebhookEvent, verifyResendWebhookSignature } from "./server/webhook";
-export { recordSuppression, recordSuppressionIn } from "./server/suppression";
+export { recordSuppression, recordSuppressionIn, suppressAddress, suppressAddressIn } from "./server/suppression";
 // M46 — suppression list admin UI (list + reinstate).
 export type { SuppressionRow } from "./server/suppression";
 export { suppressionRowSchema, listSuppressions, listSuppressionsIn, removeSuppression, removeSuppressionIn } from "./server/suppression";

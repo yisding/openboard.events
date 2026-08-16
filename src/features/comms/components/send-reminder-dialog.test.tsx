@@ -20,7 +20,10 @@ const submissionId = submissionIdSchema.parse("e0000000-0000-4000-8000-000000000
 const assignment = {
   taskId,
   taskName: "Upload your headshot",
-  dueAt: "2026-09-01T12:00:00.000Z",
+  // Late-evening UTC so the event zone's calendar date differs: a due date of
+  // 2026-11-01 in America/Los_Angeles is stored as this instant, because
+  // `saveTaskIn` writes the last millisecond of that date *in the event zone*.
+  dueAt: "2026-11-02T06:59:59.999Z",
   submissionId,
   submissionCode: "CFP-1042",
 };
@@ -69,7 +72,7 @@ describe("targeted reminder recovery", () => {
       .mockResolvedValue({ enqueued: true });
 
     await act(async () => root.render(
-      <SendReminderDialog eventId={eventId} contactId={contactId} contactName="Nadia Lee" onClose={closeMock} />,
+      <SendReminderDialog eventId={eventId} contactId={contactId} contactName="Nadia Lee" timezone="America/Los_Angeles" onClose={closeMock} />,
     ));
     await act(async () => buttonNamed("Send reminder")?.click());
     await act(async () => buttonNamed("Send reminder")?.click());
@@ -98,7 +101,7 @@ describe("targeted reminder recovery", () => {
     await act(async () => root.unmount());
     root = createRoot(container);
     await act(async () => root.render(
-      <SendReminderDialog eventId={eventId} contactId={contactId} contactName="Nadia Lee" onClose={closeMock} />,
+      <SendReminderDialog eventId={eventId} contactId={contactId} contactName="Nadia Lee" timezone="America/Los_Angeles" onClose={closeMock} />,
     ));
     await settle();
     expect(container.textContent).toContain("The outcome is unknown");
@@ -137,7 +140,7 @@ describe("targeted reminder recovery", () => {
     sendMock.mockResolvedValue({ enqueued: true });
 
     await act(async () => root.render(
-      <SendReminderDialog eventId={eventId} contactId={contactId} contactName="Nadia Lee" onClose={closeMock} />,
+      <SendReminderDialog eventId={eventId} contactId={contactId} contactName="Nadia Lee" timezone="America/Los_Angeles" onClose={closeMock} />,
     ));
     await act(async () => buttonNamed("Send reminder")?.click());
     await act(async () => buttonNamed("Send reminder")?.click());
@@ -159,7 +162,7 @@ describe("targeted reminder recovery", () => {
     sendMock.mockResolvedValue({ enqueued: true });
 
     await act(async () => root.render(
-      <SendReminderDialog eventId={eventId} contactId={contactId} contactName="Nadia Lee" onClose={closeMock} />,
+      <SendReminderDialog eventId={eventId} contactId={contactId} contactName="Nadia Lee" timezone="America/Los_Angeles" onClose={closeMock} />,
     ));
     await settle();
     await act(async () => buttonNamed("Send reminder")?.click());
@@ -172,5 +175,21 @@ describe("targeted reminder recovery", () => {
       "Could not prepare a safe reminder retry. The reminder was not sent.",
       { kind: "error" },
     );
+  });
+});
+
+describe("due date rendering", () => {
+  it("renders a due date in the event's zone, not as a raw instant", async () => {
+    // `Dash` is `String(value)`, so this dialog printed the literal ISO string —
+    // a raw instant, and a calendar day later than the date the organizer set.
+    // It was the only place in the repo rendering an instant that way; every
+    // sibling renderer of the same field uses `TzTime`.
+    await act(async () => root.render(
+      <SendReminderDialog eventId={eventId} contactId={contactId} contactName="Nadia Lee" timezone="America/Los_Angeles" onClose={closeMock} />,
+    ));
+    await settle();
+
+    expect(container.textContent).not.toContain("2026-11-02T06:59:59.999Z");
+    expect(container.textContent).toContain("Nov 1, 2026");
   });
 });

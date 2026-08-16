@@ -1,19 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { SubmissionStatus } from "@/shared/contracts";
+import { SkeletonText } from "@/shared/ui/app/skeleton";
 import { TzTime } from "@/shared/ui/app/tz-time";
+import { statusBadgeLabel } from "@/shared/ui/status-badge";
 import type { SubmissionStatusHistoryEntry } from "../server/queries";
-
-const STATUS_LABEL: Record<SubmissionStatus, string> = {
-  draft: "Draft",
-  pending: "Pending review",
-  accept_queue: "Accept queue",
-  decline_queue: "Decline queue",
-  accepted: "Accepted",
-  declined: "Declined",
-  withdrawn: "Withdrawn",
-};
 
 function attribution(entry: SubmissionStatusHistoryEntry): string {
   const actor = entry.actorName ?? entry.actorEmail;
@@ -58,7 +49,7 @@ export function SubmissionDecisionHistory({ eventId, submissionId, timezone }: {
       <h3>Decision history</h3>
       <p className="muted">Queue moves, final decisions, reversals, and withdrawals remain visible here.</p>
       {error && <p role="alert" className="form-error">{error}</p>}
-      {!error && entries === null && <p className="muted">Loading decision history…</p>}
+      {!error && entries === null && <SkeletonText lines={2} label="Loading decision history…" />}
       {!error && entries?.length === 0 && <p className="muted">No status changes have been recorded.</p>}
       {!error && entries && entries.length > 0 && (
         <ol className="review-history-list">
@@ -66,7 +57,7 @@ export function SubmissionDecisionHistory({ eventId, submissionId, timezone }: {
             <li key={entry.id}>
               <header>
                 <div>
-                  <b>{entry.fromStatus ? `${STATUS_LABEL[entry.fromStatus]} → ` : ""}{STATUS_LABEL[entry.toStatus]}</b>
+                  <b>{entry.fromStatus ? `${statusBadgeLabel(entry.fromStatus)} → ` : ""}{statusBadgeLabel(entry.toStatus)}</b>
                   <span>{attribution(entry)}{entry.actorEmail && entry.actorName ? ` · ${entry.actorEmail}` : ""}</span>
                 </div>
                 <TzTime instant={entry.changedAt} tz={timezone} />

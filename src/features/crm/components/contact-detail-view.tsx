@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, GitMerge, Search, Send, StickyNote } from "lucide-react";
+import { ArrowLeft, GitMerge, Plus, Search, Send, StickyNote } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
@@ -20,6 +20,7 @@ import {
   type OrganizationId,
 } from "@/shared/contracts";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
+import { moveRovingTab } from "@/shared/ui/app/roving-tabs";
 import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Avatar, Button, Field, Modal, PageHeader, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
@@ -28,6 +29,8 @@ import { isAppError } from "@/shared/lib/errors";
 import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
 import { LocalTime } from "@/shared/ui/app/local-time";
 import { CrmNav } from "./crm-nav";
+import { CrmCustomFieldCreateDialog } from "./crm-custom-field-create-dialog";
+import { CrmTagCreateControl } from "./crm-tag-create";
 import { MergeWizardDialog } from "./merge-wizard-dialog";
 
 const ACTIVITY_LABEL: Record<string, string> = {
@@ -47,7 +50,8 @@ const ACTIVITY_LABEL: Record<string, string> = {
 
 const updatedSchema = z.object({ updated: z.boolean() });
 
-type Tab = "overview" | "history" | "notes" | "activity";
+const CONTACT_TABS = ["overview", "history", "notes", "activity"] as const;
+type Tab = (typeof CONTACT_TABS)[number];
 
 function nameOf(contact: { firstName: string; lastName: string; email: string }): string {
   return `${contact.firstName} ${contact.lastName}`.trim() || contact.email;
@@ -90,13 +94,21 @@ function MergeSearchDialog({
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<OrganizationContactSummaryDTO[]>([]);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   async function run() {
-    if (!query.trim()) { setResults([]); return; }
+    // Clear the previous failure before the empty-query guard, or "Try again"
+    // on an emptied search box leaves the alert up while doing nothing.
+    setResults([]);
+    setError("");
+    if (!query.trim()) return;
     setBusy(true);
     try {
       const page = await api(`organizations/${organizationId}/crm/contacts?search=${encodeURIComponent(query)}&limit=8`, directoryPageDtoSchema);
       setResults(page.rows.filter((row) => row.id !== excludeId));
+    } catch (caught) {
+      setResults([]);
+      setError(isAppError(caught) ? caught.message : "The directory search did not run.");
     } finally {
       setBusy(false);
     }
@@ -110,13 +122,16 @@ function MergeSearchDialog({
           <input aria-label="Search the directory" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search the directory" autoFocus />
         </form>
         {busy && <p className="long-copy">Searching…</p>}
+        {/* The `!error` guard below is load-bearing: a failed lookup must not
+            claim the directory holds no duplicate. */}
+        {!busy && error && <p className="portal-note" role="alert">{error} <button type="button" className="text-button" onClick={() => void run()}>Try again</button></p>}
         {!busy && results.map((row) => (
           <button key={row.id} type="button" className="speaker-card" style={{ width: "100%", textAlign: "left" }} onClick={() => onPick(row)}>
             <Avatar initials={initialsFor(row)} size="sm" />
             <span className="speaker-card-copy"><b>{nameOf(row)}</b><span>{row.email}</span></span>
           </button>
         ))}
-        {!busy && query && results.length === 0 && <p className="long-copy">No other contact matches that search.</p>}
+        {!busy && !error && query && results.length === 0 && <p className="long-copy">No other contact matches that search.</p>}
       </div>
     </Modal>
   );
@@ -148,6 +163,9 @@ export function ContactDetailView({
   const [history, setHistory] = useState(initialHistory);
   const [tab, setTab] = useState<Tab>("overview");
   const { contact } = history;
+  const [orgTags, setOrgTags] = useState(allTags);
+  const [fieldDefs, setFieldDefs] = useState(customFields);
+  const [customFieldOpen, setCustomFieldOpen] = useState(false);
 
   const originalFields = {
     firstName: contact.firstName, lastName: contact.lastName, company: contact.company ?? "", jobTitle: contact.jobTitle ?? "",
@@ -168,7 +186,7 @@ export function ContactDetailView({
 
   const fieldKeys = Object.keys(originalFields) as (keyof typeof originalFields)[];
   const fieldsDirty = fieldKeys.some((key) => fields[key] !== originalFields[key]);
-  const customDirty = customFields.some((field) => customValues[field.key] !== (contact.customFields[field.key] ?? ""));
+  const customDirty = fieldDefs.some((field) => customValues[field.key] !== (contact.customFields[field.key] ?? ""));
   useUnsavedWorkGuard(fieldsDirty || customDirty || noteBody.trim().length > 0);
 
   async function refresh() {
@@ -209,7 +227,7 @@ export function ContactDetailView({
   async function saveCustomFields() {
     setSavingCustom(true);
     try {
-      const patch = Object.fromEntries(customFields.filter((field) => customValues[field.key] !== (contact.customFields[field.key] ?? "")).map((field) => [field.key, customValues[field.key] ?? ""]));
+      const patch = Object.fromEntries(fieldDefs.filter((field) => customValues[field.key] !== (contact.customFields[field.key] ?? "")).map((field) => [field.key, customValues[field.key] ?? ""]));
       await api(`organizations/${organizationId}/crm/contacts/${contact.id}`, updatedSchema, { method: "PATCH", body: { customFields: patch } });
       setHistory((current) => ({
         ...current,
@@ -230,7 +248,7 @@ export function ContactDetailView({
     setTagBusy(true);
     try {
       await api(`organizations/${organizationId}/crm/contacts/${contact.id}/tags`, updatedSchema, { method: "PUT", body: { tagIds: nextIds } });
-      setHistory((current) => ({ ...current, tags: allTags.filter((tag) => nextIds.includes(tag.id)) }));
+      setHistory((current) => ({ ...current, tags: orgTags.filter((tag) => nextIds.includes(tag.id)) }));
       await finishCommittedWrite("Tags saved");
     } catch (caught) {
       toast(isAppError(caught) ? caught.message : "That tag change failed", { kind: "error" });
@@ -299,14 +317,29 @@ export function ContactDetailView({
         </header>
       </div>
 
-      <div className="drawer-tabs" style={{ marginTop: 16 }} role="tablist">
-        <button type="button" role="tab" aria-selected={tab === "overview"} className={tab === "overview" ? "active" : ""} onClick={() => setTab("overview")}>Overview</button>
-        <button type="button" role="tab" aria-selected={tab === "history"} className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}>History<span>{history.events.length}</span></button>
-        <button type="button" role="tab" aria-selected={tab === "notes"} className={tab === "notes" ? "active" : ""} onClick={() => setTab("notes")}>Notes<span>{history.notes.length}</span></button>
-        <button type="button" role="tab" aria-selected={tab === "activity"} className={tab === "activity" ? "active" : ""} onClick={() => setTab("activity")}>Activity<span>{history.activity.length}</span></button>
+      <div className="drawer-tabs" style={{ marginTop: 16 }} role="tablist" aria-label="Contact sections">
+        {CONTACT_TABS.map((candidate) => (
+          <button
+            key={candidate}
+            id={`crm-contact-tab-${candidate}`}
+            type="button"
+            role="tab"
+            aria-controls="crm-contact-panel"
+            aria-selected={tab === candidate}
+            tabIndex={tab === candidate ? 0 : -1}
+            className={tab === candidate ? "active" : ""}
+            onKeyDown={(event) => moveRovingTab(event, CONTACT_TABS, candidate, setTab)}
+            onClick={() => setTab(candidate)}
+          >
+            {candidate === "overview" ? "Overview"
+              : candidate === "history" ? <>History<span>{history.events.length}</span></>
+                : candidate === "notes" ? <>Notes<span>{history.notes.length}</span></>
+                  : <>Activity<span>{history.activity.length}</span></>}
+          </button>
+        ))}
       </div>
 
-      <div className="drawer-content" style={{ padding: "24px 0" }}>
+      <div id="crm-contact-panel" role="tabpanel" aria-labelledby={`crm-contact-tab-${tab}`} className="drawer-content" style={{ padding: "24px 0" }}>
         {tab === "overview" && (
           <div className="crm-detail-layout">
             <section className="panel settings-section">
@@ -332,8 +365,8 @@ export function ContactDetailView({
               <section className="panel settings-section">
                 <header className="panel-header"><h2>Tags</h2></header>
                 <div style={{ padding: "0 24px 24px" }} className="chip-picker">
-                  {allTags.length === 0 && <p className="long-copy">No tags yet — create one from a note or the directory filters.</p>}
-                  {allTags.map((tag) => {
+                  {orgTags.length === 0 && <p className="long-copy">No tags yet — create the first one below, or from the directory filters.</p>}
+                  {orgTags.map((tag) => {
                     const active = history.tags.some((row) => row.id === tag.id);
                     return (
                       <button key={tag.id} type="button" disabled={tagBusy} className={active ? "chip chip--selected" : "chip"} onClick={() => void toggleTag(tag.id)}>
@@ -341,29 +374,34 @@ export function ContactDetailView({
                       </button>
                     );
                   })}
+                  <CrmTagCreateControl organizationId={organizationId} onCreated={(tag) => setOrgTags((current) => [...current, tag])} />
                 </div>
               </section>
 
-              {customFields.length > 0 && (
-                <section className="panel settings-section">
-                  <header className="panel-header"><h2>Custom fields</h2></header>
-                  <div style={{ padding: "0 24px 24px" }} className="form-stack">
-                    {customFields.map((field) => (
-                      <Field key={field.id} label={field.label}>
-                        {field.fieldType === "select" ? (
-                          <Select value={customValues[field.key] ?? ""} onChange={(event) => setCustomValues((current) => ({ ...current, [field.key]: event.target.value }))}>
-                            <option value="">—</option>
-                            {field.options.map((option) => <option key={option} value={option}>{option}</option>)}
-                          </Select>
-                        ) : (
-                          <input value={customValues[field.key] ?? ""} onChange={(event) => setCustomValues((current) => ({ ...current, [field.key]: event.target.value }))} />
-                        )}
-                      </Field>
-                    ))}
+              <section className="panel settings-section">
+                <header className="panel-header crm-panel-header-actions">
+                  <h2>Custom fields</h2>
+                  <Button variant="secondary" size="sm" onClick={() => setCustomFieldOpen(true)}><Plus size={14} /> New field</Button>
+                </header>
+                <div style={{ padding: "0 24px 24px" }} className="form-stack">
+                  {fieldDefs.length === 0 && <p className="long-copy">No custom fields yet. Create one to capture organization-specific details on every contact.</p>}
+                  {fieldDefs.map((field) => (
+                    <Field key={field.id} label={field.label}>
+                      {field.fieldType === "select" ? (
+                        <Select value={customValues[field.key] ?? ""} onChange={(event) => setCustomValues((current) => ({ ...current, [field.key]: event.target.value }))}>
+                          <option value="">—</option>
+                          {field.options.map((option) => <option key={option} value={option}>{option}</option>)}
+                        </Select>
+                      ) : (
+                        <input value={customValues[field.key] ?? ""} onChange={(event) => setCustomValues((current) => ({ ...current, [field.key]: event.target.value }))} />
+                      )}
+                    </Field>
+                  ))}
+                  {fieldDefs.length > 0 && (
                     <Button size="sm" disabled={!customDirty || savingCustom} onClick={() => void saveCustomFields()}>{savingCustom ? "Saving…" : "Save custom fields"}</Button>
-                  </div>
-                </section>
-              )}
+                  )}
+                </div>
+              </section>
 
               <section className="panel settings-section">
                 <header className="panel-header"><h2>Push to event</h2><p>Reuses this identity&rsquo;s speaker record for another event — never a duplicate.</p></header>
@@ -442,13 +480,27 @@ export function ContactDetailView({
         )}
       </div>
 
-      <MergeSearchDialog
+      <CrmCustomFieldCreateDialog
         organizationId={organizationId}
-        excludeId={contact.id}
-        open={mergeSearchOpen}
-        onClose={() => setMergeSearchOpen(false)}
-        onPick={(row) => { setMergeWith(row); setMergeSearchOpen(false); }}
+        open={customFieldOpen}
+        onClose={() => setCustomFieldOpen(false)}
+        onCreated={(field) => {
+          setFieldDefs((current) => [...current, field]);
+          setCustomValues((current) => ({ ...current, [field.key]: current[field.key] ?? "" }));
+        }}
       />
+
+      {/* Mounted only while open so a failed search cannot greet the organizer
+          again the next time they open it. */}
+      {mergeSearchOpen && (
+        <MergeSearchDialog
+          organizationId={organizationId}
+          excludeId={contact.id}
+          open
+          onClose={() => setMergeSearchOpen(false)}
+          onPick={(row) => { setMergeWith(row); setMergeSearchOpen(false); }}
+        />
+      )}
       {mergeWith && (
         <MergeWizardDialog
           organizationId={organizationId}

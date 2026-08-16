@@ -50,9 +50,22 @@ async function downscale(file: File, maxEdge: number): Promise<File> {
   const context = canvas.getContext("2d");
   if (!context) return file;
   context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
+  // PNG stays PNG. A format without alpha is composited onto solid black by the
+  // canvas spec, so re-encoding unconditionally to JPEG flattened a transparent
+  // brand logo — PNG is an accepted `logo` type and anything over 600px on its
+  // longest edge is re-encoded — onto a black square, publicly at `/f/<fileId>`,
+  // with no warning and nothing to recover from. Photographic kinds keep JPEG,
+  // which is the whole point of the size reduction.
+  const keepsAlpha = file.type === "image/png";
+  const mime = keepsAlpha ? "image/png" : "image/jpeg";
+  const extension = keepsAlpha ? ".png" : ".jpg";
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, mime, 0.85));
   if (!blob) return file;
-  return new File([blob], file.name.replace(/\.[^.]+$/, ".jpg"), { type: "image/jpeg" });
+  // A re-encoded PNG can come out larger than the original — a photo saved as
+  // PNG, for instance. Keeping whichever is smaller means the downscale never
+  // makes the upload worse.
+  if (blob.size >= file.size) return file;
+  return new File([blob], file.name.replace(/\.[^.]+$/u, extension), { type: mime });
 }
 
 export async function postJson(path: string, body: unknown): Promise<{ ok: boolean; data?: Record<string, unknown>; message: string }> {
@@ -74,10 +87,13 @@ export async function postJson(path: string, body: unknown): Promise<{ ok: boole
 }
 
 /**
- * Content-Length is signed into the presigned request, but the browser derives
- * it from the File body and forbids JavaScript from setting it. Filter it here
- * as rollout protection for an older presign response that still advertises
- * the header; calling setRequestHeader would otherwise log a console error.
+ * The browser derives Content-Length from the File body and forbids JavaScript
+ * from setting it, so filter it out of whatever the presign response
+ * advertises — calling setRequestHeader would otherwise log a console error.
+ *
+ * It is not signed into the presigned URL either, despite what this comment
+ * used to say: see the note on `createUpload` in `shared/server/r2.ts` for what
+ * does enforce the declared size.
  */
 export function browserSettableUploadHeaders(headers: Record<string, string>): Array<[string, string]> {
   return Object.entries(headers).filter(([name]) => name.toLowerCase() !== "content-length");
@@ -155,15 +171,23 @@ export function FileUpload({
     setPendingAssociation(null);
     setError("");
     setPhase("validating");
-    if (picked.size > limitMb * 1024 * 1024) {
-      fail(`That file is ${(picked.size / (1024 * 1024)).toFixed(1)} MB — the limit is ${limitMb} MB.`);
-      return;
-    }
 
+    // Downscale first, then check the size — the server's policy is applied to
+    // `sizeBytes`, which is the *post*-downscale number this sends at presign.
+    // Checking `picked` rejected images the server would have accepted: an
+    // ordinary 12 MP phone photo (~6 MB) is exactly the case `downscale` exists
+    // for, and it would have arrived as a couple of hundred KB, but the upload
+    // was refused with "That file is 6.0 MB — the limit is 5 MB" — a limit that
+    // would never have applied to what was actually going to be uploaded.
     let file = picked;
     if (policy.downscaleTo) {
       setPhase("downscaling");
       file = await downscale(picked, policy.downscaleTo);
+    }
+
+    if (file.size > limitMb * 1024 * 1024) {
+      fail(`That file is ${(file.size / (1024 * 1024)).toFixed(1)} MB — the limit is ${limitMb} MB.`);
+      return;
     }
 
     setPhase("presigning");
@@ -271,6 +295,46 @@ export function FileUpload({
           )}
         </p>
       )}
+    </div>
+  );
+}
+
+/**
+ * A file the browser reads locally — the CSV importers parse the bytes in the
+ * page and never touch R2, so `FileUpload` above (presign → PUT → finalize) is
+ * the wrong primitive for them. What they do share is the chrome: a hidden
+ * native input driven by the designed dropzone, which is what keeps the OS
+ * "Choose File / No file chosen" widget off a dialog full of kit controls.
+ */
+export function LocalFilePicker({ accept, label, hint, disabled, inputRef, onPick }: {
+  accept: string;
+  label: string;
+  hint?: string;
+  disabled?: boolean;
+  inputRef?: React.RefObject<HTMLInputElement | null>;
+  onPick: (file: File) => void;
+}) {
+  const ownRef = useRef<HTMLInputElement>(null);
+  const ref = inputRef ?? ownRef;
+  return (
+    <div className="file-upload">
+      <input
+        ref={ref}
+        type="file"
+        accept={accept}
+        hidden
+        onChange={(event) => {
+          const picked = event.target.files?.[0];
+          // Clearing first so re-picking the same file still fires a change.
+          event.target.value = "";
+          if (picked) onPick(picked);
+        }}
+      />
+      <button type="button" className="file-upload__drop" disabled={disabled} onClick={() => ref.current?.click()}>
+        <Upload size={18} />
+        <span>{label}</span>
+        {hint && <small>{hint}</small>}
+      </button>
     </div>
   );
 }

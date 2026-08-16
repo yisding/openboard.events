@@ -12,6 +12,7 @@ import { deleteVocabItemIn } from "./vocab";
 const migration0 = readFileSync(new URL("../../../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
 const dependencyLocks = readFileSync(new URL("../../../../drizzle/0040_vocab_dependency_locks.sql", import.meta.url), "utf8");
+const roomDeletionNotice = readFileSync(new URL("../../../../drizzle/0051_room_deletion_notice.sql", import.meta.url), "utf8");
 
 const EVENT = eventIdSchema.parse("d1000000-0000-4000-8000-000000000001");
 const TRACK = "d1000000-0000-4000-8000-000000000002";
@@ -59,6 +60,7 @@ describe("dependency-safe vocabulary deletion", () => {
     await pglite.exec(migration0);
     await pglite.exec(migration1);
     await pglite.exec(dependencyLocks);
+    await pglite.exec(roomDeletionNotice);
     database = drizzle(pglite, { schema });
     await pglite.query("INSERT INTO users(id,email,name) VALUES($1,'reviewer@test.dev','Reviewer')", [USER]);
     await pglite.query("INSERT INTO events(id,name,slug,starts_at,ends_at) VALUES($1,'Vocab event','vocab-event','2026-09-01','2026-09-02')", [EVENT]);

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, index, integer, pgTable, primaryKey, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { boolean, check, index, integer, pgTable, primaryKey, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 import { contacts } from "./contacts";
 import { events, rooms, sessionFormats, tracks, users } from "./core";
 import { participantRoleEnum, sessionStatusEnum } from "./enums";
@@ -11,6 +11,7 @@ export const sessions = pgTable("sessions", {
   formatId: uuid("format_id").references(() => sessionFormats.id, { onDelete: "set null" }), trackId: uuid("track_id").references(() => tracks.id, { onDelete: "set null" }), roomId: uuid("room_id").references(() => rooms.id, { onDelete: "set null" }),
   startsAt: timestamp("starts_at", { withTimezone: true }), endsAt: timestamp("ends_at", { withTimezone: true }), status: sessionStatusEnum("status").notNull().default("draft"),
   scheduleRevision: integer("schedule_revision").notNull().default(0), rowVersion: integer("row_version").notNull().default(1),
+  scheduleNoticeOwed: boolean("schedule_notice_owed").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [unique().on(table.eventId, table.slug), unique().on(table.id, table.eventId)]);
 
@@ -44,3 +45,16 @@ export const sessionContentRevisions = pgTable("session_content_revisions", {
   editedByUserId: uuid("edited_by_user_id").references(() => users.id, { onDelete: "set null" }), restoredFromRevisionId: uuid("restored_from_revision_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [unique().on(table.id, table.eventId)]);
+
+// MTP-07 — the placement half of that history: one row per recorded move, from
+// the drag, the dialog and Auto-place alike. Room *names* are frozen on both
+// sides (drizzle/0050) so renaming or deleting a room cannot rewrite the
+// account of the placements it once held.
+export const sessionPlacementRevisions = pgTable("session_placement_revisions", {
+  id: uuid("id").defaultRandom().primaryKey(), eventId: uuid("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
+  sessionId: uuid("session_id").notNull().references(() => sessions.id, { onDelete: "cascade" }),
+  fromStartsAt: timestamp("from_starts_at", { withTimezone: true }), fromEndsAt: timestamp("from_ends_at", { withTimezone: true }), fromRoomName: text("from_room_name"),
+  toStartsAt: timestamp("to_starts_at", { withTimezone: true }), toEndsAt: timestamp("to_ends_at", { withTimezone: true }), toRoomName: text("to_room_name"),
+  movedByUserId: uuid("moved_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [index("session_placement_revisions_session_idx").on(table.sessionId, table.createdAt.desc().nullsFirst())]);

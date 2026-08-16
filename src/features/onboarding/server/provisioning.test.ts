@@ -26,6 +26,11 @@ const migrationUserManagement = readFileSync(new URL("../../../../drizzle/0011_u
 const migrationBilling = readFileSync(new URL("../../../../drizzle/0012_billing_scaffold.sql", import.meta.url), "utf8");
 const migrationOnboardingProgress = readFileSync(new URL("../../../../drizzle/0021_onboarding_progress.sql", import.meta.url), "utf8");
 const migrationOnboardingMilestones = readFileSync(new URL("../../../../drizzle/0023_onboarding_milestones.sql", import.meta.url), "utf8");
+// First Fair — `events.is_demo`. Drizzle names every mapped column on an
+// insert, so `createEventIn` needs the column to exist even though this suite
+// never provisions a demo. 0044 also widens the milestone CHECK, which is why
+// it follows 0023 here.
+const migrationDemoEvents = readFileSync(new URL("../../../../drizzle/0047_demo_events_and_tour.sql", import.meta.url), "utf8");
 
 function baseInput(overrides: Partial<Parameters<typeof provisionOrganizationEventIn>[3]> = {}) {
   return {
@@ -69,6 +74,7 @@ describe("self-serve onboarding — provisionOrganizationEvent (M45)", () => {
     await pglite.exec(migrationBilling);
     await pglite.exec(migrationOnboardingProgress);
     await pglite.exec(migrationOnboardingMilestones);
+    await pglite.exec(migrationDemoEvents);
     database = drizzle(pglite, { schema }) as unknown as DbOrTx;
 
     const [user] = await database.insert(schema.users).values({ email: "founder@test.dev", name: "Founder" }).returning();

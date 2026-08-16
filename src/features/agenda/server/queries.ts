@@ -7,6 +7,7 @@ import {
   scheduledSessionDtoSchema,
   sessionContentRevisionDtoSchema,
   sessionFormatDtoSchema,
+  sessionPlacementRevisionDtoSchema,
   trackDtoSchema,
   type ContactId,
   type EventId,
@@ -16,11 +17,13 @@ import {
   type SessionContentRevisionDTO,
   type SessionFormatDTO,
   type SessionId,
+  type SessionPlacementRevisionDTO,
   type SessionStatus,
+  type SubmissionStatus,
   type TrackDTO,
 } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
-import { endOfDayInTz, zonedInputToUtc } from "@/shared/lib/time";
+import { endOfDayInTz, startOfDayInTz } from "@/shared/lib/time";
 import { toScheduledSession, type ScheduledSession } from "../conflicts";
 
 /**
@@ -75,6 +78,11 @@ type SessionRow = {
   schedule_revision: number;
   row_version: number;
   speaker_ids: string[] | null;
+  submission_id: string | null;
+  submission_code: number | null;
+  submission_title: string | null;
+  submission_status: SubmissionStatus | null;
+  expected_attendance: number | string | null;
 };
 
 /** Postgres hands timestamptz back as a string here and a Date there. */
@@ -83,14 +91,36 @@ function iso(value: string | Date | null): string | null {
   return (value instanceof Date ? value : new Date(value)).toISOString();
 }
 
+/**
+ * `sub` is the abstract this session was promoted from, joined on every read so
+ * the admin can see what the public firewall already acts on: a promoted
+ * session leaves `published_sessions_v` the moment its abstract stops being
+ * `accepted`, and an abstract title edit never reaches the session row.
+ *
+ * MTP-07 takes a fourth column off that same `sub` row: the audience size the
+ * abstract declared, which the capacity advisory weighs against the room. It
+ * is a plain `sub.capacity` and not a correlated subquery precisely because
+ * the join is already here — re-reading a row the query has already joined is
+ * a second lookup for nothing. `SESSION_COLUMNS` is therefore only ever
+ * selected `FROM ${SESSION_SOURCE}`; the two are one unit.
+ */
 const SESSION_COLUMNS = sql`
   s.id, s.title, s.slug, s.description_html, s.starts_at, s.ends_at,
   s.track_id, s.room_id, s.format_id, s.status, s.schedule_revision, s.row_version,
+  s.submission_id, sub.code AS submission_code, sub.title AS submission_title, sub.status AS submission_status,
+  sub.capacity AS expected_attendance,
   (
     SELECT coalesce(array_agg(ss.contact_id ORDER BY ss.sort_order, ss.contact_id), '{}')
     FROM session_speakers ss
     WHERE ss.session_id = s.id AND ss.event_id = s.event_id
   ) AS speaker_ids
+`;
+
+// LEFT, so a session authored straight in the agenda keeps its row and simply
+// reports a null abstract and a null expected attendance rather than vanishing.
+const SESSION_SOURCE = sql`
+  sessions s
+  LEFT JOIN submissions sub ON sub.id = s.submission_id AND sub.event_id = s.event_id
 `;
 
 function toDto(row: SessionRow): ScheduledSessionDTO {
@@ -108,6 +138,15 @@ function toDto(row: SessionRow): ScheduledSessionDTO {
     scheduleRevision: Number(row.schedule_revision),
     rowVersion: Number(row.row_version),
     speakerIds: row.speaker_ids ?? [],
+    linkedSubmission: row.submission_id === null || row.submission_status === null ? null : {
+      id: row.submission_id,
+      code: Number(row.submission_code ?? 0),
+      title: row.submission_title ?? "",
+      status: row.submission_status,
+    },
+    expectedAttendance: typeof row.expected_attendance === "number" || typeof row.expected_attendance === "string"
+      ? Number(row.expected_attendance)
+      : null,
   });
 }
 
@@ -124,7 +163,12 @@ async function eventTimezone(dbOrTx: DbOrTx, eventId: EventId): Promise<string> 
 async function dayBounds(dbOrTx: DbOrTx, eventId: EventId, day: string): Promise<{ from: Date; to: Date }> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new AppError("VALIDATION", "day must be a YYYY-MM-DD event day key");
   const timezone = await eventTimezone(dbOrTx, eventId);
-  return { from: zonedInputToUtc(`${day}T00:00:00`, timezone), to: endOfDayInTz(day, timezone) };
+  // `startOfDayInTz`, not `T00:00:00`: in a zone whose clock jumps forward at
+  // midnight that wall time does not exist, and `zonedInputToUtc` resolves it
+  // backwards into the previous day — so the window became 25 hours and a
+  // session late on the 7th satisfied both the 7th's and the 8th's filter,
+  // rendering on two day tabs and drawing at a negative offset on one of them.
+  return { from: startOfDayInTz(day, timezone), to: endOfDayInTz(day, timezone) };
 }
 
 async function whereClause(dbOrTx: DbOrTx, eventId: EventId, filters: SessionFilters) {
@@ -151,7 +195,7 @@ export async function listSessionsIn(
 ): Promise<ScheduledSessionDTO[]> {
   const where = await whereClause(dbOrTx, eventId, filters);
   const result = await dbOrTx.execute<SessionRow>(sql`
-    SELECT ${SESSION_COLUMNS} FROM sessions s
+    SELECT ${SESSION_COLUMNS} FROM ${SESSION_SOURCE}
     WHERE ${where}
     ORDER BY s.starts_at ASC NULLS LAST, lower(s.title) ASC, s.id ASC
   `);
@@ -188,7 +232,7 @@ export async function getSessionIn(
   sessionId: SessionId,
 ): Promise<ScheduledSessionDTO | null> {
   const result = await dbOrTx.execute<SessionRow>(sql`
-    SELECT ${SESSION_COLUMNS} FROM sessions s WHERE s.id = ${sessionId} AND s.event_id = ${eventId}
+    SELECT ${SESSION_COLUMNS} FROM ${SESSION_SOURCE} WHERE s.id = ${sessionId} AND s.event_id = ${eventId}
   `);
   const row = (result.rows ?? [])[0];
   return row ? toDto(row) : null;
@@ -263,6 +307,47 @@ export async function listSessionContentRevisionsIn(
 
 export const listSessionContentRevisions = (eventId: EventId, sessionId: SessionId) =>
   listSessionContentRevisionsIn(db, eventId, sessionId);
+
+/**
+ * MTP-07 — the same session's *placement* history, newest first: every recorded
+ * move, whoever made it and however they made it (grid drag, dialog, Auto-place
+ * apply — they all commit through the two writers in `mutations.ts`).
+ *
+ * Room names come straight off the recorded row, never a join back to `rooms`:
+ * the point of freezing them at write time is that a since-renamed or deleted
+ * room cannot rewrite what this session's schedule used to say.
+ */
+export async function listSessionPlacementRevisionsIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  sessionId: SessionId,
+): Promise<SessionPlacementRevisionDTO[]> {
+  const result = await dbOrTx.execute<{
+    id: string;
+    from_starts_at: string | Date | null; from_ends_at: string | Date | null; from_room_name: string | null;
+    to_starts_at: string | Date | null; to_ends_at: string | Date | null; to_room_name: string | null;
+    moved_by_name: string | null; created_at: string | Date;
+  }>(sql`
+    SELECT p.id, p.from_starts_at, p.from_ends_at, p.from_room_name,
+           p.to_starts_at, p.to_ends_at, p.to_room_name, p.created_at,
+           coalesce(nullif(btrim(u.name), ''), u.email) AS moved_by_name
+    FROM session_placement_revisions p
+    LEFT JOIN users u ON u.id = p.moved_by_user_id
+    WHERE p.event_id = ${eventId} AND p.session_id = ${sessionId}
+    ORDER BY p.created_at DESC, p.id DESC
+  `);
+  return (result.rows ?? []).map((row) => sessionPlacementRevisionDtoSchema.parse({
+    id: row.id,
+    sessionId,
+    from: { startsAt: iso(row.from_starts_at), endsAt: iso(row.from_ends_at), roomName: row.from_room_name },
+    to: { startsAt: iso(row.to_starts_at), endsAt: iso(row.to_ends_at), roomName: row.to_room_name },
+    movedByName: row.moved_by_name,
+    createdAt: new Date(row.created_at).toISOString(),
+  }));
+}
+
+export const listSessionPlacementRevisions = (eventId: EventId, sessionId: SessionId) =>
+  listSessionPlacementRevisionsIn(db, eventId, sessionId);
 
 /**
  * Rooms, tracks, formats and the event's contacts, in one round trip.

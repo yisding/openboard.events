@@ -115,8 +115,13 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     editor.commands.setContent(value, { emitUpdate: false });
   }, [editor, sanitizeHtml, value]);
 
+  // `emitUpdate: false` — TipTap's `setEditable` fires a synthetic `update`
+  // by default, and this effect runs on mount. Left on, every editor emitted
+  // `onChange` the moment it appeared, and callers that read an `onChange` as
+  // "the organizer typed" armed their unsaved-work guard against a page nobody
+  // had touched. Editability is not a content change.
   useEffect(() => {
-    editor?.setEditable(!disabled);
+    editor?.setEditable(!disabled, false);
   }, [disabled, editor]);
 
   useImperativeHandle(ref, () => ({

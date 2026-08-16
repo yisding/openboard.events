@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CONDITION_OPS, FIELD_TYPES, FORM_CONTEXTS, reviewVisibilitySchema, type ReviewVisibility } from "./enums";
+import { LIMITS } from "./limits";
 import {
   fieldIdSchema,
   fileIdSchema,
@@ -106,6 +107,36 @@ const formFieldSchema = z.object({
   reviewVisibility: reviewVisibilitySchema.default("identity"),
 });
 export type FormField = z.infer<typeof formFieldSchema>;
+
+/**
+ * The number of characters an answer to this field may actually keep.
+ *
+ * A field's authored `maxChars` is a promise to the speaker, but a field that
+ * `mapsTo` a narrower column cannot keep more than the column holds — a title
+ * authored without a cap would otherwise validate at 500 and reach `title
+ * varchar(255)`, where the only way through is a silent truncation nobody is
+ * told about. Capping here turns that into an ordinary field error, in the
+ * wizard and in the submit pipeline alike.
+ */
+const MAPPED_CEILINGS: Partial<Record<NonNullable<FormField["mapsTo"]>, number>> = {
+  "submission.title": LIMITS.TITLE,
+  // `LIMITS.JOB_TITLE`'s own comment states the invariant: "a value one writer
+  // accepts must never be one another rejects, or the profile form (which sends
+  // both fields on every save) would be stuck." The stock CFP authors both at
+  // `maxChars: 255` and only `submission.title` was clamped here, so a speaker
+  // who pasted a 180-character affiliation into a Company question — advertised
+  // as 255 — could never save their portal profile again. The prefilled value
+  // fails on every PATCH, and `maxLength={160}` stops them retyping it but not
+  // the value already there.
+  "contact.job_title": LIMITS.JOB_TITLE,
+  "contact.company": LIMITS.JOB_TITLE,
+};
+
+export function fieldMaxChars(field: Pick<FormField, "type" | "maxChars" | "mapsTo">): number {
+  const authored = field.maxChars ?? (field.type === "richtext" ? LIMITS.RICHTEXT : LIMITS.SHORT_TEXT);
+  const ceiling = field.mapsTo ? MAPPED_CEILINGS[field.mapsTo] : undefined;
+  return ceiling === undefined ? authored : Math.min(authored, ceiling);
+}
 
 const formSectionSchema = z.object({
   id: sectionIdSchema,

@@ -3,9 +3,10 @@
 import { Upload } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { parseCsv } from "@/features/portal/index.csv";
+import { applyCsvCellEdits, parseCsv } from "@/features/portal/index.csv";
 import { SPEAKER_CSV_FIELDS, type ImportSpeakersCsvResult, type SpeakerCsvColumnMapping, type SpeakerCsvField } from "@/shared/contracts";
 import { Button, Field, Modal, Select, StatusBadge } from "@/shared/ui/ui-kit";
+import { LocalFilePicker } from "@/shared/ui/app/file-upload";
 import { useToast } from "@/shared/ui/toast";
 
 const FIELD_LABELS: Record<SpeakerCsvField, string> = {
@@ -61,6 +62,8 @@ export function SpeakerImportDialog({ eventId, open, onClose }: { eventId: strin
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<ImportSpeakersCsvResult | null>(null);
   const [commitResult, setCommitResult] = useState<ImportSpeakersCsvResult | null>(null);
+  // Rejected rows, corrected in place: `{ [rowNumber]: email }`.
+  const [fixes, setFixes] = useState<Record<number, string>>({});
 
   const mapping = useMemo<SpeakerCsvColumnMapping | null>(() => (
     emailColumn === null ? null : { email: emailColumn, fields: fieldColumns }
@@ -68,7 +71,7 @@ export function SpeakerImportDialog({ eventId, open, onClose }: { eventId: strin
 
   function reset() {
     setStep("upload"); setCsvText(""); setHeaders([]); setEmailColumn(null); setFieldColumns({});
-    setError(null); setPreview(null); setCommitResult(null);
+    setError(null); setPreview(null); setCommitResult(null); setFixes({});
     if (fileInput.current) fileInput.current.value = "";
   }
 
@@ -82,6 +85,10 @@ export function SpeakerImportDialog({ eventId, open, onClose }: { eventId: strin
       if (!headerRow || headerRow.length === 0) { setError("That file has no header row"); return; }
       setCsvText(text);
       setHeaders(headerRow);
+      // A correction is keyed by row number against the file it was typed for;
+      // a new upload reuses those row numbers, so stale fixes must not survive
+      // it (Back → Back → pick a different file would otherwise re-apply them).
+      setFixes({});
       // A column named "email" (any case) is the overwhelmingly common case;
       // preselect it so most files need zero mapping clicks.
       const guessedEmail = headerRow.findIndex((cell) => cell.trim().toLowerCase() === "email");
@@ -92,24 +99,53 @@ export function SpeakerImportDialog({ eventId, open, onClose }: { eventId: strin
     reader.readAsText(file);
   }
 
-  async function runPreview() {
-    if (!mapping) return;
+  async function runPreview(text: string = csvText): Promise<boolean> {
+    if (!mapping) return false;
     setBusy(true);
     setError(null);
     try {
       const response = await fetch(`/api/internal/speakers/${eventId}/import`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ csvText, mapping, mode: "preview" }),
+        body: JSON.stringify({ csvText: text, mapping, mode: "preview" }),
       });
       const json = await response.json() as { data?: ImportSpeakersCsvResult; error?: { message?: string } };
       if (!response.ok || !json.data) throw new Error(json.error?.message ?? "Could not read that file");
       setPreview(json.data);
       setStep("preview");
+      return true;
     } catch (previewError) {
       setError(previewError instanceof Error ? previewError.message : "Could not read that file");
+      return false;
     } finally {
       setBusy(false);
+    }
+  }
+
+  /**
+   * Every rejection this import can produce is about one cell: a missing
+   * email, an unparseable one, or an address the file repeats. So a rejected
+   * row is fixable where the organizer is looking at it — the correction is
+   * written into the uploaded CSV and re-previewed through the same server
+   * validation as the original upload, rather than sending them back to the
+   * spreadsheet to re-export the whole file. (Rejected rows never blocked the
+   * batch: the valid ones import either way, and the skipped ones are listed
+   * here with their reason and downloadable as a CSV.)
+   */
+  async function recheckFixedRows() {
+    if (!mapping) return;
+    const corrections: Record<number, string> = {};
+    for (const [rowNumber, value] of Object.entries(fixes)) {
+      if (value.trim() !== "") corrections[Number(rowNumber)] = value.trim();
+    }
+    if (Object.keys(corrections).length === 0) return;
+    const corrected = applyCsvCellEdits(csvText, mapping.email, corrections);
+    // Only adopt the corrected file once the server has actually previewed it.
+    // If the request fails the old preview stands and the typed fixes remain,
+    // so the footer can't fall back to importing unpreviewed corrections.
+    if (await runPreview(corrected)) {
+      setCsvText(corrected);
+      setFixes({});
     }
   }
 
@@ -137,6 +173,7 @@ export function SpeakerImportDialog({ eventId, open, onClose }: { eventId: strin
   }
 
   const shown = preview ?? commitResult;
+  const fixedRowCount = Object.values(fixes).filter((value) => value.trim() !== "").length;
 
   return (
     <Modal
@@ -155,9 +192,17 @@ export function SpeakerImportDialog({ eventId, open, onClose }: { eventId: strin
           <>
             <Button variant="secondary" onClick={() => setStep("map")}>Back</Button>
             {shown && shown.invalid > 0 && <Button variant="secondary" onClick={() => downloadErrorsCsv(shown.rows)}>Download errors ({shown.invalid})</Button>}
-            <Button disabled={!shown || shown.valid === 0 || busy} onClick={() => void runCommit()}>
-              {busy ? "Importing…" : `Import ${shown?.valid ?? 0} speaker${shown?.valid === 1 ? "" : "s"}`}
-            </Button>
+            {fixedRowCount > 0 ? (
+              // A typed fix has to be validated before it can be imported, so it
+              // replaces the import button rather than being silently dropped by it.
+              <Button disabled={busy} onClick={() => void recheckFixedRows()}>
+                {busy ? "Re-checking…" : `Re-check ${fixedRowCount} row${fixedRowCount === 1 ? "" : "s"}`}
+              </Button>
+            ) : (
+              <Button disabled={!shown || shown.valid === 0 || busy} onClick={() => void runCommit()}>
+                {busy ? "Importing…" : `Import ${shown?.valid ?? 0} speaker${shown?.valid === 1 ? "" : "s"}`}
+              </Button>
+            )}
           </>
         ) : step === "done" ? (
           <>
@@ -170,8 +215,8 @@ export function SpeakerImportDialog({ eventId, open, onClose }: { eventId: strin
       {step === "upload" && (
         <div className="form-stack">
           <p className="long-copy">A row is matched to an existing speaker by normalized email; a new email creates a speaker. No field already filled in is ever overwritten — the preview names every change before anything is written.</p>
-          <Field label="CSV file" required>
-            <input ref={fileInput} type="file" accept=".csv,text/csv" required onChange={(event) => { const file = event.target.files?.[0]; if (file) onFile(file); }} />
+          <Field label="CSV file" required group>
+            <LocalFilePicker accept=".csv,text/csv" label="Choose a CSV file" hint="One header row, comma separated" inputRef={fileInput} onPick={onFile} />
           </Field>
           {error && <p className="field-error" role="alert">{error}</p>}
         </div>
@@ -180,7 +225,7 @@ export function SpeakerImportDialog({ eventId, open, onClose }: { eventId: strin
       {step === "map" && (
         <div className="form-stack">
           <Field label="Email column" required>
-            <Select value={emailColumn ?? ""} onChange={(event) => setEmailColumn(event.target.value === "" ? null : Number(event.target.value))}>
+            <Select value={emailColumn ?? ""} onChange={(event) => { setFixes({}); setEmailColumn(event.target.value === "" ? null : Number(event.target.value)); }}>
               <option value="">Select a column…</option>
               {headers.map((header, index) => <option key={index} value={index}>{header || `Column ${index + 1}`}</option>)}
             </Select>
@@ -208,7 +253,10 @@ export function SpeakerImportDialog({ eventId, open, onClose }: { eventId: strin
 
       {step === "preview" && shown && (
         <div className="form-stack">
-          <p className="long-copy">{shown.valid} row{shown.valid === 1 ? "" : "s"} ready to import · {shown.invalid} to skip</p>
+          <p className="long-copy">
+            {shown.valid} row{shown.valid === 1 ? "" : "s"} ready to import · {shown.invalid} to skip
+            {shown.invalid > 0 && " — a skipped row never holds up the rest, and you can correct its email here instead of re-exporting the file."}
+          </p>
           <div className="table-scroll">
             <table className="data-table">
               <thead><tr><th>Row</th><th>Email</th><th>Status</th><th>Changes</th></tr></thead>
@@ -216,7 +264,17 @@ export function SpeakerImportDialog({ eventId, open, onClose }: { eventId: strin
                 {shown.rows.map((row) => (
                   <tr key={row.rowNumber}>
                     <td>{row.rowNumber}</td>
-                    <td>{row.email ?? "—"}</td>
+                    <td>
+                      {row.status === "ok" ? row.email ?? "—" : (
+                        <input
+                          type="email"
+                          aria-label={`Corrected email for row ${row.rowNumber}`}
+                          placeholder={row.email ?? "name@example.com"}
+                          value={fixes[row.rowNumber] ?? ""}
+                          onChange={(event) => setFixes((current) => ({ ...current, [row.rowNumber]: event.target.value }))}
+                        />
+                      )}
+                    </td>
                     <td><StatusBadge value={row.status === "ok" ? "ready" : row.status === "duplicate_in_file" ? "duplicate" : "error"} /></td>
                     <td>{row.error ?? (row.changedFields.length > 0 ? row.changedFields.map((field) => FIELD_LABELS[field as SpeakerCsvField] ?? field).join(", ") : "No changes")}</td>
                   </tr>

@@ -3,7 +3,9 @@
 import { AlertTriangle, ArrowRight, CalendarDays, Filter, LayoutGrid, List, MapPin, Plus, Search, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { useMemo } from "react";
+import { zoneAbbreviation, zonedInputToUtc } from "@/shared/lib/time";
 import { Button } from "@/shared/ui/ui-kit";
+import { moveRovingTab } from "@/shared/ui/app/roving-tabs";
 import type { AgendaView } from "../store";
 import { AGENDA_VIEWS, dayTabLabel, eventDayKeys } from "../store";
 
@@ -58,6 +60,17 @@ export function AgendaToolbar({
     [event.startsAt, event.endsAt, event.timezone],
   );
 
+  // The abbreviation, never the raw IANA id: this strip is the surrounding
+  // label the Day view's cards lean on when they render times with
+  // `zoneDisplay="context"`, so it has to name the zone the same way every
+  // other surface does ("PDT"). Anchored to the shown day rather than the
+  // event's start so a multi-day event crossing a DST boundary still reads
+  // correctly on each tab.
+  const zoneLabel = useMemo(
+    () => zoneAbbreviation(day === null ? event.startsAt : zonedInputToUtc(`${day}T12:00:00`, event.timezone), event.timezone),
+    [day, event.startsAt, event.timezone],
+  );
+
   return (
     <>
       <div className="agenda-toolbar">
@@ -65,13 +78,19 @@ export function AgendaToolbar({
           {AGENDA_VIEWS.map((candidate) => {
             const { label, icon: Icon } = VIEW_LABELS[candidate];
             const hasConflicts = candidate === "conflicts" && conflictCount > 0;
+            // First Fair `data-tour`: six tabs, all `role="tab"`, distinguished
+            // only by a word and a count. The guided tour's set-piece turns on
+            // this one, so it is pinned rather than matched by its text.
             return (
               <button
                 key={candidate}
                 type="button"
                 role="tab"
+                {...(candidate === "conflicts" ? { "data-tour": "agenda.conflicts-tab" } : {})}
                 aria-selected={view === candidate}
+                tabIndex={view === candidate ? 0 : -1}
                 className={[view === candidate ? "active" : "", hasConflicts ? "has-conflicts" : ""].filter(Boolean).join(" ")}
+                onKeyDown={(event) => moveRovingTab(event, AGENDA_VIEWS, candidate, onView)}
                 onClick={() => onView(candidate)}
               >
                 <Icon size={14} aria-hidden />
@@ -123,7 +142,7 @@ export function AgendaToolbar({
               );
             })}
           </div>
-          <span>All times {event.timezone}</span>
+          <span>All times {zoneLabel}</span>
         </div>
       )}
       {conflictCount > 0 && view !== "conflicts" && (
