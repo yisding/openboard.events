@@ -122,9 +122,19 @@ const envSchema = z.object({
   // Retired by M39. `z.object` strips undeclared keys, so a deployment still
   // carrying this from the single-global-base design parsed clean and dropped
   // it — an operator reading their own configuration would see a base id
-  // configured and nothing anywhere using it. Declared as `never` so it fails
-  // the parse and names itself.
-  AIRTABLE_BASE_ID: z.never().optional(),
+  // configured and nothing anywhere using it. Declared so it fails the parse
+  // and names itself.
+  //
+  // Empty is not "configured", and has to keep parsing: a `.dev.vars` or a
+  // Cloudflare variable left as `AIRTABLE_BASE_ID=` is a blank holding a
+  // retired name, and refusing to boot the whole application over one would be
+  // a false alarm loud enough to be worked around rather than fixed. Only a
+  // real value is a real misconfiguration — that is the same line
+  // `optionalString` draws above.
+  AIRTABLE_BASE_ID: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    z.never().optional(),
+  ),
   GOOGLE_CLIENT_ID: optionalString,
   GOOGLE_CLIENT_SECRET: optionalString,
   // Reviewed customer terms live outside the repository until their drafts in

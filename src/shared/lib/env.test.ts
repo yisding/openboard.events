@@ -108,6 +108,10 @@ describe("parseEnv", () => {
     // undeclared, `z.object` strips this key: the deployment parses clean and
     // the operator's own configuration claims a base that nothing reads.
     expect(() => parseEnv({ AIRTABLE_BASE_ID: "appABCD12345678" })).toThrow(/AIRTABLE_BASE_ID/);
+    // But a blank holding the retired name is not a configured base, and must
+    // not take the whole application down on boot.
+    expect(() => parseEnv({ AIRTABLE_BASE_ID: "" })).not.toThrow();
+    expect(() => parseEnv({ AIRTABLE_BASE_ID: "   " })).not.toThrow();
   });
 
   it("requires Google credentials for every deployed admin auth environment", () => {
