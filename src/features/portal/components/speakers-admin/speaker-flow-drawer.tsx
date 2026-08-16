@@ -148,6 +148,7 @@ export function SpeakerFlowDrawer({
           eventId={eventIdSchema.parse(eventId)}
           contactId={row.contactId}
           contactName={row.name}
+          timezone={timezone}
           onClose={() => setReminding(false)}
         />
       )}

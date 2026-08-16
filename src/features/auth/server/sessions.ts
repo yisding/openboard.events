@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, gt } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { adminSessions } from "@/db/schema";
 import type { UserId } from "@/shared/contracts";
@@ -33,7 +33,16 @@ export async function listAdminSessionsIn(dbOrTx: DbOrTx, userId: UserId, curren
     userAgent: adminSessions.userAgent,
     createdAt: adminSessions.createdAt,
     expiresAt: adminSessions.expiresAt,
-  }).from(adminSessions).where(eq(adminSessions.userId, userId)).orderBy(desc(adminSessions.createdAt));
+  }).from(adminSessions).where(and(
+    eq(adminSessions.userId, userId),
+    // "Active sessions — every device currently signed in as you" has to mean
+    // it. Retention keeps an `admin_sessions` row for 30 days *after* it
+    // expires, so an expired sign-in sat under that heading for a month with a
+    // past date in its Expires column and a live Revoke button, and inflated the
+    // "Signed out of N sessions" count. The organization invitation list next
+    // door fixed exactly this shape.
+    gt(adminSessions.expiresAt, new Date()),
+  )).orderBy(desc(adminSessions.createdAt));
   return rows.map((row) => ({
     id: row.id,
     ipAddress: row.ipAddress,

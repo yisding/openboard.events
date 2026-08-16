@@ -2,7 +2,7 @@
 
 import { CheckCircle2, ClipboardCheck, FileText, Upload } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { EmptyState, ProgressBar, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { moveRovingTab } from "@/shared/ui/app/roving-tabs";
@@ -65,21 +65,40 @@ export function TaskList({
   const [tab, setTab] = useState<Tab>("all");
   const [filter, setFilter] = useState<Filter>("open");
 
-  const counts = useMemo(() => ({
+  // Progress is over *every* task, always: "6/8 tasks complete" under a filtered
+  // set would mean nothing.
+  const progress = useMemo(() => ({
     all: tasks.length,
-    mine: tasks.filter((task) => task.submissionId === null).length,
-    submissions: tasks.filter((task) => task.submissionId !== null).length,
     done: tasks.filter((task) => task.completed).length,
   }), [tasks]);
 
-  const shown = useMemo(() => tasks.filter((task) => {
-    if (tab === "mine" && task.submissionId !== null) return false;
-    if (tab === "submissions" && task.submissionId === null) return false;
+  const matchesFilter = useCallback((task: MyTaskDTO) => {
     if (filter === "open") return !task.completed;
     if (filter === "completed") return task.completed;
     if (filter === "overdue") return task.overdue;
     return true;
-  }), [tasks, tab, filter]);
+  }, [filter]);
+
+  // Tab badges count what each tab would actually show. They used to count the
+  // unfiltered array while the section heading below counted the filtered one,
+  // so a speaker with 8 assignments and 6 complete landed on the default "open"
+  // filter and read the tab "My tasks 8" directly above the heading "My tasks 2"
+  // — the same words, two numbers, one screen. The file's own header states the
+  // rule: a count that disagrees with the list under it is the bug.
+  const counts = useMemo(() => {
+    const inFilter = tasks.filter(matchesFilter);
+    return {
+      all: inFilter.length,
+      mine: inFilter.filter((task) => task.submissionId === null).length,
+      submissions: inFilter.filter((task) => task.submissionId !== null).length,
+    };
+  }, [tasks, matchesFilter]);
+
+  const shown = useMemo(() => tasks.filter((task) => {
+    if (tab === "mine" && task.submissionId !== null) return false;
+    if (tab === "submissions" && task.submissionId === null) return false;
+    return matchesFilter(task);
+  }), [tasks, tab, matchesFilter]);
 
   // Submission tasks are grouped by the session they belong to, because "upload
   // your slides" twice with no context is indistinguishable from a bug.
@@ -105,10 +124,10 @@ export function TaskList({
     <>
       <div className="portal-task-summary">
         <div>
-          <strong>{counts.done}/{counts.all}</strong>
+          <strong>{progress.done}/{progress.all}</strong>
           <span>tasks complete</span>
         </div>
-        <ProgressBar label="Task completion" value={counts.all === 0 ? 100 : Math.round((counts.done / counts.all) * 100)} tone="green" />
+        <ProgressBar label="Task completion" value={progress.all === 0 ? 100 : Math.round((progress.done / progress.all) * 100)} tone="green" />
       </div>
 
       <div className="abstract-status-tabs">

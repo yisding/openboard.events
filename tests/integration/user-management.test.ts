@@ -461,6 +461,26 @@ describe("M44 user management", () => {
       }
     });
 
+    it("does not list a session that expired, under a heading that says active", async () => {
+      // Retention keeps an `admin_sessions` row for 30 days *after* it expires,
+      // so an expired sign-in sat under "Active sessions — every device
+      // currently signed in as you" for a month, with a past date in its
+      // Expires column, a live Revoke button, and a place in the "Signed out of
+      // N sessions" count. The organization invitation list next door fixed
+      // exactly this shape.
+      await pglite.query(
+        "INSERT INTO admin_sessions(user_id,token,expires_at) VALUES($1,'sess-expired', now() - interval '1 day'),($1,'sess-live', now() + interval '1 day')",
+        [ownerId],
+      );
+      try {
+        const sessions = await listAdminSessionsIn(db, ownerId, null);
+        expect(sessions.map((session) => session.id)).toHaveLength(1);
+        expect(sessions.every((session) => new Date(session.expiresAt) > new Date())).toBe(true);
+      } finally {
+        await pglite.query("DELETE FROM admin_sessions WHERE token IN ('sess-expired','sess-live')");
+      }
+    });
+
     it("does not consume an invitation that would demote the organization's last owner", async () => {
       const org = await createOrganizationIn(db, ownerId, { name: "Owner Guard Co", slug: "owner-guard-co" });
       try {
