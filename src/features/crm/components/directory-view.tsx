@@ -26,6 +26,7 @@ import { statusBadgeLabel } from "@/shared/ui/status-badge";
 import { CrmNav } from "./crm-nav";
 import { STAGE_LABEL } from "./pipeline-labels";
 import { ContactCreateDialog } from "./contact-create-dialog";
+import { CrmTagCreateControl } from "./crm-tag-create";
 import { CrmImportDialog } from "./crm-import-dialog";
 import { CrmBulkEmailDialog } from "./crm-bulk-email-dialog";
 import { MergeWizardDialog } from "./merge-wizard-dialog";
@@ -217,20 +218,19 @@ export function DirectoryView({
         <article><span className="summary-icon"><Building2 size={19} /></span><div><strong>{metrics.eventsRepresented}</strong><small>Events represented</small></div></article>
       </section>
 
-      {tags.length > 0 && (
-        <div className="chip-picker" style={{ marginBottom: 12 }}>
-          {tags.map((tag) => (
-            <button
-              key={tag.id}
-              type="button"
-              className={tagIds.includes(tag.id) ? "chip chip--selected" : "chip"}
-              onClick={() => toggleTag(tag.id)}
-            >
-              {tag.name}
-            </button>
-          ))}
-        </div>
-      )}
+      <div className="chip-picker" style={{ marginBottom: 12 }}>
+        {tags.map((tag) => (
+          <button
+            key={tag.id}
+            type="button"
+            className={tagIds.includes(tag.id) ? "chip chip--selected" : "chip"}
+            onClick={() => toggleTag(tag.id)}
+          >
+            {tag.name}
+          </button>
+        ))}
+        <CrmTagCreateControl organizationId={organizationId} onCreated={() => router.refresh()} />
+      </div>
 
       {/* A filter strip, not a tab strip: there is no panel it controls, and each
           stage toggles independently of the others. `group` + `aria-pressed` is

@@ -4,7 +4,7 @@ import type { ContactId, EventId, FileKind, MemberRole, UserId } from "@/shared/
 import { AppError, isAppError } from "@/shared/lib/errors";
 import { log } from "@/shared/lib/log";
 import { errorEnvelope, type AuthGuard } from "@/shared/server/handler";
-import type { FileRequester } from "@/shared/server/r2";
+import { describeFile, type FileDescriptor, type FileRequester } from "@/shared/server/r2";
 
 /**
  * These routes are keyed by a file, not by an event in the path, so the guard has
@@ -49,6 +49,27 @@ export async function requireUploader(request: NextRequest, eventId: EventId): P
   const portal = await portalAuth()(request, eventId, {});
   if (!portal) throw new AppError("UNAUTHORIZED", "Sign in required");
   return { kind: "contact", contactId: portal.actorId as ContactId };
+}
+
+/**
+ * Look up a file-keyed route's target and its acting uploader in one step, so
+ * existence and authorization are decided together instead of one before the
+ * other. A missing row answers with the *same* error `requireUploader` raises
+ * for a caller with no claim on the file's event — there is no event to
+ * authorize a fake id against, so "no such row" and "exists but not yours"
+ * become one response. Splitting them (the previous `NOT_FOUND`-then-authorize
+ * order) turned the status into an id oracle: 404 for an unknown id, 401 for a
+ * real file the caller could not see, which is exactly the pair that lets an
+ * unauthenticated caller enumerate real file ids.
+ */
+export async function requireFileUploader(
+  request: NextRequest,
+  fileId: string,
+): Promise<{ file: FileDescriptor; uploader: Uploader }> {
+  const file = await describeFile(fileId);
+  if (!file) throw new AppError("UNAUTHORIZED", "Sign in required");
+  const uploader = await requireUploader(request, file.eventId);
+  return { file, uploader };
 }
 
 /** Event branding belongs to the organizers; everything else a speaker owns too. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isConstraintViolation, isUniqueViolation } from "./errors";
+import { foreignKeyViolation, isConstraintViolation, isUniqueViolation } from "./errors";
 
 describe("isConstraintViolation", () => {
   it("recognizes structured constraint names through wrapped driver errors", () => {
@@ -49,5 +49,30 @@ describe("isUniqueViolation", () => {
     expect(isUniqueViolation(new Error("connection terminated"))).toBe(false);
     expect(isUniqueViolation({ code: "23503" })).toBe(false);
     expect(isUniqueViolation({ cause: { cause: { cause: { cause: { cause: { code: "23505" } } } } } })).toBe(false);
+  });
+});
+
+describe("foreignKeyViolation", () => {
+  it("returns the constraint name from a structured 23503 through drizzle's wrapping", () => {
+    expect(foreignKeyViolation({
+      message: "Drizzle query failed",
+      cause: { code: "23503", constraint: "sessions_room_id_fkey" },
+    })).toBe("sessions_room_id_fkey");
+  });
+
+  it("recovers the constraint name from a bare driver message", () => {
+    expect(foreignKeyViolation(new Error(
+      'insert or update on table "sessions" violates foreign key constraint "sessions_track_id_fkey"',
+    ))).toBe("sessions_track_id_fkey");
+  });
+
+  it("reports the violation even when the driver omits a constraint name", () => {
+    expect(foreignKeyViolation({ code: "23503" })).toBe("");
+  });
+
+  it("returns null for anything that is not a foreign-key failure", () => {
+    expect(foreignKeyViolation(new Error("connection terminated"))).toBeNull();
+    expect(foreignKeyViolation({ code: "23505" })).toBeNull();
+    expect(foreignKeyViolation({ cause: { cause: { cause: { cause: { cause: { code: "23503" } } } } } })).toBeNull();
   });
 });
