@@ -1,11 +1,12 @@
 import { cookies } from "next/headers";
-import { and, count, desc, eq, gt, gte, isNotNull, isNull } from "drizzle-orm";
+import { and, count, desc, eq, gt, gte, isNotNull, isNull, sql } from "drizzle-orm";
 import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
 import { contacts, events, portalSessions, portalTokens, users } from "@/db/schema";
-import type { ContactId, EventId, UserId } from "@/shared/contracts";
+import type { ContactId, EventId, FormId, UserId } from "@/shared/contracts";
 import { idem } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { getEnv } from "@/shared/lib/env";
+import { getOrCreateContact } from "@/features/event-contacts";
 import { enqueueEmail } from "@/shared/server/enqueue-email";
 import { safeInternalPath } from "../safe-next";
 import { getAdminSession, requireAdmin } from "./admin";
@@ -189,14 +190,31 @@ export async function requestPortalLoginIn(tx: TxDb, args: {
   sessionSecret: string;
   fallback: boolean;
   next?: string;
+  /**
+   * The caller is the account step of an **open public call for speakers**, so
+   * an address with no contact row is a first-time submitter rather than a
+   * stranger typing into a sign-in box.
+   *
+   * Never taken from the request body. `requestPortalLogin` sets it only after
+   * resolving the form itself and finding a `cfp` form in the open state —
+   * which is exactly the surface an organizer published to invite people who
+   * are, by definition, not on the roster yet.
+   */
+  mayCreateContact?: boolean;
 }): Promise<PortalLoginRequestResult> {
   const email = args.email.trim().toLowerCase();
-  // Look the recipient up; never create them. This form is unauthenticated, so
-  // a `getOrCreateContact` here let anyone mint a permanent roster row per
-  // typed address — the organizer's Speakers list filled with people who never
-  // existed, each one "Awaiting confirmation, 0 submissions". A speaker always
-  // has a contact row already (the organizer added them, or their CFP
-  // submission created one), so there is nothing to create at sign-in time.
+  // Look the recipient up; never create them *here*. This form is
+  // unauthenticated, so a `getOrCreateContact` on the sign-in path let anyone
+  // mint a permanent roster row per typed address — the organizer's Speakers
+  // list filled with people who never existed, each one "Awaiting
+  // confirmation, 0 submissions". A speaker signing in always has a contact row
+  // already: the organizer added them, or their CFP submission created one.
+  //
+  // The one caller that legitimately arrives before that row exists is the CFP
+  // account step, and it says so — see `mayCreateContact`. Without that door a
+  // published call for speakers is open to nobody: every visitor starts on the
+  // account step, the draft endpoint requires a portal session, and the only
+  // way to get one is the code this function refuses to issue.
   const [lockedContact] = await tx.select({ id: contacts.id }).from(contacts)
     .where(and(eq(contacts.eventId, args.eventId), eq(contacts.email, email)))
     .limit(1)
@@ -204,9 +222,13 @@ export async function requestPortalLoginIn(tx: TxDb, args: {
   // The neutral answer, not a 404: whether an address is on file is exactly
   // what this endpoint refuses to disclose. The caller applies the same
   // per-address throttle either way, so the *rate limit* cannot answer it
-  // either — see the login request route.
-  if (!lockedContact) return { message: PORTAL_LOGIN_NEUTRAL_MESSAGE };
-  const contactId = lockedContact.id as ContactId;
+  // either — see the login request route. This stays true with
+  // `mayCreateContact` on: both branches then issue a code and return the same
+  // sentence, so the reply still says nothing about who is on file.
+  if (!lockedContact && !args.mayCreateContact) return { message: PORTAL_LOGIN_NEUTRAL_MESSAGE };
+  const contactId = lockedContact
+    ? lockedContact.id as ContactId
+    : await getOrCreateContact(tx, args.eventId, email);
   const since = new Date(Date.now() - PORTAL_LOGIN_THROTTLE.windowMs);
   const [recent] = await tx.select({ n: count() }).from(portalTokens).where(and(
     eq(portalTokens.eventId, args.eventId),
@@ -247,10 +269,24 @@ export async function requestPortalLoginIn(tx: TxDb, args: {
   };
 }
 
-export async function requestPortalLogin(eventSlug: string, email: string, next?: string): Promise<PortalLoginRequestResult> {
+/**
+ * `formId` marks the request as coming from a call-for-speakers account step.
+ *
+ * It is a *hint about which surface asked*, never a grant: the answer to "may
+ * this mint a contact row" is computed here, from the form as stored. A caller
+ * that passes the id of a portal form, a draft form, or a form that has closed
+ * gets the same never-create behaviour as the plain sign-in box.
+ */
+export async function requestPortalLogin(
+  eventSlug: string,
+  email: string,
+  next?: string,
+  formId?: FormId,
+): Promise<PortalLoginRequestResult> {
   const event = await resolveEvent(db, eventSlug);
   const env = getEnv();
   if (!env.SESSION_SECRET) throw new AppError("INTERNAL", "SESSION_SECRET is required for portal authentication");
+  const mayCreateContact = formId ? await publicCfpIsOpenIn(db, event.id, formId) : false;
   return withTx((tx) => requestPortalLoginIn(tx, {
     eventId: event.id,
     eventSlug,
@@ -259,7 +295,31 @@ export async function requestPortalLogin(eventSlug: string, email: string, next?
     sessionSecret: env.SESSION_SECRET as string,
     fallback: env.APP_ENV !== "production" && env.EMAIL_FALLBACK_UI === "1",
     ...(next ? { next } : {}),
+    ...(mayCreateContact ? { mayCreateContact } : {}),
   }));
+}
+
+/**
+ * Is this form a call for speakers, on this event, open at this instant?
+ *
+ * Asked of `is_form_open` rather than of a copy of its rules in TypeScript.
+ * That function is what the submit transaction itself is gated on, so this
+ * cannot drift into promising a code for a window the write would then refuse
+ * — and it re-reads `clock_timestamp()`, which matters because the window can
+ * close between the page render and the code request.
+ *
+ * `context = 'cfp'` and the event scope are checked alongside it: a portal
+ * form is an authenticated surface, and a form id belonging to another event
+ * must not act as a door into this one.
+ */
+export async function publicCfpIsOpenIn(dbOrTx: DbOrTx, eventId: EventId, formId: FormId): Promise<boolean> {
+  const result = await dbOrTx.execute<{ open: boolean }>(sql`
+    SELECT is_form_open(f.id) AS open
+    FROM forms f
+    WHERE f.id = ${formId} AND f.event_id = ${eventId} AND f.context = 'cfp'
+    LIMIT 1
+  `);
+  return result.rows?.[0]?.open === true;
 }
 
 export type PortalLoginVerification =
