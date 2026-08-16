@@ -67,6 +67,13 @@ export function computePortalHero(input: {
   const nowIso = now.toISOString();
   const draft = input.submissions.find((row) => row.status === "Draft"
     && row.formId !== null
+    // Submitter-only. `listMySubmissions` joins through
+    // `submission_participants`, so a co-speaker's list includes the
+    // submitter's draft — but the edit gate requires
+    // `submitterContactId = contactId` and answers NOT_FOUND. Without this a
+    // co-speaker's *only* primary call to action was "Resume your submission",
+    // bouncing to "isn't open for editing" on every single load.
+    && row.isPrimary
     && formOpenState({ status: row.formStatus, opensAt: row.formOpensAt, closesAt: row.formClosesAt }, nowIso).open);
   if (draft) {
     return {

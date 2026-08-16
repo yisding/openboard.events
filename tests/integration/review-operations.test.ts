@@ -932,6 +932,53 @@ describe("review operations", () => {
     expect((await listReviewQueueIn(db, eventId, ada, planId)).rows.map((row) => row.submissionId)).not.toContain(two);
   });
 
+  it("withdraws the verdict of a reviewer who scores and then recuses", async () => {
+    const planId = await seedPlan();
+    await assignReviewersIn(runEvaluationTransaction, eventId, planId, [
+      { userId: ada, trackIds: null },
+      { userId: grace, trackIds: null },
+    ]);
+
+    // Both score the same abstract; then Ada realises the conflict. "Recuse
+    // myself" is offered on every open row and the queue keeps already-scored
+    // rows, so this is an ordinary path rather than an exotic one.
+    await submitReviewIn(db, eventId, planId, one, ada, verdict({ overallScore: 5 }));
+    await submitReviewIn(db, eventId, planId, one, grace, verdict({ overallScore: 1 }));
+
+    const before = await pglite.query<{ rating: string; n: number }>(
+      "SELECT rating, n_scores AS n FROM submission_ratings_v WHERE plan_id=$1 AND submission_id=$2", [planId, one],
+    );
+    expect(Number(before.rows[0]?.n)).toBe(2);
+
+    await recuseAssignmentIn(db, eventId, planId, one, ada, "I work with one of the authors");
+
+    // `submission_ratings_v` reads `reviews` with no join to
+    // `review_assignments`, so flipping the status alone left Ada's 10 moving
+    // the committee mean, showing to peer reviewers as the round's average, and
+    // driving the Rating column and the accept/decline sort — the one score the
+    // declaration exists to remove.
+    const after = await pglite.query<{ rating: string; n: number }>(
+      "SELECT rating, n_scores AS n FROM submission_ratings_v WHERE plan_id=$1 AND submission_id=$2", [planId, one],
+    );
+    expect(Number(after.rows[0]?.n)).toBe(1);
+    expect(Number(after.rows[0]?.rating)).toBe(1);
+    expect((await pglite.query(
+      "SELECT id FROM reviews WHERE plan_id=$1 AND submission_id=$2 AND reviewer_user_id=$3", [planId, one, ada],
+    )).rows).toHaveLength(0);
+
+    // The recusal itself is still the durable record.
+    const audit = await pglite.query<{ status: string; recusal_reason: string }>(
+      "SELECT status, recusal_reason FROM review_assignments WHERE plan_id=$1 AND submission_id=$2 AND reviewer_user_id=$3",
+      [planId, one, ada],
+    );
+    expect(audit.rows[0]).toMatchObject({ status: "recused", recusal_reason: "I work with one of the authors" });
+
+    // Grace's verdict is untouched.
+    expect((await pglite.query(
+      "SELECT id FROM reviews WHERE plan_id=$1 AND submission_id=$2 AND reviewer_user_id=$3", [planId, one, grace],
+    )).rows).toHaveLength(1);
+  });
+
   it("keeps a recusal when the reviewer who declared it is taken off the round", async () => {
     const planId = await seedPlan();
     await assignReviewersIn(runEvaluationTransaction, eventId, planId, [

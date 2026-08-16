@@ -108,6 +108,12 @@ describe("computePortalHero", () => {
     expect(hero.kind).toBe("quiet");
   });
 
+  it("does not offer a co-speaker the submitter's draft, which they cannot open", () => {
+    const someoneElses = submission({ status: "Draft", isPrimary: false });
+    const hero = computePortalHero({ showCelebration: false, submissions: [someoneElses], myTasks: [], timezone: TZ, now: NOW });
+    expect(hero.kind).toBe("quiet");
+  });
+
   it("falls back to quiet, reporting whether anything is accepted", () => {
     const accepted = submission({ status: "Accepted" });
     const hero = computePortalHero({ showCelebration: false, submissions: [accepted], myTasks: [], timezone: TZ, now: NOW });
