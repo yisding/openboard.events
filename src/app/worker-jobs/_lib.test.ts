@@ -38,6 +38,34 @@ describe("private job adapter", () => {
     expect(recordJobSuccess).toHaveBeenCalledWith("cleanup", expect.any(Number));
   });
 
+  /**
+   * `workers/jobs/README.md` documents curling a single job by hand, and the
+   * dispatcher's flag gate does not protect that path. A tick that only reports
+   * "the flag is off" wrote a heartbeat, so `/api/health` answered with a small
+   * `airtableLastSuccessAgeSeconds` for an integration that had never synced
+   * anything — a switched-off integration reading as successful scheduled work
+   * is the exact failure the gate exists to prevent.
+   */
+  it("withholds the heartbeat from a tick that only reports a flag being off", async () => {
+    const { POST } = definePrivateJobRoute("airtable", async () => ({ airtableSkippedDisabled: 1 }));
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true, stats: { airtableSkippedDisabled: 1 } });
+    expect(recordJobSuccess).not.toHaveBeenCalled();
+  });
+
+  it("still records a heartbeat for a tick that simply had nothing to do", async () => {
+    const { POST } = definePrivateJobRoute("airtable", async () => ({}));
+    await POST(request());
+    expect(recordJobSuccess).toHaveBeenCalledWith("airtable", expect.any(Number));
+  });
+
+  it("records a heartbeat when a disabled sweep sits alongside real work", async () => {
+    const { POST } = definePrivateJobRoute("cleanup", async () => ({ airtableSkippedDisabled: 1, deletedOrphans: 4 }));
+    await POST(request());
+    expect(recordJobSuccess).toHaveBeenCalledWith("cleanup", expect.any(Number));
+  });
+
   it("turns implementation failures into privacy-safe responses", async () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const { POST } = definePrivateJobRoute("cleanup", async () => {

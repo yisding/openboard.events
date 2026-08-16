@@ -5,7 +5,8 @@ type WorkerContext = { waitUntil(promise: Promise<unknown>): void };
 
 const worker = {
   scheduled(controller: CronController, env: Env, ctx: WorkerContext) {
-    ctx.waitUntil(runScheduledJobs(env, jobsForScheduledTime(controller.scheduledTime)));
+    const jobs = jobsForScheduledTime(controller.scheduledTime, { airtableCron: env.AIRTABLE_CRON });
+    ctx.waitUntil(runScheduledJobs(env, jobs));
   },
   async fetch() { return new Response("sb-jobs", { status: 200 }); },
 };

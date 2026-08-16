@@ -27,6 +27,34 @@ describe("user-facing copy regressions", () => {
     expect(fileUpload).toContain("The upload could not be completed. Try again.");
   });
 
+  it("keeps the Airtable panel free of raw run statuses, scope strings, and generic failures", () => {
+    const copy = read("./airtable/copy.ts");
+    const card = read("./airtable/components/SyncStatusCard.tsx");
+    const panel = read("./airtable/components/AirtableSettingsPanel.tsx");
+
+    // Four backend run statuses, four authored labels — the badge, never the
+    // enum. Matched loosely on whitespace so a formatter that wraps the
+    // attribute does not read as a copy regression.
+    expect(card).toMatch(/<StatusBadge\s+value=\{RUN_BADGES\[row\.original\.status\]\}\s*\/>/u);
+    expect(card).not.toContain("{row.original.status}");
+    expect(card).toContain("{AIRTABLE_COPY.trigger[row.original.trigger]}");
+
+    // Airtable's own scope identifiers are configuration, not language. They
+    // appear in `scopes.ts` as data and nowhere as rendered text.
+    expect(copy).not.toContain("data.records:");
+    expect(copy).not.toContain("schema.bases:");
+
+    const surfaces = `${copy}${card}${panel}`;
+    expect(surfaces).not.toMatch(/something went wrong/iu);
+    expect(surfaces).not.toMatch(/an error occurred/iu);
+    expect(surfaces).not.toMatch(/unexpected error/iu);
+
+    // Bounded work names its remainder rather than reading as truncation.
+    expect(copy).toContain("the next run picks up exactly where this one stopped");
+    // And a disconnect says what happens to the customer's own data.
+    expect(copy).toContain("stay exactly as they are — that base is yours");
+  });
+
   it("keeps the guided tour's failure copy specific", () => {
     // The tour is thirty-odd cards of authored English shipped as data, which
     // makes it the largest single body of copy in the product and the easiest

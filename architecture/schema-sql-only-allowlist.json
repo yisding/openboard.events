@@ -5,6 +5,10 @@
   "constraints": {
     "check": [
       "admin_login_attempts_attempts_check",
+      "airtable_connections_base_id_check",
+      "airtable_connections_failures_check",
+      "airtable_connections_status_check",
+      "airtable_connections_token_hint_check",
       "airtable_sync_runs_status_check",
       "airtable_sync_runs_trigger_check",
       "billing_plans_max_events_check",

@@ -69,6 +69,10 @@ function hasErrorKind(call: ts.CallExpression): boolean {
 describe("audited mutation failure toasts", () => {
   it("uses assertive error semantics for every named failure path", () => {
     for (const [path, expectedFailures] of [
+      // 11, not 10: the `.catch(…)` audit added alongside this list also
+      // reaches the panel's `void refreshStatus().catch(…)` recovery toast.
+      ["./airtable/components/AirtableSettingsPanel.tsx", 11],
+      ["./airtable/components/ConnectDialog.tsx", 7],
       ["./auth/components/sessions-panel.tsx", 8],
       ["./dashboard/components/ApiKeysPanel.tsx", 7],
       ["./forms/components/builder/routing-rules-panel.tsx", 4],

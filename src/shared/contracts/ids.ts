@@ -54,6 +54,9 @@ export const crmActivityIdSchema = brandedUuid<"CrmActivityId">();
 export const crmSegmentIdSchema = brandedUuid<"CrmSegmentId">();
 export const crmMergeIdSchema = brandedUuid<"CrmMergeId">();
 export const crmPipelineIdSchema = brandedUuid<"CrmPipelineId">();
+// M39 — per-event Airtable connection and its sync runs.
+export const airtableConnectionIdSchema = brandedUuid<"AirtableConnectionId">();
+export const airtableSyncRunIdSchema = brandedUuid<"AirtableSyncRunId">();
 
 export type OrganizationId = z.infer<typeof organizationIdSchema>;
 export type EventId = z.infer<typeof eventIdSchema>;
@@ -98,3 +101,5 @@ export type CrmActivityId = z.infer<typeof crmActivityIdSchema>;
 export type CrmSegmentId = z.infer<typeof crmSegmentIdSchema>;
 export type CrmMergeId = z.infer<typeof crmMergeIdSchema>;
 export type CrmPipelineId = z.infer<typeof crmPipelineIdSchema>;
+export type AirtableConnectionId = z.infer<typeof airtableConnectionIdSchema>;
+export type AirtableSyncRunId = z.infer<typeof airtableSyncRunIdSchema>;

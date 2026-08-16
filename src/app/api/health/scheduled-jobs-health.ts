@@ -6,6 +6,10 @@ export type ScheduledJobsHealth = {
   outboxLastSuccessAgeSeconds: number | null;
   remindersLastSuccessAgeSeconds: number | null;
   cleanupLastSuccessAgeSeconds: number | null;
+  // `null` means either "never run" or "AIRTABLE_CRON is off" — the two are
+  // indistinguishable by design (see workers/jobs/dispatch.ts): a disabled
+  // scheduled sweep must never read as a fresh success.
+  airtableLastSuccessAgeSeconds: number | null;
 } | {
   ok: false;
   error: string;
@@ -28,7 +32,8 @@ export async function scheduledJobsHealth(
       select
         max(last_succeeded_at) filter (where job_name = 'outbox') as outbox_at,
         max(last_succeeded_at) filter (where job_name = 'reminders') as reminders_at,
-        max(last_succeeded_at) filter (where job_name = 'cleanup') as cleanup_at
+        max(last_succeeded_at) filter (where job_name = 'cleanup') as cleanup_at,
+        max(last_succeeded_at) filter (where job_name = 'airtable') as airtable_at
       from scheduled_job_heartbeats
     `;
     const row = rows[0] as Record<string, unknown> | undefined;
@@ -37,6 +42,7 @@ export async function scheduledJobsHealth(
       outboxLastSuccessAgeSeconds: ageSeconds(row?.outbox_at, now),
       remindersLastSuccessAgeSeconds: ageSeconds(row?.reminders_at, now),
       cleanupLastSuccessAgeSeconds: ageSeconds(row?.cleanup_at, now),
+      airtableLastSuccessAgeSeconds: ageSeconds(row?.airtable_at, now),
     };
   } catch (error) {
     log({ level: "error", msg: "health.scheduled_jobs_failed", requestId: "health", feature: "observability", error: errorMessage(error) });
