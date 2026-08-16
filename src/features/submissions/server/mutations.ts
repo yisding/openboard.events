@@ -27,7 +27,7 @@ import {
   getPinnedSnapshotIn,
   secondaryParticipantRoleSchema,
 } from "@/features/forms/index.submission";
-import { confirmSubmissionParticipantsIn, getOrCreateContact, updateContactFields } from "@/features/event-contacts";
+import { confirmContactIfUnconfirmedIn, confirmSubmissionParticipantsIn, getOrCreateContact } from "@/features/event-contacts";
 import { randomInt } from "@/shared/lib/crypto";
 import { AppError } from "@/shared/lib/errors";
 import { log } from "@/shared/lib/log";
@@ -810,16 +810,37 @@ export async function transitionStatus(
       JOIN changed c ON c.id = s.submission_id
       JOIN accepted_before a ON a.id = c.id
       WHERE s.event_id = ${eventId} AND s.status = 'published' AND s.starts_at IS NOT NULL
+    ), confirmed AS (
+      -- In the same statement as the acceptance, not a second round trip after
+      -- it. Acceptance is what confirms a speaker, and a participant left
+      -- unconfirmed is joined out of published_speakers_v -- so a transient
+      -- failure between the two used to leave talks accepted with speakers
+      -- still unconfirmed, publishing sessions with empty speaker arrays.
+      -- Nothing reconciles that automatically: re-running the accept finds the
+      -- rows already accepted, so changed is empty and the confirm never
+      -- re-runs, and a direct move to accepted skips notifyQueues, which is
+      -- the only other place this happens.
+      --
+      -- Same predicate as confirmSubmissionParticipantsIn, including its rule
+      -- that only unconfirmed is promoted: an organizer who set someone to
+      -- declined has said the opposite, and re-accepting must not quietly put
+      -- them back in the public gallery.
+      UPDATE contacts c SET confirmation_status = 'confirmed', updated_at = now()
+      WHERE ${to} = 'accepted'
+        AND c.event_id = ${eventId}
+        AND c.confirmation_status = 'unconfirmed'
+        AND EXISTS (
+          SELECT 1 FROM submission_participants sp
+          JOIN changed ch ON ch.id = sp.submission_id
+          WHERE sp.contact_id = c.id AND sp.event_id = c.event_id
+        )
+      RETURNING c.id
     )
     SELECT changed.id, (SELECT count(*)::int FROM unpublished) AS unpublished FROM changed
   `);
 
   const rows = updated.rows ?? [];
   const changed = rows.map((row: { id: string }) => row.id as SubmissionId);
-  // A direct move to `accepted` skips `notifyQueues` entirely — no decision
-  // email, and previously no confirmation either, so the session published
-  // with an empty speaker array. Acceptance is what confirms a speaker.
-  if (to === "accepted") await confirmSubmissionParticipantsIn(db, eventId, changed);
   const changedSet = new Set<string>(changed);
   return {
     changed,
@@ -1096,7 +1117,12 @@ export async function notifyQueues(
           await confirmSubmissionParticipantsIn(tx, eventId, [row.id]);
           const fallback = (row.primary_contact ?? row.recipient) as ContactId | null;
           if (!row.primary_contact && fallback) {
-            await updateContactFields(tx, eventId, fallback, { confirmationStatus: "confirmed" });
+            // Through the guarded writer, not `updateContactFields`: the plain
+            // field patch is unconditional, so this fallback was an
+            // organizer-invisible `declined -> confirmed` overwrite of the one
+            // decision `confirmSubmissionParticipantsIn` on the line above
+            // exists to respect.
+            await confirmContactIfUnconfirmedIn(tx, eventId, fallback);
           }
         }
       }

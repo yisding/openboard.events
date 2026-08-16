@@ -330,6 +330,49 @@ describe("decide and notify", () => {
     expect(rows.rows[0]?.confirmation_status).toBe("confirmed");
   });
 
+  it("never promotes a declined speaker back into the public gallery", async () => {
+    // Only `unconfirmed` is promoted — an organizer who set someone to
+    // `declined` has said the opposite. `confirmSubmissionParticipantsIn`
+    // enforces that in SQL, but the submitter-is-presenter fallback beside it
+    // used the unguarded `updateContactFields`, an unconditional
+    // `declined -> confirmed` overwrite that restored the person to
+    // `published_speakers_v` — and so to the schedule, ICS feed and embed.
+    await pglite.query("UPDATE contacts SET confirmation_status='declined' WHERE id=$1", [speaker]);
+    await pglite.query("DELETE FROM submission_participants WHERE submission_id=$1", [toAccept]);
+    await insert(toAccept, "accept_queue");
+    await notifyQueues(eventId);
+
+    const rows = await pglite.query<{ confirmation_status: string }>("SELECT confirmation_status FROM contacts WHERE id=$1", [speaker]);
+    expect(rows.rows[0]?.confirmation_status).toBe("declined");
+
+  });
+
+  it("confirms an accepted speaker in the same statement as the acceptance", async () => {
+    // A direct move to `accepted` skips `notifyQueues` entirely, and the
+    // confirm used to be a second round trip after the status UPDATE. A
+    // transient failure between them left talks accepted with speakers still
+    // unconfirmed — sessions publishing with empty speaker arrays — and nothing
+    // reconciles it: re-running the accept finds the rows already accepted, so
+    // `changed` is empty and the confirm never re-runs.
+    await pglite.query("UPDATE contacts SET confirmation_status='unconfirmed' WHERE id=$1", [speaker]);
+    await insert(toAccept, "pending");
+    await pglite.query(
+      "INSERT INTO submission_participants(event_id,submission_id,contact_id,is_primary,sort_order) VALUES($1,$2,$3,true,0)",
+      [eventId, toAccept, speaker],
+    );
+    await transitionStatus(eventId, [submissionIdSchema.parse(toAccept)], "accepted", "pending");
+
+    const rows = await pglite.query<{ confirmation_status: string }>("SELECT confirmation_status FROM contacts WHERE id=$1", [speaker]);
+    expect(rows.rows[0]?.confirmation_status).toBe("confirmed");
+
+    // And that path respects `declined` too.
+    await pglite.query("UPDATE contacts SET confirmation_status='declined' WHERE id=$1", [speaker]);
+    await transitionStatus(eventId, [submissionIdSchema.parse(toAccept)], "pending", "accepted");
+    await transitionStatus(eventId, [submissionIdSchema.parse(toAccept)], "accepted", "pending");
+    const after = await pglite.query<{ confirmation_status: string }>("SELECT confirmation_status FROM contacts WHERE id=$1", [speaker]);
+    expect(after.rows[0]?.confirmation_status).toBe("declined");
+  });
+
   it("confirms every participant, so a co-speaker is not published off the session", async () => {
     // `published_speakers_v` requires `confirmation_status = 'confirmed'`, and
     // the public schedule joins through it. A co-speaker left unconfirmed is

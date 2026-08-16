@@ -66,6 +66,29 @@ export async function updateContactFields(dbOrTx: DbOrTx, eventId: EventId, cont
  * has said the opposite, and re-accepting an abstract must not quietly put
  * them back in the public gallery.
  */
+/**
+ * The same "only `unconfirmed` is promoted" rule, for one contact that has no
+ * `submission_participants` row to reach through.
+ *
+ * `notifyQueues` handles the submitter-is-presenter case with a plain
+ * `updateContactFields`, which is an unguarded field patch — so re-notifying an
+ * accepted abstract with no primary participant silently flipped an organizer's
+ * explicit `declined` back to `confirmed`, restoring that person to the public
+ * gallery, schedule, ICS feed and embed. That is precisely what the rule three
+ * lines above exists to prevent; the fallback simply did not go through it.
+ */
+export async function confirmContactIfUnconfirmedIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  contactId: ContactId,
+): Promise<void> {
+  await dbOrTx.execute(sql`
+    UPDATE contacts SET confirmation_status = 'confirmed', updated_at = now()
+    WHERE event_id = ${eventId} AND id = ${contactId}
+      AND confirmation_status = 'unconfirmed'
+  `);
+}
+
 export async function confirmSubmissionParticipantsIn(
   dbOrTx: DbOrTx,
   eventId: EventId,
