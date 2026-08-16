@@ -22,4 +22,5 @@ export {
   completeTaskViaResponseIn,
   completeTaskViaUpload,
   completeTaskViaUploadIn,
+  finalizeAndCompleteTaskUpload,
 } from "./server/mutations";

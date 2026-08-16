@@ -16,6 +16,9 @@ import { PrivateFileLink } from "./private-file-link";
  * deletes both the R2 object and its row, so a caller that stores a fileId any
  * earlier ends up pointing at nothing.
  *
+ * `associationFinalizes` inverts that for callers whose own endpoint finalizes:
+ * see the prop's note below.
+ *
  * The limits below are for the person using the form. The server enforces the
  * same policy at presign and again at finalize, and it is the one that counts.
  */
@@ -127,6 +130,7 @@ export function FileUpload({
   currentFileId,
   fileRequestId,
   label = "Choose a file",
+  associationFinalizes = false,
 }: {
   eventId: string;
   kind: FileKind;
@@ -136,6 +140,22 @@ export function FileUpload({
   currentFileId?: string | null;
   fileRequestId?: string;
   label?: string;
+  /**
+   * The caller's own endpoint finalizes this upload, so skip the separate
+   * `/api/uploads/finalize` round trip and hand `onUploaded` the *staged* fileId.
+   *
+   * This exists to make a two-step flow atomic. Finalizing here and associating
+   * there means a lost second request leaves bytes published under an immutable
+   * key with nothing pointing at them and no one told — the speaker-portal file
+   * task's original defect (#621). Deferring it means an association that never
+   * arrives leaves the object in `staging/`, which the daily sweep already owns,
+   * and leaves the caller's own record honestly untouched.
+   *
+   * Only set it when the association endpoint really does finalize: a caller
+   * that stores this fileId without finalizing is storing an unverified upload
+   * that no download path will ever serve.
+   */
+  associationFinalizes?: boolean;
 }) {
   const policy = CLIENT_POLICY[kind];
   const limitMb = maxSizeMb ?? policy.maxSizeMb;
@@ -217,16 +237,21 @@ export function FileUpload({
     }
 
     // Finalize is where the server checks the bytes that actually landed, so its
-    // rejection reason is the only honest thing to show.
-    setPhase("finalizing");
-    const finalized = await postJson("/api/uploads/finalize", { fileId });
-    if (!finalized.ok) {
-      fail(finalized.message);
-      return;
-    }
-    if (finalized.data?.status !== "ready") {
-      fail(String(finalized.data?.reason ?? "the file was rejected"));
-      return;
+    // rejection reason is the only honest thing to show. When the association
+    // endpoint finalizes, that same check still runs — one request later, and on
+    // the far side of the network hop that used to be able to strand a published
+    // file with nothing pointing at it.
+    if (!associationFinalizes) {
+      setPhase("finalizing");
+      const finalized = await postJson("/api/uploads/finalize", { fileId });
+      if (!finalized.ok) {
+        fail(finalized.message);
+        return;
+      }
+      if (finalized.data?.status !== "ready") {
+        fail(String(finalized.data?.reason ?? "the file was rejected"));
+        return;
+      }
     }
 
     const meta: UploadedMeta = { filename: file.name, sizeBytes: file.size, mime: file.type };

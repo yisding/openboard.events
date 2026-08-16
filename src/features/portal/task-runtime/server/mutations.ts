@@ -5,7 +5,7 @@ import { deriveMappedFields, getCurrentSnapshotIn, runSubmitPipeline, type RawAn
 import type { ContactId, EventId, FileCommentDTO, FileKind, FileVersionDTO, FormId, SubmissionId, TaskId, UserId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { log } from "@/shared/lib/log";
-import { assertUploadAllowed, buildObjectKey } from "@/shared/server/r2";
+import { assertUploadAllowed, buildObjectKey, finalizeUpload } from "@/shared/server/r2";
 import { updateContactFields } from "@/features/event-contacts";
 import { addFileCommentIn, listFileVersionsIn } from "../../server/deliverable-slot";
 
@@ -91,6 +91,31 @@ async function requireAssignment(
   };
 }
 
+type UploadedAsset = {
+  id: string; kind: string; filename: string; mime: string; size_bytes: string | number; r2_key: string;
+};
+
+/**
+ * The file exists, belongs to this speaker, and belongs to this event — the
+ * question that has to be settled *before* anything is published, because
+ * `finalizeUpload` is keyed on a file id alone and would otherwise promote a
+ * staged object of somebody else's to its immutable published key.
+ */
+async function requireOwnUpload(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  contactId: ContactId,
+  fileAssetId: string,
+): Promise<UploadedAsset> {
+  const result = await dbOrTx.execute<UploadedAsset>(sql`
+    SELECT id, kind, filename, mime, size_bytes, r2_key FROM file_assets
+    WHERE id = ${fileAssetId} AND event_id = ${eventId} AND uploaded_by_contact_id = ${contactId}
+  `);
+  const asset = (result.rows ?? [])[0];
+  if (!asset) throw new AppError("NOT_FOUND", "That file is not one of your uploads");
+  return asset;
+}
+
 /**
  * The file behind a completion has to actually exist, belong to this speaker,
  * and have finished uploading — and, for a file request, satisfy the policy the
@@ -110,14 +135,7 @@ async function requireFinishedUpload(
   fileAssetId: string,
   policy: UploadPolicy | null,
 ): Promise<void> {
-  const result = await dbOrTx.execute<{
-    id: string; kind: string; filename: string; mime: string; size_bytes: string | number; r2_key: string;
-  }>(sql`
-    SELECT id, kind, filename, mime, size_bytes, r2_key FROM file_assets
-    WHERE id = ${fileAssetId} AND event_id = ${eventId} AND uploaded_by_contact_id = ${contactId}
-  `);
-  const asset = (result.rows ?? [])[0];
-  if (!asset) throw new AppError("NOT_FOUND", "That file is not one of your uploads");
+  const asset = await requireOwnUpload(dbOrTx, eventId, contactId, fileAssetId);
 
   const published = buildObjectKey({ eventId, kind: asset.kind as FileKind, fileId: asset.id, filename: asset.filename });
   if (asset.r2_key !== published) {
@@ -275,6 +293,59 @@ export async function completeTaskViaUploadIn(
   )).find((entry) => entry.fileUploadId === fileUploadId);
   if (!version) throw new AppError("INTERNAL", "The uploaded version could not be read back");
   return version;
+}
+
+/**
+ * Publish the staged bytes and record them, in the one request the speaker makes.
+ *
+ * The speaker-side flow used to be two independent POSTs: `/api/uploads/finalize`
+ * published the object, and this task's own POST attached it. Nothing compensated
+ * for the gap between them, so a phone that lost signal in a conference hall —
+ * or a speaker who simply closed the tab — left the file published in R2, owned
+ * by nobody, and the task still open, with no signal to the speaker or the
+ * organizer that anything had happened. The daily orphan sweep reclaimed the
+ * bytes 24 hours later; the deliverable was just silently never delivered.
+ *
+ * Collapsing the two into one call makes the outcome all-or-nothing in the only
+ * direction that matters: the presigned PUT can only ever write the `staging/`
+ * key, so a request that never arrives leaves nothing published, nothing
+ * attached, and a task that honestly still reads as outstanding —
+ * `sweepOrphanStagingObjectsIn` and `cleanupOrphanUploads` already reclaim
+ * abandoned staged bytes. The reverse gap (published, then the completion
+ * fails) survives only inside this one server-side call, and the same sweeps
+ * cover it.
+ *
+ * Both authorization questions are answered before a byte moves. `finalizeUpload`
+ * takes a file id and nothing else — it is `/api/uploads/finalize`'s
+ * `assertMayFinalize` that keeps one speaker from finalizing another's upload,
+ * and this path no longer goes through that route.
+ */
+export async function finalizeAndCompleteTaskUpload(
+  eventId: EventId,
+  contactId: ContactId,
+  taskId: string,
+  submissionId: string | null,
+  fileAssetId: string,
+  completedByUserId: CompletedByUserId = null,
+): Promise<FileVersionDTO> {
+  const assignment = await requireAssignment(db, eventId, contactId, taskId, submissionId, "file_request");
+  if (!assignment.fileRequestId) throw new AppError("VALIDATION", "This task has no file request attached");
+  await requireOwnUpload(db, eventId, contactId, fileAssetId);
+
+  const finalized = await finalizeUpload(fileAssetId);
+  // A rejection has already deleted both the object and the row, so there is
+  // nothing left to attach and nothing a retry could recover. Only the reason
+  // is worth saying — it is the difference between "send it again" and "that
+  // file will never be accepted".
+  if (finalized.status === "rejected") {
+    throw new AppError("VALIDATION", `That file was not accepted — ${finalized.reason}`);
+  }
+
+  // Re-entrant on purpose: `finalizeUpload` is a no-op once the row points at
+  // its published key, and `completeTaskViaUploadIn` returns the original
+  // version for a replayed asset id, so a client retrying an outcome-unknown
+  // request gets the same answer rather than a second version.
+  return withTx((tx) => completeTaskViaUploadIn(tx, eventId, contactId, taskId, submissionId, fileAssetId, completedByUserId));
 }
 
 /**

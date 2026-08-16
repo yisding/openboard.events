@@ -123,8 +123,10 @@ test.describe("portal-tasks", () => {
       });
 
       await test.step("upload a small fixture to the file-request task", async () => {
-        // Exercises M07's presign → PUT → finalize path from a browser, which is
-        // the only place CORS is actually proven.
+        // Exercises M07's presign → PUT path from a browser, which is the only
+        // place CORS is actually proven. Finalize happens inside the task's own
+        // upload POST here (#621), so this also proves that single request
+        // publishes the bytes and completes the task together.
         await page.goto(`${PORTAL}/tasks`);
         await page.getByRole("link", { name: new RegExp(TASKS.fileRequest.name) }).first().click();
         await expect(page.getByRole("heading", { name: TASKS.fileRequest.name })).toBeVisible();

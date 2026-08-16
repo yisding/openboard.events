@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { completeTaskViaUpload } from "@/features/portal";
+import { finalizeAndCompleteTaskUpload } from "@/features/portal";
 import { eventIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
 import { portalQueryAuth, requestWithPathValues, sessionContactId, sessionImpersonatedByUserId } from "../../../_lib";
@@ -8,9 +8,12 @@ import { portalQueryAuth, requestWithPathValues, sessionContactId, sessionImpers
 export const dynamic = "force-dynamic";
 
 /**
- * A file task, finished. The bytes are already in R2 by the time this is called —
- * M07's presign/finalize pair owns that — so all this records is which asset
- * answers which request, and completes the task in the same transaction.
+ * A file task, finished. The bytes are in R2's `staging/` prefix by the time this
+ * is called — M07's presigned PUT put them there — and this is the request that
+ * publishes them *and* records which asset answers which request. The speaker
+ * makes one call, not two: a second, separate `/api/uploads/finalize` round trip
+ * is what used to leave a published file attached to nothing when the network
+ * dropped between them (#621).
  */
 const upload = defineHandler({
   auth: portalQueryAuth,
@@ -20,7 +23,7 @@ const upload = defineHandler({
     fileAssetId: z.uuid(),
   }),
   handler: async ({ eventId, session, input }) => {
-    const upload = await completeTaskViaUpload(
+    const upload = await finalizeAndCompleteTaskUpload(
       eventIdSchema.parse(eventId),
       sessionContactId(session),
       input.taskId,
