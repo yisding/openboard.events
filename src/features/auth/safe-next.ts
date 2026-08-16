@@ -32,6 +32,26 @@ export function authPathWithNext(path: string, value: RedirectValue): string {
   return next ? `${path}?${new URLSearchParams({ next }).toString()}` : path;
 }
 
+const GOOGLE_SIGNUP_PARAM = "provider";
+const GOOGLE_SIGNUP_VALUE = "google";
+
+/**
+ * The `/signup` handoff that opens the Google step straight away. Sign-in
+ * deliberately never creates an account, so a Google address nobody has signed
+ * up with yet is sent here instead of being told no.
+ */
+export function googleSignupPath(value: RedirectValue): string {
+  const next = safeInternalPath(value, "");
+  const params = new URLSearchParams(next ? { next } : {});
+  params.set(GOOGLE_SIGNUP_PARAM, GOOGLE_SIGNUP_VALUE);
+  return `/signup?${params.toString()}`;
+}
+
+/** Whether `/signup` was reached from that handoff. */
+export function requestsGoogleSignup(params: Pick<URLSearchParams, "get">): boolean {
+  return params.get(GOOGLE_SIGNUP_PARAM) === GOOGLE_SIGNUP_VALUE;
+}
+
 /** Continue an existing session without reflecting unsafe or looping auth routes. */
 export function authenticatedAuthDestination(
   value: RedirectValue,
