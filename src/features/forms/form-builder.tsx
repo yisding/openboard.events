@@ -314,7 +314,10 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
       : overshootRight > 0 ? rail.scrollLeft + overshootRight
       : null;
     if (left === null) return;
-    if (typeof rail.scrollTo === "function") rail.scrollTo({ left, behavior: "smooth" });
+    // No `behavior` on purpose: the default defers to the rail's CSS
+    // scroll-behavior, which the prefers-reduced-motion block can turn off. A
+    // literal "smooth" here would animate past that preference.
+    if (typeof rail.scrollTo === "function") rail.scrollTo({ left });
     else rail.scrollLeft = left;
   }, [step]);
 
