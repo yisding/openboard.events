@@ -322,7 +322,8 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
  * Code points, not UTF-16 units, so a slice never lands mid-emoji.
  */
 function plainTextPreview(html: string): string {
-  const text = html.replace(/<[^>]*>/g, "");
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const text = doc.body.textContent ?? "";
   const characters = [...text];
   return characters.length > 140 ? `${characters.slice(0, 140).join("")}…` : text;
 }
