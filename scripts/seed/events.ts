@@ -148,9 +148,14 @@ export async function seedEvents(ctx: SeedCtx): Promise<void> {
       .values({ userId, eventId: ctx.emptyEventId, role: admin.role })
       .onConflictDoUpdate({ target: [eventMembers.userId, eventMembers.eventId], set: { role: admin.role } });
     // Mirror the 0010 backfill: admins join the default organization at their
-    // event role, so the org layer is populated after a wipe too.
+    // strongest event role — `owner > organizer > reviewer`, one shared ladder,
+    // so the event `owner` is an org `owner` too. Collapsing owner to organizer
+    // here (the previous mapping did) left the seeded org with no owner at all:
+    // the GDPR export and every owner-gated surface were invisible in the demo,
+    // and nobody could be granted ownership because no owner existed to grant it.
+    // Each seeded admin holds one event role, so `admin.role` is that ladder.
     await tx.insert(organizationMembers)
-      .values({ userId, organizationId: DEFAULT_ORGANIZATION_ID, role: admin.role === "reviewer" ? "reviewer" : "organizer" })
+      .values({ userId, organizationId: DEFAULT_ORGANIZATION_ID, role: admin.role })
       .onConflictDoNothing({ target: [organizationMembers.userId, organizationMembers.organizationId] });
     // A reviewer the event-scoped reminder outbox can address. The seed writes
     // `users` + `event_members` directly, so seeded reviewers otherwise have no
