@@ -1046,7 +1046,9 @@ export function CfpSteps({ data, signedInEmail }: { data: PublicForm; signedInEm
           {enabledSecondaryRoles.map((role) => (
             <button key={role} type="button" className="add-cospeaker" onClick={() => addParticipant(role)}>
               <b>Add a {PARTICIPANT_ROLE_LABELS[role]}</b>
-              <span>Include another person on this submission.</span>
+              {/* <small>, not <span>: .add-cospeaker small is what carries the
+                  muted colour and size this description is meant to have. */}
+              <small>Include another person on this submission.</small>
             </button>
           ))}
           <div className="cfp-actions">

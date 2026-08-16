@@ -212,7 +212,7 @@ export function ConditionRow({
             placeholder="Value to match"
           />
         )}
-        <button type="button" className="icon-button" aria-label="Remove condition" disabled={disabled || !removable} onClick={onRemove}>
+        <button type="button" className="icon-button condition-row__remove" aria-label="Remove condition" disabled={disabled || !removable} onClick={onRemove}>
           <X size={14} />
         </button>
       </div>

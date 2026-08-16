@@ -213,6 +213,24 @@ describe("shared UI spacing regressions", () => {
     expect(css).toContain(".table-scroll");
   });
 
+  it("keeps a grid's track list matching the children its component renders", () => {
+    // Both of these declared more tracks than the markup fills, so a child landed
+    // in a slot meant for something else.
+    const conditionRow = read("./forms/components/builder/condition-row.tsx");
+    const cfpSteps = read("./forms/components/cfp-steps.tsx");
+
+    // The value control is conditional, so the row is three children as often as
+    // four; the remove button counts back from the end instead of flowing.
+    expect(conditionRow).toContain('className="icon-button condition-row__remove"');
+    expect(css).toContain(".condition-row__remove{grid-column:-2}");
+    // ...into a 36px track, which is the width .icon-button actually is.
+    expect(css).toContain(".condition-row__controls{display:grid;grid-template-columns:1fr 1fr 1fr 36px");
+
+    // The add-participant button renders a title and a description and no icons.
+    expect(css).toMatch(/\.add-cospeaker \{[^}]*grid-template-columns: 1fr;/u);
+    expect(cfpSteps).toContain("<small>Include another person on this submission.</small>");
+  });
+
   it("gives discrete public session and gallery actions full pointer targets", () => {
     expect(css).toContain(
       ".public-session-main h3 button{width:100%;min-height:32px;",
