@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseCsv, readSpeakerCsvRows } from "./speaker-csv";
+import { applyCsvCellEdits, parseCsv, readSpeakerCsvRows } from "./speaker-csv";
 
 describe("parseCsv", () => {
   it("splits a simple comma-separated file into rows and cells", () => {
@@ -91,5 +91,46 @@ describe("readSpeakerCsvRows row numbering", () => {
 
     expect(parsed.map((row) => row.rowNumber)).toEqual([2, 4]);
     expect(parsed[1]?.error).toBe('Invalid email "not-an-email"');
+  });
+});
+
+describe("applyCsvCellEdits", () => {
+  const file = "email,first\r\nada@example.com,Ada\r\nnot-an-email,Grace\r\n";
+
+  it("rewrites only the corrected row's mapped column, in the row numbering the preview reports", () => {
+    const fixed = applyCsvCellEdits(file, 0, { 3: "grace@example.com" });
+
+    expect(readSpeakerCsvRows(parseCsv(fixed), { email: 0, fields: { firstName: 1 } })).toEqual([
+      { rowNumber: 2, email: "ada@example.com", values: { firstName: "Ada" }, error: null },
+      { rowNumber: 3, email: "grace@example.com", values: { firstName: "Grace" }, error: null },
+    ]);
+  });
+
+  it("keeps a blank separator line in place, so later corrections still land on the row the organizer pointed at", () => {
+    const withBlank = "email\r\nada@example.com\r\n\r\nnot-an-email\r\n";
+    const fixed = applyCsvCellEdits(withBlank, 0, { 4: "grace@example.com" });
+
+    expect(readSpeakerCsvRows(parseCsv(fixed), { email: 0, fields: {} })).toEqual([
+      { rowNumber: 2, email: "ada@example.com", values: {}, error: null },
+      { rowNumber: 4, email: "grace@example.com", values: {}, error: null },
+    ]);
+  });
+
+  it("quotes a correction that would otherwise break the file, and never edits the header", () => {
+    const fixed = applyCsvCellEdits(file, 0, { 1: "hacked", 3: 'a"b,c@example.com' });
+
+    expect(parseCsv(fixed)[0]).toEqual(["email", "first"]);
+    expect(parseCsv(fixed)[2]).toEqual(['a"b,c@example.com', "Grace"]);
+  });
+
+  it("pads a short row rather than shifting its other cells", () => {
+    const ragged = "first,email\r\nAda\r\n";
+    const fixed = applyCsvCellEdits(ragged, 1, { 2: "ada@example.com" });
+
+    expect(parseCsv(fixed)[1]).toEqual(["Ada", "ada@example.com"]);
+  });
+
+  it("returns the file untouched when there is nothing to apply", () => {
+    expect(applyCsvCellEdits(file, 0, {})).toBe(file);
   });
 });

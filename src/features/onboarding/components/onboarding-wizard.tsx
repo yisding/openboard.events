@@ -16,9 +16,9 @@ import { EVENT_TYPES, type EventType } from "@/features/events/index.schemas";
 import { formOpenState, type FormOpenReason } from "@/features/forms/index.availability";
 import { focusOnNextFrame } from "@/shared/ui/app/focus-on-transition";
 import { DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
-import { endOfDayInTz, eventDayKey, formatInZone, timeZoneOptionLabel, viewerTimeZone } from "@/shared/lib/time";
+import { browserTimeZones, DEFAULT_TIME_ZONE, endOfDayInTz, eventDayKey, formatInZone, viewerTimeZone } from "@/shared/lib/time";
+import { TimeZoneSelect } from "@/shared/ui/app/time-zone-select";
 
-const DEFAULT_TZ = "America/Los_Angeles";
 const CUSTOM_TRACK_COLOR = DEFAULT_BRAND_COLOR;
 const SUGGESTED_TRACKS: Array<{ name: string; color: string }> = [
   { name: "Main Stage", color: "#00a878" },
@@ -43,17 +43,8 @@ export function OnboardingStepHeading({ step, headingRef }: { step: 1 | 2 | 3 | 
   return <h2 ref={headingRef} tabIndex={-1} className="sr-only">Step {step}: {STEPS[step - 1]}</h2>;
 }
 
-function browserTimeZones(): string[] {
-  try {
-    const zones = Intl.supportedValuesOf("timeZone");
-    return zones.includes("UTC") ? zones : ["UTC", ...zones];
-  } catch {
-    return [DEFAULT_TZ, "America/New_York", "America/Chicago", "America/Denver", "Europe/London", "Europe/Paris", "Asia/Tokyo", "UTC"];
-  }
-}
-
 export function preferredTimeZone(candidate: string | undefined, supported: readonly string[]): string {
-  return candidate === "UTC" || (candidate && supported.includes(candidate)) ? candidate : DEFAULT_TZ;
+  return candidate === "UTC" || (candidate && supported.includes(candidate)) ? candidate : DEFAULT_TIME_ZONE;
 }
 
 // `BuilderForm` (features/forms/builder-types.ts) has no shared zod contract
@@ -347,25 +338,7 @@ export function OnboardingWizard({
   const [name, setName] = useState(initialState?.event.name ?? "");
   const [slug, setSlug] = useState(initialState?.event.slug ?? "");
   const [eventType, setEventType] = useState<EventType>((initialState?.event.eventType as EventType | undefined) ?? "conference");
-  const [timezone, setTimezone] = useState(initialState?.event.timezone ?? DEFAULT_TZ);
-  /**
-   * The zone list is client-only until hydration.
-   *
-   * Both the list and every label are CLDR data read from *the rendering
-   * runtime's own* `Intl` — and the runtime that renders the HTML is never the
-   * browser that hydrates it. Production renders in workerd; a visitor's
-   * Chromium is a third independent ICU build. Three of the ~419 labels
-   * already disagree between Node 22 and Chromium (Palmer Land / Palmer, Troll
-   * Station / Troll, Ürümqi / Urumqi), React needs one, and its answer to a
-   * text mismatch is to throw the server tree away and re-render the whole
-   * wizard on the client — on the first screen of setup, where a dropped
-   * keystroke costs the most.
-   *
-   * Nothing is lost by deferring: the control is `disabled` until `hydrated`
-   * anyway, so the options a visitor could not open yet were never load-bearing
-   * — and not shipping 419 of them in the HTML is its own small win.
-   */
-  const zoneOptions = hydrated ? timeZones : [timezone];
+  const [timezone, setTimezone] = useState(initialState?.event.timezone ?? DEFAULT_TIME_ZONE);
   const [startsAt, setStartsAt] = useState<string | null>(initialState?.event.startsAt ?? null);
   const [endsAt, setEndsAt] = useState<string | null>(initialState?.event.endsAt ?? null);
   // First Fair (design §5.4) — "Start from my demo's setup". Only meaningful
@@ -888,14 +861,7 @@ export function OnboardingWizard({
               </Select>
             </Field>
             <Field label="Timezone" required error={fieldErrors.timezone} errorId="onboarding-event-timezone-error">
-              <Select id="onboarding-event-timezone" name="timezone" required disabled={!hydrated || saving || eventCreateRecoveryRequired} aria-invalid={Boolean(fieldErrors.timezone) || undefined} aria-describedby={fieldErrors.timezone ? "onboarding-event-timezone-error" : undefined} value={timezone} onChange={(event) => { setTimezone(event.target.value); clearFieldError("timezone"); }}>
-                {/* `suppressHydrationWarning` on the one option that *is*
-                    server-rendered: even a single label can disagree across ICU
-                    builds, and a select nobody can touch yet is not worth
-                    discarding the wizard over. Its value — the IANA id — is the
-                    part that has to match, and that is not locale data. */}
-                {zoneOptions.map((zone) => <option key={zone} value={zone} suppressHydrationWarning>{timeZoneOptionLabel(zone)}</option>)}
-              </Select>
+              <TimeZoneSelect id="onboarding-event-timezone" name="timezone" required disabled={!hydrated || saving || eventCreateRecoveryRequired} aria-invalid={Boolean(fieldErrors.timezone) || undefined} aria-describedby={fieldErrors.timezone ? "onboarding-event-timezone-error" : undefined} value={timezone} onChange={(event) => { setTimezone(event.target.value); clearFieldError("timezone"); }} />
             </Field>
           </div>
           <div className="form-grid">

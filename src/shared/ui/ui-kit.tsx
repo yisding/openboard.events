@@ -2,7 +2,7 @@
 
 import { UserRound, X } from "lucide-react";
 import Image from "next/image";
-import React, { Children, useEffect, useRef, type ButtonHTMLAttributes, type CSSProperties, type ReactNode, type RefObject, type SelectHTMLAttributes } from "react";
+import React, { Children, useEffect, useRef, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type ReactNode, type RefObject, type SelectHTMLAttributes } from "react";
 import { cn } from "@/shared/lib/cn";
 import { STATUS_BADGES, type StatusBadgeValue } from "@/shared/ui/status-badge";
 import { raiseTopLayerStack } from "@/shared/ui/top-layer";
@@ -36,6 +36,26 @@ export function Switch({ checked, label, className, ...props }: Omit<ButtonHTMLA
  */
 export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
   return <select className={cn("select-control", className)} {...props} />;
+}
+
+/**
+ * The kit's colour well. Like `Select`, it *is* the native control — the OS
+ * colour dialog brings eyedroppers, recent swatches and system palettes that a
+ * hand-rolled popover has to re-earn, and DD-2 already keeps the platform
+ * picker for dates on exactly that reasoning.
+ *
+ * What the kit adds is the trigger. Left alone, `input[type=color]` paints a UA
+ * bevel with its own inset padding and square corners — the one control on an
+ * Appearance panel that looks borrowed from the operating system. `.color-well`
+ * replaces the UA chrome with the kit's own: the swatch fills the control, the
+ * border and radius are the same tokens every other field uses, and focus draws
+ * the kit's ring rather than the platform outline.
+ *
+ * A well only emits `#rrggbb`. Anywhere a shorthand or alpha hex has to survive
+ * (the embed accent), pair it with a text field — see `embeds-admin-page.tsx`.
+ */
+export function ColorWell({ className, ...props }: Omit<InputHTMLAttributes<HTMLInputElement>, "type">) {
+  return <input type="color" className={cn("color-well", className)} {...props} />;
 }
 
 export function StatusBadge({ value }: { value: StatusBadgeValue }) {

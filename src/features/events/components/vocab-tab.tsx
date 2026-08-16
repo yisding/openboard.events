@@ -18,7 +18,7 @@ import {
   type TagDTO,
   type TrackDTO,
 } from "@/shared/contracts";
-import { Button, EmptyState } from "@/shared/ui/ui-kit";
+import { Button, ColorWell, EmptyState } from "@/shared/ui/ui-kit";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { useToast } from "@/shared/ui/toast";
@@ -116,8 +116,7 @@ function Row({
         </button>
       )}
       {hasColor(item) && (
-        <input
-          type="color"
+        <ColorWell
           value={color}
           disabled={mutationDisabled}
           className="vocab-color"

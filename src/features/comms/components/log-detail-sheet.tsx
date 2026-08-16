@@ -1,7 +1,7 @@
 "use client";
 
 import { Copy, FlaskConical } from "lucide-react";
-import { useMemo } from "react";
+import { useId, useMemo, useState } from "react";
 import type { CommLogId, EventId } from "@/shared/contracts";
 import { Dash } from "@/shared/ui/app/dash";
 import { templateLabel } from "@/shared/ui/template-label";
@@ -10,6 +10,7 @@ import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { useToast } from "@/shared/ui/toast";
 import { useCommLogDetail } from "../hooks/use-comm-log";
+import { MessageFormatToggle, type MessageFormat } from "./message-format-toggle";
 
 function firstLink(html: string): string | null {
   const match = html.match(/href="([^"]+)"/u);
@@ -31,6 +32,13 @@ export function LogDetailSheet({ eventId, logId, timezone, onClose }: { eventId:
   const { toast } = useToast();
   const query = useCommLogDetail(eventId, logId);
   const detail = query.data;
+  const bodyId = useId();
+  const [format, setFormat] = useState<MessageFormat>("html");
+  // Templates and bulk compose both offer the text alternative beside the
+  // rendered body; the audit surface is where "what did they actually get?"
+  // matters most, so it offers the same two views of the same stored message.
+  const hasPlainText = typeof detail?.bodyRenderedText === "string";
+  const activeFormat = hasPlainText ? format : "html";
   const copyableLink = useMemo(() => {
     if (!detail?.bodyRenderedHtml || !detail.previewFallback) return null;
     return firstLink(detail.bodyRenderedHtml);
@@ -65,8 +73,21 @@ export function LogDetailSheet({ eventId, logId, timezone, onClose }: { eventId:
             <p className="pinned-note">Production credentials are redacted in this log — the sign-in code and link never render here.</p>
           )}
           <section>
-            <span>SUBJECT</span>
-            <h2>{detail.subjectRendered ?? <Dash />}</h2>
+            <div className="comm-detail-body-head">
+              <div>
+                <span>SUBJECT</span>
+                <h2>{detail.subjectRendered ?? <Dash />}</h2>
+              </div>
+              {hasPlainText && (
+                <MessageFormatToggle
+                  format={activeFormat}
+                  label="Message format"
+                  htmlPanelId={`${bodyId}-html`}
+                  textPanelId={`${bodyId}-text`}
+                  onChange={setFormat}
+                />
+              )}
+            </div>
             {copyableLink && (
               <Button
                 variant="secondary"
@@ -76,9 +97,14 @@ export function LogDetailSheet({ eventId, logId, timezone, onClose }: { eventId:
                 <Copy size={14} /> Copy link (preview only)
               </Button>
             )}
-            <div className="rendered-email">
+            <div id={`${bodyId}-html`} className="rendered-email" hidden={activeFormat !== "html"}>
               {detail.bodyRenderedHtml ? <RichTextView html={detail.bodyRenderedHtml} /> : <p className="long-copy">Body not captured.</p>}
             </div>
+            {hasPlainText && (
+              <div id={`${bodyId}-text`} className="rendered-email template-preview-plain-text" hidden={activeFormat !== "text"}>
+                <pre>{detail.bodyRenderedText || "(empty plain-text body)"}</pre>
+              </div>
+            )}
           </section>
         </div>
       )}

@@ -297,6 +297,21 @@ input:disabled, textarea:disabled, select:disabled { background-color: var(--sur
 .switch:disabled { opacity: .55; cursor: not-allowed; }
 /* An always-open listbox has no closed state to hang a chevron on. */
 .select-control[multiple] { appearance: auto; cursor: default; height: auto; padding-right: 12px; background-image: none; }
+/* The `ColorWell` primitive. The dialog behind it stays the platform's (DD-2,
+   same bargain as the native date picker); the *trigger* is the kit's. A UA
+   colour input paints its swatch inside a bevelled, square-cornered frame of
+   its own, which is why an accent picker sitting next to a `Field` and a
+   `Button` read as pasted in from the operating system. Zeroing the swatch
+   wrapper's padding lets the colour fill the control, and the border, radius
+   and focus ring then come from the shared `input` rules above — the same ones
+   every text field uses. `appearance` is deliberately left alone: `none` stops
+   Safari painting the swatch at all. */
+.color-well { cursor: pointer; }
+.color-well::-webkit-color-swatch-wrapper { padding: 0; }
+.color-well::-webkit-color-swatch { border: 0; border-radius: 5px; }
+.color-well::-moz-color-swatch { border: 0; border-radius: 5px; }
+.color-well:hover:not(:disabled) { border-color: var(--accent-border); }
+.color-well:disabled { cursor: not-allowed; opacity: .55; }
 /* Contextual corrections live at the very end of this file — see "Select —
    contextual corrections" there, and read that note before adding a rule that
    gives a select a `background` shorthand. */
@@ -852,6 +867,10 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .comm-detail dl>div:last-child{border-bottom:0}
 .comm-detail dt{flex:none;color:var(--muted);font-size:var(--text-xs)}
 .comm-detail dd{margin:0;min-width:0;text-align:right;font-size:var(--text-xs);overflow-wrap:anywhere}
+/* Subject on the left, the HTML/Plain text switch on the right, on the row
+   above the body both of them describe. */
+.comm-detail-body-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.comm-detail-body-head>div{min-width:0}
 
 /* Three surfaces render this list — a speaker's task uploads, an organizer's
    deliverable versions, and a session's edit history — and none of them had a
@@ -1084,10 +1103,32 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
    ceiling (`max-width:340px`) without a floor collapsed the column to roughly
    its longest word: 111px, in a 192px row against a 62px design height.
    The width is a preference auto layout honours; the clamp keeps a long
-   description from setting the row height. */
-.submission-title-cell span{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+   description from setting the row height.
+
+   The title needs the same clamp as the description, and for the same reason:
+   one seeded 300-character probe title wrapped to twelve lines and made its row
+   twelve times taller than its neighbours. `overflow-wrap:anywhere` handles the
+   other half of that — a single unbroken 200-character "word" overflows a clamp
+   rather than wrapping inside it. The full title is one click away in the
+   drawer, and the cell carries it as a `title` tooltip meanwhile.
+
+   The `b` half is scoped to this column rather than to `.submission-title-cell`,
+   which is *not* private to the abstracts table: the comms log recipient cell,
+   suppressions, the agenda list view and kitchen-sink all render the same
+   two-line block, and none of them has a 300-character `b`. One of them would
+   actively regress — the ≤768px rule near the end of this file gives
+   `.comms-log-col-recipient .submission-title-cell b` `text-overflow:ellipsis`
+   and `white-space:nowrap` but says nothing about `display`, and ellipsis does
+   not apply to a `-webkit-box` (nor does a clamp fire on a single nowrap line),
+   so a wide clamp here would turn that name's ellipsis into a hard clip. */
+.abstracts-title-column .submission-title-cell b,.submission-title-cell span{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
 
 .data-table th.abstracts-title-column,.data-table td.abstracts-title-column{width:340px;min-width:280px}
+
+/* The delivery log's subject: enough width to identify the message, capped so
+   a 120-character reminder subject cannot set the width of every other column.
+   The full string is on the cell's `title` and in the detail drawer. */
+.data-table td.comms-log-col-subject>span{display:block;max-width:clamp(140px,18vw,260px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* `.data-toolbar` is a flex row, so `.table-search{width:280px}` was only a
    starting point: the two filter selects size to their widest option, take the
@@ -1414,6 +1455,12 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .route-skeleton--copy{width:min(430px,78vw);height:14px}
 .route-skeleton--button{width:126px;height:38px}
 .route-skeleton--event-card{height:220px;border:1px solid var(--line)}
+/* `SkeletonText` — the in-panel placeholder for prose still in flight (a
+   submission's answers, a history feed). The last line stops short so a block
+   of skeleton reads as text rather than as a filled rectangle. */
+.skeleton-text{display:grid;gap:9px;margin:12px 0}
+.skeleton-text__line{height:12px}
+.skeleton-text__line:last-child{width:62%}
 .route-loading-title>div{display:block}
 .route-workspace-loading{display:grid;gap:24px;max-width:1180px;min-height:420px}
 .route-workspace-loading>header{display:flex;align-items:flex-end;justify-content:space-between;gap:24px}
@@ -1644,6 +1691,13 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .routing-rule-card__row .rule-summary-line{margin:0}
 .routing-rule-card__actions{display:flex;justify-content:flex-end;gap:8px}
 .builder-live-preview__body{max-height:calc(100vh - 260px);overflow-y:auto}
+/* The live preview sits in `.builder-inspector`, a `minmax(260px,1fr)` rail —
+   at its floor that is 212px of content, and `.form-grid`'s two columns cut
+   each question to 98px. A dropdown that narrow clips its own placeholder
+   ("Choose one" rendered as "Choo"). The pane is a column, not a page: one
+   question per row, exactly as `.organizer-form-preview__section` already
+   unstacks the same renderer for its full-width preview. */
+.builder-live-preview__body .form-grid{grid-template-columns:minmax(0,1fr)}
 .loading-note{color:var(--muted);font-size:var(--text-xs);padding:24px 0}
 @media(max-width:768px){.condition-row__controls{grid-template-columns:1fr}.routing-rule-card__row{grid-template-columns:auto auto 1fr auto}.routing-rule-card__row>.button{grid-column:1/5}}
 
@@ -2348,7 +2402,11 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
    in the detail drawer. */
 @media (max-width: 1024px) {
   .data-table th.comms-log-col-provider, .data-table td.comms-log-col-provider,
-  .data-table th.comms-log-col-created, .data-table td.comms-log-col-created { display: none; }
+  .data-table th.comms-log-col-created, .data-table td.comms-log-col-created,
+  /* Subject is the widest cell in the row and the first thing the detail
+     drawer repeats, so it leaves with the provider id rather than squeezing
+     the recipient at tablet width. */
+  .data-table th.comms-log-col-subject, .data-table td.comms-log-col-subject { display: none; }
 }
 
 @media (max-width: 768px) {
@@ -2648,13 +2706,16 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
 .message-preview .template-preview-subject-copy{min-width:0}
 .message-preview .template-preview-subject small{display:block;color:var(--muted);font-size:var(--text-xs);font-weight: var(--weight-emphasis);letter-spacing:.65px;line-height:1;text-transform:uppercase}
 .message-preview .template-preview-subject b{display:block;margin-top:7px;font-size:var(--text-table);line-height:1.45;overflow-wrap:anywhere}
-.message-preview .template-preview-format{display:flex;flex:0 0 auto;padding:2px;border:1px solid var(--line);border-radius:7px;background:var(--surface-subtle)}
-.message-preview .template-preview-format button{min-height:26px;padding:0 8px;border:0;border-radius:5px;background:transparent;color:var(--muted);cursor:pointer;font:inherit;font-size:var(--text-xs);font-weight: var(--weight-control);white-space:nowrap}
-.message-preview .template-preview-format button[aria-pressed="true"]{background:var(--surface);color:var(--accent-dark);box-shadow:var(--shadow-sm)}
+/* Unscoped from `.message-preview`: the delivery log's message detail shows the
+   same HTML/Plain text switch over the same kind of body, through the shared
+   `<MessageFormatToggle>`. */
+.template-preview-format{display:flex;flex:0 0 auto;padding:2px;border:1px solid var(--line);border-radius:7px;background:var(--surface-subtle)}
+.template-preview-format button{min-height:26px;padding:0 8px;border:0;border-radius:5px;background:transparent;color:var(--muted);cursor:pointer;font:inherit;font-size:var(--text-xs);font-weight: var(--weight-control);white-space:nowrap}
+.template-preview-format button[aria-pressed="true"]{background:var(--surface);color:var(--accent-dark);box-shadow:var(--shadow-sm)}
 .message-preview .template-preview-body{padding:20px 18px}
 .message-preview .template-preview-body>.rich-text>:first-child{margin-top:0}
 .message-preview .template-preview-body>.rich-text>:last-child{margin-bottom:0}
-.message-preview .template-preview-plain-text pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink);font:inherit;font-size:var(--text-xs);line-height:1.6}
+.template-preview-plain-text pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink);font:inherit;font-size:var(--text-xs);line-height:1.6}
 .message-preview .template-preview-status{margin:18px;background:var(--surface-subtle)}
 .communication-template-card{min-height:258px;display:flex;flex-direction:column;overflow:hidden}
 .communication-template-card__header{display:flex;align-items:center;justify-content:space-between;padding:16px 18px 0}

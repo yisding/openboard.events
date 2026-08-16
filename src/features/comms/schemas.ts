@@ -94,6 +94,10 @@ export const reminderRulesInputSchema = z.object({
 });
 
 export const commLogDetailWithFlagSchema = commLogDetailSchema.extend({
+  // The `text/plain` alternative of the stored body, derived by the query from
+  // `bodyRenderedHtml` with the same `stripHtml` the dispatcher renders with.
+  // Not a column: nothing may make the two disagree.
+  bodyRenderedText: z.string().nullable(),
   // Mirrors the dispatcher's own preview-fallback condition (`server/dispatcher.ts`).
   // Production always has `EMAIL_FALLBACK_UI=0` (fail-closed env validation), so
   // this can only be true off a local/preview box in `EMAIL_MODE=log`.

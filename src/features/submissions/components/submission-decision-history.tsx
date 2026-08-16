@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { SkeletonText } from "@/shared/ui/app/skeleton";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { statusBadgeLabel } from "@/shared/ui/status-badge";
 import type { SubmissionStatusHistoryEntry } from "../server/queries";
@@ -48,7 +49,7 @@ export function SubmissionDecisionHistory({ eventId, submissionId, timezone }: {
       <h3>Decision history</h3>
       <p className="muted">Queue moves, final decisions, reversals, and withdrawals remain visible here.</p>
       {error && <p role="alert" className="form-error">{error}</p>}
-      {!error && entries === null && <p className="muted">Loading decision history…</p>}
+      {!error && entries === null && <SkeletonText lines={2} label="Loading decision history…" />}
       {!error && entries?.length === 0 && <p className="muted">No status changes have been recorded.</p>}
       {!error && entries && entries.length > 0 && (
         <ol className="review-history-list">

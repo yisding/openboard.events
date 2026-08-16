@@ -11,6 +11,10 @@ describe("file request editor unsaved-work guard", () => {
     expect(source).toContain("inert={saving || undefined}");
     expect(source).toContain("setBaseline(draft)");
     expect(source.indexOf("setBaseline(draft)")).toBeLessThan(source.indexOf("discardEditor();"));
+    // The baseline reset only lands on the next render, so the guard is retired
+    // by hand before `onChanged` refreshes the list — otherwise the app's own
+    // post-save refresh met a discard prompt about an already-committed write.
+    expect(source.indexOf("releaseUnsavedWork();")).toBeLessThan(source.indexOf("await onChanged"));
   });
 
   it("resets create identity only through confirmed discard or successful save", () => {

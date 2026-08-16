@@ -4,7 +4,7 @@ import { Calendar, ChevronDown, Clipboard, ExternalLink, Grid3x3, Link2, ListChe
 import { useEffect, useState } from "react";
 import type { RoomDTO, SessionFormatDTO, TrackDTO } from "@/shared/contracts";
 import { api } from "@/shared/lib/api-client";
-import { Button, Field, PageHeader, Segmented, Switch } from "@/shared/ui/ui-kit";
+import { Button, ColorWell, Field, PageHeader, Segmented, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { embedFiltersEqual, embedStylesEqual, hasUnsavedEmbedSettings } from "./embed-config-dirty";
@@ -271,8 +271,7 @@ export function EmbedsAdminPage({
                         {/* The well and the hex field are one control: a well only
                             emits #rrggbb, so pasting an #rgba/#rrggbbaa value has
                             to go through the text side. */}
-                        <input
-                          type="color"
+                        <ColorWell
                           aria-label={`${meta.label} accent color picker`}
                           value={colorWellValue(accentText)}
                           onChange={(e) => setStyleDraft(config.contentType, { accent: e.target.value })}

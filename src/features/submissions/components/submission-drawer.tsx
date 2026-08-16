@@ -16,6 +16,7 @@ import {
 import { Dash } from "@/shared/ui/app/dash";
 import { FlowNavControls } from "@/shared/ui/app/flow-nav-controls";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
+import { SkeletonText } from "@/shared/ui/app/skeleton";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, Drawer, StatusBadge } from "@/shared/ui/ui-kit";
@@ -310,9 +311,7 @@ export function SubmissionDrawer({
         </div>
       )}
       {!detail && loadState.status === "loading" && (
-        <p className="portal-note" role="status">
-          {loadState.purpose === "stale" ? "Loading the latest version…" : "Loading submission…"}
-        </p>
+        <SkeletonText lines={6} label={loadState.purpose === "stale" ? "Loading the latest version…" : "Loading submission…"} />
       )}
       {detail && (
         <div className="submission-drawer">

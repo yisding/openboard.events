@@ -379,9 +379,17 @@ describe("shared UI spacing regressions", () => {
     expect(css).toContain(
       ".data-table th.abstracts-title-column,.data-table td.abstracts-title-column{width:340px;min-width:280px}",
     );
+    // Title and description share the clamp: one 300-character probe title
+    // wrapped to twelve lines and set the row height on its own. The title half
+    // is scoped to this column — `.submission-title-cell` is also the comms log
+    // recipient, suppressions and the agenda list view, and the ≤768px comms
+    // override below depends on that `b` staying a block box for its ellipsis.
     expect(css).toContain(
-      ".submission-title-cell span{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}",
+      ".abstracts-title-column .submission-title-cell b,.submission-title-cell span{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere}",
     );
+    // …and the clamp never reaches a bare `.submission-title-cell b`, which is
+    // how it would find the other four tables again.
+    expect(css).not.toMatch(/(?<!\.abstracts-title-column )\.submission-title-cell b[,{][^{}]*display:-webkit-box/u);
   });
 
   it("keeps a table toolbar's search from being squeezed by its filters", () => {
