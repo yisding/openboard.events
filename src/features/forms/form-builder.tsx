@@ -270,6 +270,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
   const [pendingStep, setPendingStep] = useState<BuilderStep | null>(null);
   const [compactInspector, setCompactInspector] = useState(false);
   const dirtyRevisions = useRef(new Map<BuilderDirtyTarget, number>());
+  const railRef = useRef<HTMLElement | null>(null);
   const newQuestionDraftDirty = adding && (newLabel.trim().length > 0 || newType !== "text");
   const [routingDraftDirty, setRoutingDraftDirty] = useState(false);
   const hasUnsavedWork = dirty || newQuestionDraftDirty;
@@ -296,6 +297,26 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
     media.addEventListener("change", sync);
     return () => media.removeEventListener("change", sync);
   }, []);
+
+  // Below 768px the step rail becomes one horizontally scrolling strip, and
+  // six steps do not fit. Advancing a step there would otherwise leave the
+  // active tab hanging off the edge, half-drawn. Only the rail's own
+  // scrollLeft moves; the rail is sticky, so scrolling any ancestor to reach
+  // it would drag the page out from under the organizer.
+  useEffect(() => {
+    const rail = railRef.current;
+    const active = rail?.querySelector<HTMLElement>("button.active");
+    if (!rail || !active) return;
+    const margin = 8; // The rail's own padding, kept as breathing room at either end.
+    const overshootLeft = rail.scrollLeft - (active.offsetLeft - margin);
+    const overshootRight = active.offsetLeft + active.offsetWidth + margin - (rail.scrollLeft + rail.clientWidth);
+    const left = overshootLeft > 0 ? active.offsetLeft - margin
+      : overshootRight > 0 ? rail.scrollLeft + overshootRight
+      : null;
+    if (left === null) return;
+    if (typeof rail.scrollTo === "function") rail.scrollTo({ left, behavior: "smooth" });
+    else rail.scrollLeft = left;
+  }, [step]);
 
   // Effective availability can change while this long-lived editor stays
   // mounted. Wake at the next opening/closing boundary so the badge and
@@ -806,7 +827,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
         </div>
       </div>
     </header>
-    <div className="builder-layout"><aside className="builder-rail"><span>BUILD YOUR FORM</span>{stepMeta.map((item, index) => { const Icon = item.icon; return <button key={item.id} className={step === item.id ? "active" : ""} onClick={() => setStep(item.id)}><i>{index + 1}</i><Icon size={17} /><b>{item.label}</b>{form.currentVersion > index && <Check size={14} />}</button>; })}<div className="builder-completeness"><div><span>Published snapshots</span><b>{form.currentVersion}</b></div><small>Every publish creates a new immutable version.</small></div></aside>
+    <div className="builder-layout"><aside className="builder-rail" ref={railRef}><span>BUILD YOUR FORM</span>{stepMeta.map((item, index) => { const Icon = item.icon; return <button key={item.id} className={step === item.id ? "active" : ""} onClick={() => setStep(item.id)}><i>{index + 1}</i><Icon size={17} /><b>{item.label}</b>{form.currentVersion > index && <Check size={14} />}</button>; })}<div className="builder-completeness"><div><span>Published snapshots</span><b>{form.currentVersion}</b></div><small>Every publish creates a new immutable version.</small></div></aside>
       <div className="builder-canvas">
         {availabilityRecovery && <div className="locked-banner" role="alert"><AlertTriangle size={17} /><div><b>Form status is unconfirmed</b><span>{formAvailabilityRecoveryMessage(availabilityRecovery.action)}</span></div><Button size="sm" variant="secondary" disabled={busy} onClick={() => void checkCurrentAvailability()}>{busy ? "Confirming…" : "Confirm current status"}</Button></div>}
         {participantStepRecovery && <div className="locked-banner" role="alert"><AlertTriangle size={17} /><div><b>Participant save is unconfirmed</b><span>{PARTICIPANT_STEP_RECOVERY_MESSAGE}</span></div><Button size="sm" variant="secondary" disabled={busy} onClick={() => void confirmParticipantStep()}>{busy ? "Confirming…" : "Confirm participant save"}</Button></div>}
@@ -817,7 +838,9 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
         {(step === "abstract" || step === "participant") && section && <FieldsStep section={section} participant={step === "participant"} form={form} selected={selected?.fieldId ?? null} onSelect={(fieldId) => setSelected({ sectionId: section.id, fieldId })} onSectionChange={(patch) => applySection(section.id, patch)} onFormChange={applyLocal} onAdd={() => setAdding(true)} onMove={(fieldId, delta) => void moveField(section, fieldId, delta)} onRoutingDraftStateChange={handleRoutingDraftStateChange} />}
         {step === "settings" && <SettingsStep event={event} form={form} onChange={applyLocal} />}
         {step === "notifications" && <NotificationsStep form={form} onChange={applyLocal} />}
-        <footer className="builder-footer"><Button variant="secondary" disabled={step === "setup"} onClick={() => setStep(BUILDER_STEPS[Math.max(0, BUILDER_STEPS.indexOf(step) - 1)] ?? step)}>Back</Button><a className="builder-publish-link" href="#publish-form-version">Publish this step from the header <ArrowUp size={14} aria-hidden="true" /></a><Button variant="secondary" disabled={step === "notifications"} onClick={() => setStep(BUILDER_STEPS[Math.min(BUILDER_STEPS.length - 1, BUILDER_STEPS.indexOf(step) + 1)] ?? step)}>Next</Button></footer>
+        {/* The ends of the wizard drop Back/Next rather than showing them
+            disabled: a dead control still reads as somewhere left to go. */}
+        <footer className="builder-footer">{step !== BUILDER_STEPS[0] && <Button variant="secondary" onClick={() => setStep(BUILDER_STEPS[Math.max(0, BUILDER_STEPS.indexOf(step) - 1)] ?? step)}>Back</Button>}<a className="builder-publish-link" href="#publish-form-version">Publish this step from the header <ArrowUp size={14} aria-hidden="true" /></a>{step !== BUILDER_STEPS[BUILDER_STEPS.length - 1] && <Button variant="secondary" onClick={() => setStep(BUILDER_STEPS[Math.min(BUILDER_STEPS.length - 1, BUILDER_STEPS.indexOf(step) + 1)] ?? step)}>Next</Button>}</footer>
       </div>
       <aside className="builder-inspector">{selectedField ? <FieldInspector field={selectedField} form={form} onChange={(patch) => applyField(selectedField.id, patch)} onSave={() => void saveField(selectedField)} onDelete={() => setPendingDelete(selectedField)} busy={busy} /> : (step === "abstract" || step === "participant") && liveSnapshot ? <LiveBuilderPreview snapshot={liveSnapshot} /> : <MockBuilderPreview form={form} step={step} />}</aside>
     </div>

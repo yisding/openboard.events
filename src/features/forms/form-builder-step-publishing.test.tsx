@@ -148,6 +148,20 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
+describe("the wizard's step controls", () => {
+  it("offers no Next at the end of the wizard, and no Back at its start", async () => {
+    navigationMock.search = "step=notifications";
+    await act(async () => root.render(<FormBuilder event={event} initialForm={form()} />));
+    expect(buttonNamed("Next")).toBeUndefined();
+    expect(buttonNamed("Back")).toBeDefined();
+
+    navigationMock.search = "step=setup";
+    await act(async () => root.render(<FormBuilder event={event} initialForm={form()} />));
+    expect(buttonNamed("Back")).toBeUndefined();
+    expect(buttonNamed("Next")).toBeDefined();
+  });
+});
+
 describe("stepping away from an edited builder step", () => {
   it("walks straight on when the current step has nothing unpublished", async () => {
     await act(async () => root.render(<FormBuilder event={event} initialForm={form()} />));
