@@ -23,6 +23,7 @@ export const dynamic = "force-dynamic";
  * silently stale either — a reused answer says how old it is (`ageSeconds`).
  */
 const PROBE_TTL_MS = 10_000;
+const PROBE_TTL_SECONDS = Math.floor(PROBE_TTL_MS / 1000);
 
 /**
  * The same shape every other public surface uses (`checkV1RateLimit`), sized
@@ -50,7 +51,7 @@ function healthResponse(probe: Probe, now: number): Response {
     status: probe.status,
     // Honoured by any CDN or intermediary in front of the Worker, and by a
     // browser tab someone left refreshing. Not load-bearing — `lastProbe` is.
-    headers: { "cache-control": "public, max-age=10, s-maxage=10" },
+    headers: { "cache-control": `public, max-age=${PROBE_TTL_SECONDS}, s-maxage=${PROBE_TTL_SECONDS}` },
   });
 }
 
