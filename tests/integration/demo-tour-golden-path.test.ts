@@ -445,6 +445,14 @@ describe("the tour's golden path, driven through the real writers", () => {
     // they carry is unroutable, and not one has ever reached a provider.
     expect((byStatus.queued ?? 0) + (byStatus.sent ?? 0) + (byStatus.skipped ?? 0) + (byStatus.failed ?? 0))
       .toBeGreaterThan(0);
+    // MTP-18 §4/26. Provisioning used to backdate six `sent` rows and one
+    // `failed` one so the log looked lived-in; nothing had been delivered —
+    // the addresses below prove that — but the status column an organizer
+    // reads claimed otherwise on the one screen the safety audit inspects.
+    // A demo event may hold rows waiting to be drained; it may never hold a
+    // row that says mail went out.
+    expect(byStatus.sent ?? 0, "a demo event never claims a send").toBe(0);
+    expect(byStatus.failed ?? 0, "a demo event never claims a delivery attempt").toBe(0);
     const external = await pglite.query<{ n: number }>(
       `SELECT count(*)::int AS n FROM communication_logs log
          JOIN contacts contact ON contact.id = log.contact_id

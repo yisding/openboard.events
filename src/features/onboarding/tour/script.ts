@@ -413,12 +413,12 @@ const THE_DECISION: readonly TourStep[] = [
     chapter: "the-decision",
     kind: "observe",
     title: "Real outbox, real dispatcher, zero mail.",
-    // Not "every row reads skipped". Phase 10 backdates nine terminal rows to
-    // give the log a history — six of them `sent`, one `failed` — so the
-    // sweeping version was falsifiable on the very screen it points at, by a
-    // player doing nothing more than reading the column the card names. The
-    // rows *this tour* caused are the ones the claim can carry.
-    body: "The rows you just queued read skipped, reason: demo event — mail is never delivered from here. Everything older is backdated history the demo was built with, in the states a real log has.",
+    // The sweeping claim, restored. It was hedged down to "the rows you just
+    // queued" because phase 10 backdated six `sent` rows and one `failed` one,
+    // which made the sweeping version falsifiable on the very screen this card
+    // points at. Phase 10 now seeds all nine as `skipped`, so the column the
+    // card names says what the card says, all the way down.
+    body: "Every row on this log reads skipped, reason: demo event — mail is never delivered. The nine older ones are backdated history the demo was built with; they were rendered and logged like the rest, and went exactly as far.",
     route: at("/communications", { tab: "log" }),
     anchor: css("#communications-tab-log"),
     placement: "bottom",
@@ -698,9 +698,9 @@ const SIDE_QUESTS: readonly TourStep[] = [
     kind: "observe",
     optional: true,
     title: "Read the mail you did not send.",
-    // Same correction as `decide.outbox`: the nine seeded rows are backdated
-    // history in three terminal states, not nine skips.
-    body: "Nine backdated messages the world was built with, plus everything this tour queued — and every one of those was rendered in full, logged, and then skipped at the dispatcher.",
+    // Same restoration as `decide.outbox`: the nine seeded rows are backdated
+    // history, and they are nine skips.
+    body: "Nine backdated messages the world was built with, plus everything this tour queued — and every one of them was rendered in full, logged, and then skipped.",
     route: at("/communications", { tab: "log" }),
     anchor: css("#communications-tab-log"),
     placement: "bottom",
