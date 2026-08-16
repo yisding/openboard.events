@@ -286,6 +286,28 @@ describe("shared UI spacing regressions", () => {
     expect(css).toContain(".locked-banner>.button{grid-column:1/-1;width:100%}");
   });
 
+  it("styles the two lists that were rendering browser defaults", () => {
+    const taskDetail = read("./portal/task-runtime/components/task-detail.tsx");
+    const filesAdmin = read("./portal/deliverables/components/files-admin-view.tsx");
+    const sessionDialog = read("./agenda/components/session-form-dialog.tsx");
+    const logSheet = read("./comms/components/log-detail-sheet.tsx");
+
+    // .portal-uploads had three call sites and no rule at all: bullets, with the
+    // icon, filename, timestamp and badge run together on one line.
+    for (const source of [taskDetail, filesAdmin, sessionDialog]) {
+      expect(source).toContain('className="portal-uploads"');
+    }
+    expect(css).toContain(".portal-uploads{list-style:none;");
+    expect(css).toContain(".portal-uploads>li{display:flex;");
+    // The middle takes the truncation so a long filename cannot push the badge out.
+    expect(css).toContain(".portal-uploads>li>span,.portal-uploads>li>a{flex:1;min-width:0;");
+
+    // The message detail's dl rendered as default indented pairs.
+    expect(logSheet).toContain('className="comm-detail"');
+    expect(css).toContain(".comm-detail dl{display:grid;");
+    expect(css).toContain(".comm-detail dl>div{display:flex;justify-content:space-between;");
+  });
+
   it("gives discrete public session and gallery actions full pointer targets", () => {
     expect(css).toContain(
       ".public-session-main h3 button{width:100%;min-height:32px;",
