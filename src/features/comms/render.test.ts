@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { TEMPLATE_KEYS, type TemplateVars } from "@/shared/contracts";
-import { SAMPLE_VARS, templateVariablePaths } from "./components/sample-vars";
+import { collectVariablePaths, SAMPLE_VARS, templateVariablePaths } from "./components/sample-vars";
 import { unknownTokensClientSide } from "./components/validate-client";
 import { DEFAULT_TEMPLATES } from "./server/templates";
 import { renderTemplate, renderTemplateContent, validateTemplateBody } from "./server/render";
@@ -119,6 +120,33 @@ describe("communications template renderer", () => {
     // Still *accepted* on a transactional key, so a body saved before this
     // filter existed keeps validating rather than becoming unsaveable.
     expect(() => validateTemplateBody("submission_accepted", "Accepted", "<p>{{unsubscribe.url}}</p>")).not.toThrow();
+
+    // …and the editor has to agree, or "stays editable" is only true of the
+    // server. `unknownTokensClientSide` reads the *unfiltered* token list for
+    // exactly this reason: while it read the filtered chip list, opening such a
+    // body showed "Unknown variable {{unsubscribe.url}}", blocked the preview
+    // and disabled Save — the same dead editor this filter exists to avoid,
+    // reached from the other side.
+    expect(unknownTokensClientSide("submission_accepted", "Accepted", "<p>{{unsubscribe.url}}</p>")).toEqual([]);
+    expect(unknownTokensClientSide("admin_password_reset", "Reset", "<p>{{unsubscribe.url}}</p>")).toEqual([]);
+
+    // The client is no laxer than the server either: a token neither one knows
+    // is still flagged.
+    expect(unknownTokensClientSide("submission_accepted", "Accepted", "<p>{{portal}}</p>")).toEqual(["portal"]);
+  });
+
+  it("walks through a stack of schema wrappers, not just the outermost one", () => {
+    // `portal` picking up a single `.optional()` is what broke the picker; the
+    // unwrap that fixed it peeled exactly one layer, so the next contract to
+    // reach for `.nullish()` (`ZodOptional(ZodNullable(…))`) or
+    // `.optional().default({})` (`ZodDefault(ZodOptional(…))`) would yield the
+    // bare prefix again and reproduce the bug verbatim.
+    const schema = z.object({
+      speaker: z.object({ first_name: z.string() }),
+      portal: z.object({ magic_link: z.url() }).nullish(),
+      calendar: z.object({ download_url: z.url() }).optional().default({ download_url: "https://example.com/c.ics" }),
+    });
+    expect(collectVariablePaths(schema).sort()).toEqual(["calendar.download_url", "portal.magic_link", "speaker.first_name"]);
   });
 
   it("breaks a line for every block-level closer, not only <br> and </p>", () => {
