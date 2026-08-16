@@ -105,7 +105,7 @@ describe("authentication destination continuity", () => {
     const html = renderToStaticMarkup(<SignupForm />);
 
     expect(html).toContain("Start your organization now, then publish your first call for speakers in guided setup.");
-    expect(html).toContain("Confirm your email, add your event details, and leave with a ready-to-share CFP.");
+    expect(html).toContain("Confirm your email, add your event details, and leave with a ready-to-share call for speakers.");
     expect(html).toContain("Organization name");
   });
 
@@ -147,7 +147,7 @@ describe("authentication destination continuity", () => {
       const continueWithGoogle = [...container.querySelectorAll<HTMLButtonElement>("button")]
         .find((button) => button.textContent?.includes("Continue with Google"));
       await act(async () => continueWithGoogle?.click());
-      expect(container.textContent).toContain("Google confirms your identity, then guided setup takes you from event details to a shareable CFP.");
+      expect(container.textContent).toContain("Google confirms your identity, then guided setup takes you from event details to a shareable call for speakers.");
       const useEmail = [...container.querySelectorAll<HTMLButtonElement>("button")]
         .find((button) => button.textContent?.includes("Use email instead"));
       await act(async () => useEmail?.click());
