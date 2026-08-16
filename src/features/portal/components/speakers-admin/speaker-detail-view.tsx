@@ -1,7 +1,8 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, ExternalLink, Facebook, Globe, Linkedin, Pencil, Twitter } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ExternalLink, Facebook, Globe, Linkedin, Pencil, Trash2, Twitter } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { SpeakerDetailDTO, SpeakerRosterExtras } from "@/features/portal";
 import { participantRoleLabel } from "../../lib/participant-role";
@@ -203,10 +204,39 @@ function BioField({ eventId, contactId, bioHtml, onSaved }: {
 
 export function SpeakerDetailView({ eventId, timezone, initialDetail, initialExtras }: { eventId: string; timezone: string; initialDetail: SpeakerDetailDTO; initialExtras?: SpeakerRosterExtras }) {
   const { toast } = useToast();
+  const router = useRouter();
   const [detail, setDetail] = useState(initialDetail);
   const [savingConfirmation, setSavingConfirmation] = useState(false);
   const [confirmingDecline, setConfirmingDecline] = useState(false);
+  const [confirmingErase, setConfirmingErase] = useState(false);
+  const [erasing, setErasing] = useState(false);
+  const [eraseTyped, setEraseTyped] = useState("");
   const { contact } = detail;
+
+  /**
+   * M47 right-to-erasure — the one caller of `DELETE /api/internal/speakers/
+   * {eventId}/{contactId}`. The endpoint (and `eraseContactData` behind it)
+   * owns the deletion; this just starts it and, since the record it was
+   * showing no longer exists, leaves for the roster afterward. Destructive and
+   * irreversible, so it is gated by the type-the-name confirm below (design
+   * bar D4), the same bar the demo delete already sets.
+   */
+  async function eraseContact() {
+    setErasing(true);
+    try {
+      const response = await fetch(`/api/internal/speakers/${eventId}/${contact.contactId}`, { method: "DELETE" });
+      if (!response.ok) {
+        const json = await response.json().catch(() => null) as { error?: { message?: string } } | null;
+        throw new Error(json?.error?.message ?? "Could not erase this contact");
+      }
+      toast(`${contact.name} has been erased`);
+      router.push(`/events/${eventId}/speakers`);
+      router.refresh();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not erase this contact", { kind: "error" });
+      setErasing(false);
+    }
+  }
 
   async function applyConfirmation(status: ConfirmationStatus) {
     if (status === contact.confirmationStatus) return;
@@ -364,6 +394,42 @@ export function SpeakerDetailView({ eventId, timezone, initialDetail, initialExt
           ))}
         </div>
       </section>
+
+      {/* M47 — right-to-erasure. Kept apart from the everyday editing panels
+          above, with a red frame, because it destroys the record rather than
+          changing it. */}
+      <section className="panel" style={{ borderColor: "var(--red-border)" }}>
+        <header className="panel-header"><div><h2>Erase this speaker</h2><p>Permanently delete {contact.name}&rsquo;s personal data for this event to satisfy a right-to-erasure request.</p></div></header>
+        <div className="drawer-content">
+          <p className="long-copy">
+            This deletes {contact.name}&rsquo;s profile, submission participation, tasks, uploads and messages for this event, and anonymizes their name where it lingers on other records. If you administer {contact.name}&rsquo;s organization, it also permanently deletes their organization CRM profile. It cannot be undone.
+          </p>
+          <Button variant="danger" onClick={() => { setEraseTyped(""); setConfirmingErase(true); }}>
+            <Trash2 size={15} /> Erase this speaker
+          </Button>
+        </div>
+      </section>
+
+      <ConfirmDialog
+        open={confirmingErase}
+        title={`Erase ${contact.name}?`}
+        variant="destructive"
+        confirmLabel={erasing ? "Erasing…" : "Erase permanently"}
+        confirmDisabled={erasing || eraseTyped.trim() !== contact.name}
+        cancelDisabled={erasing}
+        onConfirm={eraseContact}
+        onCancel={() => { setConfirmingErase(false); setEraseTyped(""); }}
+        body={
+          <div className="form-stack">
+            <p>
+              This permanently erases {contact.name}&rsquo;s personal data for this event — their profile, submission participation, tasks, uploads and messages are deleted, and their name is anonymized wherever it lingers elsewhere (their comments on other speakers&rsquo; files, and their name on submissions they entered). Their organization CRM profile is treated by your authority over that organization: if you administer it, the CRM profile and its notes, pipeline, tags and merge history are permanently deleted across the whole organization; if you do not, that CRM profile is left intact. This cannot be undone.
+            </p>
+            <Field label={`Type "${contact.name}" to confirm`}>
+              <input value={eraseTyped} onChange={(event) => setEraseTyped(event.target.value)} autoComplete="off" aria-label="Confirm erasure by typing the speaker's name" />
+            </Field>
+          </div>
+        }
+      />
     </div>
   );
 }

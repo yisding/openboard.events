@@ -77,7 +77,7 @@ describe("audited mutation failure toasts", () => {
       ["./billing/components/billing-panel.tsx", 1],
       ["./events/components/branding-panel.tsx", 1],
       ["./portal/components/home/add-to-calendar-button.tsx", 1],
-      ["./portal/components/speakers-admin/speaker-detail-view.tsx", 5],
+      ["./portal/components/speakers-admin/speaker-detail-view.tsx", 6],
       ["./portal/components/speakers-admin/speaker-roster-panels.tsx", 5],
       ["./portal/tasks-admin/components/task-matrix-drawer.tsx", 1],
     ] as const) {

@@ -1,7 +1,7 @@
 import { sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
-import { isUniqueViolation } from "@/db/errors";
+import { foreignKeyViolation, isUniqueViolation } from "@/db/errors";
 import {
   contactIdSchema,
   formatIdSchema,
@@ -437,6 +437,48 @@ async function notifyRemovedSpeakers(
 
 const RETURNED_COLUMNS = sql`id, title, slug, description_html, starts_at, ends_at, track_id, room_id, format_id, status, schedule_revision, row_version, submission_id`;
 
+/**
+ * A dangling or cross-event room/track/format/speaker id reaches the composite
+ * `(id, event_id)` foreign keys, which are the real tenancy boundary and
+ * correctly refuse the write — nothing is committed. That refusal arrives as a
+ * Postgres 23503; left unmapped it escaped `saveSession` as a blind 500. Map it
+ * to the same field-scoped VALIDATION a sibling route answers with, so the
+ * organizer sees which reference to fix. The DB stays the enforcement point;
+ * this only translates its verdict.
+ */
+function referenceViolation(error: unknown): AppError | null {
+  const constraint = foreignKeyViolation(error);
+  if (constraint === null) return null;
+  const named = constraint.toLowerCase();
+  if (named.includes("room")) {
+    return new AppError("VALIDATION", "That room isn't part of this event", undefined, { roomId: "Pick a room from this event" });
+  }
+  if (named.includes("track")) {
+    return new AppError("VALIDATION", "That track isn't part of this event", undefined, { trackId: "Pick a track from this event" });
+  }
+  if (named.includes("format")) {
+    return new AppError("VALIDATION", "That session format isn't part of this event", undefined, { formatId: "Pick a format from this event" });
+  }
+  if (named.includes("contact") || named.includes("speaker")) {
+    return new AppError("VALIDATION", "One of those speakers isn't part of this event", undefined, { speakerContactIds: "Pick speakers from this event" });
+  }
+  if (named.includes("submission")) {
+    return new AppError("VALIDATION", "That submission isn't part of this event");
+  }
+  // A 23503 we could not attribute is still a client-actionable bad reference,
+  // never an INTERNAL: name the set of columns it could have been.
+  return new AppError("VALIDATION", "A room, track, format or speaker on this session isn't part of this event");
+}
+
+/**
+ * `.then` rejection handler that turns a composite-FK refusal into its mapped
+ * VALIDATION and re-throws everything else. Used where a write is not already
+ * inside a try/catch (the create loop maps the same way against its own catch).
+ */
+function mapReferenceRejection(error: unknown): never {
+  throw referenceViolation(error) ?? error;
+}
+
 async function insertSession(
   dbOrTx: DbOrTx,
   eventId: EventId,
@@ -621,6 +663,13 @@ export async function saveSessionIn(
     for (let attempt = 0; attempt < 12; attempt += 1) {
       const slug = attempt === 0 ? base : `${base}-${attempt + 1}`;
       try {
+        // Scope the FK→VALIDATION mapping to the committing write alone, exactly
+        // as the update path does (`.then(..., mapReferenceRejection)` below). The
+        // post-commit `notifySchedule` enqueue carries its own FKs; a 23503 from
+        // *that* must stay an INTERNAL so the recovery flow still fires for the
+        // one case the session actually was created — reclassifying it to
+        // VALIDATION would tell the client "nothing was written" and orphan the
+        // committed row.
         const row = await insertSession(
           dbOrTx,
           eventId,
@@ -630,7 +679,7 @@ export async function saveSessionIn(
           speakers,
           actorUserId,
           payloadFingerprint,
-        );
+        ).then((value) => value, mapReferenceRejection);
         await notifySchedule(
           dbOrTx, eventId, row.id as SessionId,
           { status: "draft", startsAt: null, scheduleRevision: 0 },
@@ -639,6 +688,10 @@ export async function saveSessionIn(
         );
         return toDto(row, speakers);
       } catch (error) {
+        // A mapped VALIDATION (insertSession's own FK refusal, already converted
+        // above) is not a unique violation, so it re-throws here rather than
+        // being retried; a raw 23503 from the post-commit notify falls through as
+        // an INTERNAL, keeping the recovery flow intact.
         if (!isUniqueViolation(error)) throw error;
         if (input.creationId !== undefined) {
           const recovered = await recoverCreatedSession(
@@ -776,7 +829,7 @@ export async function saveSessionIn(
          OR updated.room_id IS DISTINCT FROM ${prior.room_id}::uuid
     )
     SELECT ${RETURNED_COLUMNS} FROM updated
-  `);
+  `).then((value) => value, mapReferenceRejection);
   const row = (result.rows ?? [])[0];
   if (!row) {
     const current = await dbOrTx.execute<{ row_version: number }>(sql`

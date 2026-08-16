@@ -79,7 +79,7 @@ function buttonNamed(name: string): HTMLButtonElement | undefined {
 
 async function renderView() {
   await act(async () => {
-    root.render(<SegmentsView organizationId={organizationId} initialSegments={[segment]} tags={[]} events={[]} />);
+    root.render(<SegmentsView organizationId={organizationId} initialSegments={[segment]} tags={[]} events={[]} customFields={[]} />);
     await Promise.resolve();
   });
 }

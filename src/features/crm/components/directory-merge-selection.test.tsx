@@ -17,6 +17,7 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("./crm-nav", () => ({ CrmNav: () => null }));
 vi.mock("./contact-create-dialog", () => ({ ContactCreateDialog: () => null }));
+vi.mock("./crm-tag-create", () => ({ CrmTagCreateControl: () => null }));
 vi.mock("./crm-import-dialog", () => ({ CrmImportDialog: () => null }));
 vi.mock("./crm-bulk-email-dialog", () => ({ CrmBulkEmailDialog: () => null }));
 vi.mock("./merge-wizard-dialog", () => ({
