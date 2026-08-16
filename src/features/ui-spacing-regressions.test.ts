@@ -202,6 +202,17 @@ describe("shared UI spacing regressions", () => {
     );
   });
 
+  it("lets a table panel shrink below its own table, so the scroller can scroll", () => {
+    // .data-panel is a grid item on the settings pages. Without min-width:0 the
+    // default min-width:auto floors it at the min-content width of a table that
+    // sets white-space:nowrap — so the panel outgrew the viewport, .table-scroll
+    // was never narrower than its content and never scrolled, and overflow:clip
+    // cut the trailing columns off with no way to reach them. On /account/sessions
+    // that hid the IP address, both timestamps, and the Revoke button on a phone.
+    expect(css).toContain(".data-panel{overflow:clip;min-width:0}");
+    expect(css).toContain(".table-scroll");
+  });
+
   it("gives discrete public session and gallery actions full pointer targets", () => {
     expect(css).toContain(
       ".public-session-main h3 button{width:100%;min-height:32px;",
