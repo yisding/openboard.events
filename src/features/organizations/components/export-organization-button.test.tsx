@@ -110,4 +110,18 @@ describe("exporting organization data", () => {
     expect(anchorClick).not.toHaveBeenCalled();
     expect(harness.toast).toHaveBeenCalledWith("Only owners can export", { kind: "error" });
   });
+
+  it("shows the friendly failure, not a raw SyntaxError, when the response is not JSON", async () => {
+    // A proxy's HTML 502 or an empty body: `response.json()` rejects. The user
+    // should still see the generic export-failure message.
+    fetchMock.mockResolvedValueOnce(new Response("<html>502 Bad Gateway</html>", { status: 502, headers: { "Content-Type": "text/html" } }));
+    await render();
+
+    await act(async () => button("Export data").click());
+    await flush();
+
+    expect(createUrl).not.toHaveBeenCalled();
+    expect(anchorClick).not.toHaveBeenCalled();
+    expect(harness.toast).toHaveBeenCalledWith("Could not export the organization's data", { kind: "error" });
+  });
 });

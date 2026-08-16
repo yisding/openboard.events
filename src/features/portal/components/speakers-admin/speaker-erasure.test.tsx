@@ -104,7 +104,15 @@ describe("erasing a speaker", () => {
 
     const dialog = document.body.textContent ?? "";
     expect(dialog).toContain("Erase Ada Lovelace?");
+    // Event-scoped personal data is deleted, and their name is anonymized where
+    // it lingers elsewhere (file comments on other slots, submissions they entered).
     expect(dialog).toContain("anonymized");
+    // Blocking fix (PR #608): the CRM half must state the *actual* outcome of
+    // `eraseContactDataIn` step 5 — a hard delete when the organizer administers
+    // the org, retained-intact otherwise — never "retained but anonymized".
+    expect(dialog).toContain("if you administer it, the CRM profile and its notes, pipeline, tags and merge history are permanently deleted");
+    expect(dialog).toContain("if you do not, that CRM profile is left intact");
+    expect(dialog).not.toContain("retained but anonymized");
     expect(dialog).toContain("cannot be undone");
     // Deliberate confirmation (design bar D4): nothing is destroyable until the
     // exact name is typed.

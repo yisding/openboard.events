@@ -402,7 +402,7 @@ export function SpeakerDetailView({ eventId, timezone, initialDetail, initialExt
         <header className="panel-header"><div><h2>Erase this speaker</h2><p>Permanently delete {contact.name}&rsquo;s personal data for this event to satisfy a right-to-erasure request.</p></div></header>
         <div className="drawer-content">
           <p className="long-copy">
-            This deletes {contact.name}&rsquo;s profile, submissions participation, tasks, uploads and messages for this event, and anonymizes anything elsewhere that referenced them. It cannot be undone.
+            This deletes {contact.name}&rsquo;s profile, submission participation, tasks, uploads and messages for this event, and anonymizes their name where it lingers on other records. If you administer {contact.name}&rsquo;s organization, it also permanently deletes their organization CRM profile. It cannot be undone.
           </p>
           <Button variant="danger" onClick={() => { setEraseTyped(""); setConfirmingErase(true); }}>
             <Trash2 size={15} /> Erase this speaker
@@ -422,7 +422,7 @@ export function SpeakerDetailView({ eventId, timezone, initialDetail, initialExt
         body={
           <div className="form-stack">
             <p>
-              This permanently erases {contact.name}&rsquo;s personal data for this event — their profile, submissions participation, tasks, uploads and messages are deleted, and any record elsewhere that referenced them (comments on other speakers&rsquo; files, and their organization CRM profile if you administer it) is retained but anonymized. This cannot be undone.
+              This permanently erases {contact.name}&rsquo;s personal data for this event — their profile, submission participation, tasks, uploads and messages are deleted, and their name is anonymized wherever it lingers elsewhere (their comments on other speakers&rsquo; files, and their name on submissions they entered). Their organization CRM profile is treated by your authority over that organization: if you administer it, the CRM profile and its notes, pipeline, tags and merge history are permanently deleted across the whole organization; if you do not, that CRM profile is left intact. This cannot be undone.
             </p>
             <Field label={`Type "${contact.name}" to confirm`}>
               <input value={eraseTyped} onChange={(event) => setEraseTyped(event.target.value)} autoComplete="off" aria-label="Confirm erasure by typing the speaker's name" />

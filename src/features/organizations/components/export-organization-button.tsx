@@ -32,8 +32,11 @@ export function ExportOrganizationButton({ organizationId, organizationName }: {
     setBusy(true);
     try {
       const response = await fetch(`/api/internal/organizations/${organizationId}/export`);
-      const json = await response.json() as { data?: unknown; error?: { message?: string } };
-      if (!response.ok || json.data === undefined) throw new Error(json.error?.message ?? "Could not export the organization's data");
+      // A non-JSON body (a proxy's HTML 502, an empty response) must not surface
+      // a raw SyntaxError — fall back to the same friendly message every failure
+      // path uses.
+      const json = await response.json().catch(() => null) as { data?: unknown; error?: { message?: string } } | null;
+      if (!response.ok || json?.data === undefined) throw new Error(json?.error?.message ?? "Could not export the organization's data");
       const blob = new Blob([JSON.stringify(json.data, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
