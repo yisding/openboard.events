@@ -820,6 +820,30 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .stale-write-banner{align-items:center;background:var(--amber-soft);border-radius:8px;color:var(--amber);display:flex;font-size:var(--text-sm);gap:12px;justify-content:space-between;padding:12px 12px}
 .preview-fallback-badge{align-items:center;background:var(--amber-soft);border-radius:999px;color:var(--amber);display:inline-flex;font-size:var(--text-sm);font-weight: var(--weight-control);gap:6px;padding:4px 12px}
 .comm-detail-status{align-items:center;display:flex;gap:12px;margin-bottom:16px}
+/* The message detail's field list had no rule at all, so it rendered as the
+   browser's default dl: every value indented under its own label, in the one
+   drawer whose job is letting an organizer scan delivery facts against each
+   other. Label left, value right, one row per fact — the shape the rest of the
+   product uses for a read-only pair. */
+.comm-detail dl{display:grid;gap:0;margin:16px 0 0}
+.comm-detail dl>div{display:flex;justify-content:space-between;align-items:baseline;gap:16px;padding:8px 0;border-bottom:1px solid var(--line)}
+.comm-detail dl>div:last-child{border-bottom:0}
+.comm-detail dt{flex:none;color:var(--muted);font-size:var(--text-xs)}
+.comm-detail dd{margin:0;min-width:0;text-align:right;font-size:var(--text-xs);overflow-wrap:anywhere}
+
+/* Three surfaces render this list — a speaker's task uploads, an organizer's
+   deliverable versions, and a session's edit history — and none of them had a
+   rule, so all three showed browser-default bullets with the icon, filename,
+   timestamp and badge run together on one line. Each row is icon, a flexible
+   middle that takes the truncation, then metadata and one trailing action. */
+.portal-uploads{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:8px}
+.portal-uploads>li{display:flex;align-items:center;gap:10px;min-height:44px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface);font-size:var(--text-xs)}
+.portal-uploads>li>svg{flex:none;color:var(--muted)}
+.portal-uploads>li>span,.portal-uploads>li>a{flex:1;min-width:0;overflow-wrap:anywhere}
+.portal-uploads>li>small,.portal-uploads>li>time,.portal-uploads>li>span small{color:var(--muted)}
+.portal-uploads>li>small,.portal-uploads>li>time{flex:none}
+.portal-uploads>li>em{flex:none;margin-left:auto;font-style:normal;padding:2px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent-dark);white-space:nowrap}
+.portal-uploads>li>.button{flex:none;margin-left:auto}
 .mono-cell{font-family:monospace;font-size:var(--text-sm);word-break:break-all}
 .log-error-cell{color:var(--red);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .send-reminder-list{display:flex;flex-direction:column;gap:8px;list-style:none;margin:0;padding:0}
