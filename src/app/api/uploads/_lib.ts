@@ -52,24 +52,43 @@ export async function requireUploader(request: NextRequest, eventId: EventId): P
 }
 
 /**
+ * The single 401 both file-keyed failure paths answer with. A missing row and a
+ * real file whose event the caller cannot sign in to must be byte-identical —
+ * same status *and* same message — or the wording alone becomes the id oracle
+ * the matched status codes were meant to close.
+ */
+const FILE_ACCESS_DENIED = new AppError("UNAUTHORIZED", "Sign in required");
+
+/**
  * Look up a file-keyed route's target and its acting uploader in one step, so
  * existence and authorization are decided together instead of one before the
- * other. A missing row answers with the *same* error `requireUploader` raises
- * for a caller with no claim on the file's event — there is no event to
- * authorize a fake id against, so "no such row" and "exists but not yours"
- * become one response. Splitting them (the previous `NOT_FOUND`-then-authorize
- * order) turned the status into an id oracle: 404 for an unknown id, 401 for a
- * real file the caller could not see, which is exactly the pair that lets an
- * unauthenticated caller enumerate real file ids.
+ * other. A missing row answers with the *same* error a caller with no claim on
+ * the file's event receives — there is no event to authorize a fake id against,
+ * so "no such row" and "exists but not yours" become one response. Splitting
+ * them (the previous `NOT_FOUND`-then-authorize order) turned the status into an
+ * id oracle: 404 for an unknown id, 401 for a real file the caller could not
+ * see, which is exactly the pair that lets an unauthenticated caller enumerate
+ * real file ids.
+ *
+ * The collapse has to cover the message too: `requireUploader` surfaces the
+ * portal guard's own "Portal sign-in required" / "Portal session expired"
+ * wording, which a fake id (rejected before any guard runs) never reaches. Any
+ * UNAUTHORIZED from resolving the uploader is therefore re-answered as the one
+ * canonical envelope, so neither status nor body distinguishes the two.
  */
 export async function requireFileUploader(
   request: NextRequest,
   fileId: string,
 ): Promise<{ file: FileDescriptor; uploader: Uploader }> {
   const file = await describeFile(fileId);
-  if (!file) throw new AppError("UNAUTHORIZED", "Sign in required");
-  const uploader = await requireUploader(request, file.eventId);
-  return { file, uploader };
+  if (!file) throw FILE_ACCESS_DENIED;
+  try {
+    const uploader = await requireUploader(request, file.eventId);
+    return { file, uploader };
+  } catch (error) {
+    if (isAppError(error) && error.code === "UNAUTHORIZED") throw FILE_ACCESS_DENIED;
+    throw error;
+  }
 }
 
 /** Event branding belongs to the organizers; everything else a speaker owns too. */

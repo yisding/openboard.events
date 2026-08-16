@@ -82,6 +82,22 @@ describe("events seed", () => {
     });
   });
 
+  // The demo the reviewers see must have a real owner, or owner-gated surfaces
+  // (GDPR export, granting ownership on the Team page) are invisible and the org
+  // is permanently locked out of ownership. Event `owner` maps to org `owner` on
+  // the shared `owner > organizer > reviewer` ladder — the same thing the 0010
+  // backfill does — so the primary organizer account is the org owner.
+  it("gives the seeded organization a real owner", async () => {
+    const owners = await pglite.query<{ email: string }>(
+      `SELECT u.email FROM organization_members m
+         JOIN users u ON u.id = m.user_id
+        WHERE m.organization_id = $1 AND m.role = 'owner'`,
+      ["d3fa0000-0000-4000-8000-000000000001"],
+    );
+
+    expect(owners.rows.map((r) => r.email)).toContain("organizer@openboard.dev");
+  });
+
   // A contact row is a row in the admin Speakers list, so staff mirrored onto
   // the empty event opened it on three unconfirmed speakers to chase — the one
   // nav item there that never reached its empty state. The demo event still
