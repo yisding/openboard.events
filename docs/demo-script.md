@@ -91,8 +91,8 @@ Every step below runs against a real Postgres database. Run the walkthrough in e
 environment; the steps are identical:
 
 - **Deployed preview** — <https://sb-web-preview.yi-ding.workers.dev>. Mail sends from the verified
-  domain to its one-address allowlist; for every other demo address, the page explicitly surfaces
-  the same one-time activation link or OTP under **Demo access**.
+  domain to its one-address allowlist; for every other address, nothing is delivered at all and the
+  page explicitly surfaces the same one-time activation link or OTP under **Test environment**.
 - **Local, database-backed** — `pnpm dev` against a Neon/Postgres branch you own, seeded with
   `pnpm seed`. See `docs/development.md` *Getting started* and `docs/manual-test-plans.md` §0.2 (Env A).
   With `EMAIL_MODE=log` and `EMAIL_FALLBACK_UI=1` (both local defaults) the OTP and magic link

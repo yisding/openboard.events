@@ -44,7 +44,11 @@ describe("user-facing copy regressions", () => {
     expect(script).toContain("the demo event suppresses every message");
   });
 
-  it("labels non-production credentials as demo access instead of development diagnostics", () => {
+  // These credentials belong to a real deployment whose mail is restricted, not
+  // to a sandbox. "Demo access" read as "the whole instance is a demo" to people
+  // testing signup on preview, which is exactly the wrong thing to tell them;
+  // "Development code" reads as a leaked diagnostic. Name the environment.
+  it("labels non-production credentials by environment, not as a demo or a dev diagnostic", () => {
     const cfp = read("./forms/components/cfp-steps.tsx");
     const portal = read("./auth/components/portal-login-form.tsx");
     const signup = read("../app/signup/check-email/page.tsx");
@@ -52,7 +56,8 @@ describe("user-facing copy regressions", () => {
 
     expect(surfaces).not.toContain("Development code");
     expect(surfaces).not.toContain("Development / fallback mode");
-    expect(surfaces).toContain("Demo access code");
+    expect(surfaces).not.toContain("Demo access");
+    expect(surfaces).toContain("Test environment code");
     expect(surfaces).toContain("Your one-time code");
     expect(surfaces).toContain("Confirm email and continue");
   });
