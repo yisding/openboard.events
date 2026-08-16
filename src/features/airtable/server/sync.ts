@@ -223,6 +223,12 @@ export async function runAirtableSyncForEventIn(
       stats = { ...stats, perTable: [...stats.perTable, table] };
       const target = ensured.ok ? ensured.snapshot.tables[key] : undefined;
       if (!target) continue;
+      // The id is read per attempt rather than captured once: the re-ensure
+      // below can move this table (an organizer who deleted or renamed
+      // "Sessions" gets a freshly-created one with a new id), and a retry
+      // against the id the cached snapshot carried would fail the same way —
+      // or, worse, write into the table they renamed.
+      let targetId = target.id;
 
       const pushPage = async (): Promise<"done" | "deferred" | "stopped"> => {
         for (;;) {
@@ -234,7 +240,7 @@ export async function runAirtableSyncForEventIn(
           for (const batch of chunk(rows, MAX_RECORDS_PER_BATCH)) {
             const result = await airtable.upsertRecords(
               baseId,
-              target.id,
+              targetId,
               batch.map((row) => ({ fields: row.fields })),
               [OPENBOARD_ID_FIELD],
             );
@@ -280,6 +286,9 @@ export async function runAirtableSyncForEventIn(
             throw error;
           }
           await saveSchemaSnapshotIn(dbOrTx, eventId, ensured.snapshot, ensured.fingerprint);
+          const retarget = ensured.snapshot.tables[key];
+          if (!retarget) throw error;
+          targetId = retarget.id;
           verdict = await pushPage();
         } else if (error instanceof AirtableError && error.kind === "rate_limited") {
           rateLimitedOut = true;
@@ -302,7 +311,7 @@ export async function runAirtableSyncForEventIn(
           table.purgeHeld = orphans.orphanTotal;
         } else {
           for (const batch of chunk(orphans.rows, MAX_RECORDS_PER_BATCH)) {
-            await airtable.deleteRecords(baseId, target.id, batch.map((row) => row.airtableRecordId));
+            await airtable.deleteRecords(baseId, targetId, batch.map((row) => row.airtableRecordId));
             await forgetSyncedRowsIn(dbOrTx, eventId, key, batch.map((row) => row.recordPk));
             table.deleted += batch.length;
             // The next run's orphan query re-derives the truth, so a partial

@@ -118,6 +118,20 @@ export function ConnectDialog({
     setBaseId(connection?.baseId ?? null);
     setBaseName(connection?.baseName ?? null);
     setCanManageSchema((connection?.scopes ?? []).includes("schema.bases:write"));
+    // Step 2 and 3 are reset too, and that matters rather than being tidiness:
+    // `bases` is the list *one particular token* could see, and it is only
+    // fetched while it is still null. A second pass through this wizard — a
+    // different token pasted after a "this token can't see any bases" dead end,
+    // or a reconnect after a disconnect — would otherwise render the previous
+    // token's list (or its emptiness) and never ask Airtable again, with a
+    // `selectedBaseId` the new token may have no access to.
+    setBases(null);
+    setBasesError(null);
+    setChoice("existing");
+    setSelectedBaseId(null);
+    setSchemaReport(null);
+    setRun(null);
+    setSyncing(false);
     // Deliberately keyed on `open` alone: reopening resets the wizard, but a
     // connection summary arriving mid-flow (the token step just sealed one)
     // must not wipe the step the organizer is standing on.

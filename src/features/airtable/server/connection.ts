@@ -194,6 +194,16 @@ export async function openAirtableConnectionIn(dbOrTx: DbOrTx, eventId: EventId)
  * costs one redundant full push (every write is a `performUpsert`, so that can
  * never duplicate a record), while the other order would leave exactly the
  * silent no-op this deletion exists to prevent.
+ *
+ * **Re-attaching the *same* base keeps the snapshot**, for the reason
+ * `invalidateSchemaSnapshotIn` spells out. The settings panel's "Rebuild it" is
+ * a re-select of the base already attached, and the sync state is deliberately
+ * kept there — so the snapshot is the only record of which Airtable table each
+ * of those hashes was written against. Dropping it would make
+ * `saveSchemaSnapshotIn` compare against an empty `previous`, miss that an
+ * organizer's rename moved "Sessions" to a freshly-created table id, and leave
+ * that new table empty forever. Clearing the fingerprint alone is what makes
+ * the cache untrusted; the snapshot is evidence, not cache.
  */
 export async function attachAirtableBaseIn(
   dbOrTx: DbOrTx,
@@ -201,6 +211,7 @@ export async function attachAirtableBaseIn(
   input: { baseId: string; baseName: string },
 ): Promise<AirtableConnectionSummary> {
   const current = await rowFor(dbOrTx, eventId);
+  const baseChanged = current?.baseId !== input.baseId;
   if (current && current.baseId !== null && current.baseId !== input.baseId) {
     await dbOrTx.delete(airtableSyncState).where(eq(airtableSyncState.eventId, eventId));
   }
@@ -209,7 +220,7 @@ export async function attachAirtableBaseIn(
     baseId: input.baseId,
     baseName: input.baseName,
     status: "connected",
-    schemaSnapshot: null,
+    ...(baseChanged ? { schemaSnapshot: null } : {}),
     schemaFingerprint: null,
     consecutiveFailures: 0,
     lastErrorKey: null,
@@ -582,17 +593,29 @@ export async function chooseAirtableBaseIn(
     if (!canManageSchema) {
       throw new AppError("FORBIDDEN", "This token can't create a base. Add the “create tables and fields” permission, or pick a base you already have.");
     }
-    const result = await client.createBase({
-      workspaceId: input.workspaceId,
-      name: input.name,
-      // Scalar fields only. Link fields need their target table to exist, so
-      // `ensureBaseSchema`'s second pass adds them below.
-      tables: SYNC_TABLE_ORDER.map((key) => ({
-        name: TABLE_PLANS[key].displayName,
-        description: SYNCED_TABLE_DESCRIPTION,
-        fields: scalarFields(TABLE_PLANS[key]),
-      })),
-    });
+    let result;
+    try {
+      result = await client.createBase({
+        workspaceId: input.workspaceId,
+        name: input.name,
+        // Scalar fields only. Link fields need their target table to exist, so
+        // `ensureBaseSchema`'s second pass adds them below.
+        tables: SYNC_TABLE_ORDER.map((key) => ({
+          name: TABLE_PLANS[key].displayName,
+          description: SYNCED_TABLE_DESCRIPTION,
+          fields: scalarFields(TABLE_PLANS[key]),
+        })),
+      });
+    } catch (error) {
+      // Airtable refused the create, so the assumed `schema.bases:write` is
+      // refuted — the same correction `ensureBaseSchema` records for a refused
+      // table or field. Without it the dialog keeps offering "Create a new base
+      // for me" and every attempt 403s the same way.
+      if (error instanceof AirtableError && error.kind === "forbidden") {
+        await downgradeSchemaWriteScopeIn(dbOrTx, eventId);
+      }
+      throw error;
+    }
     baseId = result.baseId;
     baseName = input.name;
     created = true;
