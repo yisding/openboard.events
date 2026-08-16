@@ -259,6 +259,23 @@ describe("shared UI spacing regressions", () => {
     expect(builder).not.toContain('behavior: "smooth"');
   });
 
+  it("bounds floating and clipped surfaces so their tails stay reachable", () => {
+    const profile = read("./portal/profile/components/profile-form.tsx");
+    const builder = read("./forms/form-builder.tsx");
+
+    // position:fixed: anything past the bottom edge cannot be scrolled to.
+    expect(css).toMatch(/\.tour-coach \{[^}]*max-height: calc\(100vh - 24px\);[^}]*overflow-y: auto;/u);
+    // The card's height is the session's duration and its overflow is hidden,
+    // so an unclamped title displaced the time label instead of truncating.
+    expect(css).toContain(".dv-session-card b{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;");
+    // One input, two heights (40px and 44px): centre it rather than offset it.
+    expect(css).toContain(".input-icon>svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);");
+    // The ellipsis is part of the truncation, not decoration on every preview.
+    expect(profile).toContain("characters.length > 140 ?");
+    expect(profile).not.toContain("${plainTextPreview(bioHtml)}\u2026");
+    expect(builder).toContain('live question{section.fields.length === 1 ? "" : "s"}');
+  });
+
   it("gives discrete public session and gallery actions full pointer targets", () => {
     expect(css).toContain(
       ".public-session-main h3 button{width:100%;min-height:32px;",

@@ -304,7 +304,10 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
             <h3>{firstName} {lastName}</h3>
             {(jobTitle || company) && <p>{[jobTitle, company].filter(Boolean).join(" · ")}</p>}
             {pronouns && <p>{pronouns}</p>}
-            <small>{bioLength > 0 ? `${plainTextPreview(bioHtml)}…` : "No biography yet."}</small>
+            {/* The ellipsis belongs to the truncation, not to the preview: an
+                unabridged bio was being shown as though there were more of it,
+                live, while the speaker typed. */}
+            <small>{bioLength > 0 ? plainTextPreview(bioHtml) : "No biography yet."}</small>
           </section>
         </aside>
       </div>
@@ -312,7 +315,14 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
   );
 }
 
+/**
+ * The ellipsis is part of the truncation, so it is decided here rather than by
+ * the caller: appending it unconditionally told a speaker with a short bio that
+ * the card was hiding the rest of it, and did so live as they typed.
+ * Code points, not UTF-16 units, so a slice never lands mid-emoji.
+ */
 function plainTextPreview(html: string): string {
   const text = html.replace(/<[^>]*>/g, "");
-  return [...text].slice(0, 140).join("");
+  const characters = [...text];
+  return characters.length > 140 ? `${characters.slice(0, 140).join("")}…` : text;
 }
