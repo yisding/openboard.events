@@ -108,6 +108,9 @@ function SegmentBuilderModal({ organizationId, tags, events, customFields, open,
     setName(""); setFilter(EMPTY_FILTER); setPreviewTotal(null);
   }
 
+  const onCustomFieldChange = (fieldKey: string, value: string) =>
+    setFilter((current) => ({ ...current, customFields: setCustomFieldValue(current.customFields, fieldKey, value) }));
+
   async function preview() {
     setPreviewing(true);
     try {
@@ -206,12 +209,12 @@ function SegmentBuilderModal({ organizationId, tags, events, customFields, open,
               {customFields.map((field) => (
                 <Field key={field.id} label={field.label}>
                   {field.fieldType === "select" ? (
-                    <Select value={filter.customFields?.[field.key] ?? ""} onChange={(event) => setFilter((current) => ({ ...current, customFields: setCustomFieldValue(current.customFields, field.key, event.target.value) }))}>
+                    <Select value={filter.customFields?.[field.key] ?? ""} onChange={(event) => onCustomFieldChange(field.key, event.target.value)}>
                       <option value="">Any</option>
                       {field.options.map((option) => <option key={option} value={option}>{option}</option>)}
                     </Select>
                   ) : (
-                    <input value={filter.customFields?.[field.key] ?? ""} placeholder="Any value" onChange={(event) => setFilter((current) => ({ ...current, customFields: setCustomFieldValue(current.customFields, field.key, event.target.value) }))} />
+                    <input value={filter.customFields?.[field.key] ?? ""} placeholder="Any value" onChange={(event) => onCustomFieldChange(field.key, event.target.value)} />
                   )}
                 </Field>
               ))}

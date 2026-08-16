@@ -3,6 +3,7 @@ import { z } from "zod";
 import { organizationAuth } from "@/features/auth";
 import { createOrganizationContact, listOrganizationContacts } from "@/features/crm";
 import { createOrganizationContactInputSchema, crmCustomFieldFilterSchema, crmPipelineStageSchema, crmTagIdSchema, eventIdSchema } from "@/shared/contracts";
+import { AppError } from "@/shared/lib/errors";
 import { defineHandler } from "@/shared/server/handler";
 import { requireOrganizationId } from "../_lib";
 
@@ -19,7 +20,16 @@ const csv = (value: unknown): string[] | undefined => {
 // schema so the same equality rules apply here as on a saved segment.
 const customFields = (value: unknown) => {
   if (typeof value !== "string" || value.length === 0) return undefined;
-  return crmCustomFieldFilterSchema.parse(JSON.parse(value));
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    // A hand-crafted `?customFields=notjson` would otherwise throw a raw
+    // SyntaxError inside this transform, which `errorEnvelope` maps to a
+    // captured 500 rather than a 400. Mirror `bodyInput`'s guard.
+    throw new AppError("VALIDATION", "customFields must be valid JSON");
+  }
+  return crmCustomFieldFilterSchema.parse(parsed);
 };
 
 const listQuerySchema = z.object({
