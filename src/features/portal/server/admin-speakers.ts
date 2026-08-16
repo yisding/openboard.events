@@ -1,6 +1,7 @@
 import { and, eq, sql, type SQL } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { contacts } from "@/db/schema";
+import { MAX_PAGE_NUMBER } from "@/shared/lib/page-query";
 // The `In` variant, not the barrel's `listLog`: this whole read threads a
 // single `dbOrTx` through every query (contact, submissions, tasks, comms) so
 // a PGlite test can exercise it end to end without a live Neon connection.
@@ -271,8 +272,13 @@ export async function listContactsIn(
   eventId: EventId,
   filters: ContactFilters = {},
 ): Promise<{ rows: ContactListRow[]; total: number }> {
-  const pageSize = Math.min(Math.max(filters.pageSize ?? 25, 1), 100);
-  const page = Math.max(filters.page ?? 1, 1);
+  // `Math.max`/`Math.min` read as sanitizers, but neither excludes a fraction,
+  // a NaN or an Infinity — and this pair feeds `LIMIT/OFFSET` directly, where
+  // Postgres refuses a fractional bigint rather than rounding it. Both entry
+  // points parse the page with `.int()` today; truncating here is what stops a
+  // third caller reintroducing that 500 by trusting the clamp already written.
+  const pageSize = Math.min(Math.max(Math.trunc(filters.pageSize ?? 25) || 25, 1), 100);
+  const page = Math.min(Math.max(Math.trunc(filters.page ?? 1) || 1, 1), MAX_PAGE_NUMBER);
   const where = sql.join(contactFilterClauses(eventId, filters), sql` AND `);
   const order = contactOrderClause(filters.sort, filters.dir);
 
