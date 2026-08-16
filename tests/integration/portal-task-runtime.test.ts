@@ -490,6 +490,58 @@ describe("portal task runtime", () => {
     expect(form.answers[shirtField]).toBeUndefined();
   });
 
+  it("prefills a level dropdown with the option carrying the stored label", async () => {
+    // `submission.level` is stored as the option's *label* — `pipeline.ts`
+    // writes `chosen?.label` — and every place the field is authored makes it a
+    // dropdown. Handing the raw string to a choice control rendered the box
+    // blank while leaving the stale value in client state, so pressing Submit
+    // failed with "Use the expected answer type" on a control the speaker sees
+    // as empty. The two lines beside it already resolved track and format
+    // correctly; level was missed.
+    const levelField = "c4000000-0000-4000-8000-000000000059";
+    const levelSnapshot = structuredClone(PORTAL_SNAPSHOT) as typeof PORTAL_SNAPSHOT;
+    levelSnapshot.version = 4;
+    levelSnapshot.sections[0]?.fields.push({
+      id: levelField, key: "level", label: "Session level", type: "dropdown", required: false, locked: false,
+      maxChars: null, helpText: "", visibility: null, mapsTo: "submission.level",
+      options: [{ id: "lvl-beg", label: "Beginner" }, { id: "lvl-adv", label: "Advanced" }],
+    });
+    await pglite.query("INSERT INTO form_versions(event_id,form_id,version,snapshot) VALUES($1,$2,4,$3::jsonb)", [eventId, formId, JSON.stringify(levelSnapshot)]);
+    await pglite.query("UPDATE forms SET current_version=4 WHERE id=$1", [formId]);
+    await pglite.query("UPDATE submissions SET level='Beginner' WHERE id=$1", [talkOne]);
+
+    const form = await getTaskForm(eventId, ada, formId, talkOne);
+    expect(form.answers[levelField]).toEqual({ t: "opt", v: "lvl-beg" });
+
+    // A stored label with no matching option leaves the control empty rather
+    // than seeding it with something the dropdown cannot represent.
+    await pglite.query("UPDATE submissions SET level='Intermediate' WHERE id=$1", [talkOne]);
+    expect((await getTaskForm(eventId, ada, formId, talkOne)).answers[levelField]).toBeUndefined();
+
+    await pglite.query("UPDATE forms SET current_version=1 WHERE id=$1", [formId]);
+    await pglite.query("DELETE FROM form_versions WHERE form_id=$1 AND version=4", [formId]);
+    await pglite.query("UPDATE submissions SET level=NULL WHERE id=$1", [talkOne]);
+  });
+
+  it("refuses a submit pinned to a form version the organizer has replaced", async () => {
+    // Without the pin, publishing a new required question mid-fill turned the
+    // speaker's submit into a 400 whose `fieldErrors` name a field id their
+    // snapshot does not contain: nothing renders it, the focus-first-invalid
+    // selector matches nothing, and the toast says "Some answers need fixing"
+    // with no visible error anywhere. Nothing on that page refetches on
+    // failure, so only a manual browser reload recovered.
+    const stale = await completeTaskViaResponse(eventId, ada, profileTask, null, validAnswers(), 99)
+      .catch((thrown: unknown) => thrown);
+    expect(isAppError(stale) && stale.code).toBe("FORM_VERSION_STALE");
+    // And it carries the fresh snapshot, which is what the client re-renders from.
+    expect(isAppError(stale) && (stale.details as { version?: number } | undefined)?.version).toBe(1);
+
+    // The current version still completes, and an omitted version keeps an
+    // older page working.
+    await completeTaskViaResponse(eventId, ada, profileTask, null, validAnswers(), 1);
+    await completeTaskViaResponse(eventId, ada, profileTask, null, validAnswers());
+  });
+
   it("shows a saved answer over the column it was derived from", async () => {
     await pglite.query("UPDATE contacts SET bio_html = '<p>Stale.</p>' WHERE id = $1", [ada]);
     await completeTaskViaResponse(eventId, ada, profileTask, null, validAnswers({ [bioField]: { t: "s", v: "<p>Fresher.</p>" } }));

@@ -231,7 +231,23 @@ export async function getTaskFormIn(
       case "contact.job_title": value = text(contactRow?.jobTitle); break;
       case "submission.title": value = text(submissionRow?.title); break;
       case "submission.description_html": value = text(submissionRow?.description_html); break;
-      case "submission.level": value = text(submissionRow?.level); break;
+      // `submission.level` is stored as the option's *label* — `pipeline.ts`
+      // writes `chosen?.label` — and every place the field is authored makes it
+      // a dropdown, so the prefill has to come back through the option carrying
+      // that label, exactly like track and format below. Handing the raw string
+      // to a choice control rendered the box blank while leaving the stale value
+      // in client state, so pressing Submit failed with "Use the expected answer
+      // type" on a control the speaker sees as empty.
+      case "submission.level": {
+        const stored = submissionRow?.level?.trim();
+        const option = stored
+          ? field.options.find((entry) => entry.label.trim().toLocaleLowerCase() === stored.toLocaleLowerCase())
+          : undefined;
+        value = option
+          ? { t: "opt", v: option.id }
+          : (field.type === "dropdown" || field.type === "multiselect" ? undefined : text(submissionRow?.level));
+        break;
+      }
       // A dropdown answer is an option id, not the vocabulary id stored on the
       // row, so the prefill has to come back through the option that carries it.
       case "submission.track_id": {
