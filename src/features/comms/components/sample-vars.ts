@@ -80,8 +80,21 @@ export const SAMPLE_VARS: Record<TemplateKey, TemplateVars> = {
  * because they read the same contract.
  */
 function collectPaths(schema: z.ZodType, prefix: string[]): string[] {
-  if (schema instanceof z.ZodObject) {
-    return Object.entries(schema.shape).flatMap(([key, value]) => collectPaths(value as z.ZodType, [...prefix, key]));
+  // Unwrap first. `portal` became `.optional()` when the magic link stopped
+  // being minted for every template, and a `ZodOptional` is not a `ZodObject` —
+  // so the walk stopped one level short and yielded the bare `portal`. That
+  // broke the picker in both directions at once: the chip inserted
+  // `{{portal}}`, which `TOKENS_BY_KEY` rejects at save or send time, and
+  // `{{portal.magic_link}}` was no longer in the allowed list, so
+  // `unknownTokensClientSide` flagged it — disabling Save on the five shipped
+  // default templates that use it. The doc comment above promises the picker
+  // "cannot drift from what `validateTemplateBody` actually allows"; unwrapping
+  // is what keeps that true for any wrapper a contract picks up later.
+  const unwrapped = schema instanceof z.ZodOptional || schema instanceof z.ZodNullable || schema instanceof z.ZodDefault
+    ? (schema.def.innerType as z.ZodType)
+    : schema;
+  if (unwrapped instanceof z.ZodObject) {
+    return Object.entries(unwrapped.shape).flatMap(([key, value]) => collectPaths(value as z.ZodType, [...prefix, key]));
   }
   return [prefix.join(".")];
 }
