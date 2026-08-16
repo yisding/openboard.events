@@ -13,6 +13,7 @@ import {
   isPublicKind,
   publicFileHeaders,
   parseStagingKey,
+  presignWith,
   rejectionForSize,
   resolvePolicy,
   sanitizeFilename,
@@ -324,5 +325,51 @@ describe("authz", () => {
       linkedContactIds: [],
       requester: { kind: "contact", contactId: CONTACT_A },
     })).toBe(false);
+  });
+});
+
+/**
+ * Issue #629 — the staging PUT used to be signed over `host` alone, so a URL
+ * issued for a 1-byte headshot accepted any body R2 would take in one request.
+ * These assert the SigV4 contract itself: what R2 will recompute the signature
+ * over, and therefore what it will refuse.
+ */
+describe("presigned upload signing", () => {
+  const config = {
+    accountId: "acct-1",
+    accessKeyId: "AKIAEXAMPLE",
+    secretAccessKey: "s3cr3t",
+    bucket: "sb-files-test",
+  };
+
+  it("binds the declared size into the signature", async () => {
+    const url = new URL(await presignWith(config, "staging/e/headshot/f/photo.jpg", "PUT", 900, {
+      "content-length": "2048",
+    }));
+    expect(url.searchParams.get("X-Amz-SignedHeaders")?.split(";")).toContain("content-length");
+    expect(url.searchParams.get("X-Amz-Expires")).toBe("900");
+  });
+
+  // A charset suffix or a case difference would fail the whole upload for no
+  // security gain; the type is re-established from the landed bytes and served
+  // from the database row, never from what the client sent.
+  it("leaves content-type out of the signed set", async () => {
+    const url = new URL(await presignWith(config, "staging/e/headshot/f/photo.jpg", "PUT", 900, {
+      "content-length": "2048",
+    }));
+    expect(url.searchParams.get("X-Amz-SignedHeaders")?.split(";")).not.toContain("content-type");
+  });
+
+  // Two URLs for the same object differing only in authorized size must not be
+  // interchangeable — that substitution is the whole defect.
+  it("produces a different signature for a different declared size", async () => {
+    const small = new URL(await presignWith(config, "staging/e/headshot/f/photo.jpg", "PUT", 900, { "content-length": "1" }));
+    const large = new URL(await presignWith(config, "staging/e/headshot/f/photo.jpg", "PUT", 900, { "content-length": "104857600" }));
+    expect(small.searchParams.get("X-Amz-Signature")).not.toBe(large.searchParams.get("X-Amz-Signature"));
+  });
+
+  it("signs a download URL over host alone — a GET has no body to bind", async () => {
+    const url = new URL(await presignWith(config, "public/e/headshot/f/photo.jpg", "GET", 3600));
+    expect(url.searchParams.get("X-Amz-SignedHeaders")).toBe("host");
   });
 });

@@ -281,7 +281,7 @@ function filesBucket() {
   throw new AppError("INTERNAL", "R2 FILES binding is not available");
 }
 
-type R2Config = { accountId: string; accessKeyId: string; secretAccessKey: string; bucket: string };
+export type R2Config = { accountId: string; accessKeyId: string; secretAccessKey: string; bucket: string };
 
 function r2Config(): R2Config {
   const env = getEnv();
@@ -311,13 +311,32 @@ function awsClient(config: R2Config): AwsClient {
 }
 
 async function presign(key: string, method: "PUT" | "GET", expiresInSeconds: number, headers?: Record<string, string>): Promise<string> {
-  const config = r2Config();
+  return presignWith(r2Config(), key, method, expiresInSeconds, headers);
+}
+
+/**
+ * The config-injected form, so the signing contract can be asserted in a test
+ * without R2 credentials in the environment. `presign` is the production entry
+ * point and supplies the real config.
+ *
+ * `allHeaders` is what makes any supplied header part of the signature.
+ * aws4fetch keeps `content-length` and `content-type` in `UNSIGNABLE_HEADERS`
+ * and drops them otherwise, which is how a URL issued for a 1-byte headshot
+ * used to accept any body R2 would take in one PUT: `X-Amz-SignedHeaders` was
+ * `host` alone.
+ */
+export async function presignWith(
+  config: R2Config,
+  key: string,
+  method: "PUT" | "GET",
+  expiresInSeconds: number,
+  headers?: Record<string, string>,
+): Promise<string> {
   const url = objectUrl(config, key);
   url.searchParams.set("X-Amz-Expires", String(expiresInSeconds));
   const signed = await awsClient(config).sign(url.toString(), {
     method,
-    ...(headers ? { headers } : {}),
-    aws: { signQuery: true },
+    ...(headers ? { headers, aws: { signQuery: true, allHeaders: true } } : { aws: { signQuery: true } }),
   });
   return signed.url;
 }
@@ -385,34 +404,37 @@ export async function createUpload(input: CreateUploadInput): Promise<CreateUplo
     ...(input.uploadedByUserId ? { uploadedByUserId: input.uploadedByUserId } : {}),
     ...(input.uploadedByContactId ? { uploadedByContactId: input.uploadedByContactId } : {}),
   });
-  // These are handed to the client and sent on the PUT, but they are NOT bound
-  // into the signature: aws4fetch lists `content-type` and `content-length` in
-  // UNSIGNABLE_HEADERS and drops them unless `allHeaders` is set, which
-  // `presign` does not pass — so `X-Amz-SignedHeaders` is only `host`. A URL
-  // issued for a 1-byte headshot will therefore accept any body R2 takes in a
-  // single PUT.
+  // The declared size is bound into the signature, so this URL accepts exactly
+  // `sizeBytes` and nothing else. Until it was, `X-Amz-SignedHeaders` was
+  // `host` alone and a URL issued for a 1-byte headshot accepted any body R2
+  // would take in a single PUT — bounded only by the per-uploader presign
+  // counter and reclaimed only by the daily staging sweep.
   //
-  // What actually enforces the limit is the post-copy inspection below:
+  // Only `content-length` is signed. It is a number the browser derives from
+  // the File body itself, so it either equals what presign approved or the
+  // upload was not the one that was authorized — there is no normalization for
+  // it to disagree over. `content-type` is deliberately left unsigned: a
+  // charset suffix or a case difference would fail the whole upload for no
+  // security gain, and the type is already established twice over downstream —
+  // `inspectPublished` sniffs the bytes that actually landed, and
+  // `publicFileHeaders` serves the `mime` from the database row rather than
+  // anything the client sent.
+  //
+  // Post-copy inspection remains the authority on what is *published*:
   // `finalizeUpload` copies to the published key, then `inspectPublished` ->
-  // `rejectionForSize` re-checks the bytes that really landed against both the
-  // kind ceiling and `authorizedBytes`, and deletes both objects and the row.
-  // Nothing oversize is ever published or served, and the unsigned content type
-  // never reaches a response header — `publicFileHeaders` uses the DB `mime`.
-  // The residual cost is unreclaimed `staging/` bytes until the daily sweep;
-  // `/api/uploads/presign` bounds that with a per-uploader rate limit.
-  //
-  // Passing `aws: { allHeaders: true }` in `presign` would bind them properly,
-  // but it makes every upload fail if the browser's own Content-Length or
-  // Content-Type differs from the signed value by a byte or a charset suffix,
-  // and that cannot be verified against a mocked R2. It needs a live-bucket
-  // check before it ships.
-  const signedHeaders = { "content-type": input.mime, "content-length": String(input.sizeBytes) };
-  const uploadUrl = await presign(stagingKey, "PUT", PRESIGN_PUT_SECONDS, signedHeaders);
+  // `rejectionForSize` re-checks the real bytes against both the kind ceiling
+  // and `authorizedBytes` and deletes both objects and the row. This closes the
+  // window before that — the staging write itself.
+  const uploadUrl = await presign(stagingKey, "PUT", PRESIGN_PUT_SECONDS, {
+    "content-length": String(input.sizeBytes),
+  });
   return {
     fileId,
     uploadUrl,
-    // Content-Length remains signed above, but a browser derives it from the
-    // File body and forbids JavaScript from setting it explicitly.
+    // Content-Length is signed but not listed here: a browser derives it from
+    // the File body and forbids JavaScript from setting it, which is exactly
+    // why binding it is safe. Content-Type is sent, unsigned, so the staged
+    // object carries a sensible type.
     requiredHeaders: { "Content-Type": input.mime },
   };
 }

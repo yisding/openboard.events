@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { parseResendWebhookEvent, recordSuppression, suppressAddress, verifyResendWebhookSignature } from "@/features/comms";
+import { claimWebhookDelivery, parseResendWebhookEvent, recordSuppression, suppressAddress, verifyResendWebhookSignature } from "@/features/comms";
 import { recordAdminAuthEmailSuppression } from "@/features/auth";
+import { db } from "@/db/client";
 import { AppError } from "@/shared/lib/errors";
 import { getEnv } from "@/shared/lib/env";
 import { log } from "@/shared/lib/log";
@@ -38,6 +39,17 @@ export async function POST(request: NextRequest): Promise<Response> {
     const body = await request.text();
     const verified = await verifyResendWebhookSignature({ id, timestamp, signature, body, secret });
     if (!verified) throw new AppError("UNAUTHORIZED", "Invalid webhook signature");
+
+    // Signature and timestamp together prove the payload is genuine and recent.
+    // Neither proves it is new: until this claim existed, anyone holding a
+    // captured delivery could replay it for the full tolerance window. The
+    // reply is a 200, not a rejection — the delivery *was* accepted, the first
+    // time — because a 4xx here would put Svix into its retry ladder for a
+    // message this endpoint has already handled.
+    if (!await claimWebhookDelivery(db, "resend", id)) {
+      log({ level: "info", msg: "webhook.resend.duplicate", requestId, feature: "comms", route: "/api/webhooks/resend" });
+      return NextResponse.json({ data: { ok: true, duplicate: true } });
+    }
 
     const parsed = parseResendWebhookEvent(body);
     if (parsed) {

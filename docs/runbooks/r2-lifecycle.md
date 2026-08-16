@@ -18,6 +18,15 @@ and the published key `finalizeUpload` copies it to, once validated, is:
 evt_<eventId>/<kind>/<fileId>/<filename>
 ```
 
+The URL is signed over `content-length` as well as `host`, so it accepts exactly the size presign
+approved and nothing else — R2 recomputes the signature against the Content-Length the browser
+derived from the File body, and a substituted body fails the signature rather than the later
+inspection. `content-type` is deliberately left unsigned: a charset suffix or a case difference
+would fail an otherwise valid upload for no security gain, and the type is re-established from the
+landed bytes by `inspectPublished` and served from the database row by `publicFileHeaders`. The
+post-copy inspection is still the authority on what is *published*; the signed length is what keeps
+a single approved presign from writing an unbounded object into `staging/` in the first place.
+
 A browser that never completes the PUT, or completes it but never calls finalize, leaves a staging
 object behind unless something reclaims it. The application has two cleanup paths:
 
