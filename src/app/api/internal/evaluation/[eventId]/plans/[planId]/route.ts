@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { adminAuth } from "@/features/auth";
-import { deletePlan, planUpdateSchema, requestWithPathValues, savePlan } from "@/features/submissions";
+import { deletePlan, getPlan, planUpdateSchema, requestWithPathValues, savePlan } from "@/features/submissions";
 import { eventIdSchema, planIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
 
@@ -15,9 +15,15 @@ export const dynamic = "force-dynamic";
 const update = defineHandler({
   auth: adminAuth({ role: "organizer" }),
   input: planUpdateSchema,
+  // The saved round travels back with its id, the same way the assignment and
+  // reviewer writes hand back theirs: the editor's caller renders this row, and
+  // a list that keeps its pre-save numbers until a reload contradicts the toast
+  // that just said the save worked.
   handler: async ({ eventId, input }) => {
+    const event = eventIdSchema.parse(eventId);
     const { expectedUpdatedAt, ...plan } = input;
-    return savePlan(eventIdSchema.parse(eventId), plan, expectedUpdatedAt);
+    const saved = await savePlan(event, plan, expectedUpdatedAt);
+    return { ...saved, plan: await getPlan(event, saved.planId) };
   },
 });
 

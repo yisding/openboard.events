@@ -161,11 +161,28 @@ function PromotionQueue({ eventId, accepted, promotedOnly = false }: {
   );
 }
 
-/** Accepted abstracts are a separate intake queue, not a second unscheduled-session tray. */
+/**
+ * Accepted abstracts are a separate intake queue, not a second
+ * unscheduled-session tray — and an empty intake queue is not a panel.
+ *
+ * The Day view gave this column ~220px whether or not it held anything, and
+ * "nothing left to promote" is the *normal* state of a healthy event, not an
+ * edge case: it is exactly where the demo lands after the tour's publish step.
+ * So a fifth of the width sat on the word `0` while the grid — the thing the
+ * screen is for — showed two of five rooms behind a horizontal scroll.
+ *
+ * Rendering nothing rather than an empty-state line, because the line said
+ * only what the absence says. `.agenda-workspace` hands the track back with
+ * `:not(:has())`, so the grid claims the width nobody is using.
+ */
 export function ReadyToPromoteTray({ eventId, accepted }: {
   eventId: EventId;
   accepted: AcceptedForSchedulingRow[];
 }) {
+  // The same predicate `PromotionQueue` filters on. Computed here too rather
+  // than pushed down, because the decision is whether the column exists at
+  // all, and a component cannot un-render its own parent's grid track.
+  if (!accepted.some((row) => !row.alreadyPromoted)) return null;
   return (
     <aside className="unscheduled-tray promotion-tray" aria-label="Accepted abstracts ready to promote">
       <PromotionQueue eventId={eventId} accepted={accepted} promotedOnly />

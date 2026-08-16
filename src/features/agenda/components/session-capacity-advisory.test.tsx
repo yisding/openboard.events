@@ -95,6 +95,7 @@ async function renderDialog(sessionProp: typeof session | null): Promise<void> {
         onClose={() => undefined}
         session={sessionProp}
         defaultDay={null}
+        onSpeakerAdded={() => undefined}
         eventId={eventId}
         event={{
           timezone: "America/Los_Angeles",

@@ -119,6 +119,7 @@ export function SessionFormDialog({
   tracks,
   formats,
   speakers,
+  onSpeakerAdded,
 }: {
   open: boolean;
   onClose: () => void;
@@ -126,6 +127,12 @@ export function SessionFormDialog({
   session: ScheduledSessionDTO | null;
   /** Event-local day selected in the agenda toolbar. */
   defaultDay: string | null;
+  /**
+   * A contact created by the quick-add inside this dialog. The agenda page
+   * keeps it so every view can name the speaker on the row this dialog saves,
+   * not just the picker it was typed into.
+   */
+  onSpeakerAdded: (speaker: QuickAddedSpeaker) => void;
 } & Pick<AgendaViewProps, "eventId" | "event" | "rooms" | "tracks" | "formats" | "speakers">) {
   const { toast } = useToast();
   const { runGuarded } = useGuardedAction();
@@ -199,25 +206,6 @@ export function SessionFormDialog({
         : [...current.speakerContactIds, contactId],
     }));
   };
-
-  /**
-   * Speakers created from inside this dialog. `speakers` comes from the page's
-   * server render and will not include them until the next navigation, so the
-   * person the organizer just typed in has to be held here to stay visible and
-   * checked.
-   *
-   * Deliberately *not* cleared when `identity` changes. A created contact
-   * belongs to the event, not to the session that happened to be open when it
-   * was made — clearing on switch would drop the only client-side copy of a
-   * contact that really exists on the server, and it would vanish from every
-   * later picker until a manual refresh.
-   */
-  const [addedSpeakers, setAddedSpeakers] = useState<QuickAddedSpeaker[]>([]);
-  const pickableSpeakers = useMemo<QuickAddedSpeaker[]>(() => {
-    const known = speakers.map((speaker) => ({ contactId: String(speaker.contactId), name: speaker.name }));
-    const knownIds = new Set(known.map((speaker) => speaker.contactId));
-    return [...known, ...addedSpeakers.filter((added) => !knownIds.has(added.contactId))];
-  }, [speakers, addedSpeakers]);
 
   const submit = async () => {
     setError(null);
@@ -494,12 +482,15 @@ export function SessionFormDialog({
               list of checkboxes that each own a <label>, and a <label> wrapping
               them is invalid HTML — it labelled only the first checkbox, with
               an accessible name built from every *other* speaker's name. */}
+          {/* `speakers` already carries the contacts quick-added since this page
+              loaded: the agenda page holds them, so the row this dialog saves
+              can name its speaker without waiting for a server render. */}
           <Field label="Speakers" group hint="The first one selected is the primary speaker.">
             <div className="agenda-speaker-picker">
-              {pickableSpeakers.length === 0 && (
+              {speakers.length === 0 && (
                 <span className="dash">No contacts on this event yet — add the speaker below</span>
               )}
-              {pickableSpeakers.map((speaker) => (
+              {speakers.map((speaker) => (
                 <label key={speaker.contactId}>
                   <input
                     type="checkbox"
@@ -517,7 +508,7 @@ export function SessionFormDialog({
                 disabled={createControlsLocked}
                 onPendingChange={setSpeakerQuickAddPending}
                 onAdded={(speaker) => {
-                  setAddedSpeakers((current) => [...current, speaker]);
+                  onSpeakerAdded(speaker);
                   toggleSpeaker(speaker.contactId);
                 }}
               />

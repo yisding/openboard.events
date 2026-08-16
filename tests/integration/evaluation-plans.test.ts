@@ -75,6 +75,14 @@ async function giveReview(planId: PlanId, submissionId: SubmissionId, reviewerUs
   );
 }
 
+/** A review a reviewer has opened and not finished: a row with no `submitted_at`. */
+async function beginReview(planId: PlanId, submissionId: SubmissionId, reviewerUserId: UserId): Promise<void> {
+  await pglite.query(
+    "INSERT INTO reviews(event_id,plan_id,submission_id,reviewer_user_id,overall_score,submitted_at) VALUES($1,$2,$3,$4,NULL,NULL)",
+    [eventId, planId, submissionId, reviewerUserId],
+  );
+}
+
 describe("evaluation plans and reviewer routing", () => {
   beforeAll(async () => {
     pglite = new PGlite();
@@ -605,6 +613,41 @@ describe("evaluation plans and reviewer routing", () => {
     const empty = await savePlanIn(runEvaluationTransaction, eventId, planInput({ name: "Round 2", round: 2 }));
     await deletePlanIn(db, eventId, empty.planId);
     expect((await listPlansIn(db, eventId)).map((plan) => plan.id)).toEqual([planId]);
+  });
+
+  it("reports the scoring lock on the same fact that enforces it", async () => {
+    // The editor greys out the scale and the criteria for a scored round. It can
+    // only do that honestly if the DTO's flag turns over at exactly the moment
+    // `assertScoringShapeEditable` starts refusing — one review, anywhere in the
+    // round, whether or not it is finished or still in the round's track scope.
+    const planId = await seedPlan();
+    expect((await getPlanIn(db, eventId, planId)).hasReviews).toBe(false);
+    await expect(savePlanIn(runEvaluationTransaction, eventId, planInput({ planId, scaleMax: 7 })))
+      .resolves.toMatchObject({ planId });
+
+    // An unfinished review is enough on both sides. Deriving the flag from
+    // finished-review progress instead would leave the scale editable for a
+    // round a reviewer is part-way through, and the save would refuse it.
+    await beginReview(planId, platformsTalk, ada);
+
+    expect((await getPlanIn(db, eventId, planId)).progress.scored).toBe(0);
+    expect((await getPlanIn(db, eventId, planId)).hasReviews).toBe(true);
+    expect((await listPlansIn(db, eventId)).map((plan) => plan.hasReviews)).toEqual([true]);
+    const refusedForUnfinished = await savePlanIn(runEvaluationTransaction, eventId, planInput({ planId, scaleMax: 8 }))
+      .catch((thrown: unknown) => thrown);
+    expect(isAppError(refusedForUnfinished) && refusedForUnfinished.code).toBe("CONFLICT");
+
+    await giveReview(planId, platformsTalk, grace, 4);
+
+    expect((await getPlanIn(db, eventId, planId)).hasReviews).toBe(true);
+    expect((await listPlansIn(db, eventId)).map((plan) => plan.hasReviews)).toEqual([true]);
+    const refused = await savePlanIn(runEvaluationTransaction, eventId, planInput({ planId, scaleMax: 9 }))
+      .catch((thrown: unknown) => thrown);
+    expect(isAppError(refused) && refused.code).toBe("CONFLICT");
+    // …and no wider than that: renaming a scored round still saves, which is why
+    // the editor locks the scale and criteria rather than the whole dialog.
+    await expect(savePlanIn(runEvaluationTransaction, eventId, planInput({ planId, name: "Round 1 renamed", scaleMax: 7 })))
+      .resolves.toMatchObject({ planId });
   });
 
   it("offers every member of the event as a possible reviewer", async () => {

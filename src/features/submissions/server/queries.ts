@@ -112,7 +112,12 @@ async function selectRows(
       sc.email AS "submitterEmail",
       nullif(btrim(coalesce(sc.first_name, '') || ' ' || coalesce(sc.last_name, '')), '') AS "submitterName",
       COALESCE((
-        SELECT json_agg(json_build_object('contactId', c.id, 'name', btrim(c.first_name || ' ' || c.last_name), 'isPrimary', sp.is_primary)
+        -- A contact is allowed to have no name yet: an organizer can add one by
+        -- address alone, and a form need not ask for one. The Speakers column
+        -- joins these with ", ", so an empty name rendered as "Ada Lovelace, "
+        -- — a row that looks broken rather than one that names who it can. Fall
+        -- back to the address, which is what the drawer already shows.
+        SELECT json_agg(json_build_object('contactId', c.id, 'name', COALESCE(nullif(btrim(c.first_name || ' ' || c.last_name), ''), c.email), 'isPrimary', sp.is_primary)
                         ORDER BY sp.is_primary DESC, sp.sort_order)
         FROM submission_participants sp
         JOIN contacts c ON c.id = sp.contact_id AND c.event_id = sp.event_id

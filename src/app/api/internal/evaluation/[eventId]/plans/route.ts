@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { adminAuth } from "@/features/auth";
-import { listPlans, planCreateInputSchema, savePlan } from "@/features/submissions";
+import { getPlan, listPlans, planCreateInputSchema, savePlan } from "@/features/submissions";
 import { eventIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
 import { z } from "zod";
@@ -20,7 +20,13 @@ const list = defineHandler({
 const create = defineHandler({
   auth: adminAuth({ role: "organizer" }),
   input: planCreateInputSchema,
-  handler: async ({ eventId, input }) => savePlan(eventIdSchema.parse(eventId), input),
+  // As with PATCH: the new round comes back whole, so the list it belongs to
+  // can show it without waiting for a reload.
+  handler: async ({ eventId, input }) => {
+    const event = eventIdSchema.parse(eventId);
+    const saved = await savePlan(event, input);
+    return { ...saved, plan: await getPlan(event, saved.planId) };
+  },
 });
 
 export async function GET(request: NextRequest, route: { params: Promise<{ eventId: string }> }): Promise<Response> {
