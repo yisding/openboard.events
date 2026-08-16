@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { TemplateVars } from "@/shared/contracts";
+import { TEMPLATE_KEYS, type TemplateVars } from "@/shared/contracts";
 import { SAMPLE_VARS, templateVariablePaths } from "./components/sample-vars";
+import { unknownTokensClientSide } from "./components/validate-client";
+import { DEFAULT_TEMPLATES } from "./server/templates";
 import { renderTemplate, renderTemplateContent, validateTemplateBody } from "./server/render";
 
 const common = {
@@ -46,6 +48,36 @@ describe("communications template renderer", () => {
     } as TemplateVars;
     expect(() => renderTemplateContent("submission_received", "Received", "<p>{{submission.title}}</p>", vars))
       .toThrowError(/missing variable submission\.title/u);
+  });
+
+  it("offers every shipped default template's own tokens, and validates each one unedited", () => {
+    // The picker walks `TEMPLATE_VAR_SCHEMAS` and the server checks a
+    // hand-listed `TOKENS_BY_KEY`; the doc comment on the walk promises the two
+    // "cannot drift". They did: when `portal` became `.optional()`, a
+    // `ZodOptional` stopped matching the walk's `ZodObject` test, so it yielded
+    // the bare `portal` — a token the server rejects — and dropped
+    // `portal.magic_link`, which five shipped defaults use. Every one of them
+    // then opened in the editor with "Unknown variable {{portal.magic_link}}"
+    // and a disabled Save.
+    //
+    // Asserted over every key rather than the one that broke, because the next
+    // wrapper a contract picks up would break the same way.
+    for (const key of TEMPLATE_KEYS) {
+      const template = DEFAULT_TEMPLATES[key];
+      if (!template) continue;
+      expect(
+        unknownTokensClientSide(key, template.subject, template.bodyHtml),
+        `${key} default body`,
+      ).toEqual([]);
+
+      // And every chip the picker offers is a token the server accepts.
+      for (const path of templateVariablePaths(key)) {
+        expect(
+          () => validateTemplateBody(key, "Subject", `<p>{{${path}}}</p>`),
+          `${key} offers {{${path}}}`,
+        ).not.toThrow();
+      }
+    }
   });
 
   it("does not offer the unsubscribe token where it can only render a broken link", () => {
