@@ -72,6 +72,29 @@ describe("CRM custom field creation", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
+  it("normalizes a hand-edited key to the server-legal shape as it is typed", async () => {
+    const created = { id: fieldId, key: "diet_needs", label: "Dietary needs", fieldType: "text", options: [], sortOrder: 0 };
+    apiMock.mockResolvedValueOnce(created);
+    await act(async () => root.render(<CrmCustomFieldCreateDialog organizationId={organizationId} open onClose={vi.fn()} onCreated={vi.fn()} />));
+
+    await fillLabel("Label", "Dietary needs");
+    // Uppercase, spaces, punctuation and a leading underscore must all be
+    // stripped so the value can only ever match `^[a-z0-9][a-z0-9_]*$`.
+    await fillLabel("Key", "  __Diet Needs!! ");
+
+    const keyField = [...container.querySelectorAll<HTMLLabelElement>(".field")].find((node) => node.textContent?.includes("Key"));
+    const keyInput = keyField?.querySelector<HTMLInputElement>("input");
+    expect(keyInput?.value).toBe("dietneeds");
+
+    await act(async () => { buttonNamed("Create field")?.click(); await Promise.resolve(); });
+
+    expect(apiMock).toHaveBeenCalledWith(
+      `organizations/${organizationId}/crm/custom-fields`,
+      expect.anything(),
+      { method: "POST", body: { key: "dietneeds", label: "Dietary needs", fieldType: "text", options: [] } },
+    );
+  });
+
   it("sends the newline-separated options only for a select field", async () => {
     const created = { id: fieldId, key: "shirt", label: "Shirt", fieldType: "select", options: ["S", "M"], sortOrder: 0 };
     apiMock.mockResolvedValueOnce(created);

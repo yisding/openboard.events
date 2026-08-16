@@ -13,6 +13,14 @@ function keyFromLabel(label: string): string {
   return label.trim().toLowerCase().replace(/[^a-z0-9]+/gu, "_").replace(/^_+|_+$/gu, "").slice(0, 60);
 }
 
+/** Keep a hand-edited key inside the same shape the server enforces
+ * (`^[a-z0-9][a-z0-9_]*$`): lowercase, drop anything that is not a letter,
+ * digit or underscore, and refuse a leading underscore so the field can only
+ * ever hold a contract-legal slug rather than round-trip to a 400. */
+function normalizeKey(raw: string): string {
+  return raw.toLowerCase().replace(/[^a-z0-9_]/gu, "").replace(/^_+/u, "").slice(0, 60);
+}
+
 /**
  * M55 — define a new CRM custom field. The custom-fields POST endpoint always
  * existed and setting a field on a contact already worked, but no UI ever
@@ -99,7 +107,7 @@ export function CrmCustomFieldCreateDialog({
         <Field label="Key" required hint="Lowercase letters, numbers and underscores. Used in imports and the API." error={fieldErrors.key}>
           <input
             value={effectiveKey}
-            onChange={(event) => { setKeyEdited(true); setKey(event.target.value); }}
+            onChange={(event) => { setKeyEdited(true); setKey(normalizeKey(event.target.value)); }}
             placeholder="dietary_needs"
             maxLength={60}
           />
