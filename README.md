@@ -53,7 +53,7 @@ the dashboard, building a form, triaging proposals, scoring them, deciding and n
 visiting a speaker's portal, fixing a scheduling conflict, publishing to the public site, and
 the email machinery underneath.
 
-![The guided tour's coach card, pointing at the command palette](docs/screenshots/guided-tour.png)
+![The tour's opening beat: three numbers about the conference you were just handed](docs/screenshots/guided-tour.png)
 
 Each step is verified against what is actually in the database rather than against clicks, so
 finishing one in another tab, on your phone, or by a route nobody scripted all count.
@@ -239,7 +239,7 @@ Already have a conference website? **Embeds** gives you an iframe for each surfa
 sessions list, itinerary, speakers list, speaker gallery — that you paste into your own site.
 They're live: reschedule a talk in the Agenda and every embed updates.
 
-![The embeds screen: five embeddable surfaces, one of them switched on](docs/screenshots/embeds.png)
+![The embeds screen, with five embeddable surfaces and a switch for each](docs/screenshots/embeds.png)
 
 Once something is public, **Ready to announce** on the Agenda hands you the announcement in one
 place: suggested copy, the link to every public page, an embed snippet, and a personal
