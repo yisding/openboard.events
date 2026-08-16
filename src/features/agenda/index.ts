@@ -45,6 +45,8 @@ export {
   listAgendaVocabularyIn,
   listSessionContentRevisions,
   listSessionContentRevisionsIn,
+  listSessionPlacementRevisions,
+  listSessionPlacementRevisionsIn,
   listSessions,
   listSessionsIn,
 } from "./server/queries";

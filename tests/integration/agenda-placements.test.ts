@@ -28,6 +28,7 @@ const migrationSpeakerRoster = readFileSync(new URL("../../drizzle/0008_speaker_
 // Manual agenda creates atomically consume their caller-owned id in a durable
 // receipt, so this reduced fixture needs the receipt table as well.
 const migrationAgendaCreationReceipts = readFileSync(new URL("../../drizzle/0031_agenda_session_creation_receipts.sql", import.meta.url), "utf8");
+const migrationSessionPlacementRevisions = readFileSync(new URL("../../drizzle/0050_session_placement_revisions.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("a9000000-0000-4000-8000-000000000001");
 const ada = contactIdSchema.parse("a9000000-0000-4000-8000-000000000010");
@@ -93,6 +94,7 @@ describe("M54 assisted agenda placement", () => {
     await pglite.exec(migrationEmailCompliance);
     await pglite.exec(migrationSpeakerRoster);
     await pglite.exec(migrationAgendaCreationReceipts);
+    await pglite.exec(migrationSessionPlacementRevisions);
     testDb = createTestDb(pglite);
 
     await pglite.query(

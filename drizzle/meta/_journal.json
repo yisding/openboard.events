@@ -351,6 +351,13 @@
       "when": 1786818000000,
       "breakpoints": false,
       "tag": "0049_embeds_one_row_per_content_type"
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1786819000000,
+      "breakpoints": false,
+      "tag": "0050_session_placement_revisions"
     }
   ]
 }

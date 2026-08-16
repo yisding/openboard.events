@@ -30,6 +30,7 @@ const migrationPublicScheduleRevision = readFileSync(new URL("../../drizzle/0034
 // for the ALTER to find a constraint to replace.
 const migrationOnboardingMilestones = readFileSync(new URL("../../drizzle/0023_onboarding_milestones.sql", import.meta.url), "utf8");
 const migrationDemoEvents = readFileSync(new URL("../../drizzle/0047_demo_events_and_tour.sql", import.meta.url), "utf8");
+const migrationSessionPlacementRevisions = readFileSync(new URL("../../drizzle/0050_session_placement_revisions.sql", import.meta.url), "utf8");
 
 const env = parseEnv({
   APP_ENV: "local",
@@ -69,6 +70,7 @@ describe("buildPublicScheduleIcsIn (M53 anonymous itinerary export, reuses M35's
     await pglite.exec(migrationPublicScheduleRevision);
     await pglite.exec(migrationOnboardingMilestones);
     await pglite.exec(migrationDemoEvents);
+    await pglite.exec(migrationSessionPlacementRevisions);
     db = drizzle(pglite, { schema }) as unknown as DbOrTx;
 
     await pglite.query(

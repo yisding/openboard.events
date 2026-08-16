@@ -9,6 +9,7 @@ import {
   fileUploadIdSchema,
   sessionContentRevisionIdSchema,
   sessionIdSchema,
+  sessionPlacementRevisionIdSchema,
   submissionIdSchema,
   taskIdSchema,
 } from "./ids";
@@ -71,6 +72,36 @@ export const sessionContentRevisionDtoSchema = z.object({
   createdAt: z.iso.datetime(),
 });
 export type SessionContentRevisionDTO = z.infer<typeof sessionContentRevisionDtoSchema>;
+
+/**
+ * MTP-07 — one recorded move of a session: where it was, where it went, who
+ * moved it and when.
+ *
+ * Room *names* rather than room ids, and both sides frozen at write time: a
+ * room that is later renamed or deleted must not silently rewrite (or erase)
+ * the history of the placements it once held.
+ */
+const placementSideSchema = z.object({
+  startsAt: z.iso.datetime().nullable(),
+  endsAt: z.iso.datetime().nullable(),
+  roomName: z.string().nullable(),
+});
+export const sessionPlacementRevisionDtoSchema = z.object({
+  id: sessionPlacementRevisionIdSchema,
+  sessionId: sessionIdSchema,
+  from: placementSideSchema,
+  to: placementSideSchema,
+  movedByName: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+});
+export type SessionPlacementRevisionDTO = z.infer<typeof sessionPlacementRevisionDtoSchema>;
+
+/** Both halves of a session's history, in one round trip for the editor dialog. */
+export const sessionHistoryDtoSchema = z.object({
+  content: z.array(sessionContentRevisionDtoSchema),
+  placements: z.array(sessionPlacementRevisionDtoSchema),
+});
+export type SessionHistoryDTO = z.infer<typeof sessionHistoryDtoSchema>;
 
 export const fileExportJobDtoSchema = z.object({
   id: fileExportJobIdSchema,

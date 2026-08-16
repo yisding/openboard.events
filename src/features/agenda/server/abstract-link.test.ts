@@ -13,6 +13,10 @@ const migration0 = readFileSync(new URL("../../../../drizzle/0000_init.sql", imp
 const migrationContentRevisions = readFileSync(new URL("../../../../drizzle/0006_content_deliverables.sql", import.meta.url), "utf8");
 const migrationCreationReceipts = readFileSync(new URL("../../../../drizzle/0031_agenda_session_creation_receipts.sql", import.meta.url), "utf8");
 const migrationCalendarCancellationSnapshots = readFileSync(new URL("../../../../drizzle/0043_calendar_cancellation_snapshots.sql", import.meta.url), "utf8");
+// Both writers exercised below now record a placement revision as part of the
+// same statement/transaction, so the table they record into has to exist here
+// even though nothing in this file reads it.
+const migrationPlacementRevisions = readFileSync(new URL("../../../../drizzle/0050_session_placement_revisions.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("b1100000-0000-4000-8000-000000000001");
 const promoted = sessionIdSchema.parse("b1200000-0000-4000-8000-000000000001");
@@ -35,6 +39,7 @@ describe("a session's link to the abstract it was promoted from", () => {
     await pg.exec(migrationContentRevisions);
     await pg.exec(migrationCreationReceipts);
     await pg.exec(migrationCalendarCancellationSnapshots);
+    await pg.exec(migrationPlacementRevisions);
     database = drizzle(pg, { schema }) as unknown as DbOrTx;
     await pg.query(
       `INSERT INTO events(id,name,slug,timezone,starts_at,ends_at)
