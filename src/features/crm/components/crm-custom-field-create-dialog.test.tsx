@@ -95,6 +95,26 @@ describe("CRM custom field creation", () => {
     );
   });
 
+  it("keeps Create disabled for a select field until at least one option is given", async () => {
+    await act(async () => root.render(<CrmCustomFieldCreateDialog organizationId={organizationId} open onClose={vi.fn()} onCreated={vi.fn()} />));
+
+    await fillLabel("Label", "Shirt");
+    const select = container.querySelector<HTMLSelectElement>("select");
+    if (!select) throw new Error("Type select was not rendered");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set?.call(select, "select");
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    // Label + key are satisfied, but a select with no options must not submit.
+    expect(buttonNamed("Create field")?.disabled).toBe(true);
+    await act(async () => { buttonNamed("Create field")?.click(); await Promise.resolve(); });
+    expect(apiMock).not.toHaveBeenCalled();
+
+    await fillLabel("Options", "Small");
+    expect(buttonNamed("Create field")?.disabled).toBe(false);
+  });
+
   it("sends the newline-separated options only for a select field", async () => {
     const created = { id: fieldId, key: "shirt", label: "Shirt", fieldType: "select", options: ["S", "M"], sortOrder: 0 };
     apiMock.mockResolvedValueOnce(created);

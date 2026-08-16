@@ -50,6 +50,10 @@ export function CrmCustomFieldCreateDialog({
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const effectiveKey = keyEdited ? key : keyFromLabel(label);
+  const parsedOptions = optionsText.split("\n").map((line) => line.trim()).filter(Boolean);
+  // A select field is marked "required" on Options; block the round-trip that
+  // the server `refine` would only reject with a 400 rather than send it.
+  const canSubmit = Boolean(label.trim()) && Boolean(effectiveKey) && (fieldType !== "select" || parsedOptions.length > 0);
 
   function reset() {
     setLabel(""); setKey(""); setKeyEdited(false); setFieldType("text"); setOptionsText("");
@@ -57,11 +61,11 @@ export function CrmCustomFieldCreateDialog({
   }
 
   async function create() {
-    if (busy || !label.trim() || !effectiveKey) return;
+    if (busy || !canSubmit) return;
     setBusy(true);
     setError(null);
     setFieldErrors({});
-    const options = optionsText.split("\n").map((line) => line.trim()).filter(Boolean);
+    const options = parsedOptions;
     try {
       const field = await api(`organizations/${organizationId}/crm/custom-fields`, crmCustomFieldDtoSchema, {
         method: "POST",
@@ -91,7 +95,7 @@ export function CrmCustomFieldCreateDialog({
       description="Define a field once for the organization, then set it on any contact."
       footer={<>
         <Button variant="secondary" onClick={() => { reset(); onClose(); }} disabled={busy}>Cancel</Button>
-        <Button onClick={() => void create()} disabled={busy || !label.trim() || !effectiveKey}>{busy ? "Creating…" : "Create field"}</Button>
+        <Button onClick={() => void create()} disabled={busy || !canSubmit}>{busy ? "Creating…" : "Create field"}</Button>
       </>}
     >
       <div className="form-stack">
