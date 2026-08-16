@@ -2,11 +2,11 @@ import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { DbOrTx } from "@/db/client";
+import type { DbOrTx, TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
 import { eventIdSchema, sessionIdSchema, type ScheduledSessionDTO } from "@/shared/contracts";
 import { abstractDivergence } from "../lib/abstract-divergence";
-import { saveSessionIn } from "./mutations";
+import { moveSessionInTx, saveSessionIn } from "./mutations";
 import { getSessionIn, listSessionsIn } from "./queries";
 
 const migration0 = readFileSync(new URL("../../../../drizzle/0000_init.sql", import.meta.url), "utf8");
@@ -114,5 +114,22 @@ describe("a session's link to the abstract it was promoted from", () => {
     });
     expect(saved.linkedSubmission).toMatchObject({ title: "Reliable agents, revisited", status: "accepted" });
     expect(abstractDivergence(saved)).toMatchObject({ kind: "title_drift" });
+  });
+
+  // A drag is the one write whose response is written straight into the
+  // TanStack cache (`acceptServerMove` replaces the whole row), and
+  // `linkedSubmission` parses `.default(null)` — so an omission here would
+  // erase the mark silently rather than throw.
+  it("keeps the link on the row a drag returns", async () => {
+    const before = await read(promoted);
+    const { session } = await moveSessionInTx(database as unknown as TxDb, eventId, {
+      id: promoted,
+      version: before.rowVersion,
+      startsAt: "2026-09-15T18:00:00.000Z",
+      endsAt: "2026-09-15T18:30:00.000Z",
+      roomId: null,
+    });
+    expect(session.linkedSubmission).toMatchObject({ title: "Reliable agents, revisited", status: "accepted" });
+    expect(abstractDivergence(session)).toMatchObject({ kind: "title_drift" });
   });
 });

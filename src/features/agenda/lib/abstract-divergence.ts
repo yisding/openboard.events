@@ -79,8 +79,3 @@ export function divergenceNotice(divergence: AbstractDivergence): DivergenceNoti
     tone: "warning",
   };
 }
-
-/** Every session whose abstract has moved on without it. */
-export function divergedSessions<T extends DivergenceSession>(sessions: readonly T[]): T[] {
-  return sessions.filter((session) => abstractDivergence(session) !== null);
-}

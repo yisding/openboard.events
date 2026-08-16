@@ -173,15 +173,23 @@ describe("dashboard components", () => {
     for (const item of FIXTURE_OVERVIEW.attention) {
       expect(html).toContain(`href="${item.href}"`);
     }
-    // Ranked by count, most urgent first: the fixture's counts are 3, 7, 2 for
-    // unscheduled/awaiting-decision/missing-assets, so "awaiting a decision"
-    // (7) leads and "missing a bio or headshot" (2) trails.
+    // The to-do rows stay ranked by count, most urgent first: the fixture's
+    // counts are 3, 7, 2 for unscheduled/awaiting-decision/missing-assets, so
+    // "awaiting a decision" (7) leads them and "missing a bio or headshot" (2)
+    // trails.
     const decisionIndex = html.indexOf("awaiting a decision");
     const unscheduledIndex = html.indexOf("still need a time slot");
     const missingIndex = html.indexOf("missing a bio or headshot");
     expect(decisionIndex).toBeGreaterThan(-1);
     expect(decisionIndex).toBeLessThan(unscheduledIndex);
     expect(unscheduledIndex).toBeLessThan(missingIndex);
+    // MTP-07 §1.5 — but the rank-0 row is not a to-do, and its count of 1 is
+    // the smallest in the fixture. It still leads the whole list, and it is the
+    // row the tour pins.
+    const hiddenIndex = html.indexOf("missing from the public schedule");
+    expect(hiddenIndex).toBeGreaterThan(-1);
+    expect(hiddenIndex).toBeLessThan(decisionIndex);
+    expect(html.indexOf('data-tour="dashboard.attention-row"')).toBeLessThan(decisionIndex);
   });
 
   it("guides a new event from form creation through its first submitted proposal", () => {

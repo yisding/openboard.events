@@ -14,7 +14,8 @@ export type DashboardOverview = {
     confirmationMix: { confirmed: number; unconfirmed: number; declined: number };
     missingAssets: { speakers: number; bios: number; headshots: number };
   };
-  attention: { code: "hidden_published" | "unscheduled_accepted" | "awaiting_decision" | "missing_assets"; count: number; href: string }[];
+  /** `rank` 0 marks a row that is already wrong rather than still to do; see `AttentionQueue`. */
+  attention: { rank: number; code: "hidden_published" | "unscheduled_accepted" | "awaiting_decision" | "missing_assets"; count: number; href: string }[];
   forms: {
     formId: string;
     name: string;

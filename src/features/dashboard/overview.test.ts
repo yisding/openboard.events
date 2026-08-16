@@ -152,7 +152,9 @@ pg.exec(migrationReviewOps);
 
     const overview = await getOverviewIn(drizzle(pg), driftEvent);
     const hidden = overview.attention.find((item) => item.code === "hidden_published");
-    expect(hidden).toMatchObject({ count: 1 });
+    // `rank` reaches the DTO: without it the queue's client-side sort is on
+    // count alone, and this row — realistically a count of 1 — renders last.
+    expect(hidden).toMatchObject({ count: 1, rank: 0 });
     expect(hidden?.href).toContain("/agenda");
     // The public schedule agrees: only the healthy talk is carried.
     expect(overview.kpis.scheduledSessions).toBe(1);

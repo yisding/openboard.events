@@ -230,9 +230,16 @@ export async function queryDashboardOverview(dbOrTx: DashboardQueryDb, eventId: 
         FROM recent_rows
       ),
       attention_rows AS (
+        -- rank reaches the DTO, because the queue's client-side order depends
+        -- on it: rank 0 is reserved for rows that describe something already
+        -- wrong and leads however small its count is, while ranks 1+ are the
+        -- to-do rows, ordered by how much is waiting with this fixed code order
+        -- as the tiebreak so the list never jitters between polls.
+        --
         -- Rank 0: a session the admin still calls "Published" while the public
-        -- schedule has already dropped it is the one row here that describes
-        -- something already wrong rather than something still to do.
+        -- schedule has already dropped it. Same predicate as
+        -- published_sessions_v (drizzle/0045) and as the client-side
+        -- abstractDivergence(); the migration is the source all three copy.
         SELECT 0 AS rank, 'hidden_published' AS code, hidden.n AS count,
           '/events/' || ev.id::text || '/agenda?view=list' AS href
         FROM ev CROSS JOIN hidden_published hidden WHERE hidden.n > 0
@@ -251,7 +258,7 @@ export async function queryDashboardOverview(dbOrTx: DashboardQueryDb, eventId: 
       ),
       attention_json AS (
         SELECT coalesce(
-          jsonb_agg(jsonb_build_object('code', code, 'count', count, 'href', href) ORDER BY rank),
+          jsonb_agg(jsonb_build_object('rank', rank, 'code', code, 'count', count, 'href', href) ORDER BY rank),
           '[]'::jsonb
         ) AS rows
         FROM attention_rows

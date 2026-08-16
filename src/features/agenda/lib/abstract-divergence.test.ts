@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { scheduledSessionDtoSchema, sessionIdSchema, submissionIdSchema, type ScheduledSessionDTO } from "@/shared/contracts";
-import { abstractDivergence, divergedSessions, divergenceNotice } from "./abstract-divergence";
+import { scheduledSessionDtoSchema, submissionIdSchema, type ScheduledSessionDTO } from "@/shared/contracts";
+import { abstractDivergence, divergenceNotice } from "./abstract-divergence";
 
 function session(patch: Partial<ScheduledSessionDTO> = {}): ScheduledSessionDTO {
   return scheduledSessionDtoSchema.parse({
@@ -77,12 +77,6 @@ describe("abstractDivergence", () => {
     expect(abstractDivergence(session({
       linkedSubmission: abstract({ status: "withdrawn", title: "Something else entirely" }),
     }))).toMatchObject({ kind: "hidden" });
-  });
-
-  it("collects only the sessions whose abstract moved on without them", () => {
-    const healthy = session({ id: sessionIdSchema.parse("10000000-0000-4000-8000-000000000002"), linkedSubmission: abstract() });
-    const withdrawn = session({ linkedSubmission: abstract({ status: "withdrawn" }) });
-    expect(divergedSessions([healthy, withdrawn]).map((row) => row.id)).toEqual([withdrawn.id]);
   });
 });
 

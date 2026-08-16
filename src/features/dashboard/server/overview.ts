@@ -71,6 +71,7 @@ const rawOverviewSchema = z.object({
     missingAssets: z.object({ speakers: countSchema, bios: countSchema, headshots: countSchema }),
   }),
   attention: z.array(z.object({
+    rank: countSchema,
     code: z.enum(["hidden_published", "unscheduled_accepted", "awaiting_decision", "missing_assets"]),
     count: countSchema,
     href: z.string().startsWith("/events/"),
