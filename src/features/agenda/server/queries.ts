@@ -7,6 +7,7 @@ import {
   scheduledSessionDtoSchema,
   sessionContentRevisionDtoSchema,
   sessionFormatDtoSchema,
+  sessionPlacementRevisionDtoSchema,
   trackDtoSchema,
   type ContactId,
   type EventId,
@@ -16,6 +17,7 @@ import {
   type SessionContentRevisionDTO,
   type SessionFormatDTO,
   type SessionId,
+  type SessionPlacementRevisionDTO,
   type SessionStatus,
   type TrackDTO,
 } from "@/shared/contracts";
@@ -75,6 +77,7 @@ type SessionRow = {
   schedule_revision: number;
   row_version: number;
   speaker_ids: string[] | null;
+  expected_attendance: number | string | null;
 };
 
 /** Postgres hands timestamptz back as a string here and a Date there. */
@@ -90,7 +93,15 @@ const SESSION_COLUMNS = sql`
     SELECT coalesce(array_agg(ss.contact_id ORDER BY ss.sort_order, ss.contact_id), '{}')
     FROM session_speakers ss
     WHERE ss.session_id = s.id AND ss.event_id = s.event_id
-  ) AS speaker_ids
+  ) AS speaker_ids,
+  -- The audience size the originating abstract declared. A correlated
+  -- subquery rather than a join so this column list stays droppable into any
+  -- \`FROM sessions s\` without the caller rewriting its own FROM clause, and
+  -- so a session with no submission is simply NULL rather than filtered away.
+  (
+    SELECT sub.capacity FROM submissions sub
+    WHERE sub.id = s.submission_id AND sub.event_id = s.event_id
+  ) AS expected_attendance
 `;
 
 function toDto(row: SessionRow): ScheduledSessionDTO {
@@ -108,6 +119,9 @@ function toDto(row: SessionRow): ScheduledSessionDTO {
     scheduleRevision: Number(row.schedule_revision),
     rowVersion: Number(row.row_version),
     speakerIds: row.speaker_ids ?? [],
+    expectedAttendance: typeof row.expected_attendance === "number" || typeof row.expected_attendance === "string"
+      ? Number(row.expected_attendance)
+      : null,
   });
 }
 
@@ -268,6 +282,47 @@ export async function listSessionContentRevisionsIn(
 
 export const listSessionContentRevisions = (eventId: EventId, sessionId: SessionId) =>
   listSessionContentRevisionsIn(db, eventId, sessionId);
+
+/**
+ * MTP-07 — the same session's *placement* history, newest first: every recorded
+ * move, whoever made it and however they made it (grid drag, dialog, Auto-place
+ * apply — they all commit through the two writers in `mutations.ts`).
+ *
+ * Room names come straight off the recorded row, never a join back to `rooms`:
+ * the point of freezing them at write time is that a since-renamed or deleted
+ * room cannot rewrite what this session's schedule used to say.
+ */
+export async function listSessionPlacementRevisionsIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  sessionId: SessionId,
+): Promise<SessionPlacementRevisionDTO[]> {
+  const result = await dbOrTx.execute<{
+    id: string;
+    from_starts_at: string | Date | null; from_ends_at: string | Date | null; from_room_name: string | null;
+    to_starts_at: string | Date | null; to_ends_at: string | Date | null; to_room_name: string | null;
+    moved_by_name: string | null; created_at: string | Date;
+  }>(sql`
+    SELECT p.id, p.from_starts_at, p.from_ends_at, p.from_room_name,
+           p.to_starts_at, p.to_ends_at, p.to_room_name, p.created_at,
+           coalesce(nullif(btrim(u.name), ''), u.email) AS moved_by_name
+    FROM session_placement_revisions p
+    LEFT JOIN users u ON u.id = p.moved_by_user_id
+    WHERE p.event_id = ${eventId} AND p.session_id = ${sessionId}
+    ORDER BY p.created_at DESC, p.id DESC
+  `);
+  return (result.rows ?? []).map((row) => sessionPlacementRevisionDtoSchema.parse({
+    id: row.id,
+    sessionId,
+    from: { startsAt: iso(row.from_starts_at), endsAt: iso(row.from_ends_at), roomName: row.from_room_name },
+    to: { startsAt: iso(row.to_starts_at), endsAt: iso(row.to_ends_at), roomName: row.to_room_name },
+    movedByName: row.moved_by_name,
+    createdAt: new Date(row.created_at).toISOString(),
+  }));
+}
+
+export const listSessionPlacementRevisions = (eventId: EventId, sessionId: SessionId) =>
+  listSessionPlacementRevisionsIn(db, eventId, sessionId);
 
 /**
  * Rooms, tracks, formats and the event's contacts, in one round trip.

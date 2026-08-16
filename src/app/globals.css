@@ -2994,6 +2994,18 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
 .speaker-filter-chips button.active span{background:var(--accent-soft)}
 .review-detail>header>.flow-nav-controls{margin-left:16px;flex:none}
 
+/* MTP-07 — an under-capacity room is a judgement call, not a rejected write:
+   amber like every other "look at this" surface in the product, never the red
+   of `.conflict-check.warning`, which the same dialog uses for writes that
+   actually failed. */
+.agenda-capacity-note{display:flex;gap:8px;align-items:flex-start;margin-top:8px;padding:8px 12px;border-radius:8px;background:var(--amber-soft);color:var(--amber);font-size:var(--text-xs);line-height:1.45}
+.agenda-capacity-note>svg{flex:none;margin-top:1px}
+/* The placement half of the session history panel, beside the content half. */
+.agenda-placement-history{display:grid;gap:6px}
+.agenda-placement-history>li{display:grid;grid-template-columns:14px 1fr;gap:8px;align-items:start;font-size:var(--text-xs);line-height:1.45}
+.agenda-placement-history>li>svg{margin-top:2px;color:var(--muted)}
+.agenda-placement-history small{display:block;color:var(--muted)}
+
 @media(max-width:768px){
   /* Reflow operational controls instead of deleting them at the breakpoint. */
   .speaker-filter-chips button{min-height:44px}

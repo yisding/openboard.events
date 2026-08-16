@@ -94,7 +94,8 @@ function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speake
     setConflicts(detectConflicts(schedulable));
   }, [dayScheduled, setConflicts]);
 
-  const move = useMoveSession(eventId);
+  // `rooms` so a drop into an undersized room says so in its own move toast.
+  const move = useMoveSession(eventId, rooms);
   const { toast } = useToast();
 
   /**
