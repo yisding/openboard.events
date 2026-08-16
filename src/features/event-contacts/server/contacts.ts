@@ -95,6 +95,20 @@ function isBlank(value: unknown): boolean {
  * Blankness, not a created-in-this-transaction flag, is the question worth
  * asking: the CFP wizard autosaves drafts, and `saveDraftAnswers` already
  * created the co-speaker's contact rows long before submit reaches this point.
+ *
+ * "Blank" is deliberately wider than "brand-new co-speaker": an organizer who
+ * seeded a contact from an address alone — a roster import, the invited keynote
+ * who has filled nothing in yet — leaves the same empty columns, and a
+ * submitter who names that person fills them. That is the intended trade, not
+ * an oversight. Nothing the contact wrote is destroyed, the bio arrives through
+ * the same sanitizing pipeline as the primary speaker's, and the moment the
+ * contact says anything for themselves that field stops being writable.
+ *
+ * The read is `FOR UPDATE`: the row is about to be written in this same
+ * transaction, and without the lock a co-speaker saving their own portal
+ * profile in the window between the two statements would have the submitter's
+ * typed value land on top of their authenticated one — precisely the direction
+ * this function exists to prevent.
  */
 export async function fillBlankContactFields(
   dbOrTx: DbOrTx,
@@ -107,7 +121,8 @@ export async function fillBlankContactFields(
   const [current] = await dbOrTx.select(PATCHABLE_COLUMNS)
     .from(contacts)
     .where(and(eq(contacts.eventId, eventId), eq(contacts.id, contactId)))
-    .limit(1);
+    .limit(1)
+    .for("update");
   if (!current) throw new AppError("NOT_FOUND", "Contact not found");
   const gaps = Object.fromEntries(offered.filter(([key]) => isBlank(current[key as keyof typeof current]))) as ContactPatch;
   if (Object.keys(gaps).length === 0) return;
