@@ -14,7 +14,14 @@
   // lives on this Worker too, not only on the web Worker it forwards to.
   // Mirrors the value in the top-level wrangler.jsonc's three env blocks;
   // never change it here without changing it there in the same deploy.
-  "vars": { "AIRTABLE_CRON": "1" },
+  //
+  // CLEANUP_CRON is this Worker's alone — nothing on the web side reads it.
+  // "0" suspends the daily cleanup tick, which is the documented step after a
+  // Neon point-in-time restore while R2 and Postgres may still disagree; see
+  // docs/runbooks/backup-restore.md. Anything other than "0" (including the
+  // variable being absent) leaves the sweep running, because a retention sweep
+  // must never be switched off by a typo.
+  "vars": { "AIRTABLE_CRON": "1", "CLEANUP_CRON": "1" },
   "observability": { "enabled": true },
   "env": {
     "preview": {
@@ -23,7 +30,7 @@
       "services": [
         { "binding": "WEB_JOBS", "service": "sb-web-preview", "entrypoint": "JobsEntrypoint" }
       ],
-      "vars": { "AIRTABLE_CRON": "1" },
+      "vars": { "AIRTABLE_CRON": "1", "CLEANUP_CRON": "1" },
       "observability": { "enabled": true }
     },
     "production": {
@@ -32,7 +39,7 @@
       "services": [
         { "binding": "WEB_JOBS", "service": "sb-web", "entrypoint": "JobsEntrypoint" }
       ],
-      "vars": { "AIRTABLE_CRON": "1" },
+      "vars": { "AIRTABLE_CRON": "1", "CLEANUP_CRON": "1" },
       "observability": { "enabled": true }
     }
   }

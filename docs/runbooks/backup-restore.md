@@ -123,10 +123,26 @@ matching R2 state, or vice versa, will disagree with itself. Concretely:
   database backward relative to R2's actual contents, an object uploaded (and finalized) *after*
   the restore point but never re-recorded will look, to `cleanupOrphans`'s R2-listing sweep, like
   a staging object with no owning row — because it now has no owning row. If you've just done a
-  restore and are not yet sure everything reconciled, disable the cleanup cron tick (comment out
-  the `cleanup` job in `workers/jobs/dispatch.ts`'s dispatch list and redeploy the jobs Worker)
-  until you've confirmed R2 and Neon agree
-  again — a sweep is a one-way, best-effort delete with no undo of its own.
+  restore and are not yet sure everything reconciled, suspend the cleanup cron tick until you've
+  confirmed R2 and Neon agree again — a sweep is a one-way, best-effort delete with no undo of its
+  own. It is a variable, not a source edit: `CLEANUP_CRON=0` on the jobs Worker stops the
+  dispatcher before it ever calls `WEB_JOBS`. Anything other than the literal `"0"` — including
+  the variable being absent — leaves the sweep running, so a typo fails toward the sweep still
+  happening rather than toward silently accumulating what it exists to delete.
+
+  ```bash
+  # Suspend (no code change, no rebuild):
+  pnpm exec wrangler deploy --config workers/jobs/wrangler.jsonc \
+    --env production --var CLEANUP_CRON:0
+
+  # Resume, once R2 and Neon agree:
+  pnpm deploy:jobs:production
+  ```
+
+  `keep_vars: false` means the committed `"1"` in `workers/jobs/wrangler.jsonc` is restored by the
+  next ordinary jobs deploy, so a forgotten suspension self-heals rather than persisting silently.
+  While it is suspended, `/api/health`'s `jobs.cleanupLastSuccessAgeSeconds` grows; that field is
+  informational and does not page (see `docs/runbooks/alerting.md`).
 
 ## After any restore
 

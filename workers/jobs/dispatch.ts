@@ -4,6 +4,7 @@ import { JOB_REQUEST_TIMEOUT_MS, type JobService } from "../job-service";
 export interface Env {
   WEB_JOBS: JobService;
   AIRTABLE_CRON?: string;
+  CLEANUP_CRON?: string;
 }
 export type JobRpc = (job: JobName) => Promise<Response>;
 
@@ -29,7 +30,7 @@ async function runRpcWithDeadline(rpc: JobRpc, job: JobName): Promise<Response> 
 
 export function jobsForScheduledTime(
   scheduledTime: number,
-  options?: { airtableCron?: string | undefined },
+  options?: { airtableCron?: string | undefined; cleanupCron?: string | undefined },
 ): JobName[] {
   const scheduled = new Date(scheduledTime);
   const minute = scheduled.getUTCMinutes();
@@ -45,7 +46,20 @@ export function jobsForScheduledTime(
   // integration look like successful scheduled work. Manual "Sync now" is
   // unaffected; it bypasses this dispatcher entirely.
   if (options?.airtableCron === "1" && minute % 15 === 5) jobs.push("airtable");
-  if (scheduled.getUTCHours() === 9 && minute === 0) jobs.push("cleanup");
+  // Cleanup is the one sweep whose deletes are irreversible, so after a Neon
+  // PITR — when Postgres has moved backward relative to R2's actual contents —
+  // an object with no owning row looks exactly like an abandoned staging object
+  // and gets swept. `docs/runbooks/backup-restore.md` used to prescribe
+  // commenting out this line and redeploying: a source edit, on the worst day,
+  // under pressure, by whoever is holding the incident. It is a config flip
+  // now.
+  //
+  // The polarity is the opposite of `AIRTABLE_CRON` on purpose. An integration
+  // nobody switched on should stay off, but a retention sweep nobody switched
+  // off must keep running: a missing or misspelled variable has to fail toward
+  // the sweep still happening, never toward silently accumulating the data this
+  // job exists to delete. Only the literal `"0"` disables it.
+  if (options?.cleanupCron !== "0" && scheduled.getUTCHours() === 9 && minute === 0) jobs.push("cleanup");
   return jobs;
 }
 
