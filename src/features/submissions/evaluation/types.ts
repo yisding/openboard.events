@@ -199,6 +199,17 @@ export type PlanDTO = {
   reviewers: ReviewerProgress[];
   /** Plan-level progress: submissions with a finished review, over the round's own scope. */
   progress: { scored: number; total: number };
+  /**
+   * Whether any review has been recorded against this round.
+   *
+   * `overall_score` is computed when a review is saved and never recomputed, so
+   * the moment the first one lands the round's arithmetic is frozen:
+   * `assertScoringShapeEditable` refuses any later edit to the scale, the set of
+   * criteria, or a criterion's kind, weight, bounds or option scores. The editor
+   * carries this so it can lock those fields on open rather than let an
+   * organizer fill them in and collect a 409.
+   */
+  hasReviews: boolean;
   updatedAt: string;
 };
 

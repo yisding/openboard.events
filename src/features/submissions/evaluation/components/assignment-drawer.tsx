@@ -99,10 +99,17 @@ export function assignmentDraftChanged(input: {
 export function AssignmentDrawer({
   eventId,
   plan,
+  onSaved,
   onClose,
 }: {
   eventId: string;
   plan: PlanDTO;
+  /**
+   * The round as it stands after the write, straight from the response. The
+   * list behind this drawer renders those counts, and "12 assigned" in a toast
+   * over a row still reading 0 is the drawer contradicting itself.
+   */
+  onSaved: (plan: PlanDTO) => void;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -271,7 +278,7 @@ export function AssignmentDrawer({
     const saveTarget = targetKey;
     setBusy(true);
     try {
-      const result = await evaluationRequest<{ assigned: number; removed: number }>(`/api/internal/evaluation/${eventId}/plans/${plan.id}/assignments`, {
+      const result = await evaluationRequest<{ assigned: number; removed: number; plan?: PlanDTO }>(`/api/internal/evaluation/${eventId}/plans/${plan.id}/assignments`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ reviewerUserIds: reviewerIds, submissionIds: selected, mode }),
@@ -283,6 +290,11 @@ export function AssignmentDrawer({
       }
       toast(`${result.data.assigned} assigned${result.data.removed > 0 ? `, ${result.data.removed} taken back` : ""}`);
       setConfirmEmptyReplace(false);
+      // The write already answered with the round it produced, so the row
+      // behind this drawer is correct before it finishes closing. The refresh
+      // below still runs — it reconciles everything else on the page, and a
+      // later server snapshot is always allowed to win.
+      if (result.data.plan) onSaved(result.data.plan);
       onClose();
       router.refresh();
       return true;

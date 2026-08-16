@@ -62,6 +62,7 @@ function plan(status: PlanDTO["status"]): PlanDTO {
       scored: 1,
     }],
     progress: { scored: 1, total: 1 },
+    hasReviews: false,
     updatedAt: "2026-08-13T12:00:00.000Z",
   };
 }
@@ -87,6 +88,7 @@ async function renderEditor(currentPlan: PlanDTO) {
         members={MEMBERS}
         nextRound={2}
         timezone="America/Los_Angeles"
+        onSaved={vi.fn()}
         onClose={onClose}
       />,
     );
