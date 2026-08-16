@@ -149,26 +149,37 @@ export function errorEnvelope(
  * exists for.
  */
 export function routeIdentity(pathname: string, params: RouteParams): { route: string; feature: string } {
-  const placeholders = new Map<string, string>();
-  for (const [key, value] of Object.entries(params)) {
-    if (typeof value === "string") placeholders.set(value, `[${key}]`);
-    else if (Array.isArray(value)) for (const segment of value) placeholders.set(segment, `[...${key}]`);
-  }
+  // Each param is consumed the first time its value is matched, left to right.
+  // Keying a map on the value alone loses one of any two params that happen to
+  // share it — `{ formId: "42", fieldId: "42" }` would render
+  // `/forms/[fieldId]/fields/[fieldId]` — and while that string is still stable
+  // and low-cardinality, it names the wrong parameter to whoever is reading it.
+  const pending = Object.entries(params).flatMap(([key, value]) =>
+    typeof value === "string"
+      ? [{ key, value, placeholder: `[${key}]` }]
+      : Array.isArray(value) ? value.map((segment) => ({ key, value: segment, placeholder: `[...${key}]` })) : []);
   const segments: string[] = [];
   for (const segment of pathname.split("/")) {
-    const normalized = placeholders.get(segment) ?? segment;
+    const index = pending.findIndex((candidate) => candidate.value === segment);
+    const normalized = index === -1 ? segment : pending.splice(index, 1)[0]?.placeholder ?? segment;
     // A catch-all spreads across as many segments as the caller sent
     // (`/api/auth/reset-password/abc`); collapse them back into the single
     // `[...action]` the file-system route actually declares.
     if (normalized.startsWith("[...") && segments.at(-1) === normalized) continue;
     segments.push(normalized);
   }
-  return { route: segments.join("/").slice(0, 200), feature: featureOfRoute(segments) };
+  return { route: segments.join("/").slice(0, 200), feature: featureOf(pathname) };
 }
 
-function featureOfRoute(segments: string[]): string {
-  // `["", "api", "internal", "forms", …]` -> scope `internal`, area `forms`.
-  const [scope, area] = segments.filter(Boolean).slice(1);
+/**
+ * Safe to call on a raw, un-normalized path: it only ever reads the scope and
+ * area segments, and every route in the tree spells both as literals. No id
+ * can reach a feature name this way, which is what lets `defineHandler` label
+ * a failure before `route.params` has resolved.
+ */
+export function featureOf(pathname: string): string {
+  // `/api/internal/forms/…` -> scope `internal`, area `forms`.
+  const [scope, area] = pathname.split("/").filter(Boolean).slice(1);
   if (!scope) return "api";
   // `/api/v1` keeps the name its hand-rolled routes already log under, so the
   // public API's failures stay one searchable group across both styles.
@@ -224,10 +235,14 @@ export function defineHandler<Input, Output>(options: {
     const startedAt = Date.now();
     const requestId = request.headers.get("cf-ray") ?? crypto.randomUUID();
     let eventId: EventId | null = null;
-    // Params are what turn ids back into placeholders, so the identity is
-    // provisional until they resolve. They always do; this only keeps a throw
-    // from `route.params` itself attributable rather than unlabelled.
-    let identity = routeIdentity(request.nextUrl.pathname, {});
+    // Params are what turn ids back into placeholders, so there is no route
+    // pattern to state until they resolve — and the concrete path must not
+    // stand in for one, or a throw from `route.params` itself would write a
+    // per-tenant row into a table keyed for aggregation. The feature name is
+    // safe to read straight off the path (see `featureOf`), so a failure that
+    // early is still attributable to an area, with `""` for the route: the
+    // same "no request to name" value the job sweeps use.
+    let identity = { route: "", feature: featureOf(request.nextUrl.pathname) };
     try {
       const params = await route?.params ?? {};
       identity = routeIdentity(request.nextUrl.pathname, params);

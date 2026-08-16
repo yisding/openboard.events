@@ -304,6 +304,13 @@ describe("route attribution (issue #626)", () => {
     });
   });
 
+  // Two params can hold the same value, and a map keyed on the value alone
+  // would lose one of them and name the wrong parameter in the pattern.
+  it("names each param even when two of them share a value", () => {
+    expect(routeIdentity("/api/internal/forms/42/fields/42", { formId: "42", fieldId: "42" }).route)
+      .toBe("/api/internal/forms/[formId]/fields/[fieldId]");
+  });
+
   it("collapses a catch-all's segments back into the single route it declares", () => {
     expect(routeIdentity("/api/auth/reset-password/abc123", { action: ["reset-password", "abc123"] })).toEqual({
       route: "/api/auth/[...action]",

@@ -170,7 +170,7 @@ rendered subject or body. A rendered subject or body can itself carry a live mag
 | `VALIDATION` | 400 | Bad query param — e.g. `status=draft`, a non-numeric `cursor` |
 | `UNAUTHORIZED` | 401 | Missing/invalid/wrong-event bearer key on a keyed route |
 | `NOT_FOUND` | 404 | Unknown slug (unkeyed routes only — keyed routes 401 first) |
-| `RATE_LIMITED` | 429 | More than 300 requests in 5 minutes on one route bucket (per API key, or per IP on the unkeyed routes). Carries `Retry-After` |
+| `RATE_LIMITED` | 429 | More than 300 requests in 5 minutes on one route bucket (per API key, or per IP on the unkeyed routes). Carries `Retry-After` and `X-Request-Id` |
 | `INTERNAL` | 500 | Unexpected server error |
 
 ## CORS and caching
@@ -203,13 +203,20 @@ route has its own bucket, so a burst on one endpoint does not consume another's 
 
 A 429 carries `Retry-After`, in seconds, computed from the bucket's own window start — it is the
 real reset, not a suggestion, so honouring it is the shortest path back to a 200. Sleep for that
-many seconds rather than inventing a backoff.
+many seconds rather than inventing a backoff. Every `/api/v1` 429 comes from the shared bucket
+above, which always knows when its window opened, so the header is always present on this surface.
+(Elsewhere in the app a limiter that cannot compute a reset sends no header rather than a guess.)
 
 ## Correlating a failure
 
-Every `/api/v1` response carries `X-Request-Id` — the Cloudflare `cf-ray` where one exists, and a
-minted UUID otherwise. It is the same id the server logs the failure under, so quoting it in a bug
-report is the difference between a matched log line and a search by wall-clock time.
+Every `/api/v1` **error** response carries `X-Request-Id` — the Cloudflare `cf-ray` where one
+exists, and a minted UUID otherwise. It is the same id the server logs the failure under, so
+quoting it in a bug report is the difference between a matched log line and a search by wall-clock
+time.
+
+Successful responses do not carry it, and the public ones must not: they are
+`public, s-maxage=60` and a shared cache would hand one caller's request id to everyone who came
+after. Errors are `private, no-store` on every route, which is what makes the header safe there.
 
 ## API keys — issuing and revoking
 
