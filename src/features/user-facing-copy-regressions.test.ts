@@ -16,11 +16,14 @@ describe("user-facing copy regressions", () => {
   it("uses actionable fallbacks instead of a generic failure", () => {
     const cfp = read("./forms/components/cfp-steps.tsx");
     const deliverables = read("./portal/deliverables/components/files-admin-view.tsx");
+    // The export-failure fallback now lives in the files-selection helper the
+    // view renders from, not inline in the view.
+    const deliverablesSelection = read("./portal/deliverables/components/files-selection.ts");
     const fileUpload = read("../shared/ui/app/file-upload.tsx");
 
-    expect(`${cfp}${deliverables}${fileUpload}`).not.toContain("Something went wrong");
+    expect(`${cfp}${deliverables}${deliverablesSelection}${fileUpload}`).not.toContain("Something went wrong");
     expect(cfp).toContain("We couldn’t complete that request. Try again.");
-    expect(deliverables).toContain("The export could not be prepared. Use the export menu to try again.");
+    expect(deliverablesSelection).toContain("The export could not be prepared. Use the export menu to try again.");
     expect(fileUpload).toContain("The upload could not be completed. Try again.");
   });
 
