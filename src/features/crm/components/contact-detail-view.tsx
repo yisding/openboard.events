@@ -257,6 +257,36 @@ export function ContactDetailView({
     }
   }
 
+  /**
+   * Creating a tag from *this contact's* Tags panel must both create it and
+   * turn it on for the open contact in one action — the chip renders applied
+   * the instant it appears, so it has to actually be applied, not wait for a
+   * confirming second click. This fires the same PUT `toggleTag` would, right
+   * after the tag POST returns. (The directory-filter create has no contact in
+   * context, so it stays create-only.) The create control raises its own
+   * "Tag created" toast once this resolves, so success here reconciles quietly
+   * rather than stacking a second toast; only failures speak up.
+   */
+  async function attachCreatedTag(tag: CrmTagDTO) {
+    setOrgTags((current) => (current.some((existing) => existing.id === tag.id) ? current : [...current, tag]));
+    if (history.tags.some((existing) => existing.id === tag.id)) return;
+    const nextIds = [...history.tags.map((existing) => existing.id), tag.id];
+    setTagBusy(true);
+    try {
+      await api(`organizations/${organizationId}/crm/contacts/${contact.id}/tags`, updatedSchema, { method: "PUT", body: { tagIds: nextIds } });
+      setHistory((current) => ({ ...current, tags: [...current.tags, tag] }));
+      if (await reconcileCommittedCrmWrite(refresh)) {
+        router.refresh();
+      } else {
+        toast("Tag applied, but the latest contact history could not be reloaded. Refresh before making another change.", { kind: "error" });
+      }
+    } catch (caught) {
+      toast(isAppError(caught) ? caught.message : "The tag was created but could not be applied", { kind: "error" });
+    } finally {
+      setTagBusy(false);
+    }
+  }
+
   async function addNote() {
     if (!noteBody.trim() || noteBusy) return;
     setNoteBusy(true);
@@ -374,7 +404,7 @@ export function ContactDetailView({
                       </button>
                     );
                   })}
-                  <CrmTagCreateControl organizationId={organizationId} onCreated={(tag) => setOrgTags((current) => [...current, tag])} />
+                  <CrmTagCreateControl organizationId={organizationId} onCreated={attachCreatedTag} />
                 </div>
               </section>
 

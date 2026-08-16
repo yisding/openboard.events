@@ -355,6 +355,15 @@ export function CommandPalette({ eventId, base, role, actions }: { eventId: stri
     function onKey(event: globalThis.KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
+        // Move focus onto the trigger *before* the dialog mounts, so the
+        // element the palette captures as its return-focus target is this
+        // side-effect-free button — not whatever happened to hold focus when
+        // the shortcut fired. On the dashboard that other thing is a tab
+        // `<Link>`, and Next prefetches a link the instant it is focused: the
+        // dialog restoring focus to it on close fired a stray RSC GET for
+        // `?tab=today` that read as the palette silently navigating. Opening by
+        // clicking the trigger already focuses it; this makes ⌘K match.
+        triggerRef.current?.focus();
         setOpen(true);
       }
     }

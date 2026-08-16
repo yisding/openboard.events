@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertTriangle, ArrowRight, History, MapPin } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { EventId, ScheduledSessionDTO, SessionContentRevisionDTO, SessionId, SessionPlacementRevisionDTO } from "@/shared/contracts";
 import { sessionHistoryDtoSchema, sessionIdSchema } from "@/shared/contracts";
@@ -137,6 +137,12 @@ export function SessionFormDialog({
   const { toast } = useToast();
   const { runGuarded } = useGuardedAction();
   const { save, remove, restoreContent } = useSessionMutations(eventId);
+  // Every control is named twice — a `name` a form tool and autofill can read,
+  // and an `id` its own label points at — mirroring the abstract drawer after
+  // PR #595. The ids are scoped to this instance because the dialog is shared by
+  // the toolbar and all six agenda views, so two mounts must not collide.
+  const fieldScope = useId();
+  const fieldId = (name: string) => `${fieldScope}-${name}`;
   const [draft, setDraft] = useState<SessionDraft>(() => session ? toDraft(session) : EMPTY);
   const [original, setOriginal] = useState<SessionDraft>(() => session ? toDraft(session) : EMPTY);
   const [error, setError] = useState<string | null>(null);
@@ -375,8 +381,10 @@ export function SessionFormDialog({
             style={{ border: 0, margin: 0, minWidth: 0, padding: 0 }}
           >
 
-          <Field label="Session title" required>
+          <Field label="Session title" htmlFor={fieldId("title")} required>
             <input
+              id={fieldId("title")}
+              name="title"
               autoFocus
               value={draft.title}
               maxLength={255}
@@ -396,8 +404,10 @@ export function SessionFormDialog({
           </Field>
 
           <div className="form-grid">
-            <Field label="Format">
+            <Field label="Format" htmlFor={fieldId("format")}>
               <Select
+                id={fieldId("format")}
+                name="formatId"
                 value={draft.formatId}
                 onChange={(changed) => setDraft((current) => draftWithFormat(
                   current,
@@ -410,14 +420,14 @@ export function SessionFormDialog({
                 {formats.map((format) => <option key={String(format.id)} value={String(format.id)}>{format.name}</option>)}
               </Select>
             </Field>
-            <Field label="Track">
-              <Select value={draft.trackId} onChange={(changed) => setDraft((current) => ({ ...current, trackId: changed.target.value }))}>
+            <Field label="Track" htmlFor={fieldId("track")}>
+              <Select id={fieldId("track")} name="trackId" value={draft.trackId} onChange={(changed) => setDraft((current) => ({ ...current, trackId: changed.target.value }))}>
                 <option value="">No track</option>
                 {tracks.map((track) => <option key={String(track.id)} value={String(track.id)}>{track.name}</option>)}
               </Select>
             </Field>
-            <Field label="Room">
-              <Select value={draft.roomId} onChange={(changed) => setDraft((current) => ({ ...current, roomId: changed.target.value }))}>
+            <Field label="Room" htmlFor={fieldId("room")}>
+              <Select id={fieldId("room")} name="roomId" value={draft.roomId} onChange={(changed) => setDraft((current) => ({ ...current, roomId: changed.target.value }))}>
                 <option value="">No room</option>
                 {rooms.map((room) => <option key={String(room.id)} value={String(room.id)}>{room.name}</option>)}
               </Select>
@@ -444,6 +454,7 @@ export function SessionFormDialog({
             <label className="agenda-unscheduled-toggle">
               <input
                 type="checkbox"
+                name="unscheduled"
                 checked={!scheduled}
                 onChange={(changed) => {
                   if (changed.target.checked) {
@@ -460,11 +471,12 @@ export function SessionFormDialog({
 
           {scheduled && (
             <div className="form-grid">
-              <Field label="Starts">
-                <DateTimePicker value={draft.startsAt} onChange={setStart} tz={event.timezone} clearable={false} />
+              <Field label="Starts" htmlFor={fieldId("starts")}>
+                <DateTimePicker id={fieldId("starts")} value={draft.startsAt} onChange={setStart} tz={event.timezone} clearable={false} />
               </Field>
-              <Field label="Ends">
+              <Field label="Ends" htmlFor={fieldId("ends")}>
                 <DateTimePicker
+                  id={fieldId("ends")}
                   value={draft.endsAt}
                   onChange={(next) => setDraft((current) => ({ ...current, endsAt: next }))}
                   tz={event.timezone}
@@ -494,6 +506,8 @@ export function SessionFormDialog({
                 <label key={speaker.contactId}>
                   <input
                     type="checkbox"
+                    name="speakerContactIds"
+                    value={speaker.contactId}
                     checked={draft.speakerContactIds.includes(speaker.contactId)}
                     onChange={() => toggleSpeaker(speaker.contactId)}
                   />
@@ -515,8 +529,10 @@ export function SessionFormDialog({
             </div>
           </Field>
 
-          <Field label="Status">
+          <Field label="Status" htmlFor={fieldId("status")}>
             <Select
+              id={fieldId("status")}
+              name="status"
               value={draft.status}
               onChange={(changed) => setDraft((current) => ({ ...current, status: changed.target.value === "published" ? "published" : "draft" }))}
             >
