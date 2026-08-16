@@ -76,7 +76,7 @@ export default async function Page({ params, searchParams }: { params: Promise<{
      * itself on the other side of the bootstrap.
      */
     const unavailable = new Set(unavailableTourChapters(demoTour.skippedAtPhase));
-    const runnable = supportedTourSteps(demoTour.skippedAtPhase, demoTour.context)
+    const runnable = supportedTourSteps(demoTour.skippedAtPhase, context)
       .filter((step) => !unavailable.has(step.chapter));
     const cursorStep = runnable.find((step) => step.id === demoTour.stepId) ?? null;
     /**
