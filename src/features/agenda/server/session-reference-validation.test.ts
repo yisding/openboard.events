@@ -13,6 +13,7 @@ const migrationContentRevisions = readFileSync(new URL("../../../../drizzle/0006
 const migrationCreationReceipts = readFileSync(new URL("../../../../drizzle/0031_agenda_session_creation_receipts.sql", import.meta.url), "utf8");
 const migrationCalendarCancellationSnapshots = readFileSync(new URL("../../../../drizzle/0043_calendar_cancellation_snapshots.sql", import.meta.url), "utf8");
 const migrationPlacementRevisions = readFileSync(new URL("../../../../drizzle/0050_session_placement_revisions.sql", import.meta.url), "utf8");
+const migrationScheduleNoticeOwed = readFileSync(new URL("../../../../drizzle/0051_room_deletion_notice.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("b4100000-0000-4000-8000-000000000001");
 const otherEventId = eventIdSchema.parse("b4100000-0000-4000-8000-000000000002");
@@ -45,6 +46,7 @@ describe("a foreign or dangling reference on session create", () => {
     await pg.exec(migrationCreationReceipts);
     await pg.exec(migrationCalendarCancellationSnapshots);
     await pg.exec(migrationPlacementRevisions);
+    await pg.exec(migrationScheduleNoticeOwed);
     database = drizzle(pg, { schema }) as unknown as DbOrTx;
     await pg.query(
       `INSERT INTO events(id,name,slug,timezone,starts_at,ends_at) VALUES

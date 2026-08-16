@@ -402,6 +402,13 @@ export async function deleteVocabItemIn(dbOrTx: DbOrTx, eventId: EventId, kind: 
     // ON DELETE SET NULL has no second write to perform. Published, scheduled
     // sessions advance exactly once because LOCATION changed; drafts retain
     // the existing no-public-revision behavior.
+    //
+    // MTP-16 §17/§17a: the deletion mails nobody, but a published, timed session
+    // now owes its continuing speakers one "schedule changed" notice. Record
+    // that debt explicitly on the same rows whose revision advanced, so the next
+    // resave delivers it. The flag — not revision arithmetic — is what
+    // distinguishes this loss from a title/description bump that also advances
+    // the revision and deliberately mails nobody.
     await dbOrTx.execute(sql`
       WITH target AS MATERIALIZED (
         SELECT id FROM ${rooms}
@@ -412,6 +419,8 @@ export async function deleteVocabItemIn(dbOrTx: DbOrTx, eventId: EventId, kind: 
           room_id = NULL,
           schedule_revision = session.schedule_revision + CASE
             WHEN session.status::text = 'published' AND session.starts_at IS NOT NULL THEN 1 ELSE 0 END,
+          schedule_notice_owed = session.schedule_notice_owed
+            OR (session.status::text = 'published' AND session.starts_at IS NOT NULL),
           updated_at = greatest(session.updated_at + interval '1 millisecond', clock_timestamp())
         FROM target
         WHERE session.event_id = ${eventId} AND session.room_id = target.id

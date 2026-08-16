@@ -720,9 +720,10 @@ export async function saveSessionIn(
   const before = await dbOrTx.execute<{
     status: SessionStatus; starts_at: string | Date | null; ends_at: string | Date | null;
     room_id: string | null; schedule_revision: number; row_version: number;
+    schedule_notice_owed: boolean;
     title: string; description_html: string | null; speaker_ids: string[] | null;
   }>(sql`
-    SELECT s.status, s.starts_at, s.ends_at, s.room_id, s.schedule_revision, s.row_version, s.title, s.description_html,
+    SELECT s.status, s.starts_at, s.ends_at, s.room_id, s.schedule_revision, s.row_version, s.schedule_notice_owed, s.title, s.description_html,
       (
         SELECT coalesce(array_agg(ss.contact_id), '{}')
         FROM session_speakers ss
@@ -776,6 +777,10 @@ export async function saveSessionIn(
                     AND (title IS DISTINCT FROM ${input.title}
                          OR description_html IS DISTINCT FROM ${descriptionHtml})))
           THEN 1 ELSE 0 END,
+        -- Any organizer resave discharges the room-deletion debt: this save
+        -- either delivers the owed notice below (the fallback branch) or takes
+        -- the session off the schedule, so the flag must not survive it.
+        schedule_notice_owed = false,
         updated_at = now()
       WHERE id = ${sessionId} AND event_id = ${eventId} AND row_version = ${expectedVersion}
         AND EXISTS (SELECT 1 FROM event_guard)
@@ -867,10 +872,31 @@ export async function saveSessionIn(
     || iso(prior.ends_at) !== nextEndsAt
     || prior.room_id !== input.roomId
   ));
+  const currentRevision = Number(row.schedule_revision);
+  const priorRevision = Number(prior.schedule_revision);
   if (scheduleNoticeChanged) {
     await notifySchedule(
       dbOrTx, eventId, sessionId,
-      { status: prior.status, startsAt: iso(prior.starts_at), scheduleRevision: Number(prior.schedule_revision) },
+      { status: prior.status, startsAt: iso(prior.starts_at), scheduleRevision: priorRevision },
+      nextState,
+      continuing,
+    );
+  } else if (nextScheduled && prior.schedule_notice_owed) {
+    // A room deleted out from under a published, timed session advances its
+    // `schedule_revision` but enqueues nothing: the deletion path (MTP-16 §17)
+    // does not run through this notifier. The cascade instead records the debt
+    // on the row (`schedule_notice_owed`), because the loss is otherwise
+    // invisible here — the cascade already nulled `room_id`, so both sides read
+    // null — and revision arithmetic cannot tell this loss from a title/
+    // description bump that the speaker policy deliberately skips yet advances
+    // the same revision. Gating on the flag delivers exactly the stranded notice
+    // (MTP-16 §17a) and nothing else: the flag is set only by the room cascade,
+    // is cleared by this save, and the revision keys the send so a later resave
+    // (flag now false) cannot repeat it. Prior revision is pinned one below the
+    // current so `notifySchedule` always ships this one owed message.
+    await notifySchedule(
+      dbOrTx, eventId, sessionId,
+      { status: prior.status, startsAt: iso(prior.starts_at), scheduleRevision: currentRevision - 1 },
       nextState,
       continuing,
     );
