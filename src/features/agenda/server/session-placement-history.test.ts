@@ -107,8 +107,11 @@ describe("session placement awareness", () => {
     }, organizerId);
 
     // The write path also has to hand the expected audience back, or the client
-    // cache would forget it the moment the organizer pressed Save.
+    // cache would forget it the moment the organizer pressed Save. Both facts
+    // now come off one lookup of the abstract row (`abstractFactsFor`), so they
+    // are asserted together: dropping either one is the way that merge fails.
     expect(saved.expectedAttendance).toBe(200);
+    expect(saved.linkedSubmission).toMatchObject({ code: 1, status: "accepted", title: "Vector search at scale" });
 
     const history = await listSessionPlacementRevisionsIn(database, eventId, promotedId);
     expect(history).toHaveLength(1);

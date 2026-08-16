@@ -1586,6 +1586,28 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
    visually secondary because it leaves the agenda for the Abstracts flow. */
 .agenda-invited-link{white-space:nowrap}
 .agenda-conflict-chip{display:inline-flex;align-items:center;gap:4px;margin-top:4px;padding:2px 6px;border-radius:5px;background:var(--red-soft);color:var(--red);font-size:var(--text-xs);font-weight:var(--weight-control)}
+/* MTP-07 §1.4/§1.5 — a session whose abstract moved on without it. Same chip
+   geometry as the conflict marker, because both answer "why is this row not
+   what it looks like"; the tone is what separates "the public schedule has
+   already dropped this" from "these two titles disagree". */
+.agenda-divergence-chip{display:inline-flex;align-items:center;gap:4px;margin-top:4px;padding:2px 6px;border-radius:5px;font-size:var(--text-xs);font-weight:var(--weight-control);line-height:1.35;text-align:left;color:var(--divergence-ink)}
+.agenda-divergence-chip--danger{--divergence-ink:var(--red);background:var(--red-soft)}
+.agenda-divergence-chip--warning{--divergence-ink:var(--amber);background:var(--amber-soft)}
+.agenda-divergence-chip svg{flex:none}
+/* Both unscheduled trays style *every* descendant span of their row
+   (`.unscheduled-tray>button span` and `.dv-unscheduled-card span`, below, are
+   (0,1,1)), which outranks the chip's own (0,1,0) rules: without these the
+   danger chip renders as a full-width muted-grey block on its red background,
+   with the label wrapping under the icon. The tone still lives in one place —
+   these only re-assert `--divergence-ink` at a specificity the tray cannot
+   beat. `.sr-only` survives on its own `!important`s. */
+.unscheduled-tray>button .agenda-divergence-chip,.dv-unscheduled-card .agenda-divergence-chip{display:inline-flex;margin-top:4px;color:var(--divergence-ink)}
+.unscheduled-tray>button .agenda-divergence-chip>span,.dv-unscheduled-card .agenda-divergence-chip>span{display:inline;margin-top:0;color:inherit}
+.agenda-status-cell{display:flex;flex-direction:column;align-items:flex-start;gap:2px}
+/* The same fact with room to explain itself, for the session editor. */
+.agenda-divergence-notice{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px;border-radius:8px;font-size:var(--text-xs);line-height:1.5}
+.agenda-divergence-notice--danger{background:var(--red-soft);color:var(--red)}
+.agenda-divergence-notice--warning{background:var(--amber-soft);color:var(--amber)}
 
 /* M13b: visibility-rule editor + routing-rules panel */
 .status-option-deleted{background:var(--red-soft);color:var(--red)}
@@ -1677,6 +1699,16 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .dv-session-card--warning,.dv-session-card--error{padding-right:24px}
 .dv-session-card--warning{border-color:var(--amber);box-shadow:0 0 0 1px var(--amber) inset}.dv-session-card--warning .dv-session-card-conflict-icon{color:var(--amber)}
 .dv-session-card--error{border-color:var(--red);box-shadow:0 0 0 1px var(--red) inset}.dv-session-card--error .dv-session-card-conflict-icon{color:var(--red)}
+/* The abstract-divergence mark shares the conflict badge's corner and its
+   clipping escape hatch on short cards. When a card carries both, the
+   divergence steps one badge to the left rather than stacking on top. */
+.dv-session-card-divergence-icon{position:absolute;right:5px;top:5px;z-index:4}
+.dv-session-card-divergence-icon--danger{color:var(--red)}
+.dv-session-card-divergence-icon--warning{color:var(--amber)}
+.dv-session-card-divergence-icon--offset{right:22px}
+.dv-session-card--compact .dv-session-card-divergence-icon,.dv-session-card--single-line .dv-session-card-divergence-icon{position:static;right:auto;flex:none;order:1;margin-left:4px}
+.dv-session-card--diverged{padding-right:24px}
+.dv-session-card--diverged.dv-session-card--warning,.dv-session-card--diverged.dv-session-card--error{padding-right:41px}
 .dv-resize-handle{position:absolute;left:0;right:0;height:6px;cursor:ns-resize;z-index:3}
 .dv-resize-handle--top{top:0}
 .dv-resize-handle--bottom{bottom:0}

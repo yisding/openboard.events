@@ -80,6 +80,7 @@ const session: ScheduledSessionDTO = {
   rowVersion: 1,
   expectedAttendance: null,
   speakerIds: [],
+  linkedSubmission: null,
 };
 
 let container: HTMLDivElement;

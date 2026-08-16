@@ -367,6 +367,27 @@ describe("shared UI spacing regressions", () => {
     expect(css).not.toMatch(/@media\(min-width/u);
   });
 
+  // MTP-07 §1.5 — both unscheduled trays style every descendant span of their
+  // row at (0,1,1), which outranks the chip's own (0,1,0) rules: without a
+  // scoped restatement the danger chip renders as a full-width muted-grey block
+  // on its red background, in the two surfaces the mark matters most.
+  it("keeps the abstract-divergence chip's tone and shape inside both unscheduled trays", () => {
+    const tray = read("./agenda/components/unscheduled-tray.tsx");
+    const panel = read("./agenda/components/day-view/unscheduled-panel.tsx");
+    expect(tray).toContain("<AbstractDivergenceChip session={session} />");
+    expect(panel).toContain("<AbstractDivergenceChip session={session} />");
+    // The tone rides on a custom property, so the scoped rules re-assert one
+    // declaration instead of duplicating the red/amber pair.
+    expect(css).toContain(".agenda-divergence-chip--danger{--divergence-ink:var(--red);background:var(--red-soft)}");
+    expect(css).toContain(".agenda-divergence-chip--warning{--divergence-ink:var(--amber);background:var(--amber-soft)}");
+    expect(css).toContain(
+      ".unscheduled-tray>button .agenda-divergence-chip,.dv-unscheduled-card .agenda-divergence-chip{display:inline-flex;margin-top:4px;color:var(--divergence-ink)}",
+    );
+    expect(css).toContain(
+      ".unscheduled-tray>button .agenda-divergence-chip>span,.dv-unscheduled-card .agenda-divergence-chip>span{display:inline;margin-top:0;color:inherit}",
+    );
+  });
+
   it("gives discrete public session and gallery actions full pointer targets", () => {
     expect(css).toContain(
       ".public-session-main h3 button{width:100%;min-height:32px;",

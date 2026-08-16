@@ -21,6 +21,7 @@ import { Button, Field, Modal, Select } from "@/shared/ui/ui-kit";
 import type { AgendaViewProps } from "../index.client";
 import { agendaKeys } from "../hooks/keys";
 import { useSessionMutations, type SaveSessionPayload } from "../hooks/use-session-mutations";
+import { abstractDivergence, divergenceNotice } from "../lib/abstract-divergence";
 import { roomCapacityWarning } from "../lib/room-capacity";
 import { defaultScheduledRange } from "../store";
 
@@ -299,6 +300,10 @@ export function SessionFormDialog({
   // editable values.
   const createControlsLocked = !session && (save.isPending || createLocked);
   const dirty = isSessionDraftDirty(draft, original);
+  // Compared against the *saved* session, not the draft: typing a new title in
+  // this dialog should not make a drift notice flicker away before it is saved.
+  const divergence = useMemo(() => (session ? abstractDivergence(session) : null), [session]);
+  const divergenceMark = divergence ? divergenceNotice(divergence) : null;
   useUnsavedWorkGuard(open && (dirty || busy), { blocking: busy });
 
   const requestClose = () => {
@@ -358,6 +363,23 @@ export function SessionFormDialog({
       >
         <div className="form-stack">
           {error && <p className="conflict-check warning" role="alert"><span>{error}</span></p>}
+
+          {/* The abstract behind this session, when it no longer agrees with
+              it. Drift is offered a one-click fix that fills the field the
+              organizer is already looking at — the save is still theirs to
+              make, so nothing is renamed behind their back. */}
+          {divergenceMark && (
+            <div className={`agenda-divergence-notice agenda-divergence-notice--${divergenceMark.tone}`} role="status">
+              <span>{divergenceMark.detail}</span>
+              {divergence?.kind === "title_drift" && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setDraft((current) => ({ ...current, title: divergence.abstractTitle }))}
+                >Use the abstract’s title</Button>
+              )}
+            </div>
+          )}
 
           <fieldset
             className="form-stack"

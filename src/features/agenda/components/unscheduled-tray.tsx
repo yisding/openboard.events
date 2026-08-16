@@ -12,6 +12,7 @@ import { agendaKeys } from "../hooks/keys";
 import { useSessionMutations } from "../hooks/use-session-mutations";
 import type { AgendaViewProps } from "../index.client";
 import { nameLookup, unscheduled } from "../store";
+import { AbstractDivergenceChip } from "./abstract-divergence-chip";
 import { AutoPlaceDialog } from "./auto-place-dialog";
 
 type PromotionFailure = { submissionId: string; title: string; message: string };
@@ -207,6 +208,7 @@ export function UnscheduledTray({ eventId, event, sessions, accepted, rooms, tra
             <div>
               <b>{session.title}</b>
               <span>{track?.name ?? "No track"}{sessionSpeakers.length > 0 ? ` · ${sessionSpeakers.join(", ")}` : ""}</span>
+              <AbstractDivergenceChip session={session} />
             </div>
             <ArrowRight size={14} aria-hidden />
           </button>

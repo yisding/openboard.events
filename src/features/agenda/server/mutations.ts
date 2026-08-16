@@ -16,6 +16,7 @@ import {
   type ConflictDTO,
   type ContactId,
   type EventId,
+  type LinkedSubmission,
   type ScheduledSessionDTO,
   type SessionId,
   type SessionStatus,
@@ -227,28 +228,56 @@ async function assertWithinEventBounds(
 }
 
 /**
- * The audience size the session's originating abstract declared, or `null` for
- * a manually created session — the figure Auto-place already weighs a room's
- * capacity against, carried back on every write so the dialog and the grid can
- * warn about the same mismatch without a refetch.
+ * Everything a write response needs from the abstract behind a session, read
+ * once.
+ *
+ * Two features want this row and both want it on every write. The linked
+ * abstract's live identity is what stops a saved or dragged row from losing its
+ * "no longer public" mark until the next refetch puts it back; the declared
+ * audience size is the figure Auto-place already weighs a room's `capacity`
+ * against, and carrying it back is what lets the dialog and the grid warn about
+ * the same mismatch without a refetch. They are four columns and one column of
+ * the same primary-key lookup, so this is one query and not two.
+ *
+ * Sessions authored in the agenda have no `submission_id` and cost no query at
+ * all. A `submission_id` whose row is gone (or belongs to another event) reads
+ * as no abstract and no estimate, which is exactly what the read path reports.
  */
-async function expectedAttendanceIn(
+type AbstractFacts = { linkedSubmission: LinkedSubmission | null; expectedAttendance: number | null };
+
+const NO_ABSTRACT: AbstractFacts = { linkedSubmission: null, expectedAttendance: null };
+
+async function abstractFactsFor(
   dbOrTx: DbOrTx,
   eventId: EventId,
   submissionId: string | null,
-): Promise<number | null> {
-  if (submissionId === null) return null;
-  const result = await dbOrTx.execute<{ capacity: number | string | null }>(sql`
-    SELECT capacity FROM submissions WHERE id = ${submissionId} AND event_id = ${eventId}
+): Promise<AbstractFacts> {
+  if (submissionId === null) return NO_ABSTRACT;
+  const result = await dbOrTx.execute<{
+    id: string; code: number; title: string; status: string; capacity: number | string | null;
+  }>(sql`
+    SELECT id, code, title, status, capacity FROM submissions
+    WHERE id = ${submissionId} AND event_id = ${eventId}
   `);
-  const capacity = (result.rows ?? [])[0]?.capacity;
-  return typeof capacity === "number" || typeof capacity === "string" ? Number(capacity) : null;
+  const row = (result.rows ?? [])[0];
+  if (!row) return NO_ABSTRACT;
+  return {
+    linkedSubmission: {
+      id: row.id as LinkedSubmission["id"],
+      code: Number(row.code),
+      title: row.title,
+      status: row.status as LinkedSubmission["status"],
+    },
+    expectedAttendance: typeof row.capacity === "number" || typeof row.capacity === "string"
+      ? Number(row.capacity)
+      : null,
+  };
 }
 
 function toDto(
   row: SessionRowShape,
   speakerIds: readonly ContactId[],
-  expectedAttendance: number | null = null,
+  abstract: AbstractFacts = NO_ABSTRACT,
 ): ScheduledSessionDTO {
   return {
     id: row.id as SessionId,
@@ -264,7 +293,8 @@ function toDto(
     scheduleRevision: Number(row.schedule_revision),
     rowVersion: Number(row.row_version),
     speakerIds: [...speakerIds],
-    expectedAttendance,
+    linkedSubmission: abstract.linkedSubmission,
+    expectedAttendance: abstract.expectedAttendance,
   };
 }
 
@@ -801,7 +831,7 @@ export async function saveSessionIn(
     nextState,
     removed,
   );
-  return toDto(row, speakers, await expectedAttendanceIn(dbOrTx, eventId, row.submission_id));
+  return toDto(row, speakers, await abstractFactsFor(dbOrTx, eventId, row.submission_id));
 }
 
 export const saveSession = (eventId: EventId, input: unknown, actorUserId: UserId | null = null) =>
@@ -880,7 +910,7 @@ export async function restoreSessionContentIn(
     SELECT contact_id FROM session_speakers WHERE session_id = ${sessionId} AND event_id = ${eventId} ORDER BY sort_order, contact_id
   `);
   const speakerIds = (speakerRows.rows ?? []).map((speaker) => speaker.contact_id as ContactId);
-  return toDto(row, speakerIds, await expectedAttendanceIn(dbOrTx, eventId, row.submission_id));
+  return toDto(row, speakerIds, await abstractFactsFor(dbOrTx, eventId, row.submission_id));
 }
 
 export const restoreSessionContent = (eventId: EventId, sessionId: SessionId, revisionId: string, expectedVersion: number, actorUserId: UserId | null = null) =>
@@ -1313,7 +1343,7 @@ export async function moveSessionInTx(
     speakerIds,
   );
 
-  return { session: toDto(row, speakerIds, await expectedAttendanceIn(tx, eventId, row.submission_id)), speakerIds };
+  return { session: toDto(row, speakerIds, await abstractFactsFor(tx, eventId, row.submission_id)), speakerIds };
 }
 
 export async function moveSession(
