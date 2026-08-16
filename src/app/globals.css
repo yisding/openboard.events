@@ -2060,6 +2060,12 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .crm-note{border:1px solid var(--line);border-radius:8px;padding:12px 12px;margin-bottom:8px}
 .crm-note header{display:flex;justify-content:space-between;color:var(--muted);font-size:var(--text-xs);margin-bottom:6px}
 .crm-note p{margin:0;font-size:var(--text-xs);line-height:1.5}
+.crm-panel-header-actions{align-items:center}
+.chip.crm-chip-add{border-style:dashed;color:var(--accent-dark);border-color:var(--accent-border)}
+.chip.crm-chip-add:hover{background:var(--accent-faint)}
+.crm-inline-create{display:inline-flex;align-items:center;gap:6px}
+.crm-inline-create input{height:32px;padding:0 8px;border:1px solid var(--line);border-radius:5px;background:var(--surface);font-size:var(--text-xs);width:150px}
+.crm-inline-create input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-faint)}
 
 .crm-board{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;align-items:start}
 .crm-board-column{background:var(--surface-raised);border:1px solid var(--line);border-radius:12px;min-height:120px;display:flex;flex-direction:column}
