@@ -1,5 +1,5 @@
 import type { ConflictDTO, EventId, RoomDTO, ScheduledSessionDTO, SessionId, TrackDTO } from "@/shared/contracts";
-import { eventDayKey, hourMinuteInZone, zonedInputToUtc } from "@/shared/lib/time";
+import { eventDayKey, hourMinuteInZone, shiftDayKey, zonedInputToUtc } from "@/shared/lib/time";
 import type { AgendaVocabulary, SpeakerOption } from "./server/queries";
 
 /**
@@ -49,13 +49,16 @@ export function eventDayKeys(startsAt: string, endsAt: string, timezone: string)
   // that instant belongs to no schedulable time on the ending date, so using
   // the preceding millisecond avoids rendering an empty, zero-duration tab.
   const last = eventDayKey(Math.max(startsAtMs, endsAtMs - 1), timezone);
-  let cursor = startsAtMs;
-  const limit = endsAtMs + 2 * 24 * 60 * 60 * 1000;
-  for (let guard = 0; guard < 64 && cursor <= limit; guard += 1) {
-    const key = eventDayKey(cursor, timezone);
-    if (!keys.includes(key)) keys.push(key);
+  // By calendar day key, not by 24 hours of absolute milliseconds: across a
+  // spring-forward the local time-of-day gains an hour, so a cursor starting
+  // late in the evening rolls past midnight twice and the loop skips a whole
+  // day. This is what builds the Day view's tab list, so a session scheduled on
+  // the skipped date had no tab to appear on at all.
+  let key = eventDayKey(startsAtMs, timezone);
+  for (let guard = 0; guard < 64; guard += 1) {
+    keys.push(key);
     if (key === last) break;
-    cursor += 24 * 60 * 60 * 1000;
+    key = shiftDayKey(key, 1);
   }
   return keys;
 }

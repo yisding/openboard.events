@@ -70,6 +70,38 @@ export function endOfDayInTz(dateISO: string, timeZone: string): Date {
   return fromZonedTime(`${dateISO}T23:59:59.999`, timeZone);
 }
 
+/**
+ * The first instant that belongs to a day in a zone.
+ *
+ * Not `fromZonedTime(`${day}T00:00:00`)`: in a zone whose clock jumps forward
+ * at midnight, that wall time does not exist and `fromZonedTime` resolves it
+ * *backwards* into the previous day. `America/Havana` on 2026-03-08 renders back
+ * as `2026-03-07 23:00`; so do `America/Santiago` on 2026-09-06 and
+ * `Asia/Beirut` on 2026-03-29. A day window built that way is 25 hours long and
+ * overlaps its predecessor.
+ *
+ * Derived from the previous day's last millisecond instead, which always exists,
+ * so the result is the first real instant of `dateISO` whatever the clock did.
+ */
+export function startOfDayInTz(dateISO: string, timeZone: string): Date {
+  return new Date(endOfDayInTz(shiftDayKey(dateISO, -1), timeZone).getTime() + 1);
+}
+
+/**
+ * Calendar-day arithmetic on a `YYYY-MM-DD` key, with no instant in sight.
+ *
+ * Stepping a cursor by 24 hours of absolute milliseconds is not the same thing:
+ * across a spring-forward the local time-of-day gains an hour, so a cursor that
+ * starts late in the evening rolls past midnight twice and the loop skips a
+ * calendar day entirely.
+ */
+export function shiftDayKey(dateISO: string, offsetDays: number): string {
+  if (offsetDays === 0) return dateISO;
+  const anchor = new Date(`${dateISO}T00:00:00.000Z`);
+  anchor.setUTCDate(anchor.getUTCDate() + offsetDays);
+  return anchor.toISOString().slice(0, 10);
+}
+
 export function daysToEvent(nowUtc: Date, eventStartUtc: Date, timeZone: string): number {
   const nowDay = new Date(`${eventDayKey(nowUtc, timeZone)}T12:00:00.000Z`);
   const eventDay = new Date(`${eventDayKey(eventStartUtc, timeZone)}T12:00:00.000Z`);

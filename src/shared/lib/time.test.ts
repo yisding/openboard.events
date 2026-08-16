@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDuration, daysToEvent, endOfDayInTz, eventDayKey, formatDateRangeInZone, formatDayKeyInZone, formatInZone, formatTimeRangeInZone, timeZoneOptionLabel, wallTimeExistsInZone, zonedInputToUtc } from "./time";
+import { addDuration, daysToEvent, endOfDayInTz, eventDayKey, formatDateRangeInZone, formatDayKeyInZone, formatInZone, formatTimeRangeInZone, timeZoneOptionLabel, shiftDayKey, startOfDayInTz, wallTimeExistsInZone, zonedInputToUtc } from "./time";
 
 const LA = "America/Los_Angeles";
 
@@ -124,5 +124,45 @@ describe("wallTimeExistsInZone", () => {
   it("accepts every wall time in a zone that does not observe DST", () => {
     expect(wallTimeExistsInZone("2026-03-08T02:00:00", "UTC")).toBe(true);
     expect(wallTimeExistsInZone("2026-03-08T02:00:00", "Asia/Tokyo")).toBe(true);
+  });
+});
+
+describe("startOfDayInTz", () => {
+  it("finds the first instant that exists on a day whose midnight is skipped", () => {
+    // Havana's clock jumps at midnight on 2026-03-08, so `T00:00:00` does not
+    // exist. `fromZonedTime` resolves it *backwards* into the previous day —
+    // which made a day window 25 hours long and overlapping its predecessor.
+    const naive = zonedInputToUtc("2026-03-08T00:00:00", "America/Havana");
+    expect(formatInZone(naive, "America/Havana", { dateStyle: "short", timeStyle: "short" })).toContain("3/7/26");
+
+    const real = startOfDayInTz("2026-03-08", "America/Havana");
+    expect(formatInZone(real, "America/Havana", { dateStyle: "short" })).toContain("3/8/26");
+    // And it is genuinely the first instant of the day: one millisecond earlier
+    // still belongs to the 7th.
+    expect(formatInZone(new Date(real.getTime() - 1), "America/Havana", { dateStyle: "short" })).toContain("3/7/26");
+  });
+
+  it("is plain local midnight on an ordinary day", () => {
+    const start = startOfDayInTz("2026-06-15", "America/New_York");
+    expect(formatInZone(start, "America/New_York", { timeStyle: "short" })).toBe("12:00 AM");
+  });
+
+  it("holds for the other zones that skip midnight", () => {
+    for (const [zone, day] of [["America/Santiago", "2026-09-06"], ["Asia/Beirut", "2026-03-29"]] as const) {
+      const start = startOfDayInTz(day, zone);
+      expect(formatInZone(start, zone, { dateStyle: "short" })).toContain(String(Number(day.slice(8))));
+      expect(formatInZone(new Date(start.getTime() - 1), zone, { dateStyle: "short" }))
+        .not.toContain(`/${Number(day.slice(8))}/`);
+    }
+  });
+});
+
+describe("shiftDayKey", () => {
+  it("steps calendar days without touching an instant", () => {
+    expect(shiftDayKey("2026-03-07", 1)).toBe("2026-03-08");
+    expect(shiftDayKey("2026-03-08", -1)).toBe("2026-03-07");
+    expect(shiftDayKey("2026-02-28", 1)).toBe("2026-03-01");
+    expect(shiftDayKey("2026-12-31", 1)).toBe("2027-01-01");
+    expect(shiftDayKey("2026-06-15", 0)).toBe("2026-06-15");
   });
 });

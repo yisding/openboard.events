@@ -20,7 +20,7 @@ import {
   type TrackDTO,
 } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
-import { endOfDayInTz, zonedInputToUtc } from "@/shared/lib/time";
+import { endOfDayInTz, startOfDayInTz } from "@/shared/lib/time";
 import { toScheduledSession, type ScheduledSession } from "../conflicts";
 
 /**
@@ -124,7 +124,12 @@ async function eventTimezone(dbOrTx: DbOrTx, eventId: EventId): Promise<string> 
 async function dayBounds(dbOrTx: DbOrTx, eventId: EventId, day: string): Promise<{ from: Date; to: Date }> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new AppError("VALIDATION", "day must be a YYYY-MM-DD event day key");
   const timezone = await eventTimezone(dbOrTx, eventId);
-  return { from: zonedInputToUtc(`${day}T00:00:00`, timezone), to: endOfDayInTz(day, timezone) };
+  // `startOfDayInTz`, not `T00:00:00`: in a zone whose clock jumps forward at
+  // midnight that wall time does not exist, and `zonedInputToUtc` resolves it
+  // backwards into the previous day — so the window became 25 hours and a
+  // session late on the 7th satisfied both the 7th's and the 8th's filter,
+  // rendering on two day tabs and drawing at a negative offset on one of them.
+  return { from: startOfDayInTz(day, timezone), to: endOfDayInTz(day, timezone) };
 }
 
 async function whereClause(dbOrTx: DbOrTx, eventId: EventId, filters: SessionFilters) {
