@@ -5,13 +5,13 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SpeakerDetailDTO } from "@/features/portal";
-import type { ConfirmationStatus, ContactId } from "@/shared/contracts";
+import type { ContactId } from "@/shared/contracts";
 import { SpeakerDetailView } from "./speaker-detail-view";
 
-const harness = vi.hoisted(() => ({ toast: vi.fn() }));
+const harness = vi.hoisted(() => ({ toast: vi.fn(), push: vi.fn(), refresh: vi.fn() }));
 
 vi.mock("@/shared/ui/toast", () => ({ useToast: () => ({ toast: harness.toast }) }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: harness.push, refresh: harness.refresh }) }));
 vi.mock("@/shared/ui/app/file-upload", () => ({ FileUpload: () => null }));
 vi.mock("@/shared/ui/app/rich-text-editor-lazy", () => ({ RichTextEditor: () => null }));
 vi.mock("@/shared/ui/app/tz-time", () => ({ TzTime: () => null }));
@@ -21,7 +21,7 @@ Object.assign(globalThis, { React, IS_REACT_ACT_ENVIRONMENT: true });
 const eventId = "e0000000-0000-4000-8000-000000000001";
 const contactId = "e0000000-0000-4000-8000-000000000002" as ContactId;
 
-function detailWith(confirmationStatus: ConfirmationStatus): SpeakerDetailDTO {
+function detail(): SpeakerDetailDTO {
   return {
     contact: {
       contactId,
@@ -30,7 +30,7 @@ function detailWith(confirmationStatus: ConfirmationStatus): SpeakerDetailDTO {
       jobTitle: null,
       company: null,
       headshotFileId: null,
-      confirmationStatus,
+      confirmationStatus: "confirmed",
       isAcceptedSpeaker: true,
       submissionCount: 0,
       openTasks: 0,
@@ -61,6 +61,12 @@ function button(label: string): HTMLButtonElement {
   return match;
 }
 
+function nameConfirmInput(): HTMLInputElement {
+  const input = document.querySelector<HTMLInputElement>("input[aria-label=\"Confirm erasure by typing the speaker's name\"]");
+  if (!input) throw new Error("Missing erase confirmation input");
+  return input;
+}
+
 async function flush() {
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 }
@@ -69,14 +75,10 @@ let container: HTMLDivElement;
 let root: Root;
 let fetchMock: ReturnType<typeof vi.fn>;
 
-async function render(confirmationStatus: ConfirmationStatus) {
-  await act(async () => root.render(
-    <SpeakerDetailView eventId={eventId} timezone="UTC" initialDetail={detailWith(confirmationStatus)} />,
-  ));
-}
-
 beforeEach(() => {
   harness.toast.mockReset();
+  harness.push.mockReset();
+  harness.refresh.mockReset();
   fetchMock = vi.fn();
   vi.stubGlobal("fetch", fetchMock);
   container = document.createElement("div");
@@ -90,53 +92,55 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-describe("declining a confirmed speaker", () => {
-  it("asks first and names what the speaker loses in public, writing nothing until confirmed", async () => {
-    await render("confirmed");
+async function render() {
+  await act(async () => root.render(<SpeakerDetailView eventId={eventId} timezone="UTC" initialDetail={detail()} />));
+}
 
-    await act(async () => button("Declined").click());
+describe("erasing a speaker", () => {
+  it("names what erasure destroys and requires the speaker's name before it can run", async () => {
+    await render();
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    await act(async () => button("Erase this speaker").click());
+
     const dialog = document.body.textContent ?? "";
-    expect(dialog).toContain("Decline Ada Lovelace?");
-    expect(dialog).toContain("public speaker gallery");
-    expect(dialog).toContain("published session");
+    expect(dialog).toContain("Erase Ada Lovelace?");
+    expect(dialog).toContain("anonymized");
+    expect(dialog).toContain("cannot be undone");
+    // Deliberate confirmation (design bar D4): nothing is destroyable until the
+    // exact name is typed.
+    expect(button("Erase permanently").disabled).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("cancels back to the unchanged status", async () => {
-    await render("confirmed");
+  it("cancels without deleting anything", async () => {
+    await render();
 
-    await act(async () => button("Declined").click());
+    await act(async () => button("Erase this speaker").click());
     await act(async () => button("Cancel").click());
     await flush();
 
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(document.body.textContent).not.toContain("Decline Ada Lovelace?");
+    expect(document.body.textContent).not.toContain("Erase Ada Lovelace?");
   });
 
-  it("patches the speaker once the organizer confirms", async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({ data: detailWith("declined") }));
-    await render("confirmed");
+  it("deletes through the erasure endpoint and returns to the roster once the name matches", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ data: { eventId, contactId, erasedAt: new Date().toISOString(), deletedCounts: {} } }));
+    await render();
 
-    await act(async () => button("Declined").click());
-    await act(async () => button("Decline speaker").click());
+    await act(async () => button("Erase this speaker").click());
+    const input = nameConfirmInput();
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "Ada Lovelace");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => button("Erase permanently").click());
     await flush();
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(init.method).toBe("PATCH");
-    expect(JSON.parse(String(init.body))).toEqual({ confirmationStatus: "declined" });
-    expect(harness.toast).toHaveBeenCalledWith("Confirmation set to declined — removed from the public gallery");
-  });
-
-  it("leaves the non-destructive transitions one click, including declining a speaker who never confirmed", async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ data: detailWith("declined") }));
-    await render("unconfirmed");
-
-    await act(async () => button("Declined").click());
-    await flush();
-
-    expect(document.body.textContent).not.toContain("Decline Ada Lovelace?");
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`/api/internal/speakers/${eventId}/${contactId}`);
+    expect(init.method).toBe("DELETE");
+    expect(harness.push).toHaveBeenCalledWith(`/events/${eventId}/speakers`);
+    expect(harness.toast).toHaveBeenCalledWith("Ada Lovelace has been erased");
   });
 });
