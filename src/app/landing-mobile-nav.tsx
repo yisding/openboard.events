@@ -43,7 +43,7 @@ export function LandingMobileNav({ cfpHref, showSignIn }: { cfpHref: string; sho
         <div id="landing-mobile-links" className="landing-mobile-links">
           <a href="#features" onClick={() => setOpen(false)}>Platform</a>
           <a href="#story" onClick={() => setOpen(false)}>Why Openboard</a>
-          <Link href={cfpHref} onClick={() => setOpen(false)}>View sample CFP</Link>
+          <Link href={cfpHref} onClick={() => setOpen(false)}>Sample call for speakers</Link>
           {showSignIn && <Link href="/login" onClick={() => setOpen(false)}>Sign in</Link>}
         </div>
       )}

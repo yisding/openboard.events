@@ -190,7 +190,7 @@ describe("shared UI spacing regressions", () => {
     expect(css).toContain(".landing-links .button-primary svg { display: none; }");
     expect(css).toContain(".landing-mobile-nav { display: block; }");
     expect(home).toContain("<LandingMobileNav");
-    for (const label of ["Platform", "Why Openboard", "View sample CFP", "Sign in"]) {
+    for (const label of ["Platform", "Why Openboard", "Sample call for speakers", "Sign in"]) {
       expect(mobileNav).toContain(label);
     }
     expect(mobileNav).toContain('event.key !== "Escape"');
