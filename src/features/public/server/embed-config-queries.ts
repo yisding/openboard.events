@@ -100,24 +100,30 @@ export function getPublicEmbedConfig(
 
 /**
  * Reads the config row, creating a default (enabled, no style overrides) row
- * on first visit. The check-then-insert here is a known, accepted race for a
- * single-admin hackathon demo (M33 work order Step 2) — two admins opening
- * the settings page for the very first time simultaneously could create two
- * rows; `findRow`'s `ORDER BY created_at LIMIT 1` keeps reads deterministic
- * either way.
+ * on first visit.
+ *
+ * The check-then-insert is a race, and it used to be an accepted one: two
+ * admins opening the settings page for the very first time both inserted, and
+ * the loser of that race was handed *its own* row by `.returning()` while
+ * every reader — `findRow`, and through it `isEmbedEnabledIn`, the public
+ * route's kill switch — resolved the earliest one. Every toggle they made
+ * looked saved and changed nothing anybody would serve, the kill switch
+ * included.
+ *
+ * Two halves close it. `drizzle/0049` makes the duplicate unrepresentable, so
+ * the losing INSERT is a no-op rather than a second row; and the answer comes
+ * from `findRow` afterwards rather than from the insert, so it is the row that
+ * won either way. The ordering in `findRow` stays as the belt to this braces —
+ * it costs nothing and it is what makes the constraint's own backfill safe to
+ * describe.
  */
 export async function getOrCreateEmbedConfigIn(dbOrTx: DbOrTx, eventId: EventId, contentType: CanonicalEmbedContentType): Promise<EmbedConfigDTO> {
   const existing = await findRow(dbOrTx, eventId, contentType);
   if (existing) return toDto(existing);
   await dbOrTx
     .insert(embeds)
-    .values({ eventId, contentType, name: DEFAULT_EMBED_NAME[contentType], enabled: true, style: {}, filters: {} });
-  // Re-read rather than returning the row just inserted. There is no unique
-  // index on (event_id, content_type), and `findRow` deliberately takes the
-  // *earliest* row — so two admins opening the embeds page at once for a
-  // never-configured event both insert, and the one that returned its own row
-  // then PATCHed the duplicate forever. Every toggle, the kill switch included,
-  // looked saved while the public route kept serving the other row.
+    .values({ eventId, contentType, name: DEFAULT_EMBED_NAME[contentType], enabled: true, style: {}, filters: {} })
+    .onConflictDoNothing({ target: [embeds.eventId, embeds.contentType] });
   const created = await findRow(dbOrTx, eventId, contentType);
   if (!created) throw new AppError("INTERNAL", "Could not create the embed config");
   return toDto(created);
@@ -151,8 +157,9 @@ export async function getOrCreateSpeakerListConfigIn(dbOrTx: DbOrTx, eventId: Ev
       enabled: legacy?.enabled ?? true,
       style: legacy?.style ?? {},
       filters: legacy?.filters ?? {},
-    });
-  // Same re-read as above, for the same reason.
+    })
+    .onConflictDoNothing({ target: [embeds.eventId, embeds.contentType] });
+  // Same two halves as above, for the same reason.
   const inserted = await findRow(dbOrTx, eventId, "speaker_list");
   if (!inserted) throw new AppError("INTERNAL", "Could not create the embed config");
   return toDto(inserted);
