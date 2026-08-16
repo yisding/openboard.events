@@ -231,6 +231,34 @@ describe("shared UI spacing regressions", () => {
     expect(cfpSteps).toContain("<small>Include another person on this submission.</small>");
   });
 
+  it("makes a disabled icon button look disabled, and stops it lighting up", () => {
+    // Without both halves a disabled .icon-button was pixel-identical to a live
+    // one and still took the hover treatment, so "Previous" on the first review
+    // item read as a control that had simply failed to respond.
+    expect(css).toContain(".icon-button:hover:not(:disabled) {");
+    expect(css).toContain(".icon-button:disabled { opacity: .55; cursor: not-allowed; }");
+  });
+
+  it("uses the button primitive for text-labelled actions, not the 36px icon box", () => {
+    const dialog = read("./agenda/components/session-form-dialog.tsx");
+
+    // "Restore"/"Restoring…" is a word, not a glyph: .icon-button is a fixed
+    // 36x36 box, so the label spilled outside its own hit area and border.
+    expect(dialog).toContain('<Button\n                    size="sm"\n                    variant="ghost"');
+    expect(dialog).not.toContain('className="icon-button"');
+  });
+
+  it("leaves the builder rail's scroll motion where reduced-motion can reach it", () => {
+    const builder = read("./forms/form-builder.tsx");
+
+    // A literal behavior:"smooth" in scrollTo() outruns the preference; the
+    // stylesheet's prefers-reduced-motion block already forces scroll-behavior
+    // to auto on everything, so the decision belongs in CSS.
+    expect(css).toMatch(/\.builder-rail \{[^}]*scroll-behavior: smooth;/u);
+    expect(builder).toContain("rail.scrollTo({ left })");
+    expect(builder).not.toContain('behavior: "smooth"');
+  });
+
   it("gives discrete public session and gallery actions full pointer targets", () => {
     expect(css).toContain(
       ".public-session-main h3 button{width:100%;min-height:32px;",

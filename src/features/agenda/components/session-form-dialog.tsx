@@ -588,9 +588,9 @@ function SessionHistoryPanel({
               {index === 0
                 ? <em>Current</em>
                 : (
-                  <button
-                    type="button"
-                    className="icon-button"
+                  <Button
+                    size="sm"
+                    variant="ghost"
                     disabled={restoringId !== null}
                     onClick={async () => {
                       setRestoringId(revision.id);
@@ -603,7 +603,7 @@ function SessionHistoryPanel({
                     }}
                   >
                     {restoringId === revision.id ? "Restoring…" : "Restore"}
-                  </button>
+                  </Button>
                 )}
             </li>
           ))}
