@@ -686,6 +686,27 @@ describe("exportOrganizationDataIn", () => {
     await pglite.query("UPDATE events SET organization_id = $1 WHERE id = $2", [organizationId, eventId]);
   });
 
+  it("includes pending reviewer invitations, which live in the same table", async () => {
+    // Reviewer invitations are written into `organization_invitations` under the
+    // same organization with `event_id` set, and the workspace query filters
+    // those out. The export read only that query, so a bundle whose stated
+    // purpose is the complete administrative record reported no pending
+    // invitations while reviewer ones were outstanding — contradicting its own
+    // audit log, which carries the `reviewer.invited` entries that sent them.
+    await pglite.query(
+      "INSERT INTO organization_invitations(organization_id,event_id,email,role,token_hash,invited_by_user_id,expires_at) VALUES($1,$2,'reviewer-invitee@example.com','reviewer','rev-hash',$3,'2099-01-01T00:00:00Z')",
+      [organizationId, eventId, adminUserId],
+    );
+    const bundle = await exportOrganizationDataIn(db, organizationId);
+    const exported = bundle?.pendingEventInvitations.find((invitation) => invitation.email === "reviewer-invitee@example.com");
+    expect(exported).toBeDefined();
+    // The event is the grant. An entry naming a role and an address but not
+    // what it grants access to would be a quieter version of the same omission.
+    expect(exported?.eventId).toBe(eventId);
+    // And the workspace list still means workspace invitations only.
+    expect(bundle?.pendingInvitations.map((invitation) => invitation.email)).not.toContain("reviewer-invitee@example.com");
+  });
+
   it("returns null for an unknown organization", async () => {
     await expect(exportOrganizationDataIn(db, organizationIdSchema.parse("47000000-0000-4000-8000-00000000afff"))).resolves.toBeNull();
   });
