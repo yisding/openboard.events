@@ -16,7 +16,7 @@ import { PrivateFileLink } from "@/shared/ui/app/private-file-link";
 import { Button, Drawer, EmptyState, PageHeader, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { useToast } from "@/shared/ui/toast";
-import { deliverableBulkTargets, filesSelectionBarState } from "./files-selection";
+import { deliverableBulkTargets, deliverableExportSelection, fileExportStatusNote, filesSelectionBarState } from "./files-selection";
 
 type State = "all" | "open" | "overdue" | "completed";
 type HasUpload = "" | "yes" | "no";
@@ -232,6 +232,7 @@ export function FilesAdminView({
   const [selectionEpoch, setSelectionEpoch] = useState(0);
   const [active, setActive] = useState<DeliverableRowDTO | null>(null);
   const [exportJob, setExportJob] = useState<FileExportJobDTO | null>(null);
+  const [exportSkipped, setExportSkipped] = useState(0);
   const [exporting, setExporting] = useState(false);
 
   const onFilter = useCallback((next: Partial<{ state: State; taskId: string; fileRequestId: string; hasUpload: HasUpload; search: string }>) => {
@@ -338,15 +339,21 @@ export function FilesAdminView({
    * nothing uploaded yet is dropped here client-side, and dropped again
    * server-side (`createFileExportJobIn` re-derives the same set), so the two
    * can never disagree about what actually gets included.
+   *
+   * How many were dropped is carried alongside the job and named in the export
+   * banner. Announcing only the all-empty case left a mixed selection quietly
+   * short: ten rows selected, eight files in the ZIP, and nothing on screen
+   * accounting for the other two (MTP-14 §3 step 24).
    */
   async function startExport(groupBy: "none" | "session" | "speaker", selection = selected) {
-    const targets = selection.filter((row) => row.latestVersion !== null);
+    const { exportable: targets, skippedWithoutUpload } = deliverableExportSelection(selection);
     if (targets.length === 0) {
       toast("Select at least one deliverable that has a file uploaded", { kind: "error" });
       return;
     }
     setExporting(true);
     setExportJob(null);
+    setExportSkipped(skippedWithoutUpload);
     try {
       const response = await fetch(`/api/internal/deliverables/export?eventId=${encodeURIComponent(eventId)}`, {
         method: "POST",
@@ -493,11 +500,7 @@ export function FilesAdminView({
                 <b>
                   {exportJob.status === "completed" ? "Export ready" : exportJob.status === "failed" ? "Export failed" : "Preparing export…"}
                 </b>
-                <small>
-                  {exportJob.status === "completed" && `${exportJob.entryCount} file${exportJob.entryCount === 1 ? "" : "s"} zipped`}
-                  {exportJob.status === "failed" && (exportJob.error ?? "The export could not be prepared. Use the export menu to try again.")}
-                  {(exportJob.status === "pending" || exportJob.status === "processing") && "This updates automatically."}
-                </small>
+                <small>{fileExportStatusNote(exportJob, exportSkipped)}</small>
               </p>
             </div>
             {exportJob.status === "completed" && exportJob.resultFileId && (

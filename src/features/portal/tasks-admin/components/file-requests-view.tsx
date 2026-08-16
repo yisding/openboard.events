@@ -62,7 +62,7 @@ export function FileRequestsView({
 
   const open = creating || editing !== null;
   const dirty = open && editorDraftChanged(draft, baseline);
-  useUnsavedWorkGuard(dirty);
+  const releaseUnsavedWork = useUnsavedWorkGuard(dirty);
 
   function startCreate() {
     if (saving) return;
@@ -117,6 +117,10 @@ export function FileRequestsView({
       if (!saved) { toast("That file request was saved, but its response could not be read", { kind: "error" }); return; }
       toast(draft.id ? "File request updated" : "File request created");
       setBaseline(draft);
+      // Same reason as the task editor: `onChanged` refreshes the list, and a
+      // baseline reset that only lands on the next render leaves the guard
+      // armed across that refresh.
+      releaseUnsavedWork();
       discardEditor();
       await onChanged({ kind: "saved", request: saved });
     } finally {

@@ -29,6 +29,11 @@ describe("communications activity table responsive styles", () => {
     const tabletBlock = cssBlockAt(css, tabletStart);
     expect(tabletBlock).toContain(".data-table td.comms-log-col-provider");
     expect(tabletBlock).toContain(".data-table td.comms-log-col-created");
+    // Subject is the widest cell in the row, so it leaves at the same rung
+    // rather than squeezing the recipient — and it is capped, not free, on the
+    // desktop rung above, or one long reminder subject sets the whole layout.
+    expect(tabletBlock).toContain(".data-table td.comms-log-col-subject");
+    expect(css).toContain(".data-table td.comms-log-col-subject>span{display:block;max-width:");
     // Recipient, Template, Status and Sent survive the tablet step.
     expect(tabletBlock).not.toContain("comms-log-col-recipient");
     expect(tabletBlock).not.toContain("comms-log-col-template");
