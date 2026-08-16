@@ -814,10 +814,31 @@ export async function saveSessionIn(
     || iso(prior.ends_at) !== nextEndsAt
     || prior.room_id !== input.roomId
   ));
+  const currentRevision = Number(row.schedule_revision);
+  const priorRevision = Number(prior.schedule_revision);
   if (scheduleNoticeChanged) {
     await notifySchedule(
       dbOrTx, eventId, sessionId,
-      { status: prior.status, startsAt: iso(prior.starts_at), scheduleRevision: Number(prior.schedule_revision) },
+      { status: prior.status, startsAt: iso(prior.starts_at), scheduleRevision: priorRevision },
+      nextState,
+      continuing,
+    );
+  } else if (nextScheduled && currentRevision > 0 && currentRevision === priorRevision) {
+    // A room deleted or renamed out from under a published, timed session
+    // advances its `schedule_revision` but enqueues nothing: the notification
+    // path is this save, which the vocabulary statement does not run through
+    // (docs/manual-test-plans.md MTP-16 §3, "Known gaps"). The comparison above
+    // cannot see the loss — the cascade already nulled `room_id`, so both sides
+    // read null — so the strand is detected by the revision the save inherits
+    // rather than by the room. `currentRevision === priorRevision` is what keeps
+    // this to that case: a save that advances the revision itself is handled
+    // above, and a title-only bump the speaker policy deliberately skips leaves
+    // the two unequal. Shipping the current revision is a no-op on an ordinary
+    // save whose revision was already delivered — the idempotency key swallows
+    // it — and the one message the stranded speaker was owed on the others.
+    await notifySchedule(
+      dbOrTx, eventId, sessionId,
+      { status: prior.status, startsAt: iso(prior.starts_at), scheduleRevision: currentRevision - 1 },
       nextState,
       continuing,
     );

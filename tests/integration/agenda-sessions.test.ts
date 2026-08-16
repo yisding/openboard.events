@@ -449,6 +449,59 @@ describe("agenda sessions", () => {
     ]);
   });
 
+  it("ships the stranded revision to speakers when a session is resaved after its room was deleted", async () => {
+    const created = await createSession({
+      title: "Room-bound panel", roomId: studio, speakerContactIds: [ada, grace], status: "published",
+      startsAt: at("2026-09-15T17:00:00Z"), endsAt: at("2026-09-15T17:30:00Z"),
+    });
+    expect(created.scheduleRevision).toBe(1);
+
+    // The room-deletion cascade (events/server/vocab.ts) nulls the session's
+    // room and advances its schedule revision exactly once for a published,
+    // timed session — but enqueues nothing. Replay that statement's effect, then
+    // drain the assignment mail so only what the resave produces is left.
+    await pglite.query(
+      `UPDATE sessions
+         SET room_id = NULL,
+             schedule_revision = schedule_revision + 1,
+             updated_at = now()
+       WHERE id = $1 AND event_id = $2 AND status = 'published' AND starts_at IS NOT NULL`,
+      [created.id, eventId],
+    );
+    await pglite.exec("TRUNCATE communication_logs CASCADE");
+
+    // The organizer resaves the session with nothing changed — the room is
+    // simply gone from the form. The current row shows room_id = null on both
+    // sides, so the loss is invisible to a room comparison; the revision the
+    // deletion advanced is what tells the resave there is a change to ship.
+    const resaved = await saveSession(eventId, {
+      id: created.id, expectedVersion: created.rowVersion, title: "Room-bound panel",
+      descriptionHtml: created.descriptionHtml, formatId: null, trackId: null, roomId: null,
+      startsAt: at("2026-09-15T17:00:00Z"), endsAt: at("2026-09-15T17:30:00Z"),
+      speakerContactIds: [ada, grace], status: "published",
+    });
+    // The deletion advanced it to 2; the resave changed nothing, so it stays 2.
+    expect(resaved.scheduleRevision).toBe(2);
+
+    const afterResave = await pglite.query<{ template_key: string; contact_id: string; idempotency_key: string }>(
+      "SELECT template_key, contact_id, idempotency_key FROM communication_logs ORDER BY contact_id",
+    );
+    expect(afterResave.rows).toEqual([
+      { template_key: "schedule_changed", contact_id: ada, idempotency_key: idem.scheduled(eventId, created.id, ada, 2) },
+      { template_key: "schedule_changed", contact_id: grace, idempotency_key: idem.scheduled(eventId, created.id, grace, 2) },
+    ]);
+
+    // Resaving again must not send a second copy: the stranded revision is the
+    // same, so its idempotency key swallows the repeat. No duplicate invite.
+    await saveSession(eventId, {
+      id: resaved.id, expectedVersion: resaved.rowVersion, title: "Room-bound panel",
+      descriptionHtml: resaved.descriptionHtml, formatId: null, trackId: null, roomId: null,
+      startsAt: at("2026-09-15T17:00:00Z"), endsAt: at("2026-09-15T17:30:00Z"),
+      speakerContactIds: [ada, grace], status: "published",
+    });
+    expect(await count("communication_logs")).toBe(2);
+  });
+
   it("does not mail a speaker added to a draft or an unscheduled session", async () => {
     const draft = await createSession({
       title: "Still a draft", roomId: mainStage, speakerContactIds: [ada],
