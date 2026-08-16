@@ -1,11 +1,13 @@
 "use client";
 
-import { ArrowLeftRight, GitMerge } from "lucide-react";
+import { ArrowLeftRight, GitMerge, Undo2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   crmMergeAuditDtoSchema,
+  crmMergeAuditDetailDtoSchema,
   crmMergePreviewDtoSchema,
+  type CrmMergeId,
   type CrmMergePreviewDTO,
   type OrganizationContactId,
   type OrganizationId,
@@ -27,10 +29,11 @@ type Resolution = "primary" | "merged";
  * M55 — the merge wizard (guardrail: "requires preview, explicit primary,
  * reference counts, audit trail … before committing"). Pick/swap the primary
  * → server preview with reference counts and field conflicts → per-field
- * keep-primary/take-merged resolution → the audited commit. There is no
- * automated undo (the module header names this a deliberate remainder), so
- * the confirming button reads "Merge" only after the reference counts have
- * rendered — never a same-click default.
+ * keep-primary/take-merged resolution → the audited commit. Because the
+ * commit writes an immutable before-merge snapshot, the confirmation step
+ * offers a one-click "Undo merge" that calls the recovery endpoint and fully
+ * restores the tombstoned contact. The confirming button reads "Merge" only
+ * after the reference counts have rendered — never a same-click default.
  */
 export function MergeWizardDialog({
   organizationId,
@@ -54,6 +57,9 @@ export function MergeWizardDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [mergeId, setMergeId] = useState<CrmMergeId | null>(null);
+  const [recovering, setRecovering] = useState(false);
+  const [recovered, setRecovered] = useState(false);
 
   const primary = swapped ? b : a;
   const merged = swapped ? a : b;
@@ -77,16 +83,18 @@ export function MergeWizardDialog({
 
   function reset() {
     setSwapped(false); setPreview(null); setResolutions({}); setError(null); setDone(false);
+    setMergeId(null); setRecovering(false); setRecovered(false);
   }
 
   async function commit() {
     setBusy(true);
     setError(null);
     try {
-      await api(`organizations/${organizationId}/crm/merge`, crmMergeAuditDtoSchema, {
+      const audit = await api(`organizations/${organizationId}/crm/merge`, crmMergeAuditDtoSchema, {
         method: "POST",
         body: { primaryContactId: primary.id, mergedContactId: merged.id, fieldResolutions: resolutions },
       });
+      setMergeId(audit.id);
       setDone(true);
       toast(`Merged into ${primary.label}`);
       router.refresh();
@@ -97,15 +105,34 @@ export function MergeWizardDialog({
     }
   }
 
+  async function recover() {
+    if (!mergeId || recovering) return;
+    setRecovering(true);
+    setError(null);
+    try {
+      await api(`organizations/${organizationId}/crm/merge/${mergeId}/recover`, crmMergeAuditDetailDtoSchema, { method: "POST" });
+      setRecovered(true);
+      toast(`Restored ${merged.label}`);
+      router.refresh();
+    } catch (caught) {
+      setError(isAppError(caught) ? caught.message : "That merge could not be recovered");
+    } finally {
+      setRecovering(false);
+    }
+  }
+
   return (
     <Modal
       open={open}
       onClose={() => { reset(); onClose(); }}
       title="Merge duplicate contacts"
-      description="The primary stays; the other is tombstoned and every reference reassigned. This cannot be undone from here."
+      description="The primary stays; the other is tombstoned and every reference reassigned. It can be undone from the confirmation step."
       wide
       footer={done ? (
-        <Button onClick={() => { reset(); onClose(); }}>Done</Button>
+        <>
+          {!recovered && <Button variant="secondary" disabled={recovering} onClick={() => void recover()}><Undo2 size={15} /> {recovering ? "Undoing…" : "Undo merge"}</Button>}
+          <Button onClick={() => { reset(); onClose(); }}>Done</Button>
+        </>
       ) : (
         <>
           <Button variant="secondary" onClick={() => { reset(); onClose(); }} disabled={busy}>Cancel</Button>
@@ -114,8 +141,15 @@ export function MergeWizardDialog({
       )}
     >
       {done ? (
-        <div className="notify-bar">
-          <div><GitMerge size={18} /><p><b>{merged.label} merged into {primary.label}</b><small>An audit record was written with the before-merge field snapshot and reference counts.</small></p></div>
+        <div className="form-stack">
+          <div className="notify-bar">
+            {recovered ? (
+              <div><Undo2 size={18} /><p><b>{merged.label} restored</b><small>The merge was reversed and {merged.label} is a separate contact again.</small></p></div>
+            ) : (
+              <div><GitMerge size={18} /><p><b>{merged.label} merged into {primary.label}</b><small>An audit record was written with the before-merge field snapshot and reference counts. Undo merge reverses it while it is still recoverable.</small></p></div>
+            )}
+          </div>
+          {error && <p className="field-error" role="alert">{error}</p>}
         </div>
       ) : (
         <div className="form-stack">
