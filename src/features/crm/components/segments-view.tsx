@@ -11,6 +11,7 @@ import {
   crmSegmentDtoSchema,
   directoryPageDtoSchema,
   resolvedCrmSegmentSchema,
+  type CrmCustomFieldDTO,
   type CrmSegmentDTO,
   type CrmSegmentFilter,
   type CrmTagDTO,
@@ -18,7 +19,7 @@ import {
   type OrganizationId,
   type ResolvedCrmSegment,
 } from "@/shared/contracts";
-import { Button, EmptyState, Field, Modal, PageHeader } from "@/shared/ui/ui-kit";
+import { Button, EmptyState, Field, Modal, PageHeader, Select } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
@@ -57,14 +58,28 @@ export async function resolveCrmEmailAudience(load: () => Promise<ResolvedCrmSeg
   }
 }
 
-function filterSummary(filter: CrmSegmentFilter, tags: CrmTagDTO[], events: OrganizationEventRow[]): string {
+function filterSummary(filter: CrmSegmentFilter, tags: CrmTagDTO[], events: OrganizationEventRow[], customFields: CrmCustomFieldDTO[]): string {
   const parts: string[] = [];
   if (filter.search) parts.push(`"${filter.search}"`);
   if (filter.tagIds?.length) parts.push(filter.tagIds.map((id) => tags.find((tag) => tag.id === id)?.name ?? id).join(" + "));
   if (filter.eventIds?.length) parts.push(filter.eventIds.map((id) => events.find((event) => event.id === id)?.name ?? id).join(" or "));
   if (filter.pipelineStage?.length) parts.push(`pipeline: ${filter.pipelineStage.join(", ")}`);
   if (filter.source?.length) parts.push(`source: ${filter.source.join(", ")}`);
+  if (filter.customFields) {
+    for (const [key, value] of Object.entries(filter.customFields)) {
+      parts.push(`${customFields.find((field) => field.key === key)?.label ?? key}: ${value}`);
+    }
+  }
   return parts.length > 0 ? parts.join(" · ") : "Everyone in the directory";
+}
+
+/** Sets a custom field's required value, or clears it when the value is empty
+ * (so an emptied input drops the criterion rather than filtering on ""). */
+function setCustomFieldValue(current: CrmSegmentFilter["customFields"], key: string, value: string): CrmSegmentFilter["customFields"] {
+  const next = { ...(current ?? {}) };
+  if (value) next[key] = value;
+  else delete next[key];
+  return Object.keys(next).length > 0 ? next : undefined;
 }
 
 function toggleInArray<T>(current: T[] | undefined, value: T): T[] | undefined {
@@ -73,10 +88,11 @@ function toggleInArray<T>(current: T[] | undefined, value: T): T[] | undefined {
   return next.length > 0 ? next : undefined;
 }
 
-function SegmentBuilderModal({ organizationId, tags, events, open, onClose, onCreated }: {
+function SegmentBuilderModal({ organizationId, tags, events, customFields, open, onClose, onCreated }: {
   organizationId: OrganizationId;
   tags: CrmTagDTO[];
   events: OrganizationEventRow[];
+  customFields: CrmCustomFieldDTO[];
   open: boolean;
   onClose: () => void;
   onCreated: (segment: CrmSegmentDTO) => void;
@@ -101,6 +117,7 @@ function SegmentBuilderModal({ organizationId, tags, events, open, onClose, onCr
       if (filter.eventIds?.length) params.set("eventIds", filter.eventIds.join(","));
       if (filter.pipelineStage?.length) params.set("pipelineStage", filter.pipelineStage.join(","));
       if (filter.source?.length) params.set("source", filter.source.join(","));
+      if (filter.customFields) params.set("customFields", JSON.stringify(filter.customFields));
       params.set("limit", "1");
       const page = await api(`organizations/${organizationId}/crm/contacts?${params.toString()}`, directoryPageDtoSchema);
       setPreviewTotal(page.total);
@@ -183,6 +200,24 @@ function SegmentBuilderModal({ organizationId, tags, events, open, onClose, onCr
             ))}
           </div>
         </Field>
+        {customFields.length > 0 && (
+          <Field label="Custom fields" hint="A contact must match every value entered here." group>
+            <div className="form-stack">
+              {customFields.map((field) => (
+                <Field key={field.id} label={field.label}>
+                  {field.fieldType === "select" ? (
+                    <Select value={filter.customFields?.[field.key] ?? ""} onChange={(event) => setFilter((current) => ({ ...current, customFields: setCustomFieldValue(current.customFields, field.key, event.target.value) }))}>
+                      <option value="">Any</option>
+                      {field.options.map((option) => <option key={option} value={option}>{option}</option>)}
+                    </Select>
+                  ) : (
+                    <input value={filter.customFields?.[field.key] ?? ""} placeholder="Any value" onChange={(event) => setFilter((current) => ({ ...current, customFields: setCustomFieldValue(current.customFields, field.key, event.target.value) }))} />
+                  )}
+                </Field>
+              ))}
+            </div>
+          </Field>
+        )}
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <Button size="sm" variant="secondary" onClick={() => void preview()} disabled={previewing}><Sparkles size={14} /> {previewing ? "Checking…" : "Preview match count"}</Button>
           {previewTotal !== null && <span style={{ fontSize: "var(--text-xs)", color: "var(--muted)" }}>{previewTotal} contact{previewTotal === 1 ? "" : "s"} match right now</span>}
@@ -207,11 +242,13 @@ export function SegmentsView({
   initialSegments,
   tags,
   events,
+  customFields,
 }: {
   organizationId: OrganizationId;
   initialSegments: CrmSegmentDTO[];
   tags: CrmTagDTO[];
   events: OrganizationEventRow[];
+  customFields: CrmCustomFieldDTO[];
 }) {
   const { toast } = useToast();
   const [segments, setSegments] = useState(initialSegments);
@@ -338,7 +375,7 @@ export function SegmentsView({
             <header>
               <div>
                 <h3>{segment.name}</h3>
-                <p>{filterSummary(segment.filter, tags, events)}</p>
+                <p>{filterSummary(segment.filter, tags, events, customFields)}</p>
               </div>
               <div className="crm-segment-card-actions">
                 <Button size="sm" variant="secondary" onClick={() => void resolve(segment.id)} disabled={resolving}>
@@ -371,6 +408,7 @@ export function SegmentsView({
         organizationId={organizationId}
         tags={tags}
         events={events}
+        customFields={customFields}
         open={builderOpen}
         onClose={() => setBuilderOpen(false)}
         onCreated={(segment) => setSegments((current) => [segment, ...current])}

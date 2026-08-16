@@ -4,7 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { requireOrganizationAdmin } from "@/features/auth";
 import { safeInternalPath } from "@/features/auth/safe-next";
 import { listOrganizationEvents } from "@/features/organizations";
-import { listCrmSegments, listCrmTags } from "@/features/crm";
+import { listCrmCustomFields, listCrmSegments, listCrmTags } from "@/features/crm";
 import { SegmentsView } from "@/features/crm/components/segments-view";
 import { organizationIdSchema } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
@@ -29,11 +29,12 @@ export default async function Page({ params }: { params: Promise<{ organizationI
     notFound();
   }
 
-  const [segments, tags, events] = await Promise.all([
+  const [segments, tags, events, customFields] = await Promise.all([
     listCrmSegments(organizationId),
     listCrmTags(organizationId),
     listOrganizationEvents(organizationId),
+    listCrmCustomFields(organizationId),
   ]);
 
-  return <SegmentsView organizationId={organizationId} initialSegments={segments} tags={tags} events={events} />;
+  return <SegmentsView organizationId={organizationId} initialSegments={segments} tags={tags} events={events} customFields={customFields} />;
 }
