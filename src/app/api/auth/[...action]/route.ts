@@ -13,7 +13,7 @@ import { getEnv } from "@/shared/lib/env";
 import { log } from "@/shared/lib/log";
 import { assertSameOrigin } from "@/shared/server/csrf";
 import { checkRateLimit, clientIp } from "@/shared/server/rate-limit";
-import { beginGoogleSignup, confirmAdminEmail, handleAdminAuthGet, handleSocialSignIn } from "./_lib";
+import { beginGoogleSignup, confirmAdminEmail, handleAdminAuthGet, handleSocialSignIn, wrapBetterAuthError } from "./_lib";
 
 /**
  * Admin auth endpoints.
@@ -255,11 +255,15 @@ function parseJson(raw: string): unknown {
 async function throttledBetterAuthPost(request: NextRequest): Promise<Response> {
   const raw = await request.text();
   const parsed = signInSchema.safeParse(parseJson(raw));
-  const forwarded = () => betterAuthHandler(new Request(request.url, {
+  // Better Auth's native rejection shape is `{ code, message }`; re-shape it to
+  // the app envelope so this endpoint answers one grammar whether the throttle
+  // or Better Auth itself refused. `credentialAttempt`'s `acceptedCredentialResponse`
+  // already reads either shape, so wrapping first is safe.
+  const forwarded = async () => wrapBetterAuthError(await betterAuthHandler(new Request(request.url, {
     method: "POST",
     headers: request.headers,
     body: raw,
-  }));
+  })));
   if (!parsed.success) return forwarded();
   return credentialAttempt(request, parsed.data.email, forwarded);
 }

@@ -50,6 +50,41 @@ function copyCookies(source: Response, target: NextResponse): void {
   for (const cookie of source.headers.getSetCookie()) target.headers.append("set-cookie", cookie);
 }
 
+/**
+ * Re-shape a *native* Better Auth error response into the application envelope.
+ *
+ * Posting straight to `/api/auth/sign-in/email` reaches Better Auth's own
+ * handler, whose rejections carry its raw `{ code, message }` — the one place on
+ * this endpoint that answered in a different grammar than the throttle path's
+ * `{ error: { code, message } }`. This narrows every rejection from that surface
+ * to the repo's `apiErrorSchema` shape without touching the status, the code, or
+ * the message, so a caller sees one envelope whichever layer refused it.
+ *
+ * Success is returned verbatim: the whole point of the exchange is the session
+ * cookie and body Better Auth mints, and only rejections were ever off-grammar.
+ */
+function codeForStatus(status: number): string {
+  if (status === 429) return "RATE_LIMITED";
+  if (status === 403) return "FORBIDDEN";
+  if (status === 404) return "NOT_FOUND";
+  return "UNAUTHORIZED";
+}
+
+export async function wrapBetterAuthError(response: Response): Promise<Response> {
+  if (response.ok) return response;
+  const body = await response.clone().json().catch(() => null) as { code?: unknown; message?: unknown } | null;
+  // Better Auth names most rejections (`INVALID_EMAIL_OR_PASSWORD`,
+  // `EMAIL_NOT_VERIFIED`), but its built-in rate limiter answers with a bare
+  // `message` — fall back to the status so a 429 never surfaces as an auth code.
+  const code = typeof body?.code === "string" ? body.code : codeForStatus(response.status);
+  const message = typeof body?.message === "string" ? body.message : "Invalid email or password";
+  const wrapped = NextResponse.json({ error: { code, message } }, { status: response.status });
+  // Better Auth clears its cookie on some rejections; carry any Set-Cookie so
+  // re-shaping the body never changes the session side effects.
+  copyCookies(response, wrapped);
+  return wrapped;
+}
+
 function verificationNext(requestUrl: URL): string {
   const callback = requestUrl.searchParams.get("callbackURL");
   if (!callback) return "/organizations";

@@ -5,7 +5,7 @@ import {
   OAUTH_SIGNUP_INTENT_COOKIE,
   openOAuthSignupIntent,
 } from "@/features/auth/server/oauth-signup-intent";
-import { beginGoogleSignup, handleAdminAuthGet, handleSocialSignIn } from "./_lib";
+import { beginGoogleSignup, handleAdminAuthGet, handleSocialSignIn, wrapBetterAuthError } from "./_lib";
 
 const secret = "google-signup-route-test-secret-at-least-32-bytes";
 const dormant = parseEnv({
@@ -185,5 +185,46 @@ describe("Google signup handoff", () => {
       expect.stringContaining("openboard_admin.oauth_state=fresh"),
       expect.stringMatching(new RegExp(`${OAUTH_SIGNUP_INTENT_COOKIE}=;.*Max-Age=0`)),
     ]));
+  });
+});
+
+describe("native Better Auth error envelope", () => {
+  it("re-shapes a raw credential rejection into the app envelope, keeping status, code and message", async () => {
+    const raw = Response.json(
+      { code: "INVALID_EMAIL_OR_PASSWORD", message: "Invalid email or password" },
+      { status: 401 },
+    );
+
+    const wrapped = await wrapBetterAuthError(raw);
+
+    expect(wrapped.status).toBe(401);
+    await expect(wrapped.json()).resolves.toEqual({
+      error: { code: "INVALID_EMAIL_OR_PASSWORD", message: "Invalid email or password" },
+    });
+  });
+
+  it("derives a code from the status when Better Auth's limiter omits one", async () => {
+    const raw = Response.json({ message: "Too many requests" }, { status: 429 });
+
+    const wrapped = await wrapBetterAuthError(raw);
+
+    expect(wrapped.status).toBe(429);
+    await expect(wrapped.json()).resolves.toEqual({
+      error: { code: "RATE_LIMITED", message: "Too many requests" },
+    });
+  });
+
+  it("returns a successful response verbatim, cookies and all", async () => {
+    const raw = Response.json(
+      { redirect: false, token: "session-token" },
+      { headers: { "set-cookie": "openboard_admin.session=abc; Path=/; HttpOnly" } },
+    );
+
+    const passthrough = await wrapBetterAuthError(raw);
+
+    expect(passthrough).toBe(raw);
+    expect(passthrough.headers.getSetCookie()).toEqual([
+      "openboard_admin.session=abc; Path=/; HttpOnly",
+    ]);
   });
 });

@@ -1,7 +1,7 @@
 import { sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { db, withTx, type DbOrTx, type TxDb } from "@/db/client";
-import { isUniqueViolation } from "@/db/errors";
+import { foreignKeyViolation, isUniqueViolation } from "@/db/errors";
 import {
   contactIdSchema,
   formatIdSchema,
@@ -437,6 +437,48 @@ async function notifyRemovedSpeakers(
 
 const RETURNED_COLUMNS = sql`id, title, slug, description_html, starts_at, ends_at, track_id, room_id, format_id, status, schedule_revision, row_version, submission_id`;
 
+/**
+ * A dangling or cross-event room/track/format/speaker id reaches the composite
+ * `(id, event_id)` foreign keys, which are the real tenancy boundary and
+ * correctly refuse the write — nothing is committed. That refusal arrives as a
+ * Postgres 23503; left unmapped it escaped `saveSession` as a blind 500. Map it
+ * to the same field-scoped VALIDATION a sibling route answers with, so the
+ * organizer sees which reference to fix. The DB stays the enforcement point;
+ * this only translates its verdict.
+ */
+function referenceViolation(error: unknown): AppError | null {
+  const constraint = foreignKeyViolation(error);
+  if (constraint === null) return null;
+  const named = constraint.toLowerCase();
+  if (named.includes("room")) {
+    return new AppError("VALIDATION", "That room isn't part of this event", undefined, { roomId: "Pick a room from this event" });
+  }
+  if (named.includes("track")) {
+    return new AppError("VALIDATION", "That track isn't part of this event", undefined, { trackId: "Pick a track from this event" });
+  }
+  if (named.includes("format")) {
+    return new AppError("VALIDATION", "That session format isn't part of this event", undefined, { formatId: "Pick a format from this event" });
+  }
+  if (named.includes("contact") || named.includes("speaker")) {
+    return new AppError("VALIDATION", "One of those speakers isn't part of this event", undefined, { speakerContactIds: "Pick speakers from this event" });
+  }
+  if (named.includes("submission")) {
+    return new AppError("VALIDATION", "That submission isn't part of this event");
+  }
+  // A 23503 we could not attribute is still a client-actionable bad reference,
+  // never an INTERNAL: name the set of columns it could have been.
+  return new AppError("VALIDATION", "A room, track, format or speaker on this session isn't part of this event");
+}
+
+/**
+ * `.then` rejection handler that turns a composite-FK refusal into its mapped
+ * VALIDATION and re-throws everything else. Used where a write is not already
+ * inside a try/catch (the create loop maps the same way against its own catch).
+ */
+function mapReferenceRejection(error: unknown): never {
+  throw referenceViolation(error) ?? error;
+}
+
 async function insertSession(
   dbOrTx: DbOrTx,
   eventId: EventId,
@@ -639,6 +681,8 @@ export async function saveSessionIn(
         );
         return toDto(row, speakers);
       } catch (error) {
+        const badReference = referenceViolation(error);
+        if (badReference) throw badReference;
         if (!isUniqueViolation(error)) throw error;
         if (input.creationId !== undefined) {
           const recovered = await recoverCreatedSession(
@@ -771,7 +815,7 @@ export async function saveSessionIn(
          OR updated.room_id IS DISTINCT FROM ${prior.room_id}::uuid
     )
     SELECT ${RETURNED_COLUMNS} FROM updated
-  `);
+  `).then((value) => value, mapReferenceRejection);
   const row = (result.rows ?? [])[0];
   if (!row) {
     const current = await dbOrTx.execute<{ row_version: number }>(sql`
