@@ -16,6 +16,7 @@ import {
   type ConflictDTO,
   type ContactId,
   type EventId,
+  type LinkedSubmission,
   type ScheduledSessionDTO,
   type SessionId,
   type SessionStatus,
@@ -171,6 +172,7 @@ type SessionRowShape = {
   starts_at: string | Date | null; ends_at: string | Date | null;
   track_id: string | null; room_id: string | null; format_id: string | null;
   status: SessionStatus; schedule_revision: number; row_version: number;
+  submission_id: string | null;
 };
 
 function iso(value: string | Date | null): string | null {
@@ -225,7 +227,37 @@ async function assertWithinEventBounds(
   }
 }
 
-function toDto(row: SessionRowShape, speakerIds: readonly ContactId[]): ScheduledSessionDTO {
+/**
+ * The abstract behind a session, as the read path reports it. A write response
+ * carries the same field the list does, so a saved or dragged row cannot lose
+ * its "no longer public" mark until the next refetch puts it back.
+ *
+ * Sessions authored in the agenda have no `submission_id` and cost no query.
+ */
+async function linkedSubmissionFor(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+  submissionId: string | null,
+): Promise<LinkedSubmission | null> {
+  if (submissionId === null) return null;
+  const result = await dbOrTx.execute<{ id: string; code: number; title: string; status: string }>(sql`
+    SELECT id, code, title, status FROM submissions WHERE id = ${submissionId} AND event_id = ${eventId}
+  `);
+  const row = (result.rows ?? [])[0];
+  if (!row) return null;
+  return {
+    id: row.id as LinkedSubmission["id"],
+    code: Number(row.code),
+    title: row.title,
+    status: row.status as LinkedSubmission["status"],
+  };
+}
+
+function toDto(
+  row: SessionRowShape,
+  speakerIds: readonly ContactId[],
+  linkedSubmission: LinkedSubmission | null = null,
+): ScheduledSessionDTO {
   return {
     id: row.id as SessionId,
     title: row.title,
@@ -240,6 +272,7 @@ function toDto(row: SessionRowShape, speakerIds: readonly ContactId[]): Schedule
     scheduleRevision: Number(row.schedule_revision),
     rowVersion: Number(row.row_version),
     speakerIds: [...speakerIds],
+    linkedSubmission,
   };
 }
 
@@ -340,7 +373,7 @@ async function notifyRemovedSpeakers(
   return removed.length;
 }
 
-const RETURNED_COLUMNS = sql`id, title, slug, description_html, starts_at, ends_at, track_id, room_id, format_id, status, schedule_revision, row_version`;
+const RETURNED_COLUMNS = sql`id, title, slug, description_html, starts_at, ends_at, track_id, room_id, format_id, status, schedule_revision, row_version, submission_id`;
 
 async function insertSession(
   dbOrTx: DbOrTx,
@@ -393,7 +426,6 @@ async function insertSession(
 
 type CreatedSessionRow = SessionRowShape & {
   event_id: string;
-  submission_id: string | null;
   speaker_ids: string[] | null;
 };
 
@@ -435,7 +467,7 @@ async function recoverCreatedSession(
   }
 
   const result = await dbOrTx.execute<CreatedSessionRow>(sql`
-    SELECT ${RETURNED_COLUMNS}, s.event_id, s.submission_id,
+    SELECT ${RETURNED_COLUMNS}, s.event_id,
       (
         SELECT coalesce(array_agg(ss.contact_id ORDER BY ss.sort_order, ss.contact_id), '{}')
         FROM session_speakers ss
@@ -716,7 +748,7 @@ export async function saveSessionIn(
     nextState,
     removed,
   );
-  return toDto(row, speakers);
+  return toDto(row, speakers, await linkedSubmissionFor(dbOrTx, eventId, row.submission_id));
 }
 
 export const saveSession = (eventId: EventId, input: unknown, actorUserId: UserId | null = null) =>
@@ -795,7 +827,7 @@ export async function restoreSessionContentIn(
     SELECT contact_id FROM session_speakers WHERE session_id = ${sessionId} AND event_id = ${eventId} ORDER BY sort_order, contact_id
   `);
   const speakerIds = (speakerRows.rows ?? []).map((speaker) => speaker.contact_id as ContactId);
-  return toDto(row, speakerIds);
+  return toDto(row, speakerIds, await linkedSubmissionFor(dbOrTx, eventId, row.submission_id));
 }
 
 export const restoreSessionContent = (eventId: EventId, sessionId: SessionId, revisionId: string, expectedVersion: number, actorUserId: UserId | null = null) =>
@@ -1218,7 +1250,7 @@ export async function moveSessionInTx(
     speakerIds,
   );
 
-  return { session: toDto(row, speakerIds), speakerIds };
+  return { session: toDto(row, speakerIds, await linkedSubmissionFor(tx, eventId, row.submission_id)), speakerIds };
 }
 
 export async function moveSession(

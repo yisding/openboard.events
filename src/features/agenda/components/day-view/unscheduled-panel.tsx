@@ -9,6 +9,7 @@ import { emojiRain } from "@/shared/ui/emoji-rain";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { Button } from "@/shared/ui/ui-kit";
 import type { NameLookup } from "../../store";
+import { AbstractDivergenceChip } from "../abstract-divergence-chip";
 
 /**
  * The Day view's own drag source for its Unscheduled and Needs a room trays.
@@ -57,6 +58,7 @@ function TrayCard({
               : null}
             {track?.name ?? "No track"}{speakers.length > 0 ? ` · ${speakers.join(", ")}` : ""}
           </span>
+          <AbstractDivergenceChip session={session} />
         </div>
       </div>
       {onEdit && (

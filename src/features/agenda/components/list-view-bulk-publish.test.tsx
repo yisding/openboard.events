@@ -79,6 +79,7 @@ const session: ScheduledSessionDTO = {
   scheduleRevision: 0,
   rowVersion: 1,
   speakerIds: [],
+  linkedSubmission: null,
 };
 
 let container: HTMLDivElement;

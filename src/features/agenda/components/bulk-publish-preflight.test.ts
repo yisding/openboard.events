@@ -4,6 +4,7 @@ import {
   contactIdSchema,
   conflictDtoSchema,
   scheduledSessionDtoSchema,
+  submissionIdSchema,
   type ConflictDTO,
   type ScheduledSessionDTO,
 } from "@/shared/contracts";
@@ -63,6 +64,22 @@ describe("bulkPublishPreflight", () => {
 
     expect(result.unscheduled).toEqual([unscheduled]);
     expect(result.emailFanout).toBe(0);
+  });
+
+  it("names the rows publishing will not actually put on the public schedule", () => {
+    const healthy = session(1, {
+      linkedSubmission: { id: submissionIdSchema.parse("30000000-0000-4000-8000-000000000001"), code: 1, title: "Session 1", status: "accepted" },
+    });
+    const withdrawn = session(2, {
+      linkedSubmission: { id: submissionIdSchema.parse("30000000-0000-4000-8000-000000000002"), code: 2, title: "Session 2", status: "withdrawn" },
+    });
+    const keynote = session(3);
+
+    const result = bulkPublishPreflight([healthy, withdrawn, keynote], []);
+
+    // Still publishable — the organizer may be about to re-accept the abstract.
+    expect(result.candidates).toHaveLength(3);
+    expect(result.notPublic.map((row) => row.id)).toEqual([withdrawn.id]);
   });
 
   it("deduplicates related error and warning relationships without blocking them", () => {

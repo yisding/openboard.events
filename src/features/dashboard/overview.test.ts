@@ -10,6 +10,10 @@ const migration1 = readFileSync(new URL("../../../drizzle/0001_views_triggers.sq
 // M50 is additive on top of the base schema; applying it keeps this fixture
 // aligned with the columns the repository modules now read.
 const migrationReviewOps = readFileSync(new URL("../../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
+// The public firewall's current shape: published_sessions_v drops a promoted
+// session whose abstract is no longer accepted. The attention row below exists
+// precisely to tell the organizer what this view has already decided.
+const migrationPublicViews = readFileSync(new URL("../../../drizzle/0045_public_views_submission_status.sql", import.meta.url), "utf8");
 
 const EVENT = eventIdSchema.parse("a0000000-0000-4000-8000-000000000001");
 const EMPTY_EVENT = eventIdSchema.parse("a0000000-0000-4000-8000-000000000002");
@@ -34,6 +38,7 @@ describe("dashboard overview", () => {
     await pg.exec(migration0);
     await pg.exec(migration1);
 pg.exec(migrationReviewOps);
+    await pg.exec(migrationPublicViews);
     await pg.query(
       `INSERT INTO events(id,name,slug,timezone,starts_at,ends_at) VALUES
         ($1,'DashboardConf','dashboard-conf','America/Los_Angeles','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z'),
@@ -118,6 +123,41 @@ pg.exec(migrationReviewOps);
     expect(overview.forms).toEqual([]);
     expect(overview.latestCfpSubmission).toBeNull();
     expect(overview.recentSubmissions).toEqual([]);
+  });
+
+  // MTP-07 §1.5 — a promoted session leaves published_sessions_v the moment its
+  // abstract stops being accepted, and nothing touches sessions.status when it
+  // does. Without a row here the organizer's only clue is the public site.
+  it("raises a needs-attention row for a published session the public schedule has dropped", async () => {
+    const driftEvent = eventIdSchema.parse("a0000000-0000-4000-8000-000000000021");
+    const withdrawn = "a0000000-0000-4000-8000-000000000022";
+    const stillAccepted = "a0000000-0000-4000-8000-000000000023";
+    await pg.query(
+      `INSERT INTO events(id,name,slug,timezone,starts_at,ends_at)
+       VALUES ($1,'DriftConf','drift-conf','America/Los_Angeles','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')`,
+      [driftEvent],
+    );
+    await pg.query(
+      `INSERT INTO submissions(id,event_id,code,status,title) VALUES
+        ($1,$3,201,'withdrawn','Withdrawn talk'),
+        ($2,$3,202,'accepted','Healthy talk')`,
+      [withdrawn, stillAccepted, driftEvent],
+    );
+    await pg.query(
+      `INSERT INTO sessions(event_id,submission_id,title,slug,starts_at,ends_at,status) VALUES
+        ($1,$2,'Withdrawn talk','withdrawn-talk','2026-09-15T17:00:00Z','2026-09-15T17:30:00Z','published'),
+        ($1,$3,'Healthy talk','healthy-talk','2026-09-15T18:00:00Z','2026-09-15T18:30:00Z','published')`,
+      [driftEvent, withdrawn, stillAccepted],
+    );
+
+    const overview = await getOverviewIn(drizzle(pg), driftEvent);
+    const hidden = overview.attention.find((item) => item.code === "hidden_published");
+    // `rank` reaches the DTO: without it the queue's client-side sort is on
+    // count alone, and this row — realistically a count of 1 — renders last.
+    expect(hidden).toMatchObject({ count: 1, rank: 0 });
+    expect(hidden?.href).toContain("/agenda");
+    // The public schedule agrees: only the healthy talk is carried.
+    expect(overview.kpis.scheduledSessions).toBe(1);
   });
 
   it("matches the canonical speaker_outstanding_v total", async () => {

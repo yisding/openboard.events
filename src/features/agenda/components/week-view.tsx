@@ -10,6 +10,7 @@ import { TzTime } from "@/shared/ui/app/tz-time";
 import { EmptyState } from "@/shared/ui/ui-kit";
 import type { AgendaViewProps } from "../index.client";
 import { eventDayKeys, nameLookup } from "../store";
+import { AbstractDivergenceChip } from "./abstract-divergence-chip";
 
 /**
  * ./M31-agenda-views.md's Week view: one column per event day, chronological
@@ -95,6 +96,7 @@ export default function WeekView({ event, sessions, rooms, tracks, formats, spea
                       <TzTime instant={session.endsAt} tz={event.timezone} style={{ hour: "numeric", minute: "2-digit" }} />
                     </span>
                     <b>{session.title}</b>
+                    <AbstractDivergenceChip session={session} />
                     <div className="agenda-week-meta">
                       <Dash value={lookup.room(session.roomId)} />
                       {track && <ColorChip label={track.name} color={track.color} />}

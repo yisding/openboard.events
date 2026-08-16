@@ -7,6 +7,7 @@ import { ColorChip } from "@/shared/ui/app/color-chip";
 import { Dash } from "@/shared/ui/app/dash";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { dayTabLabel, nameLookup } from "../store";
+import { AbstractDivergenceChip } from "./abstract-divergence-chip";
 
 /**
  * ./M31-agenda-views.md's shared lane renderer for Track and Room — the only
@@ -113,6 +114,7 @@ function LaneRow({ session, tz, groupBy, other }: {
         <TzTime instant={session.endsAt} tz={tz} style={{ hour: "numeric", minute: "2-digit" }} />
       </div>
       <b>{session.title}</b>
+      <AbstractDivergenceChip session={session} />
       <div className="agenda-lane-meta">
         {groupBy === "track"
           ? <Dash value={other.roomName} />
