@@ -563,6 +563,26 @@ describe("portal task runtime", () => {
     expect(form.answers[shirtField]).toEqual({ t: "opt", v: "m" });
   });
 
+  it("clears a mapped column when the speaker empties its answer", async () => {
+    // `emit` used to return `undefined` for an emptied field, and
+    // `JSON.stringify` drops an undefined value's key — so the server could not
+    // tell "cleared" from "never touched". The key vanished from
+    // `form_responses.answers` too, so the prefill overlay fell back to the
+    // stale column: the speaker reopened the task and their old bio was back,
+    // while the public gallery had never stopped showing it.
+    await pglite.query("UPDATE contacts SET bio_html = '<p>Old bio.</p>' WHERE id = $1", [ada]);
+    await completeTaskViaResponse(eventId, ada, profileTask, null, validAnswers({ [bioField]: { t: "s", v: "" } }));
+
+    const cleared = await pglite.query<{ bio_html: string | null }>("SELECT bio_html FROM contacts WHERE id = $1", [ada]);
+    // NULL, not "": every other writer of these nullable columns stores NULL for
+    // "not set", and that is what `missing_assets_v` and the gallery test.
+    expect(cleared.rows[0]?.bio_html).toBeNull();
+
+    // And reopening shows it empty rather than resurrecting the column.
+    const form = await getTaskForm(eventId, ada, formId, null);
+    expect(form.answers[bioField]).toEqual({ t: "s", v: "" });
+  });
+
   it("shows an organizer who completed a task and what they sent", async () => {
     await completeTaskViaResponse(eventId, ada, profileTask, null, validAnswers({ [bioField]: { t: "s", v: "<p>Ada again.</p>" } }));
     await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, deck);
