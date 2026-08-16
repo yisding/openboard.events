@@ -141,6 +141,13 @@ export type TourStateWire = {
   chapter: string;
   stepId: string;
   status: TourStatus;
+  /**
+   * When the row this payload describes was last written — an opaque, sortable
+   * version string (an ISO timestamp, in the product). Optional: a host that
+   * does not supply one gets the old behaviour, where every payload is treated
+   * as current.
+   */
+  updatedAt?: string | null | undefined;
   armedStepId?: string | null | undefined;
   armedBaseline?: TourWorld | null | undefined;
   completed: readonly string[];
@@ -193,6 +200,19 @@ export type TourBootstrap = {
    */
   unavailableChapters?: readonly string[];
   cursor: TourCursor;
+  /**
+   * The version of the row `cursor` was read from, in the same ordering as
+   * `TourStateWire["updatedAt"]`.
+   *
+   * A server render is a *snapshot*, and snapshots arrive late: a
+   * `router.refresh()` fired by an unrelated mutation re-renders this host with
+   * a cursor read before the tour's own advance committed. The engine adopts a
+   * cursor from a new render only when the render is newer than everything it
+   * has already applied — otherwise a stale payload rewinds the player to a
+   * step they finished a minute ago. Omit it and every render is trusted, which
+   * is right for a harness with one writer.
+   */
+  updatedAt?: string | null | undefined;
   completed: readonly string[];
   questsDone: readonly string[];
   world: TourWorld;

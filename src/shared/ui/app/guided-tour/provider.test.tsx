@@ -934,6 +934,46 @@ describe("the curtain call", () => {
     expect(reported.at(-1)).toEqual({ status: "active", stepId: "deck.look" });
   });
 
+  it("ignores a render that is older than what it has already applied", async () => {
+    document.body.insertAdjacentHTML("beforeend", '<nav class="dashboard-tabs">Today</nav>');
+    const server = makeServer({ chapter: "deck", stepId: "deck.look", status: "active", updatedAt: "2026-08-16T19:00:00.000Z" });
+
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const mount = (bootstrap: TourBootstrap) => act(async () => root.render(<GuidedTourMount bootstrap={bootstrap} />));
+    await mount(makeBootstrap(server, { updatedAt: server.state.updatedAt }));
+    cleanup.push(async () => { await act(async () => root.unmount()); container.remove(); });
+    await tick();
+
+    // The player finishes the beat: the layer advances and the row moves with
+    // it, one second later by the clock the server keeps.
+    await act(async () => control("Continue").click());
+    await tick();
+    server.state = { ...server.state, updatedAt: "2026-08-16T19:00:01.000Z" };
+    expect(coach()?.textContent).toContain("Fix it.");
+
+    // Now a render that started before that write finally arrives — a
+    // `router.refresh()` some unrelated mutation fired. It describes the row as
+    // it was, and adopting it would walk the player back to a card they have
+    // already read and then collide with the server on the way forward.
+    await mount(makeBootstrap(server, {
+      cursor: { chapter: "deck", stepId: "deck.look", status: "active" },
+      updatedAt: "2026-08-16T19:00:00.000Z",
+    }));
+    await tick();
+    expect(coach()?.textContent).toContain("Fix it.");
+
+    // A *newer* render is still adopted without argument: that is the restart,
+    // the reset and the second tab, and all three write the row first.
+    await mount(makeBootstrap(server, {
+      cursor: { chapter: "deck", stepId: "deck.look", status: "active" },
+      updatedAt: "2026-08-16T19:00:02.000Z",
+    }));
+    await tick();
+    expect(coach()?.textContent).toContain("Everything that needs you, ranked.");
+  });
+
   it("stands on the next unfinished objective when the cursor names a step this build lost", async () => {
     document.body.insertAdjacentHTML("beforeend", '<nav class="dashboard-tabs">Today</nav>');
     const server = makeServer({ chapter: "grid", stepId: "grid.renamed-in-m62", completed: ["deck.look"] });

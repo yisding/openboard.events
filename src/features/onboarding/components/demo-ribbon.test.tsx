@@ -48,6 +48,7 @@ const provisionState = (done: boolean) => jsonResponse({
 /** A finished tour, exactly as `GET events/:id/tour` reports one. */
 const tourState = jsonResponse({
   eventId, chapter: "curtain-call", stepId: "curtain.done", status: "complete",
+  updatedAt: "2026-08-16T19:00:00.000Z",
   armedStepId: null, armedBaseline: null, completed: [], questsDone: [], skipped: [],
   world: {
     formFields: 19, formVersions: 8, submissionsTotal: 24, pendingCount: 1, acceptedCount: 18,

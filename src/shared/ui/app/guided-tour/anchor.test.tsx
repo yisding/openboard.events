@@ -158,6 +158,43 @@ describe("holding on to a target the page swaps underneath it", () => {
   });
 });
 
+describe("moving from one step to the next", () => {
+  const HERE = { kind: "selector", css: ".add-question" } as const;
+  const ELSEWHERE = { kind: "selector", css: ".never-mounts-here" } as const;
+
+  it("lets go of the last step's element the moment the step changes", async () => {
+    // Otherwise the spotlight outlives the card that asked for it: the next
+    // step's anchor is a page away, its own card is already saying so, and the
+    // hole is still framing the control the *previous* card was about.
+    mount('<div class="page"><button class="add-question">Add question</button></div>');
+    const held = document.querySelector<HTMLElement>(".add-question");
+    if (!held) throw new Error("fixture did not mount");
+    held.getBoundingClientRect = () => new DOMRect(10, 20, 120, 32);
+
+    let state: TourAnchorState = { element: null, rect: null, status: "idle" };
+    function Probe({ spec }: { spec: typeof HERE | typeof ELSEWHERE }) {
+      state = useTourAnchor(spec, true);
+      return null;
+    }
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => { root.render(React.createElement(Probe, { spec: HERE })); });
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+      expect(state.element).toBe(held);
+      expect(state.rect).not.toBe(null);
+
+      await act(async () => { root.render(React.createElement(Probe, { spec: ELSEWHERE })); });
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+      expect(state.element).toBe(null);
+      expect(state.rect).toBe(null);
+    } finally {
+      await act(async () => { root.unmount(); });
+    }
+  });
+});
+
 describe("the native dialog top layer", () => {
   it("portals the coach into the open dialog its anchor lives in", () => {
     // Nothing z-indexed can paint above the top layer, so a card portalled to
