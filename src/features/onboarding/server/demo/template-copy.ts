@@ -178,6 +178,29 @@ function remapVisibility(
 }
 
 /**
+ * The copied form's name, answering to the organizer's event rather than to
+ * the demo conference.
+ *
+ * The name came over verbatim, so an organizer who ticked "Start from my
+ * demo's setup" on a marketing event opened it to find a call for speakers
+ * titled *Speak at AI Engineer World's Fair* — a conference they had never
+ * heard of, on their own event, under a name they never chose. A scaffold copy
+ * is structure; the demo conference's name is content.
+ *
+ * Only the provisioned name is rewritten, and only onto the same shape. An
+ * organizer who renamed the form during the tour meant that name, and gets to
+ * keep it — a substitution on the *event* name would not have caught this one
+ * anyway, since the form is "Speak at AI Engineer World's Fair" while the
+ * event carries a year ("… 2026").
+ */
+const DEMO_CFP_FORM_NAME = "Speak at AI Engineer World's Fair";
+
+export function scaffoldFormName(sourceName: string, targetEventName?: string): string {
+  if (!targetEventName || sourceName !== DEMO_CFP_FORM_NAME) return sourceName;
+  return `Speak at ${targetEventName}`;
+}
+
+/**
  * The demo's call-for-speakers form — fields, conditional rules and review
  * visibility — recompiled through `compileAndPublishIn` (which is
  * `compileFormSnapshot` under the hood, design §5.4) onto a brand-new form on
@@ -192,6 +215,8 @@ async function copyPrimaryFormIn(dbOrTx: DbOrTx, sourceEventId: EventId, targetE
     collectParticipants: forms.collectParticipants,
   }).from(forms).where(and(eq(forms.id, sourceFormId), eq(forms.eventId, sourceEventId))).limit(1);
   if (!sourceForm) return;
+  const [targetEvent] = await dbOrTx.select({ name: events.name }).from(events)
+    .where(eq(events.id, targetEventId)).limit(1);
 
   const sourceSections = await dbOrTx.select({ id: formSections.id, key: formSections.key })
     .from(formSections).where(and(eq(formSections.formId, sourceFormId), eq(formSections.eventId, sourceEventId)));
@@ -229,7 +254,7 @@ async function copyPrimaryFormIn(dbOrTx: DbOrTx, sourceEventId: EventId, targetE
   const newFormId = formIdSchema.parse(stableUuid(targetEventId, "scaffold:cfp"));
   await createFormIn(dbOrTx, targetEventId, {
     id: newFormId,
-    internalName: sourceForm.internalName,
+    internalName: scaffoldFormName(sourceForm.internalName, targetEvent?.name),
     kind: sourceForm.kind,
     collectParticipants: sourceForm.collectParticipants,
     context: "cfp",

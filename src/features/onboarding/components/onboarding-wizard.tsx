@@ -879,7 +879,7 @@ export function OnboardingWizard({
           {!event && hasDemoEvent && (
             <label className="onboarding-toggle">
               <input type="checkbox" checked={copyFromDemo} disabled={!hydrated || saving} onChange={(changeEvent) => setCopyFromDemo(changeEvent.target.checked)} />
-              Start from my demo&rsquo;s setup — bring over its tracks, rooms and call for speakers
+              Start from my demo&rsquo;s setup — its tracks, rooms, formats, tags and call for speakers, renamed for this event
             </label>
           )}
           <footer className="cfp-actions">
