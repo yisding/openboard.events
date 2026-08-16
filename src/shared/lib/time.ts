@@ -260,22 +260,36 @@ function localDateParts(utc: Date | string | number, timeZone: string): LocalDat
  * event switcher all need the range-shaped version instead. A range crossing a
  * DST boundary keeps both labels because they genuinely differ.
  */
+/**
+ * `showZone: false` drops the trailing abbreviation.
+ *
+ * A zone qualifies a *time*. On a span of whole days it qualifies nothing —
+ * "Oct 19 – 21, 2026 PDT" tells a reader no more than "Oct 19 – 21, 2026" and
+ * asks them to parse three more characters to find that out. It stays on by
+ * default because a list of many events does use it to say which zone each one
+ * runs in; the public hero, which is one event and no times, does not.
+ *
+ * A range that *crosses* zones keeps both abbreviations either way: there the
+ * zone is the only thing explaining why the two dates are qualified at all.
+ */
 export function formatDateRangeInZone(
   startsAt: Date | string | number,
   endsAt: Date | string | number,
   timeZone: string,
+  { showZone = true }: { showZone?: boolean } = {},
 ): string {
   const start = localDateParts(startsAt, timeZone);
   const end = localDateParts(endsAt, timeZone);
   const startZone = zoneAbbreviation(startsAt, timeZone);
   const endZone = zoneAbbreviation(endsAt, timeZone);
   const full = (date: LocalDateParts) => `${date.month} ${date.day}, ${date.year}`;
+  const zone = showZone ? ` ${endZone}` : "";
 
   if (startZone !== endZone) return `${full(start)} ${startZone} – ${full(end)} ${endZone}`;
-  if (start.year === end.year && start.month === end.month && start.day === end.day) return `${full(start)} ${endZone}`;
-  if (start.year === end.year && start.month === end.month) return `${start.month} ${start.day} – ${end.day}, ${end.year} ${endZone}`;
-  if (start.year === end.year) return `${start.month} ${start.day} – ${end.month} ${end.day}, ${end.year} ${endZone}`;
-  return `${full(start)} – ${full(end)} ${endZone}`;
+  if (start.year === end.year && start.month === end.month && start.day === end.day) return `${full(start)}${zone}`;
+  if (start.year === end.year && start.month === end.month) return `${start.month} ${start.day} – ${end.day}, ${end.year}${zone}`;
+  if (start.year === end.year) return `${start.month} ${start.day} – ${end.month} ${end.day}, ${end.year}${zone}`;
+  return `${full(start)} – ${full(end)}${zone}`;
 }
 
 type LocalTimeParts = { hour: string; minute: string; dayPeriod: string };

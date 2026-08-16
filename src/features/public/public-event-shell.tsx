@@ -70,7 +70,10 @@ function EmbedResizer() {
 
 function dateRange(event: PublicEventInfo): string | null {
   if (!event.startsAt || !event.endsAt) return null;
-  return formatDateRangeInZone(event.startsAt, event.endsAt, event.timezone);
+  // No zone abbreviation. This is one event, on whole days, with no time
+  // beside it — "Oct 19 – 21, 2026 PDT" qualifies nothing an attendee is
+  // reading, and it is the entire content of the band it sits in.
+  return formatDateRangeInZone(event.startsAt, event.endsAt, event.timezone, { showZone: false });
 }
 
 export type PublicSurface = "sessions" | "agenda" | "itinerary" | "speakers" | "gallery";
