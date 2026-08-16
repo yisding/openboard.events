@@ -18,6 +18,7 @@ const migrationCalendarCancellationSnapshots = readFileSync(new URL("../../../dr
 const eventId = eventIdSchema.parse("d0000000-0000-4000-8000-000000000001");
 const speakerId = contactIdSchema.parse("d0000000-0000-4000-8000-000000000002");
 const emptySpeakerId = contactIdSchema.parse("d0000000-0000-4000-8000-000000000003");
+const droppedSpeakerId = contactIdSchema.parse("d0000000-0000-4000-8000-000000000007");
 const sessionId = "d0000000-0000-4000-8000-000000000004";
 const draftSessionId = "d0000000-0000-4000-8000-000000000005";
 const otherSessionId = "d0000000-0000-4000-8000-000000000006";
@@ -44,16 +45,16 @@ describe("calendar token routes", () => {
       [eventId],
     );
     await pglite.query(
-      "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$3,'speaker@example.com','Nadia','Lee'),($2,$3,'empty@example.com','Empty','Speaker')",
-      [speakerId, emptySpeakerId, eventId],
+      "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$4,'speaker@example.com','Nadia','Lee'),($2,$4,'empty@example.com','Empty','Speaker'),($3,$4,'dropped@example.com','Ola','Rune')",
+      [speakerId, emptySpeakerId, droppedSpeakerId, eventId],
     );
     await pglite.query(
       "INSERT INTO sessions(id,event_id,title,slug,description_html,starts_at,ends_at,status,schedule_revision) VALUES($1,$4,'Published talk','published-talk','<p>Useful details</p>','2026-09-15T18:00:00Z','2026-09-15T18:30:00Z','published',3),($2,$4,'Draft talk','draft-talk',NULL,'2026-09-15T19:00:00Z','2026-09-15T19:30:00Z','draft',0),($3,$4,'Other talk','other-talk',NULL,'2026-09-15T20:00:00Z','2026-09-15T20:30:00Z','published',1)",
       [sessionId, draftSessionId, otherSessionId, eventId],
     );
     await pglite.query(
-      "INSERT INTO session_speakers(event_id,session_id,contact_id) VALUES($1,$2,$3),($1,$4,$3)",
-      [eventId, sessionId, speakerId, draftSessionId],
+      "INSERT INTO session_speakers(event_id,session_id,contact_id) VALUES($1,$2,$3),($1,$4,$3),($1,$4,$5)",
+      [eventId, sessionId, speakerId, draftSessionId, droppedSpeakerId],
     );
     await pglite.query(
       `INSERT INTO calendar_invites(event_id,contact_id,session_id,ics_uid,sequence,last_method,organizer_email,event_snapshot)
@@ -67,6 +68,21 @@ describe("calendar token routes", () => {
         attendeeEmail: "speaker@example.com", attendeeFirstName: "Nadia", attendeeLastName: "Lee",
       })],
     );
+    // Ola was invited to this session while it was published; it has since been
+    // unpublished, so the live feed no longer returns it and only the invite
+    // row remembers what her calendar is still showing.
+    await pglite.query(
+      `INSERT INTO calendar_invites(event_id,contact_id,session_id,ics_uid,sequence,last_method,organizer_email,event_snapshot)
+       VALUES($1,$2,$3,'dropped-invite@events.example.com',2,'request','mail@events.example.com',$4::jsonb)`,
+      [eventId, droppedSpeakerId, draftSessionId, JSON.stringify({
+        version: 1, eventId, sessionId: draftSessionId, contactId: droppedSpeakerId,
+        title: "Draft talk", descriptionHtml: null,
+        startsAt: "2026-09-15T19:00:00.000Z", endsAt: "2026-09-15T19:30:00.000Z",
+        room: null, track: null, eventName: "AI Engineer", eventSlug: "ai-engineer",
+        eventLocation: "Fort Mason", eventTimezone: "America/Los_Angeles",
+        attendeeEmail: "dropped@example.com", attendeeFirstName: "Ola", attendeeLastName: "Rune",
+      })],
+    );
     tx = drizzle(pglite, { schema }) as unknown as TxDb;
   }, 30_000);
 
@@ -76,7 +92,7 @@ describe("calendar token routes", () => {
 
   afterAll(async () => pglite.close());
 
-  async function tokenFor(contactId: typeof speakerId | typeof emptySpeakerId) {
+  async function tokenFor(contactId: typeof speakerId | typeof emptySpeakerId | typeof droppedSpeakerId) {
     return issuePortalToken(tx, { contactId, eventId, purpose: "ics_download", ttl: "P1D" });
   }
 
@@ -95,6 +111,10 @@ describe("calendar token routes", () => {
     expect(body).toContain("SEQUENCE:3");
     expect(body).toContain("LOCATION:Fort Mason");
     expect(body).not.toContain("METHOD:");
+    expect(body).toContain("STATUS:CONFIRMED");
+    // Nadia's invite row is for a session that is still live, so it is the one
+    // CONFIRMED event and never also a tombstone.
+    expect(body).not.toContain("STATUS:CANCELLED");
     expect(body.match(/BEGIN:VEVENT/g)).toHaveLength(1);
 
     const second = await calendarFeedResponse(token.raw, { dbOrTx: tx, env, verify });
@@ -141,6 +161,38 @@ describe("calendar token routes", () => {
     });
     expect(response.status).toBe(404);
     expect(verify).not.toHaveBeenCalled();
+  });
+
+  it("keeps a dropped session in the feed as a cancellation so subscribers lose it", async () => {
+    const token = await tokenFor(droppedSpeakerId);
+    const response = await calendarFeedResponse(token.raw, { dbOrTx: tx, env, verify });
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    expect(body.match(/BEGIN:VEVENT/g)).toHaveLength(1);
+    // Same UID the speaker's calendar already holds — a new one would add a
+    // second event rather than remove the stale one.
+    expect(body).toContain("UID:dropped-invite@events.example.com");
+    expect(body).toContain("STATUS:CANCELLED");
+    // The snapshot taken at invite time, not a re-read of the mutable session.
+    expect(body).toContain("SUMMARY:Draft talk");
+    // No cancellation has been dispatched yet, so the feed is first to report
+    // it and has to step past the CONFIRMED copy at SEQUENCE:2.
+    expect(body).toContain("SEQUENCE:3");
+    expect(body).not.toContain("METHOD:");
+    expect(body).not.toContain("ATTENDEE");
+  });
+
+  it("reuses the sequence a dispatched cancellation already claimed", async () => {
+    await pglite.query(
+      "UPDATE calendar_invites SET last_method='cancel', sequence=9 WHERE ics_uid='dropped-invite@events.example.com'",
+    );
+    const token = await tokenFor(droppedSpeakerId);
+    const body = await (await calendarFeedResponse(token.raw, { dbOrTx: tx, env, verify })).text();
+    expect(body).toContain("STATUS:CANCELLED");
+    expect(body).toContain("SEQUENCE:9");
+    await pglite.query(
+      "UPDATE calendar_invites SET last_method='request', sequence=2 WHERE ics_uid='dropped-invite@events.example.com'",
+    );
   });
 
   it("returns a valid empty VCALENDAR for a speaker with no published sessions", async () => {

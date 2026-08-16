@@ -2,6 +2,21 @@ import { z } from "zod";
 import { confirmationStatusSchema } from "./enums";
 import { contactIdSchema, fileIdSchema } from "./ids";
 
+/**
+ * `contacts.first_name`/`last_name` default to `''`, so a nameless contact is
+ * the ordinary state for anyone created from a submission or an invitation.
+ * Every public surface that renders a speaker — the gallery, the schedule, the
+ * `/speaking/<token>` share card, the dashboard rosters and the public JSON API
+ * — has to say the same thing about that contact, so the string lives here
+ * once instead of being re-derived (or silently skipped) per surface.
+ */
+export const UNNAMED_SPEAKER = "Unnamed speaker";
+
+export function speakerDisplayName(firstName: string | null | undefined, lastName: string | null | undefined): string {
+  const name = `${firstName ?? ""} ${lastName ?? ""}`.trim();
+  return name.length > 0 ? name : UNNAMED_SPEAKER;
+}
+
 export const contactDtoSchema = z.object({
   id: contactIdSchema,
   email: z.email(),
