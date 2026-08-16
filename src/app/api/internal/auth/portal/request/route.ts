@@ -2,7 +2,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { db } from "@/db/client";
-import { requestPortalLogin } from "@/features/auth";
+import { PORTAL_LOGIN_THROTTLE, PORTAL_LOGIN_THROTTLE_MESSAGE, requestPortalLogin } from "@/features/auth";
 import { nudgeOutbox } from "@/features/comms";
 import { assertSameOrigin } from "@/shared/server/csrf";
 import { errorEnvelope } from "@/shared/server/handler";
@@ -23,6 +23,19 @@ export async function POST(request: NextRequest) {
     assertSameOrigin(request);
     await checkRateLimit(db, { key: `portal-login-request:${clientIp(request)}`, limit: 20, windowMs: 10 * 60 * 1000 });
     const input = inputSchema.parse(await request.json());
+    // Per *address*, not per contact. `requestPortalLoginIn` counts the OTPs it
+    // issued, which it can only do for an address that has a contact row — and
+    // since it no longer creates one, an unknown address would otherwise never
+    // be refused. That difference is an account-enumeration oracle as plainly
+    // as a different screen would be: send four requests, and whether the
+    // fourth is throttled tells you whether the person is on file. This bucket
+    // fires on the same request with the same sentence for both.
+    await checkRateLimit(db, {
+      key: `portal-login-address:${input.eventSlug}:${input.email.trim().toLowerCase()}`,
+      limit: PORTAL_LOGIN_THROTTLE.limit,
+      windowMs: PORTAL_LOGIN_THROTTLE.windowMs,
+      message: PORTAL_LOGIN_THROTTLE_MESSAGE,
+    });
     const result = await requestPortalLogin(input.eventSlug, input.email, input.next);
     // This request is waiting on a short-lived credential. Dispatch it now
     // instead of making a first-time speaker wait for the next one-minute cron

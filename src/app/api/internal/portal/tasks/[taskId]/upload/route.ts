@@ -3,7 +3,7 @@ import { z } from "zod";
 import { completeTaskViaUpload } from "@/features/portal";
 import { eventIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
-import { portalQueryAuth, requestWithPathValues, sessionContactId } from "../../../_lib";
+import { portalQueryAuth, requestWithPathValues, sessionContactId, sessionImpersonatedByUserId } from "../../../_lib";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +26,10 @@ const upload = defineHandler({
       input.taskId,
       input.submissionId,
       input.fileAssetId,
+      // Same attribution as the non-upload completion route: an organizer
+      // sending the file from inside "Open portal as …" is who this
+      // completion stands on.
+      sessionImpersonatedByUserId(session),
     );
     return { completed: true, upload };
   },

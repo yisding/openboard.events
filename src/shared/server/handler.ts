@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { db } from "@/db/client";
-import { apiErrorSchema, eventIdSchema, type EventId } from "@/shared/contracts";
+import { apiErrorSchema, eventIdSchema, type EventId, type UserId } from "@/shared/contracts";
 import { captureError } from "@/shared/lib/error-tracking";
 import { AppError, isAppError, toHttp } from "@/shared/lib/errors";
 import { log } from "@/shared/lib/log";
@@ -9,7 +9,15 @@ import { assertSameOrigin } from "./csrf";
 import { checkRateLimit } from "./rate-limit";
 
 export type RouteParams = Record<string, string | string[] | undefined>;
-export type AuthSession = { actorId: string; role: string; eventId?: EventId } | null;
+/**
+ * `impersonatedByUserId` is the organizer behind a speaker's portal session
+ * ("Open portal as Ada"). The guard is the only place that identity is
+ * available, so dropping it there left every mutation a mutation by nobody:
+ * a task finished by an organizer standing in for a speaker was
+ * indistinguishable from one the speaker finished themselves. Carried on the
+ * session so a route can persist it as the actor of record.
+ */
+export type AuthSession = { actorId: string; role: string; eventId?: EventId; impersonatedByUserId?: UserId | null } | null;
 /**
  * `csrfExempt` marks guards that never rely on an ambient browser credential
  * (cookies) for the caller's identity — today `apiKeyAuth` (bearer token).

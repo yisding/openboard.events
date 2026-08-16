@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { eventIdSchema, organizationIdSchema } from "@/shared/contracts";
+import { contactIdSchema, eventIdSchema, organizationIdSchema, userIdSchema } from "@/shared/contracts";
 import { adminAuth, apiKeyAuth, organizationAuth, portalAuth, publicAuth } from "./guards";
 import { requireAdmin, requireOrganizationAdmin } from "./admin";
+import { requirePortalByEventId } from "./portal";
 
 vi.mock("./admin", () => ({
   requireAdmin: vi.fn(async (eventId: string) => ({
@@ -19,6 +20,8 @@ vi.mock("./admin", () => ({
     organizationId,
   })),
 }));
+
+vi.mock("./portal", () => ({ requirePortalByEventId: vi.fn() }));
 
 /**
  * `defineHandler`'s origin check (PLAN P3-SEC) trusts `csrfExempt` on the
@@ -65,6 +68,37 @@ describe("organizationAuth", () => {
   it("rejects a route with a missing or malformed organizationId", async () => {
     await expect(organizationAuth()(request, null, {})).rejects.toMatchObject({ code: "VALIDATION" });
     await expect(organizationAuth()(request, null, { organizationId: "not-a-uuid" })).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+});
+
+/**
+ * An organizer inside "Open portal as …" acts as the speaker but is not the
+ * speaker. The guard is the only place both identities exist, so a mutation
+ * route can attribute the action to the admin only if the guard hands it over —
+ * dropping it here is what left `task_completions.completed_by_user_id` null
+ * for every impersonated action, with no audit trail anywhere.
+ */
+describe("portalAuth impersonation identity", () => {
+  const eventId = eventIdSchema.parse("5f000000-0000-4000-8000-0000000000e2");
+  const contactId = contactIdSchema.parse("5f000000-0000-4000-8000-0000000000c1");
+  const organizerId = userIdSchema.parse("5f000000-0000-4000-8000-0000000000d1");
+  const request = {} as Parameters<ReturnType<typeof portalAuth>>[0];
+  const portalSession = (impersonatedByUserId: typeof organizerId | null) => ({
+    contactId, eventId, email: "ada@example.com", impersonatedByUserId,
+  });
+
+  it("carries the organizer behind an impersonated session", async () => {
+    vi.mocked(requirePortalByEventId).mockResolvedValue(portalSession(organizerId));
+    await expect(portalAuth()(request, eventId, {})).resolves.toEqual({
+      actorId: contactId, role: "portal", impersonatedByUserId: organizerId,
+    });
+  });
+
+  it("reports no admin behind a speaker signed in as themselves", async () => {
+    vi.mocked(requirePortalByEventId).mockResolvedValue(portalSession(null));
+    await expect(portalAuth()(request, eventId, {})).resolves.toEqual({
+      actorId: contactId, role: "portal", impersonatedByUserId: null,
+    });
   });
 });
 
