@@ -369,7 +369,14 @@ export async function completeTaskViaResponseIn(
   // minute ago. `deriveMappedFields` is the one place `mapsTo` is interpreted.
   const mapped = deriveMappedFields(snapshot, pipeline.clean);
   if (Object.keys(mapped.contact).length > 0) {
-    await updateContactFields(tx, eventId, contactId, mapped.contact);
+    // An emptied answer clears the column rather than writing "". These are
+    // nullable text columns, and every other writer of them — the Profile page
+    // included — stores NULL for "not set", which is what `missing_assets_v`
+    // and the public gallery test.
+    const contactPatch = Object.fromEntries(
+      Object.entries(mapped.contact).map(([key, value]) => [key, value === "" ? null : value]),
+    );
+    await updateContactFields(tx, eventId, contactId, contactPatch);
   }
   // The allowlist enforces itself rather than being asserted into: a key it does
   // not define would build `undefined = $n` and fail the UPDATE with a syntax

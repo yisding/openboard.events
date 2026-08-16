@@ -106,8 +106,13 @@ describe("form field controls", () => {
     expect(html).not.toContain("/f/");
   });
 
-  it("does not retain empty rich-text markup as an answer", () => {
-    expect(toRichTextAnswer("<p><br></p>")).toBeUndefined();
+  it("does not retain empty rich-text markup, and says so explicitly", () => {
+    // The empty string rather than `undefined`: `JSON.stringify` drops an
+    // undefined value's key entirely, so the server could not tell "the speaker
+    // cleared this" from "never touched it" — the key vanished from
+    // `form_responses.answers` and the prefill fell back to the stale column.
+    // The editor's leftover `<p><br></p>` is still never stored as content.
+    expect(toRichTextAnswer("<p><br></p>")).toEqual({ t: "s", v: "" });
     expect(toRichTextAnswer("<p>Hello</p>")).toEqual({ t: "s", v: "<p>Hello</p>" });
   });
 
