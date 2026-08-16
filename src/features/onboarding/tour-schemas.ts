@@ -116,6 +116,19 @@ export const tourStateSchema = z.object({
   status: tourStatusSchema,
   armedStepId: tourStepIdSchema.nullable(),
   armedBaseline: tourBaselineSchema.nullable(),
+  /**
+   * `event_demo_tour.updated_at` — the cursor row's version, and the only way
+   * a client can tell one of these payloads from an older one.
+   *
+   * A page render carries a cursor read at render time, and a render can be
+   * older than the browser holding it: Next re-renders the event layout on a
+   * `router.refresh()` fired by some other mutation, and that read can land
+   * before the tour's own advance commits. Without a version the engine
+   * adopted whatever the newest *render* said and walked the player back to a
+   * step they had already finished. Nullable because a row written before
+   * this column was read still parses.
+   */
+  updatedAt: z.string().nullable(),
   /** Objectives finished, oldest first. Side quests are listed separately. */
   completed: z.array(tourStepIdSchema),
   questsDone: z.array(tourStepIdSchema),

@@ -150,6 +150,11 @@ export default async function EventLayout({ children, params }: { children: Reac
       armedStepId: demoTour.armedStepId,
       armedBaseline: demoTour.armedBaseline ? toEngineWorld(demoTour.armedBaseline) : null,
     },
+    // When the cursor above was read. Every admin page of a demo event renders
+    // this layout, and a render can reach the browser later than the tour's own
+    // advance did — so the engine needs to be able to tell an old snapshot from
+    // a new decision rather than trusting whichever arrived last.
+    updatedAt: demoTour.updatedAt,
     completed: demoTour.completed,
     questsDone: demoTour.questsDone,
     world: toEngineWorld(demoTour.world),

@@ -62,6 +62,8 @@ type SnapshotRow = WorldRow & {
   provision_phase: string;
   skipped_at_phase: string | null;
   dataset_version: unknown;
+  /** The row's own version. See `updatedAt` on `tourStateSchema`. */
+  updated_at: unknown;
   event_name: string;
   event_slug: string;
   cfp_form_id: string | null;
@@ -225,7 +227,7 @@ async function readSnapshotIn(dbOrTx: DbOrTx, eventId: EventId, actorUserId: Use
   const result = await dbOrTx.execute<SnapshotRow>(sql`
     SELECT
       t.organization_id, t.user_id, t.chapter, t.tour_state, t.step_id, t.armed_step_id, t.armed_baseline,
-      t.provision_phase, t.skipped_at_phase, t.dataset_version,
+      t.provision_phase, t.skipped_at_phase, t.dataset_version, t.updated_at,
       e.name AS event_name, e.slug AS event_slug,
       (SELECT f.id FROM forms f
         WHERE f.event_id = t.event_id AND f.context = 'cfp'
@@ -260,6 +262,7 @@ function toState(eventId: EventId, row: SnapshotRow): TourStateDTO {
     chapter: row.chapter,
     stepId: row.step_id,
     status: row.tour_state,
+    updatedAt: iso(row.updated_at),
     armedStepId: row.armed_step_id,
     armedBaseline: parseBaseline(row.armed_baseline),
     completed,
