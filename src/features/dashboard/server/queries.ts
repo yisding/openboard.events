@@ -124,6 +124,20 @@ export async function queryDashboardOverview(dbOrTx: DashboardQueryDb, eventId: 
             WHERE x.event_id = s.event_id AND x.submission_id = s.id AND x.starts_at IS NOT NULL
           )
       ),
+      hidden_published AS (
+        -- Published, timed sessions that published_sessions_v refuses to carry
+        -- because their abstract stopped being accepted (drizzle/0045).
+        -- Nothing flips sessions.status when a speaker withdraws, so this is
+        -- the only place the dashboard can learn that the agenda now claims
+        -- something the public schedule does not show.
+        SELECT count(*)::int AS n
+        FROM sessions s
+        JOIN submissions sub ON sub.id = s.submission_id AND sub.event_id = s.event_id
+        WHERE s.event_id = ${eventId}
+          AND s.status = 'published'
+          AND s.starts_at IS NOT NULL
+          AND sub.status <> 'accepted'
+      ),
       form_rows AS (
         SELECT
           f.id AS form_id,
@@ -216,6 +230,20 @@ export async function queryDashboardOverview(dbOrTx: DashboardQueryDb, eventId: 
         FROM recent_rows
       ),
       attention_rows AS (
+        -- rank reaches the DTO, because the queue's client-side order depends
+        -- on it: rank 0 is reserved for rows that describe something already
+        -- wrong and leads however small its count is, while ranks 1+ are the
+        -- to-do rows, ordered by how much is waiting with this fixed code order
+        -- as the tiebreak so the list never jitters between polls.
+        --
+        -- Rank 0: a session the admin still calls "Published" while the public
+        -- schedule has already dropped it. Same predicate as
+        -- published_sessions_v (drizzle/0045) and as the client-side
+        -- abstractDivergence(); the migration is the source all three copy.
+        SELECT 0 AS rank, 'hidden_published' AS code, hidden.n AS count,
+          '/events/' || ev.id::text || '/agenda?view=list' AS href
+        FROM ev CROSS JOIN hidden_published hidden WHERE hidden.n > 0
+        UNION ALL
         SELECT 1 AS rank, 'unscheduled_accepted' AS code, unsched.n AS count,
           '/events/' || ev.id::text || '/agenda?view=day' AS href
         FROM ev CROSS JOIN unsched WHERE unsched.n > 0
@@ -230,7 +258,7 @@ export async function queryDashboardOverview(dbOrTx: DashboardQueryDb, eventId: 
       ),
       attention_json AS (
         SELECT coalesce(
-          jsonb_agg(jsonb_build_object('code', code, 'count', count, 'href', href) ORDER BY rank),
+          jsonb_agg(jsonb_build_object('rank', rank, 'code', code, 'count', count, 'href', href) ORDER BY rank),
           '[]'::jsonb
         ) AS rows
         FROM attention_rows

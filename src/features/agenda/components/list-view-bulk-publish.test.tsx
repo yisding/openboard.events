@@ -78,7 +78,9 @@ const session: ScheduledSessionDTO = {
   status: "draft",
   scheduleRevision: 0,
   rowVersion: 1,
+  expectedAttendance: null,
   speakerIds: [],
+  linkedSubmission: null,
 };
 
 let container: HTMLDivElement;

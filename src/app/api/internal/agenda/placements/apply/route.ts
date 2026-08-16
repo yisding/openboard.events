@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { agendaAuth, applyPlacements } from "@/features/agenda";
-import { applyPlacementsInputSchema, eventIdSchema } from "@/shared/contracts";
+import { applyPlacementsInputSchema, eventIdSchema, userIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
 import { revalidatePublicEvent } from "@/features/public/server/revalidate";
 import { nudgeAfterEnqueue } from "../../nudge";
@@ -17,9 +17,10 @@ export const dynamic = "force-dynamic";
 const apply = defineHandler({
   auth: agendaAuth(),
   input: applyPlacementsInputSchema,
-  handler: async ({ eventId, input, requestId }) => {
+  handler: async ({ eventId, input, requestId, session: authSession }) => {
     const scopedEventId = eventIdSchema.parse(eventId);
-    const result = await applyPlacements(scopedEventId, input.accepted);
+    const actorUserId = authSession?.actorId ? userIdSchema.parse(authSession.actorId) : null;
+    const result = await applyPlacements(scopedEventId, input.accepted, actorUserId);
     let publishedApplied = false;
     let publishedTimed = false;
     for (const outcome of result.outcomes) {

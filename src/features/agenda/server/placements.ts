@@ -13,6 +13,7 @@ import {
   type PlacementApplyResultDTO,
   type PlacementPreviewDTO,
   type UnplacedSuggestionDTO,
+  type UserId,
 } from "@/shared/contracts";
 import { AppError, isAppError } from "@/shared/lib/errors";
 import { endOfDayInTz, eventDayKey, shiftDayKey, startOfDayInTz } from "@/shared/lib/time";
@@ -202,6 +203,7 @@ export async function applyPlacementsIn(
   dbOrTx: DbOrTx,
   eventId: EventId,
   accepted: readonly ApplyPlacementInput[],
+  actorUserId: UserId | null = null,
 ): Promise<PlacementApplyResultDTO> {
   if (accepted.length === 0) return { outcomes: [] };
 
@@ -254,7 +256,13 @@ export async function applyPlacementsIn(
       continue;
     }
     try {
-      const moved = await moveSession(eventId, { id: row.sessionId, version: row.version, startsAt: row.startsAt, endsAt: row.endsAt, roomId: row.roomId });
+      // The actor travels with the write so an Auto-place apply is recorded as
+      // this organizer's move, exactly like a drag (MTP-07 step 14).
+      const moved = await moveSession(
+        eventId,
+        { id: row.sessionId, version: row.version, startsAt: row.startsAt, endsAt: row.endsAt, roomId: row.roomId },
+        actorUserId,
+      );
       outcomes.push({ outcome: "applied", sessionId: row.sessionId, session: moved.session, conflicts: moved.conflicts });
       pool = [...pool, {
         id: row.sessionId, startsAtMs: Date.parse(row.startsAt), endsAtMs: Date.parse(row.endsAt),
@@ -272,5 +280,8 @@ export async function applyPlacementsIn(
   return { outcomes };
 }
 
-export const applyPlacements = (eventId: EventId, accepted: readonly ApplyPlacementInput[]): Promise<PlacementApplyResultDTO> =>
-  applyPlacementsIn(db, eventId, accepted);
+export const applyPlacements = (
+  eventId: EventId,
+  accepted: readonly ApplyPlacementInput[],
+  actorUserId: UserId | null = null,
+): Promise<PlacementApplyResultDTO> => applyPlacementsIn(db, eventId, accepted, actorUserId);

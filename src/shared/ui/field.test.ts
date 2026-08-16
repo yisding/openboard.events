@@ -26,6 +26,19 @@ describe("Field", () => {
     expect(html).toContain("Question label");
   });
 
+  it("names the control the caller meant when the field holds more than one", () => {
+    // Implicit nesting labels the *first* labelable descendant, so a toolbar
+    // written ahead of the control takes the caption: the rich text editor
+    // leads with its Bold button. The button is first here for that reason —
+    // with the control first, nesting would land on it by luck rather than by
+    // instruction, and the assertion would prove nothing.
+    const html = renderToStaticMarkup(React.createElement(Field, { label: "Summary", htmlFor: "summary" }, [
+      React.createElement("button", { key: "bold", "aria-label": "Bold" }, "B"),
+      React.createElement("input", { key: "input", id: "summary" }),
+    ]));
+    expect(html).toContain('<label for="summary"');
+  });
+
   it("renders a named group instead of a label when the control is a set of buttons", () => {
     const html = renderToStaticMarkup(React.createElement(Field, { label: "Response type", group: true }, grid()));
     expect(html).not.toContain("<label");
