@@ -256,6 +256,41 @@ The Agenda toolbar also names and links to **Add abstract**, whose drawer can se
 speaker. Both paths use the shared collision-resistant `SESS-n` allocator, and manual creation sends no CFP receipt.
 MTP-03 §2 and MTP-09 task 1 are the permanent regression scripts.
 
+### 0.8a Closed functional and security defects — the 2026-08-16 regression baseline
+
+A full manual pass on 2026-08-16 (every plan MTP-01…MTP-18) found and fixed the defects below. Each
+is now covered by an automated test, but the named manual check is what caught it and stays the
+regression script — a recurrence is a regression, not a known exception.
+
+| Ref | Was | Now — the check that stays | Plan |
+|---|---|---|---|
+| CF-1 | A co-speaker's typed name was dropped and never reached their contact; they showed as a bare email everywhere | A co-speaker submitted with a brand-new email keeps their name in the Abstracts list, the drawer summary, and their own portal view | MTP-04 §1a |
+| CF-2 | A withdrawn speaker's published, scheduled session still read "Published" in admin while silently absent from the public schedule | Withdraw the abstract behind a **truly promoted** session (see 0.4a) → a danger divergence chip on the Agenda row and a dashboard attention entry | MTP-07 §1 |
+| CF-3 | Editing an accepted submission's title after promotion left the session title silently stale | A "Title differs from the abstract" chip appears on the linked session | MTP-07 §1 |
+| CF-4 | Evaluation round list did not refresh after an Assign/Edit save; locked scale/criteria fields looked editable and only failed on save | The round-list count updates without reload; a round with reviews shows scale/criteria/weight as visibly disabled | MTP-05 §1–2 |
+| CF-5 | Manual placement gave no capacity warning; the Conflicts tab named no subject; placement moves were never recorded | Under-capacity placement warns; conflict rows name the speaker/room/track; the session dialog's placement history logs each move with who/when | MTP-07 §2–3 |
+| CF-6 | Portal OTP lockout never armed — the attempts counter was rolled back by the failing transaction | Five wrong codes drive `portal_tokens.attempts` to 5 and the token is burned; the sixth is refused even if correct | MTP-10 §1, MTP-17 §2 |
+| CF-7 | The public portal login form created a permanent roster contact for any typed email | Requesting a code for an unknown email writes no contact row; the neutral screen is unchanged | MTP-10 §1 |
+| CF-8 | Actions taken while impersonating a speaker were attributed to no one | A task completed under impersonation records the organizer in `completed_by_user_id` | MTP-10 §1 |
+| CF-9 | Public API v1 leaked empty-string speaker names; the `/cal/<token>` feed silently dropped a removed session | Both v1 endpoints carry a `name` display field ("Unnamed speaker"); a removed session is emitted as `STATUS:CANCELLED` | MTP-11 |
+| CF-10 | Comms template editor rejected the shipped `{{portal.magic_link}}` token, permanently disabling Save on four templates | Every shipped template validates and previews; Save is enabled | MTP-08, MTP-12 |
+| CF-11 | The guided tour retired itself mid-chapter; Escape closing the command palette also paused the tour | The tour reaches the Curtain Call; Escape on the palette closes only the palette | MTP-18 §2 |
+| CF-12 | The sign-in throttle reported "Invalid email or password" for a 429 | A throttled sign-in names the throttle and its window | MTP-02, MTP-17 §4 |
+| CF-13 | The org audit log hid invite/revoke targets and offered no filter; the room-delete confirm showed track/format copy | Invite/revoke rows name the invitee; actor/action filters exist; room-delete copy is room-specific | MTP-13, MTP-16 §3 |
+| CF-14 | GDPR org export and contact erasure had working engines but no UI trigger | An owner can export org data; a contact can be erased behind a type-the-name confirm whose copy names exactly what is deleted | MTP-13 |
+| CF-15 | CRM tags, custom fields, and merge-recovery worked in the API but had no UI; segments could not filter by custom field | Each is reachable from the CRM; a tag created on a contact is attached to it; a tag+custom-field segment resolves correctly | MTP-13 |
+| CF-16 | `/api/uploads/<id>/download-url` distinguished a real file from a missing one by status **and** message | Signed-out requests for a real and a fake id return a byte-identical 401 | MTP-17 §1 |
+| CF-17 | A dangling/foreign room/track/format id on session create escaped as a raw 500 | It returns a named 400 VALIDATION identifying the bad reference; nothing is written | MTP-17 §1 |
+
+### 0.4a A promoted session is not a titled row that happens to match
+
+Several 0.8a checks (CF-2, CF-3) key off the link between a session and the abstract it came from
+(`sessions.submission_id`). **The seeded agenda's sessions have `submission_id = NULL`** — a seeded
+"published" session only *coincidentally* shares a title and speaker with an accepted abstract; there
+is no promotion link behind it. Withdrawing or retitling that abstract produces no chip, and that is
+correct, not a miss. To exercise CF-2/CF-3, first create a real promotion via the Agenda Day view's
+**Ready to promote** tray (or **Add abstract**), then withdraw/retitle *that* submission.
+
 ### 0.9 Recording a run
 
 Record: environment, git SHA (`/api/health` returns the deployed `sha`), date, and per step
