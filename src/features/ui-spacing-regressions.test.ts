@@ -308,6 +308,32 @@ describe("shared UI spacing regressions", () => {
     expect(css).toContain(".comm-detail dl>div{display:flex;justify-content:space-between;");
   });
 
+  it("keeps the Files filter strip on one row like every other list toolbar", () => {
+    const filesAdmin = read("./portal/deliverables/components/files-admin-view.tsx");
+    const speakersAdmin = read("./portal/components/speakers-admin/speakers-admin-view.tsx");
+
+    // The base rule is `select{width:100%}`, so an unclassed filter in the one
+    // toolbar that wraps takes a flex basis of the whole row: three filters,
+    // three 1106px-wide stacked lines. `.compact-select` is the idiom the rest
+    // of the app's list toolbars already use.
+    expect(speakersAdmin).toContain('className="compact-select"');
+    // Every select inside the strip, rather than a fixed count of them: a
+    // fourth filter added the same way should keep this green, and one added
+    // without the class should not.
+    const toolbarStart = filesAdmin.indexOf('className="data-toolbar files-data-toolbar"');
+    const toolbarEnd = filesAdmin.indexOf('<span className="row-count">', toolbarStart);
+    expect(toolbarStart).toBeGreaterThan(-1);
+    expect(toolbarEnd).toBeGreaterThan(toolbarStart);
+    const toolbar = filesAdmin.slice(toolbarStart, toolbarEnd);
+    const filters = toolbar.match(/<Select\b/gu) ?? [];
+    expect(filters.length).toBeGreaterThanOrEqual(3);
+    expect(toolbar.match(/<Select className="compact-select"/gu)).toHaveLength(filters.length);
+    expect(css).toContain(".compact-select{width:auto;");
+    // Its options are event data, not a fixed vocabulary, so one long file
+    // request title must not become the whole toolbar.
+    expect(css).toContain(".files-data-toolbar .compact-select{max-width:190px}");
+  });
+
   it("keeps short session cards, the bulk bar's Clear, and the mobile nav honest", () => {
     const bulkBar = read("../shared/ui/app/bulk-action-bar.tsx");
     const shell = read("./shell/admin-shell.tsx");
@@ -353,9 +379,17 @@ describe("shared UI spacing regressions", () => {
     expect(css).toContain(
       ".data-table th.abstracts-title-column,.data-table td.abstracts-title-column{width:340px;min-width:280px}",
     );
+    // Title and description share the clamp: one 300-character probe title
+    // wrapped to twelve lines and set the row height on its own. The title half
+    // is scoped to this column — `.submission-title-cell` is also the comms log
+    // recipient, suppressions and the agenda list view, and the ≤768px comms
+    // override below depends on that `b` staying a block box for its ellipsis.
     expect(css).toContain(
-      ".submission-title-cell span{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}",
+      ".abstracts-title-column .submission-title-cell b,.submission-title-cell span{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere}",
     );
+    // …and the clamp never reaches a bare `.submission-title-cell b`, which is
+    // how it would find the other four tables again.
+    expect(css).not.toMatch(/(?<!\.abstracts-title-column )\.submission-title-cell b[,{][^{}]*display:-webkit-box/u);
   });
 
   it("keeps a table toolbar's search from being squeezed by its filters", () => {

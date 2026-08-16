@@ -16,7 +16,7 @@ import { PrivateFileLink } from "@/shared/ui/app/private-file-link";
 import { Button, Drawer, EmptyState, PageHeader, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { useToast } from "@/shared/ui/toast";
-import { deliverableBulkTargets, filesSelectionBarState } from "./files-selection";
+import { deliverableBulkTargets, deliverableExportSelection, fileExportStatusNote, filesSelectionBarState } from "./files-selection";
 
 type State = "all" | "open" | "overdue" | "completed";
 type HasUpload = "" | "yes" | "no";
@@ -232,6 +232,7 @@ export function FilesAdminView({
   const [selectionEpoch, setSelectionEpoch] = useState(0);
   const [active, setActive] = useState<DeliverableRowDTO | null>(null);
   const [exportJob, setExportJob] = useState<FileExportJobDTO | null>(null);
+  const [exportSkipped, setExportSkipped] = useState(0);
   const [exporting, setExporting] = useState(false);
 
   const onFilter = useCallback((next: Partial<{ state: State; taskId: string; fileRequestId: string; hasUpload: HasUpload; search: string }>) => {
@@ -338,15 +339,21 @@ export function FilesAdminView({
    * nothing uploaded yet is dropped here client-side, and dropped again
    * server-side (`createFileExportJobIn` re-derives the same set), so the two
    * can never disagree about what actually gets included.
+   *
+   * How many were dropped is carried alongside the job and named in the export
+   * banner. Announcing only the all-empty case left a mixed selection quietly
+   * short: ten rows selected, eight files in the ZIP, and nothing on screen
+   * accounting for the other two (MTP-14 §3 step 24).
    */
   async function startExport(groupBy: "none" | "session" | "speaker", selection = selected) {
-    const targets = selection.filter((row) => row.latestVersion !== null);
+    const { exportable: targets, skippedWithoutUpload } = deliverableExportSelection(selection);
     if (targets.length === 0) {
       toast("Select at least one deliverable that has a file uploaded", { kind: "error" });
       return;
     }
     setExporting(true);
     setExportJob(null);
+    setExportSkipped(skippedWithoutUpload);
     try {
       const response = await fetch(`/api/internal/deliverables/export?eventId=${encodeURIComponent(eventId)}`, {
         method: "POST",
@@ -466,15 +473,19 @@ export function FilesAdminView({
             <input aria-label="Search deliverables" value={draftSearch} onChange={(event) => onSearchChange(event.target.value)} placeholder="Search speaker, request, or session" />
             {draftSearch && <button type="button" aria-label="Clear search" onClick={clearSearch}><X size={14} /></button>}
           </label>
-          <Select value={fileRequestId} onChange={(event) => onFilter({ fileRequestId: event.target.value })} aria-label="Filter by file request">
+          {/* `compact-select` is the list-toolbar idiom (Speakers' confirmation
+              filter): the base `select` rule is `width:100%`, so an unclassed
+              filter takes a flex basis of the whole toolbar and this wrapping
+              row gives each one its own line instead of a filter strip. */}
+          <Select className="compact-select" value={fileRequestId} onChange={(event) => onFilter({ fileRequestId: event.target.value })} aria-label="Filter by file request">
             <option value="">All requests</option>
             {fileRequests.map((request) => <option key={request.id} value={request.id}>{request.title}</option>)}
           </Select>
-          <Select value={taskId} onChange={(event) => onFilter({ taskId: event.target.value })} aria-label="Filter by task">
+          <Select className="compact-select" value={taskId} onChange={(event) => onFilter({ taskId: event.target.value })} aria-label="Filter by task">
             <option value="">All tasks</option>
             {tasks.map((task) => <option key={task.id} value={task.id}>{task.name}</option>)}
           </Select>
-          <Select value={hasUpload} onChange={(event) => onFilter({ hasUpload: event.target.value as HasUpload })} aria-label="Filter by version">
+          <Select className="compact-select" value={hasUpload} onChange={(event) => onFilter({ hasUpload: event.target.value as HasUpload })} aria-label="Filter by version">
             <option value="">Any version state</option>
             <option value="yes">Has a file</option>
             <option value="no">Missing a file</option>
@@ -489,11 +500,7 @@ export function FilesAdminView({
                 <b>
                   {exportJob.status === "completed" ? "Export ready" : exportJob.status === "failed" ? "Export failed" : "Preparing export…"}
                 </b>
-                <small>
-                  {exportJob.status === "completed" && `${exportJob.entryCount} file${exportJob.entryCount === 1 ? "" : "s"} zipped`}
-                  {exportJob.status === "failed" && (exportJob.error ?? "The export could not be prepared. Use the export menu to try again.")}
-                  {(exportJob.status === "pending" || exportJob.status === "processing") && "This updates automatically."}
-                </small>
+                <small>{fileExportStatusNote(exportJob, exportSkipped)}</small>
               </p>
             </div>
             {exportJob.status === "completed" && exportJob.resultFileId && (

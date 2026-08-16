@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/db/client";
+import { speakerDisplayName } from "@/shared/contracts";
 import { apiV1ErrorResponse, checkV1RateLimit, corsPreflight, data, notFoundResponse, resolvePublicEvent } from "../../../_lib";
 
 export const dynamic = "force-dynamic";
@@ -41,8 +42,14 @@ async function handleGet(request: Request, params: Promise<{ slug: string }>) {
 
   // No email and no confirmation state: the DTO is the boundary, and it is
   // written out rather than spread from the row.
+  //
+  // `name` is the field to render. `first_name`/`last_name` default to `''`, so
+  // a contact created from a submission or an invitation has no name at all,
+  // and concatenating the two raw fields client-side produces a blank card —
+  // the gallery page says "Unnamed speaker" there, and so must this.
   const speakers = (rows.rows ?? []).map((row) => ({
     id: row.contact_id,
+    name: speakerDisplayName(row.first_name, row.last_name),
     firstName: row.first_name,
     lastName: row.last_name,
     title: row.job_title,

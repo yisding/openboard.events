@@ -1,8 +1,5 @@
 import { Brand } from "@/shared/ui/brand";
-
-function Skeleton({ className = "" }: { className?: string }) {
-  return <span className={`route-skeleton ${className}`} aria-hidden />;
-}
+import { Skeleton } from "@/shared/ui/app/skeleton";
 
 export function EventsHubLoading() {
   return (

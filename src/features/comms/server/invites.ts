@@ -46,10 +46,16 @@ function senderDomain(email: string): string {
   return email.slice(email.lastIndexOf("@") + 1);
 }
 
-function eventFromSnapshot(
+type SnapshotState = { sequence: number; icsUid: string; organizerEmail: string };
+
+/**
+ * The METHOD-less, attendee-less event a snapshot describes — everything a
+ * subscription feed may carry. `eventFromSnapshot` adds the METHOD and the
+ * ATTENDEE an emailed REQUEST/CANCEL additionally requires.
+ */
+function feedEventFromSnapshot(
   snapshot: CalendarEventSnapshot,
-  state: { sequence: number; icsUid: string; organizerEmail: string },
-  method: "REQUEST" | "CANCEL",
+  state: SnapshotState,
   env: RuntimeEnv,
   now: Date,
 ): IcsEvent {
@@ -57,7 +63,7 @@ function eventFromSnapshot(
   return {
     uid: state.icsUid,
     sequence: state.sequence,
-    method,
+    method: null,
     startsAt: snapshot.startsAt,
     endsAt: snapshot.endsAt,
     dtstamp: now,
@@ -66,6 +72,19 @@ function eventFromSnapshot(
     location: [snapshot.room, snapshot.eventLocation].filter(Boolean).join(" · "),
     url: `${env.APP_BASE_URL}/e/${encodeURIComponent(snapshot.eventSlug)}/schedule?session=${encodeURIComponent(snapshot.sessionId)}`,
     organizer: { name: snapshot.eventName, email: state.organizerEmail },
+  };
+}
+
+function eventFromSnapshot(
+  snapshot: CalendarEventSnapshot,
+  state: SnapshotState,
+  method: "REQUEST" | "CANCEL",
+  env: RuntimeEnv,
+  now: Date,
+): IcsEvent {
+  return {
+    ...feedEventFromSnapshot(snapshot, state, env, now),
+    method,
     attendee: {
       name: `${snapshot.attendeeFirstName} ${snapshot.attendeeLastName}`.trim() || snapshot.attendeeEmail,
       email: snapshot.attendeeEmail,
@@ -380,6 +399,73 @@ function feedEvent(
   };
 }
 
+/**
+ * The tombstones a subscribed calendar needs: sessions this speaker was
+ * previously invited to that are no longer in the live feed, because the
+ * session was unpublished, unscheduled, or the speaker was taken off it.
+ *
+ * A subscription feed is fetched forever, and dropping a VEVENT from it is not
+ * a reliable instruction to any of the major clients — they keep showing the
+ * stale event. `STATUS:CANCELLED` under the same UID is, so the row has to
+ * survive its session leaving the published set.
+ *
+ * `calendar_invites` is that survivor: one row per (contact, session) that ever
+ * had an invite prepared, holding the `ics_uid` the live feed already publishes
+ * and the `event_snapshot` frozen at the last REQUEST — so the tombstone keeps
+ * the title, time and room the speaker's calendar is currently showing rather
+ * than re-reading a session that may have changed or vanished underneath it.
+ *
+ * Boundary: a *hard-deleted* session takes its `calendar_invites` row with it
+ * (`session_id` cascades), so that case is still covered only by the CANCEL
+ * email `deleteSessionIn` queues, not by this feed.
+ */
+async function cancelledCalendarEntries(
+  dbOrTx: DbOrTx,
+  identity: CalendarTokenIdentity,
+  liveSessionIds: ReadonlySet<string>,
+  env: RuntimeEnv,
+): Promise<IcsEvent[]> {
+  const invited = await dbOrTx.select({
+    sessionId: calendarInvites.sessionId,
+    icsUid: calendarInvites.icsUid,
+    sequence: calendarInvites.sequence,
+    lastMethod: calendarInvites.lastMethod,
+    organizerEmail: calendarInvites.organizerEmail,
+    eventSnapshot: calendarInvites.eventSnapshot,
+    updatedAt: calendarInvites.updatedAt,
+  }).from(calendarInvites)
+    .where(and(
+      eq(calendarInvites.eventId, identity.eventId),
+      eq(calendarInvites.contactId, identity.contactId),
+    ))
+    .orderBy(asc(calendarInvites.sessionId));
+
+  return invited
+    .filter((row) => !liveSessionIds.has(row.sessionId))
+    .map((row) => {
+      // A cancellation already dispatched owns its sequence; one this feed is
+      // first to report has to step past the CONFIRMED copy the subscriber
+      // holds, matching what `deleteSessionIn`'s CANCEL would have sent.
+      const sequence = row.lastMethod === "cancel" ? row.sequence : row.sequence + 1;
+      const snapshot = parseCalendarEventSnapshot(row.eventSnapshot);
+      // DTSTAMP is the invite row's `updatedAt`, which can predate the CONFIRMED
+      // copy the subscriber already holds. That's fine per RFC 5545: SEQUENCE,
+      // not DTSTAMP, is the authoritative revision counter, and it always steps
+      // forward here, so clients still treat the tombstone as the newer state.
+      // The same PUBLISH-shaped event as its live neighbours — no METHOD, no
+      // ATTENDEE — only cancelled.
+      return {
+        ...feedEventFromSnapshot(
+          snapshot,
+          { sequence, icsUid: row.icsUid, organizerEmail: row.organizerEmail },
+          env,
+          row.updatedAt,
+        ),
+        cancelled: true,
+      };
+    });
+}
+
 export async function buildCalendarFeedIn(
   dbOrTx: DbOrTx,
   identity: CalendarTokenIdentity,
@@ -391,8 +477,14 @@ export async function buildCalendarFeedIn(
   const calendarEvents = sessionsForSpeaker
     .map((session) => feedEvent(session, identity, event, env))
     .filter((session): session is IcsEvent => session !== null);
+  const cancelled = await cancelledCalendarEntries(
+    dbOrTx,
+    identity,
+    new Set(sessionsForSpeaker.map((session) => session.id)),
+    env,
+  );
   const speakerName = `${event.firstName} ${event.lastName}`.trim() || event.email;
-  return buildFeed(`${event.eventName} — ${speakerName}`, calendarEvents);
+  return buildFeed(`${event.eventName} — ${speakerName}`, [...calendarEvents, ...cancelled]);
 }
 
 export async function buildCalendarDownloadIn(

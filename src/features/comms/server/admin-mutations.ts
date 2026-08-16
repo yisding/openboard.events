@@ -15,7 +15,7 @@ import {
 import { AppError } from "@/shared/lib/errors";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { sanitizeTemplateBody } from "@/shared/lib/template-body";
-import { validateTemplateBody } from "./render";
+import { stripHtml, validateTemplateBody } from "./render";
 import { DEFAULT_TEMPLATES, EVENT_EDITABLE_TEMPLATE_KEYS } from "./templates";
 import type {
   CommLogDetailWithFlag,
@@ -239,7 +239,16 @@ export async function getLogDetailIn(dbOrTx: DbOrTx, eventId: EventId, logId: Co
     createdAt: row.createdAt.toISOString(),
     sentAt: row.sentAt?.toISOString() ?? null,
   });
-  return { ...detail, previewFallback: isPreviewFallbackMode() };
+  // The text/plain alternative, derived here with the very function
+  // `renderTemplateContent` uses to build the one that was actually sent
+  // (`stripHtml(html, { keepLinkTargets: true })`) — the log stores only the
+  // HTML part, and re-deriving beats a schema column that could disagree with
+  // it. Redaction already happened at storage time, so there is nothing in the
+  // HTML for this to leak.
+  const bodyRenderedText = detail.bodyRenderedHtml === null
+    ? null
+    : stripHtml(detail.bodyRenderedHtml, { keepLinkTargets: true });
+  return { ...detail, bodyRenderedText, previewFallback: isPreviewFallbackMode() };
 }
 
 export async function getLogDetail(eventId: EventId, logId: CommLogId): Promise<CommLogDetailWithFlag> {

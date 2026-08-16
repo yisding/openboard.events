@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PlanDTO } from "../types";
 import { PlanEditor } from "./plan-editor";
+import type { EventMember } from "./plans-view";
 import { settle } from "@tests/support/react";
 
 const routerMock = vi.hoisted(() => ({ refresh: vi.fn() }));
@@ -67,7 +68,7 @@ function plan(status: PlanDTO["status"]): PlanDTO {
   };
 }
 
-const MEMBERS = [
+const MEMBERS: EventMember[] = [
   { userId: REVIEWER_ID, name: "Ada Lovelace", email: "ada@example.com", role: "reviewer" },
   { userId: SECOND_REVIEWER_ID, name: "Grace Hopper", email: "grace@example.com", role: "reviewer" },
 ];

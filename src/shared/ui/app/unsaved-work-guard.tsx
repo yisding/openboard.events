@@ -431,7 +431,24 @@ export function UnsavedWorkGuardProvider({ children }: { children: React.ReactNo
   );
 }
 
-export function useUnsavedWorkGuard(active: boolean, options: { blocking?: boolean } = {}) {
+/**
+ * Registers this component's unsaved work with the guard, and hands back a
+ * `release` for the one moment the declarative registration is too slow.
+ *
+ * Registration is an effect, so a form that has just become clean stays
+ * registered until React has re-rendered *and* flushed passive effects — at
+ * least a tick. A save handler spends that tick handing the saved record back
+ * to the page it lives on, and those handoffs refresh the page: the guard was
+ * still armed from the pre-save draft and answered the app's own post-save
+ * refresh with "Discard unsaved work?" about changes that had already
+ * committed. `release()` closes that window by retiring this guard the instant
+ * the mutation commits, before control leaves the save handler.
+ *
+ * It is deliberately one-shot and not sticky: the next time `active` changes
+ * the effect re-registers as usual, so a form that goes dirty again is guarded
+ * again.
+ */
+export function useUnsavedWorkGuard(active: boolean, options: { blocking?: boolean } = {}): () => void {
   const { register } = useContext(GuardContext);
   const token = useRef(Symbol("unsaved-work"));
   useEffect(() => {
@@ -439,6 +456,7 @@ export function useUnsavedWorkGuard(active: boolean, options: { blocking?: boole
     register(current, active, options.blocking === true);
     return () => register(current, false, false);
   }, [active, options.blocking, register]);
+  return useCallback(() => register(token.current, false, false), [register]);
 }
 
 export function useGuardedAction() {

@@ -9,6 +9,7 @@ import { formatCode } from "@/features/submissions/index.client";
 import { SubmissionAnswers } from "@/features/submissions/components/submission-answers";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { FlowNavControls } from "@/shared/ui/app/flow-nav-controls";
+import { SkeletonText } from "@/shared/ui/app/skeleton";
 import { formatTzTime } from "@/shared/ui/app/tz-time";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, EmptyState, Field, PageHeader, ProgressBar, Select, StatusBadge } from "@/shared/ui/ui-kit";
@@ -425,7 +426,7 @@ export function ReviewQueueView({
 
               <div className="review-detail-body">
                 {detailError && <p className="portal-note" role="alert">{detailError}</p>}
-                {!detail && !detailError && <p className="portal-note">Loading the submission…</p>}
+                {!detail && !detailError && <SkeletonText lines={5} label="Loading the submission…" />}
                 {detail && (
                   <section className="submitted-answers">
                     <h2>What the speaker submitted</h2>

@@ -154,6 +154,39 @@ describe("POST /api/auth/[...action] throttling", () => {
     expect(checkRateLimit).toHaveBeenCalledTimes(2);
   });
 
+  // Better Auth runs its own limiter inside the handler — on by default in
+  // production, with a built-in `/sign-in*` rule of 3 per 10s, which fires
+  // *before* our durable throttle at attempt 6. Its 429 body carries only
+  // `message`, never a `code`, so it used to fall through to `unauthorized()`
+  // and tell an organizer with the correct password that it was wrong.
+  it("does not launder Better Auth's own 429 into a credential rejection", async () => {
+    handler.mockImplementationOnce(async () => new Response(
+      JSON.stringify({ message: "Too many requests. Please try again later." }),
+      { status: 429, statusText: "Too Many Requests", headers: { "content-type": "application/json" } },
+    ));
+
+    const response = await post(["sign-in"], { email: "organizer@example.com", password: "a long enough password" });
+
+    expect(response.status).toBe(429);
+    await expect(response.json()).resolves.toEqual({
+      error: { code: "RATE_LIMITED", message: "Too many sign-in attempts. Try again shortly." },
+    });
+  });
+
+  it("still calls a genuine credential rejection unauthorized", async () => {
+    handler.mockImplementationOnce(async () => new Response(
+      JSON.stringify({ code: "INVALID_EMAIL_OR_PASSWORD", message: "Invalid email or password" }),
+      { status: 401, headers: { "content-type": "application/json" } },
+    ));
+
+    const response = await post(["sign-in"], { email: "organizer@example.com", password: "a long enough password" });
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      error: { code: "UNAUTHORIZED", message: "Invalid email or password" },
+    });
+  });
+
   it("forwards a non-credential endpoint untouched", async () => {
     await post(["get-session"], {});
     expect(throttleAdminLogin).not.toHaveBeenCalled();

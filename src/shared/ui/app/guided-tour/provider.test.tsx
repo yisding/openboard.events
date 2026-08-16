@@ -440,6 +440,37 @@ describe("leaving", () => {
     expect(server.patches.some((patch) => patch.status === "paused")).toBe(false);
   });
 
+  it("leaves Escape alone when the thing that owned it closed itself on the way past", async () => {
+    // The command palette, found live. Its own handler answers Escape with
+    // `preventDefault` + `stopPropagation` + `onClose`, and React flushes that
+    // discrete update synchronously — so this document-level listener runs
+    // *after* the `<dialog>` has already gone, the "is a dialog open" guard
+    // sees an empty top layer, and the tour quietly paused itself on a
+    // keystroke the player spent dismissing something else.
+    document.body.insertAdjacentHTML("beforeend", '<dialog open class="palette"><input /></dialog>');
+    const palette = document.querySelector<HTMLDialogElement>("dialog.palette");
+    const input = palette?.querySelector("input");
+    if (!palette || !input) throw new Error("fixture did not mount");
+    palette.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      palette.removeAttribute("open");
+    });
+
+    const server = makeServer();
+    await render(makeBootstrap(server));
+    await tick();
+
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    });
+    await tick();
+
+    expect(document.querySelector("dialog[open]")).toBe(null);
+    expect(server.patches.some((patch) => patch.status === "paused")).toBe(false);
+    expect(coach()).not.toBe(null);
+  });
+
   it("records a skipped step without celebrating it", async () => {
     document.body.insertAdjacentHTML("beforeend", '<nav class="dashboard-tabs">Today</nav>');
     const server = makeServer({ chapter: "grid", stepId: "grid.resolve" });

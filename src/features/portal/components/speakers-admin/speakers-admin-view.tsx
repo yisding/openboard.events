@@ -384,7 +384,12 @@ export function SpeakersAdminView({
         }
       />
 
-      <SpeakerCreateDialog eventId={eventId} open={createOpen} onClose={() => { setCreateOpen(false); router.refresh(); }} />
+      {/* No `router.refresh()` here. A successful add navigates to the new
+          speaker's detail page, and a refresh of the roster started in the same
+          tick raced that navigation: the address bar advanced while this page
+          stayed on screen, so the toast said "added" over a roster that never
+          showed the row. Cancelling changes nothing to refresh. */}
+      <SpeakerCreateDialog eventId={eventId} open={createOpen} onClose={() => setCreateOpen(false)} />
       <SpeakerImportDialog eventId={eventId} open={importOpen} onClose={() => setImportOpen(false)} />
       {bulkEmailOpen && (
         <SpeakerBulkEmailDialog

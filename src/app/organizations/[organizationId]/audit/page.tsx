@@ -36,7 +36,7 @@ export default async function Page({ params }: { params: Promise<{ organizationI
   if (!organization) notFound();
 
   return <>
-    <PageHeader eyebrow="ORGANIZATION" title={`${organization.name} — Audit log`} description="Membership changes on this organization, most recent first." />
+    <PageHeader eyebrow="ORGANIZATION" title={`${organization.name} — Audit log`} description="Membership and sample-event changes on this organization, most recent first." />
     <AuditLogPanel initialEntries={entries} />
   </>;
 }

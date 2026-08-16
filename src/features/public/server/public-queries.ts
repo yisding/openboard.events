@@ -6,6 +6,7 @@ import {
   eventIdSchema,
   publishedScheduleDtoSchema,
   publishedSpeakersDtoSchema,
+  speakerDisplayName,
   type EventId,
   type PublishedScheduleDTO,
   type PublishedSpeakersDTO,
@@ -95,11 +96,6 @@ function headshotUrl(fileId: string | null): string | null {
   // Immutable-cached, unsigned — M07's /f/[fileId] route is the public serving
   // path for every published headshot.
   return fileId ? `/f/${fileId}` : null;
-}
-
-function speakerName(firstName: string, lastName: string): string {
-  const name = `${firstName} ${lastName}`.trim();
-  return name.length > 0 ? name : "Unnamed speaker";
 }
 
 type ScheduleSessionRow = {
@@ -253,7 +249,7 @@ async function getPublishedSpeakersForEventIn(dbOrTx: DbOrTx, event: PublicEvent
 
   const speakers = (result.rows ?? []).map((row) => ({
     contactId: row.contact_id,
-    name: speakerName(row.first_name, row.last_name),
+    name: speakerDisplayName(row.first_name, row.last_name),
     jobTitle: row.job_title,
     company: row.company,
     bioHtml: row.bio_html,

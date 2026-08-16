@@ -8,7 +8,7 @@ import {
   SET_PIECE_TRAY_SESSION_KEY,
   SPEAKERS,
 } from "../server/demo/dataset";
-import { type DemoProvisionPhase } from "../tour-schemas";
+import { DEMO_PROVISION_PHASES, type DemoProvisionPhase } from "../tour-schemas";
 import { anchorIsDialogBound } from "./anchors";
 import {
   supportedTourSteps,
@@ -322,6 +322,48 @@ describe("supportedTourSteps", () => {
       for (const step of kept) {
         const templates = [step.route?.path, step.objective?.via === "route" ? step.objective.path : undefined];
         for (const template of templates) expect(template ?? "", `${step.id} kept without ${key}`).not.toContain(`:${key}`);
+      }
+    }
+  });
+
+  it("hands back no tour at all rather than a mutilated one when the event id is missing", () => {
+    // Every route in the script is anchored on `/events/:eventId`. Dropped one
+    // step at a time, an empty id left seven orphans across five chapters and
+    // no curtain call — a five-chapter "tour" whose last step is a subject
+    // line in Mission Control. That is not a smaller tutorial, it is wreckage,
+    // and the engine reads a step with no successor as the player having
+    // finished, so it retires itself there permanently.
+    expect(supportedTourSteps(null, { ...FULL, eventId: "" })).toEqual([]);
+    expect(supportedTourSteps(null, { ...FULL, eventId: null })).toEqual([]);
+  });
+
+  it("always leaves the player a curtain call to reach, whatever this world is missing", () => {
+    // The property the failure above violated, checked across every shape a
+    // host can hand this: the golden path either does not exist or ends where
+    // the script ends. A configuration that stops the arc anywhere else ends
+    // the tour in silence, mid-chapter, with no way back in.
+    const contextKeys = TOUR_CONTEXT_KEYS;
+    const phases: Array<DemoProvisionPhase | null> = [null, ...DEMO_PROVISION_PHASES];
+    for (const phase of phases) {
+      // Every subset of the ids a real world can be missing, as a bitmask.
+      for (let mask = 0; mask < 2 ** contextKeys.length; mask += 1) {
+        const context = { ...FULL };
+        const missing: string[] = [];
+        contextKeys.forEach((key, index) => {
+          if ((mask & (1 << index)) === 0) return;
+          context[key] = "";
+          missing.push(key);
+        });
+        const unavailable = new Set(unavailableTourChapters(phase));
+        for (const mobile of [false, true]) {
+          const runnable = supportedTourSteps(phase, context)
+            .filter((step) => !unavailable.has(step.chapter))
+            .filter((step) => !(mobile && step.desktopOnly === true));
+          const last = arcSteps(runnable).at(-1);
+          const where = `phase=${phase ?? "none"} missing=[${missing.join(",")}] mobile=${mobile}`;
+          if (!last) continue;
+          expect(last.chapter, where).toBe("curtain-call");
+        }
       }
     }
   });

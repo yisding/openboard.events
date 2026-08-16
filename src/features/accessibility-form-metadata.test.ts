@@ -83,8 +83,12 @@ describe("audited form metadata", () => {
         ["input", "newLabel"], ["input", "form.internalName", 2], ["input", "form.externalTitle"],
         ["input", "form.pageHeading"], ["input", "section.title"], ["input", "section.pageHeading"],
       ] },
+      // `TimeZoneSelect` is the audited tag rather than `Select`: it is a thin
+      // wrapper that forwards `required` to the real control through its rest
+      // spread, and event-form-timezone.test.tsx renders a call site to prove
+      // the attribute survives the trip.
       { path: "./events/components/details-tab.tsx", controls: [
-        ["input", "name"], ["input", "slug"], ["Select", "timezone"],
+        ["input", "name"], ["input", "slug"], ["TimeZoneSelect", "timezone"],
         ["DateTimePicker", "startsAt"], ["DateTimePicker", "endsAt"],
       ] },
       { path: "./portal/form-builder/components/portal-forms-page.tsx", controls: [["input", "name"]] },

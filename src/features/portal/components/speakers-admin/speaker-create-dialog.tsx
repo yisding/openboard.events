@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { SpeakerDetailDTO } from "@/features/portal";
 import { Button, Field, Modal } from "@/shared/ui/ui-kit";
@@ -22,12 +22,22 @@ export function SpeakerCreateDialog({ eventId, open, onClose }: { eventId: strin
   const [company, setCompany] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // `autoFocus` cannot do this here: React applies it by focusing the input
+  // during commit, and the modal's own `showModal()` — which runs afterwards,
+  // in an effect — then hands focus to the first focusable element in the
+  // dialog, the Close button. `initialFocusRef` is the seam that runs after
+  // `showModal()`, so the organizer starts in the field they came to fill.
+  const emailRef = useRef<HTMLInputElement>(null);
 
   function reset() {
     setEmail(""); setFirstName(""); setLastName(""); setJobTitle(""); setCompany(""); setError(null);
   }
 
   async function submit() {
+    // Focus now starts in the Email field, so Enter submits the form — which
+    // is the point, but it also makes the empty-email path reachable from the
+    // keyboard for the first time. The footer button is disabled for it too.
+    if (saving || !email.trim()) return;
     setSaving(true);
     setError(null);
     try {
@@ -64,6 +74,7 @@ export function SpeakerCreateDialog({ eventId, open, onClose }: { eventId: strin
     <Modal
       open={open}
       onClose={() => { reset(); onClose(); }}
+      initialFocusRef={emailRef}
       title="Add speaker"
       description="Create a speaker manually — for organizer-sourced talks, panelists, or co-hosts who never went through the CFP."
       footer={<>
@@ -73,7 +84,7 @@ export function SpeakerCreateDialog({ eventId, open, onClose }: { eventId: strin
     >
       <form className="form-stack" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
         <Field label="Email" required error={error ?? undefined}>
-          <input type="email" required autoFocus value={email} onChange={(event) => setEmail(event.target.value)} placeholder="speaker@example.com" />
+          <input ref={emailRef} type="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="speaker@example.com" />
         </Field>
         <div className="form-grid">
           <Field label="First name"><input value={firstName} onChange={(event) => setFirstName(event.target.value)} /></Field>

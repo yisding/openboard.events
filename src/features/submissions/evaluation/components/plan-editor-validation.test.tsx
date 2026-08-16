@@ -4,7 +4,9 @@ import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { MemberRole } from "@/shared/contracts";
 import type { PlanDTO } from "../types";
+import type { EventMember } from "./plans-view";
 import { PlanEditor, criterionWeightError, outgoingCriterionWeight } from "./plan-editor";
 
 const routerMock = vi.hoisted(() => ({ refresh: vi.fn() }));
@@ -72,14 +74,14 @@ async function settle() {
   });
 }
 
-async function renderEditor() {
+async function renderEditor(members: EventMember[] = []) {
   await act(async () => {
     root.render(
       <PlanEditor
         eventId={EVENT_ID}
         plan={PLAN}
         tracks={[]}
-        members={[]}
+        members={members}
         nextRound={2}
         timezone="America/Los_Angeles"
         onSaved={vi.fn()}
@@ -223,5 +225,25 @@ describe("evaluation plan editor validation", () => {
     expect(onClose).not.toHaveBeenCalled();
     expect(roundNameInput()?.value).toBe("Round 1 renamed");
     expect(buttonNamed("Save round")?.disabled).toBe(false);
+  });
+});
+
+describe("plan editor reviewer roster", () => {
+  it("names each member's role in the app's own words, not the database's", async () => {
+    const member = (suffix: string, name: string, role: MemberRole): EventMember => ({
+      userId: `c4310000-0000-4000-8000-0000000000${suffix}`,
+      name,
+      email: `${name.toLowerCase()}@example.com`,
+      role,
+    });
+
+    await renderEditor([
+      member("21", "Ada", "owner"),
+      member("22", "Grace", "reviewer"),
+      member("23", "Alan", "organizer"),
+    ]);
+
+    const roles = [...container.querySelectorAll(".reviewer-assignment small")].map((node) => node.textContent);
+    expect(roles).toEqual(["Owner", "Reviewer", "Organizer"]);
   });
 });

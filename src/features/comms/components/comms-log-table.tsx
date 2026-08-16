@@ -89,6 +89,21 @@ function CommsLogTableInner({ eventId, contactId, contactName, timezone }: Comms
       meta: { className: "comms-log-col-recipient" },
     },
     { id: "templateKey", header: "Template", accessorKey: "templateKey", cell: ({ row }) => <span className="track-chip">{templateLabel(row.original.templateKey)}</span>, meta: { className: "comms-log-col-template" } },
+    // What the recipient actually saw in their inbox — the one field that tells
+    // two `task_reminder` rows apart without opening either. Long subjects are
+    // capped with an ellipsis in `globals.css` and carried in full by `title`,
+    // and the Columns picker can hide the column outright.
+    {
+      id: "subject",
+      header: "Subject",
+      accessorKey: "subjectRendered",
+      cell: ({ row }) => (
+        <Dash value={row.original.subjectRendered}>
+          <span title={row.original.subjectRendered ?? ""}>{row.original.subjectRendered}</span>
+        </Dash>
+      ),
+      meta: { className: "comms-log-col-subject" },
+    },
     { id: "status", header: "Status", accessorKey: "status", cell: ({ row }) => <StatusBadge value={row.original.status} /> },
     { id: "providerMessageId", header: "Provider ID", accessorKey: "providerMessageId", cell: ({ row }) => <Dash value={row.original.providerMessageId} />, meta: { className: "comms-log-col-provider" } },
     { id: "createdAt", header: "Created", accessorKey: "createdAt", cell: ({ row }) => <TzTime instant={row.original.createdAt} tz={timezone} style="date" secondary="time" />, meta: { className: "comms-log-col-created" } },

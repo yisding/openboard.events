@@ -1,4 +1,5 @@
 import { communicationLogs, reminderRules } from "@/db/schema";
+import { DEMO_MAIL_SKIP_REASON } from "@/features/comms";
 import { demoLocal } from "../clock";
 import { COMM_LOG_ROWS, type DemoCommLogRow } from "../dataset";
 import { demoId } from "../ids";
@@ -58,10 +59,18 @@ export async function runCommsPhase(ctx: PhaseCtx): Promise<void> {
         // Appendix A #2 — so every seeded row is namespaced under the event,
         // never the bare dataset key alone.
         idempotencyKey: `demo:${eventId}:${row.key}`,
-        status: row.status,
+        // MTP-18 §4/26 is pass/fail: every row on a demo event's delivery log
+        // reads `Skipped`, with this reason. Backdated history used to be
+        // seeded `sent`/`failed` for texture — nothing was ever delivered (the
+        // recipients are `.demo.invalid`), but the status column an organizer
+        // reads said it had been, which is the one thing the demo must never
+        // claim. The live dispatcher stamps exactly this pair on a demo row;
+        // provisioning now stamps it too, so the two paths agree and the
+        // guarantee holds for rows nobody watched being written.
+        status: "skipped" as const,
         subjectRendered: row.subjectRendered,
-        error: row.status === "failed" ? (row.errorMessage ?? null) : null,
-        attempts: row.status === "failed" ? 1 : row.status === "sent" ? 1 : 0,
+        error: DEMO_MAIL_SKIP_REASON,
+        attempts: 0,
         // The design's own text calls for `next_attempt_at = NULL`; the
         // column is `NOT NULL DEFAULT now()` (verified `src/db/schema/comms.ts`),
         // so NULL is not representable. It does not matter functionally —
@@ -70,7 +79,7 @@ export async function runCommsPhase(ctx: PhaseCtx): Promise<void> {
         // instant rather than left to a fresh `now()` default.
         nextAttemptAt: instant,
         createdAt: instant,
-        sentAt: row.status === "sent" ? instant : null,
+        sentAt: null,
       };
     }))
     .onConflictDoNothing({ target: communicationLogs.idempotencyKey });

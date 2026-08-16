@@ -168,6 +168,7 @@ describe("AST source invariants", () => {
           <button role={flag ? "switch" : "button"} />
           <input {...{ ...{ type: flag ? "datetime-local" : "text" } }} />
           <input type="file" accept=".csv" />
+          <input type="color" value="#00a878" />
           <div {...htmlProps} />
           <span style={{ fontSize: -1 }}>Tiny</span>
         </>;
@@ -176,7 +177,7 @@ describe("AST source invariants", () => {
 
     const result = check(root);
     expect(result.status).toBe(1);
-    for (const rule of ["raw-select", "raw-switch", "native-date", "raw-file-input", "raw-html", "inline-type-floor"]) {
+    for (const rule of ["raw-select", "raw-switch", "native-date", "raw-file-input", "raw-color-input", "raw-html", "inline-type-floor"]) {
       expect(result.stderr).toContain(`[${rule}]`);
     }
     expect(result.stderr.match(/\[raw-select\]/gu)).toHaveLength(1);
