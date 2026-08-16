@@ -1,7 +1,12 @@
 /** @vitest-environment happy-dom */
 
+import * as React from "react";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
-import { measurableElement, portalTargetFor, resolveAnchorElement, tourIdPresent } from "./anchor";
+import { measurableElement, portalTargetFor, resolveAnchorElement, tourIdPresent, useTourAnchor, type TourAnchorState } from "./anchor";
+
+Object.assign(globalThis, { React, IS_REACT_ACT_ENVIRONMENT: true });
 
 function mount(html: string): HTMLElement {
   const host = document.createElement("div");
@@ -71,6 +76,85 @@ describe("measuring a wrapper that has no box of its own", () => {
     if (!button) throw new Error("fixture did not mount");
     button.getBoundingClientRect = () => new DOMRect(0, 0, 90, 30);
     expect(measurableElement(button)).toBe(button);
+  });
+});
+
+describe("holding on to a target the page swaps underneath it", () => {
+  const SPEC = { kind: "selector", css: ".add-question" } as const;
+
+  it("re-resolves after a late measurement drops an element the page has already replaced", async () => {
+    /*
+     * The exact interleaving the form builder produces when the tour walks the
+     * player from one form to another: the old page's control is detached and
+     * the new page's control — a *different* node with the same selector —
+     * takes its place, while a frame the browser had already scheduled still
+     * closes over the old one.
+     *
+     * The resolver adopts the new node; the late measurement then finds the
+     * node *it* was watching disconnected and clears the anchor. If clearing
+     * does not also make the resolver forget what it holds, its
+     * "already handed this one over" short-circuit refuses to hand the new
+     * node over again, and the step spends the rest of its life anchorless:
+     * card marooned in the centre of the screen, no spotlight, no scroll, and
+     * not even a notice — "missing" is never reached either.
+     *
+     * requestAnimationFrame is driven by hand so the frame lands after the
+     * swap rather than before it, which is the whole point of the case.
+     */
+    const frames: Array<() => void> = [];
+    const realRaf = window.requestAnimationFrame;
+    const realCancel = window.cancelAnimationFrame;
+    window.requestAnimationFrame = ((callback: () => void) => frames.push(callback)) as never;
+    // The browser does not un-schedule a frame it is already dispatching, and
+    // that is the frame this case is about.
+    window.cancelAnimationFrame = (() => undefined) as never;
+
+    const host = mount('<div class="page"><button class="add-question" id="old">Add question</button></div>');
+    const page = host.querySelector<HTMLElement>(".page");
+    const before = host.querySelector<HTMLElement>("#old");
+    if (!page || !before) throw new Error("fixture did not mount");
+
+    let state: TourAnchorState = { element: null, rect: null, status: "idle" };
+    function Probe() {
+      state = useTourAnchor(SPEC, true);
+      return null;
+    }
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => { root.render(React.createElement(Probe)); });
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+      expect(state.element).toBe(before);
+
+      // A frame scheduled while the old control was still the anchor.
+      await act(async () => { window.dispatchEvent(new Event("scroll")); });
+      expect(frames.length).toBeGreaterThan(0);
+
+      const after = document.createElement("button");
+      after.className = "add-question";
+      after.id = "new";
+      await act(async () => {
+        before.remove();
+        page.append(after);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(state.element).toBe(after);
+
+      // The stale frame finally runs, sees the node it was watching detached,
+      // and gives the anchor up.
+      await act(async () => {
+        for (const frame of frames.splice(0)) frame();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(state.element).toBe(after);
+      expect(state.status).toBe("found");
+    } finally {
+      await act(async () => { root.unmount(); });
+      window.requestAnimationFrame = realRaf;
+      window.cancelAnimationFrame = realCancel;
+    }
   });
 });
 

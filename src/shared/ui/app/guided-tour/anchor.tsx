@@ -136,7 +136,25 @@ export function useTourAnchor(spec: TourAnchorSpec | undefined, active: boolean)
   const [element, setElement] = useState<HTMLElement | null>(null);
   const [rect, setRect] = useState<TourRect | null>(null);
   const [status, setStatus] = useState<TourAnchorStatus>("idle");
-  const scrolledFor = useRef<TourAnchorSpec | null>(null);
+  const scrolledFor = useRef<{ spec: TourAnchorSpec; element: HTMLElement } | null>(null);
+  /**
+   * The element the resolver last accepted, shared with the measuring effect
+   * below — which is the *other* place that can decide the anchor is gone.
+   *
+   * While it was a local of the resolving effect the two disagreed: the
+   * measurer dropped a detached element and cleared the state, the resolver
+   * went on believing it had already handed that node over, and its
+   * `next === current` short-circuit refused to hand it over again. A node
+   * React detaches and re-attaches — which is what happens to a control that
+   * survives reconciliation across a soft navigation between two routes
+   * sharing a layout, like the form builder's Add question button moving from
+   * one form to another — left the card anchorless and centred for the rest of
+   * the step: no spotlight, no scroll, and no notice either, because "missing"
+   * was never reached.
+   */
+  const foundRef = useRef<HTMLElement | null>(null);
+  /** Set by the resolving effect; called by the measurer when its element goes. */
+  const reresolveRef = useRef<() => void>(() => undefined);
 
   useEffect(() => {
     if (!active || !spec || spec.kind === "none" || typeof document === "undefined") {
@@ -146,7 +164,7 @@ export function useTourAnchor(spec: TourAnchorSpec | undefined, active: boolean)
       return;
     }
     setStatus("resolving");
-    let current: HTMLElement | null = null;
+    foundRef.current = null;
     let timer = 0;
     // Re-armed on every drop back to `resolving`, not set once for the life of
     // the step. A one-shot timer expires while the anchor is still *found*, so
@@ -157,7 +175,7 @@ export function useTourAnchor(spec: TourAnchorSpec | undefined, active: boolean)
     const armTimeout = () => {
       window.clearTimeout(timer);
       timer = window.setTimeout(() => {
-        if (current === null) setStatus("missing");
+        if (foundRef.current === null) setStatus("missing");
       }, ANCHOR_TIMEOUT_MS);
     };
     const attempt = () => {
@@ -165,18 +183,28 @@ export function useTourAnchor(spec: TourAnchorSpec | undefined, active: boolean)
       if (next === null) {
         // The target was here and went away — a tab switched, a drawer closed.
         // Drop back to resolving rather than spotlighting a detached node.
-        if (current !== null && !current.isConnected) {
-          current = null;
+        if (foundRef.current !== null && !foundRef.current.isConnected) {
+          foundRef.current = null;
           setElement(null);
           setStatus("resolving");
           armTimeout();
         }
         return;
       }
-      if (next === current) return;
-      current = next;
+      if (next === foundRef.current) return;
+      foundRef.current = next;
       setElement(measurableElement(next));
       setStatus("found");
+    };
+    // The measurer's way back in. Forgetting the held element first is the
+    // whole point: the node it just watched detach may be the very node
+    // `resolveAnchorElement` hands back a frame later.
+    reresolveRef.current = () => {
+      foundRef.current = null;
+      setElement(null);
+      setStatus("resolving");
+      armTimeout();
+      attempt();
     };
     attempt();
     const observer = typeof MutationObserver === "function" ? new MutationObserver(attempt) : null;
@@ -190,6 +218,7 @@ export function useTourAnchor(spec: TourAnchorSpec | undefined, active: boolean)
     return () => {
       observer?.disconnect();
       window.clearTimeout(timer);
+      reresolveRef.current = () => undefined;
     };
   }, [spec, active]);
 
@@ -203,8 +232,7 @@ export function useTourAnchor(spec: TourAnchorSpec | undefined, active: boolean)
     const measure = () => {
       frame = 0;
       if (!element.isConnected) {
-        setElement(null);
-        setStatus("resolving");
+        reresolveRef.current();
         return;
       }
       const box = element.getBoundingClientRect();
@@ -230,11 +258,17 @@ export function useTourAnchor(spec: TourAnchorSpec | undefined, active: boolean)
     };
   }, [element]);
 
-  // One scroll per step, on arm. Repeating it on every re-measure would fight
-  // the player for control of the viewport.
+  // One scroll per resolved target, not per step. Repeating it on every
+  // re-measure would fight the player for control of the viewport; keying it on
+  // the step alone meant a step that armed on one page and then followed the
+  // tour's own navigation to another spent its scroll on the page the player
+  // was leaving, and pointed at a control below the fold on the page they
+  // arrived at.
   useEffect(() => {
-    if (!element || !spec || scrolledFor.current === spec) return;
-    scrolledFor.current = spec;
+    if (!element || !spec) return;
+    const scrolled = scrolledFor.current;
+    if (scrolled && scrolled.spec === spec && scrolled.element === element) return;
+    scrolledFor.current = { spec, element };
     element.scrollIntoView?.({ block: "center", inline: "nearest", behavior: prefersReducedMotion() ? "auto" : "smooth" });
   }, [element, spec]);
 

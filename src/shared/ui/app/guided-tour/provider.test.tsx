@@ -524,6 +524,32 @@ describe("anchoring", () => {
     expect(coach()?.textContent).toContain("Nothing to point at yet");
   });
 
+  it("offers a step with no route of its own the way back to the page its chapter opened", async () => {
+    // "Confirm the queue" has no route on purpose — it happens in a dialog the
+    // chapter has already opened, and navigating on entry would close it. That
+    // left a player who wandered off with a card that had nothing to offer:
+    // no way back, and a notice claiming the control "appears once you have
+    // started" while they were on another page entirely.
+    harness.pathname = "/events/evt-1/dashboard";
+    const server = makeServer({ chapter: "grid", stepId: "grid.confirm" });
+    await render(makeBootstrap(server, {
+      steps: [
+        { ...STEPS[0], chapter: "grid", id: "grid.open", route: { path: "/events/:eventId/abstracts" } } as TourStep,
+        {
+          id: "grid.confirm", chapter: "grid", kind: "act",
+          title: "Confirm the queue.", body: "Queue decision emails once it reads the way you expect.",
+          anchor: MISSING_ANCHOR,
+          objective: { via: "world", fact: "conflictCount", delta: "decreased" },
+        } as TourStep,
+      ],
+    }));
+    await tick(6_500);
+
+    expect(coach()?.textContent).toContain("That control isn't on this screen right now");
+    await act(async () => control("Take me there").click());
+    expect(harness.push).toHaveBeenCalledWith("/events/evt-1/abstracts");
+  });
+
   it("portals into an open dialog and suppresses its own scrim there", async () => {
     document.body.insertAdjacentHTML(
       "beforeend",

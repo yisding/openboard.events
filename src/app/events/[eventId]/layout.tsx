@@ -97,7 +97,37 @@ export default async function EventLayout({ children, params }: { children: Reac
    * organizer, and mounting a second player on it would hand them a baseline
    * captured from somebody else's `reviewsByMe`.
    */
-  const tour: TourBootstrap | null = demoTour && demoTour.provisionReady && demoTour.isTourOwner ? {
+  /**
+   * The `:token` values every route in the script interpolates — assembled
+   * once, because the *same* map has to answer two questions: which steps this
+   * world can run, and what their paths resolve to.
+   *
+   * It used to be built only for the second, and `supportedTourSteps` was
+   * handed the server reader's context instead — which carries the event's
+   * *slug* and never its id. Every route in the script is anchored on
+   * `/events/:eventId`, so "does this world have the ids this step needs"
+   * answered no for all but a handful of route-less steps: six of the eleven
+   * chapters vanished, the cold open with them, and the cursor resolved
+   * forward onto whatever narrow step survived — a tutorial that opened on
+   * Chapter 1 of 5 and pointed at controls three pages away.
+   */
+  const tourContext = demoTour ? {
+    eventId,
+    eventSlug: demoTour.context.eventSlug,
+    // Provisioning always writes the call for speakers, so this is only ever
+    // empty on a demo whose forms phase was skipped — in which case
+    // `unavailableChapters` below has already dropped the chapters that
+    // would have routed into it.
+    cfpFormId: demoTour.context.cfpFormId ?? "",
+    // The one form the builder will still let an organizer restructure —
+    // "the first form carrying no non-draft submission", which is a fact
+    // about the *world*, not about provisioning: it goes null in ordinary
+    // free play once every form has been answered. `supportedTourSteps`
+    // is what keeps that from becoming a navigation to `/forms/`.
+    editableFormId: demoTour.context.editableFormId ?? "",
+    organizationId: demoTour.context.organizationId,
+  } : null;
+  const tour: TourBootstrap | null = demoTour && tourContext && demoTour.provisionReady && demoTour.isTourOwner ? {
     scopeId: eventId,
     statePath: `events/${eventId}/tour`,
     stepsPath: `events/${eventId}/tour/steps`,
@@ -106,7 +136,7 @@ export default async function EventLayout({ children, params }: { children: Reac
     // later phase than their chapter's, and any step whose route needs a
     // context id this world does not have, cannot run here. Chapter-level
     // availability stays below, where the engine can apologise for it.
-    steps: supportedTourSteps(demoTour.skippedAtPhase, demoTour.context),
+    steps: supportedTourSteps(demoTour.skippedAtPhase, tourContext),
     // Design §2.8. "Continue without it" reaches `ready` without the phase
     // that would not take, so the chapters that phase (and everything after
     // it) was going to fill are dropped with an honest line rather than
@@ -123,22 +153,7 @@ export default async function EventLayout({ children, params }: { children: Reac
     completed: demoTour.completed,
     questsDone: demoTour.questsDone,
     world: toEngineWorld(demoTour.world),
-    context: {
-      eventId,
-      eventSlug: demoTour.context.eventSlug,
-      // Provisioning always writes the call for speakers, so this is only ever
-      // empty on a demo whose forms phase was skipped — in which case
-      // `unavailableChapters` above has already dropped the chapters that
-      // would have routed into it.
-      cfpFormId: demoTour.context.cfpFormId ?? "",
-      // The one form the builder will still let an organizer restructure —
-      // "the first form carrying no non-draft submission", which is a fact
-      // about the *world*, not about provisioning: it goes null in ordinary
-      // free play once every form has been answered. `supportedTourSteps`
-      // above is what keeps that from becoming a navigation to `/forms/`.
-      editableFormId: demoTour.context.editableFormId ?? "",
-      organizationId: demoTour.context.organizationId,
-    },
+    context: tourContext,
   } : null;
   // M56 — real, actionable sidebar counts. Reviewers only ever see the review
   // nav item, so they get their own outstanding-work count instead of the

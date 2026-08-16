@@ -863,7 +863,16 @@ function contextKeysUsedBy(step: TourStep): readonly TourContextKey[] {
  */
 export function supportedTourSteps(
   skippedAtPhase: DemoProvisionPhase | null,
-  context: Readonly<Partial<Record<TourContextKey, string | null>>>,
+  /**
+   * Every context key, not a partial. A missing key reads identically to an
+   * empty one — "this world cannot run that step" — so `Partial` let both
+   * hosts hand this the *server reader's* context, which carries the event's
+   * slug and never its id, and silently lose every step routed under
+   * `/events/:eventId`: all but a handful of the script. Requiring the whole
+   * map makes that a type error rather than a tutorial with six chapters
+   * missing.
+   */
+  context: Readonly<Record<TourContextKey, string | null>>,
 ): readonly TourStep[] {
   const stoppedAt = skippedAtPhase === null ? -1 : DEMO_PROVISION_PHASES.indexOf(skippedAtPhase);
   return TOUR_STEPS.filter((step) => {

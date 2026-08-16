@@ -247,6 +247,33 @@ function GuidedTourLayer({ bootstrap, onComplete, onStatusChange }: {
   );
   const sideQuests = useMemo(() => steps.filter((candidate) => candidate.optional === true), [steps]);
   const progress = useMemo(() => tourProgress(bootstrap.chapters, steps, resolvedStepId ?? cursor.stepId), [bootstrap.chapters, steps, resolvedStepId, cursor.stepId]);
+  /**
+   * Where this step lives, including for the steps that never say.
+   *
+   * A step with no `route` of its own is deliberately a *stay*: "Confirm the
+   * queue" happens in a dialog its chapter already opened, and navigating on
+   * entry would close it. The cost was that a player who wandered off — to the
+   * dashboard, to another chapter's page — got a card with nothing to offer.
+   * No "Take me there", and a notice reading "it appears once you have
+   * started" about a control several pages away, which reads as the tutorial
+   * having lost the plot. Inheriting the last route the chapter established
+   * costs the stay nothing (the href is only consulted once the anchor has
+   * timed out) and makes both the notice and the way back honest.
+   */
+  const stepRoute = useMemo(() => {
+    if (!step) return undefined;
+    if (step.route) return step.route;
+    const index = steps.findIndex((candidate) => candidate.id === step.id);
+    for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+      const candidate = steps[cursor];
+      // Only within the chapter: a chapter that opens on a route-less step is
+      // saying "wherever you are", and borrowing the previous chapter's last
+      // page would invent a destination its author never chose.
+      if (!candidate || candidate.chapter !== step.chapter) return undefined;
+      if (candidate.optional !== true && candidate.route) return candidate.route;
+    }
+    return undefined;
+  }, [step, steps]);
 
   const running = cursor.status === "active" || cursor.status === "not_started";
   const anchor = useTourAnchor(step?.anchor, running && step?.presentation !== "modal" && step?.presentation !== "modal-wide");
@@ -809,7 +836,6 @@ function GuidedTourLayer({ bootstrap, onComplete, onStatusChange }: {
         : "ready";
 
   const anchorless = step.anchor !== undefined && step.anchor.kind !== "none" && anchor.status === "missing";
-  const stepRoute = step.route;
   const takeMeThereHref = stepRoute ? tourHref(stepRoute, bootstrap.context) : null;
   // Offered only when it is actually a trip. The tour navigates to `step.route`
   // on entry, so by the time the anchor times out the player is almost always

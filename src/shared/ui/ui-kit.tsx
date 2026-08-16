@@ -2,7 +2,7 @@
 
 import { UserRound, X } from "lucide-react";
 import Image from "next/image";
-import React, { useEffect, useRef, type ButtonHTMLAttributes, type CSSProperties, type ReactNode, type RefObject, type SelectHTMLAttributes } from "react";
+import React, { Children, useEffect, useRef, type ButtonHTMLAttributes, type CSSProperties, type ReactNode, type RefObject, type SelectHTMLAttributes } from "react";
 import { cn } from "@/shared/lib/cn";
 import { STATUS_BADGES, type StatusBadgeValue } from "@/shared/ui/status-badge";
 import { raiseTopLayerStack } from "@/shared/ui/top-layer";
@@ -111,7 +111,14 @@ function ModalDialog({ onClose, title, className, children, initialFocusRef, dis
 
 export function Modal({ open, onClose, title, description, children, footer, wide = false, initialFocusRef, dismissible = true }: { open: boolean; onClose: () => void; title: string; description?: string; children: ReactNode; footer?: ReactNode; wide?: boolean; initialFocusRef?: RefObject<HTMLElement | null> | undefined; dismissible?: boolean }) {
   if (!open) return null;
-  return <ModalDialog onClose={onClose} title={title} className={cn("modal", wide && "modal-wide")} initialFocusRef={initialFocusRef} dismissible={dismissible}><header><div><h2>{title}</h2>{description && <p>{description}</p>}</div>{dismissible && <button type="button" className="icon-button" aria-label="Close" onClick={onClose}><X size={18} /></button>}</header><div className="modal-body">{children}</div>{footer && <footer>{footer}</footer>}</ModalDialog>;
+  // A caller whose whole body is conditional — the tour's cold open renders a
+  // notice, a recap and a reward line, and the cold open has none of the three
+  // — still handed `.modal-body` its 48px of vertical padding, which drew an
+  // empty band between the description and the footer that looked like content
+  // that had failed to load. `Children.toArray` drops null/undefined/boolean,
+  // so "nothing to show" and "no body at all" become the same thing.
+  const hasBody = Children.toArray(children).length > 0;
+  return <ModalDialog onClose={onClose} title={title} className={cn("modal", wide && "modal-wide")} initialFocusRef={initialFocusRef} dismissible={dismissible}><header><div><h2>{title}</h2>{description && <p>{description}</p>}</div>{dismissible && <button type="button" className="icon-button" aria-label="Close" onClick={onClose}><X size={18} /></button>}</header>{hasBody && <div className="modal-body">{children}</div>}{footer && <footer>{footer}</footer>}</ModalDialog>;
 }
 
 function DrawerDialog({ onClose, title, children }: { onClose: () => void; title: string; children: ReactNode }) {

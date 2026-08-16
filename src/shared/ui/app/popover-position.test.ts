@@ -32,9 +32,12 @@ describe("popover placement", () => {
     expect(style).toEqual({ left: 700 - POPOVER_WIDTH - 10, top: 292 });
   });
 
-  it("reserves the panel's own clearance when opening above an anchor", () => {
+  it("pins the far edge when opening above an anchor, so any height clears it", () => {
+    // Not `top: anchor.top - clearance`: the clearance is an estimate, and a
+    // panel taller than the estimate would be drawn over the control it is
+    // pointing at.
     const style = popoverPosition("top", { top: 640, right: 500, bottom: 680, left: 400 }, viewport);
-    expect(style).toEqual({ left: 400, top: 640 - POPOVER_CLEARANCE - 10 });
+    expect(style).toEqual({ left: 400, bottom: viewport.height - 640 + 10 });
   });
 
   it("clamps a left-placed panel rather than pushing it off the leading edge", () => {
@@ -42,9 +45,11 @@ describe("popover placement", () => {
     expect(style.left).toBe(12);
   });
 
-  it("clamps a top-placed panel to the top margin when the anchor is near the top", () => {
+  it("opens a top-placed panel below its anchor when there is no room above it", () => {
+    // Clamping to the top margin used to leave the panel overlapping the very
+    // control it points at, from the other side.
     const style = popoverPosition("top", { top: 60, right: 500, bottom: 92, left: 400 }, viewport);
-    expect(style.top).toBe(12);
+    expect(style).toEqual({ left: 400, top: 102 });
   });
 });
 
