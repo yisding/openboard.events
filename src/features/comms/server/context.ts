@@ -224,7 +224,17 @@ async function buildReviewVars(row: OutboxRow, dbOrTx: DbOrTx, env: RuntimeEnv) 
   };
 }
 
-export async function buildContext(row: DeliveryOutboxRow, dbOrTx: DbOrTx = db, env: RuntimeEnv = getEnv()): Promise<BuiltContext> {
+/** The stored template this context is being built for, so the mint below can ask whether its body wants a magic link. */
+export type ContextTemplate = { subject: string; bodyHtml: string };
+
+const MAGIC_LINK_TOKEN = /\{\{\s*portal\.magic_link\s*\}\}/u;
+
+export async function buildContext(
+  row: DeliveryOutboxRow,
+  dbOrTx: DbOrTx = db,
+  env: RuntimeEnv = getEnv(),
+  template?: ContextTemplate,
+): Promise<BuiltContext> {
   const [base] = await dbOrTx.select({
     eventName: events.name,
     eventSlug: events.slug,
@@ -498,13 +508,52 @@ export async function buildContext(row: DeliveryOutboxRow, dbOrTx: DbOrTx = db, 
     vars = { ...common, otp: { code: otpCode } } as TemplateVars;
   }
 
-  // A speaker-portal magic link is minted for every template that offers the
-  // `portal.magic_link` token. `portal_login` already carries its own; M42's
-  // admin auth mail and M44's team-invitation mail deliberately have none —
-  // see `isAdminAuthTemplate`/`isOrganizationInviteTemplate`.
-  if (row.templateKey !== "portal_login" && !isAdminAuthTemplate(row.templateKey) && !isOrganizationInviteTemplate(row.templateKey)) {
+  // A speaker-portal magic link is minted only for a template whose *effective*
+  // body or subject actually carries the token. `portal_login` already carries
+  // its own; M42's admin auth mail and M44's team-invitation mail deliberately
+  // have none — see `isAdminAuthTemplate`/`isOrganizationInviteTemplate`.
+  //
+  // Keying on the kind alone minted one on every non-login speaker email,
+  // including `schedule_assigned` and `schedule_changed` — the highest-volume
+  // templates in the product, one per publish, drag, room swap and speaker add,
+  // and neither of which contains the token. Every one issued a
+  // `purpose: "magic_link"`, `ttl: "P30D"` bearer credential that nothing
+  // sweeps: `invalidatePriorPortalTokens` clears only rows carrying an
+  // `otp_hash`, and `logoutPortal` deletes the session row alone. A speaker with
+  // a month of schedule mail held a month of independent, unexpired,
+  // un-revocable portal credentials.
+  //
+  // The effective body is the override when there is one — a bulk message's ad
+  // hoc content can use the token even though the stored `speaker_bulk_message`
+  // template does not. With no template supplied (a caller that has not loaded
+  // one), the old kind-based rule stands, so nothing silently loses a link.
+  // An override may replace only one half, so each half falls back to the stored
+  // template rather than to nothing.
+  const effectiveBody = templateOverride?.bodyHtml ?? template?.bodyHtml;
+  const effectiveSubject = templateOverride?.subject ?? template?.subject;
+  const wantsMagicLink = effectiveBody === undefined && effectiveSubject === undefined
+    ? true
+    : MAGIC_LINK_TOKEN.test(effectiveBody ?? "") || MAGIC_LINK_TOKEN.test(effectiveSubject ?? "");
+  // The key exclusions govern *minting*, not presence: `portal_login` wants the
+  // token and supplies its own link from the sealed payload, so it must keep the
+  // var even though nothing is minted for it here.
+  const mintsOwnLink = row.templateKey === "portal_login"
+    || isAdminAuthTemplate(row.templateKey)
+    || isOrganizationInviteTemplate(row.templateKey);
+  if (wantsMagicLink && !mintsOwnLink) {
     const { raw } = await issuePortalToken(dbOrTx, { contactId, eventId, purpose: "magic_link", ttl: "P30D" });
     common.portal.magic_link = `${env.APP_BASE_URL}/portal/${encodeURIComponent(base.eventSlug)}/verify?token=${encodeURIComponent(raw)}`;
+  } else if (!wantsMagicLink) {
+    // From `vars` as well as `common`: every `vars` above is a shallow spread of
+    // `common`, so the two share the `portal` object but not the key itself, and
+    // dropping it from `common` alone would leave `vars.portal.magic_link` as
+    // the empty placeholder — which `z.url()` rejects with the very
+    // "missing variable portal.magic_link" this is meant to stop raising.
+    //
+    // `renderTemplateContent` still refuses an *unresolved token*, so a body
+    // that does ask for a link fails loudly rather than rendering an empty href.
+    delete (common as { portal?: unknown }).portal;
+    delete (vars as { portal?: unknown }).portal;
   }
 
   return {
