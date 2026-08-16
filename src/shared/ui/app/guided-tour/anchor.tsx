@@ -1,9 +1,22 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { ANCHOR_TIMEOUT_MS } from "./objectives";
 import { prefersReducedMotion } from "./media";
 import type { TourAnchorSpec } from "./types";
+
+/**
+ * Resolving and measuring both run *before paint*.
+ *
+ * As passive effects they ran after it, so every step's first frame was drawn
+ * with no element and no rectangle: the coach painted centred in the middle of
+ * the screen and the spotlight was absent, and both snapped to the anchor on
+ * the following frame. That double-take is the flicker organizers reported,
+ * and it happened on every step whose anchor was already mounted — which is
+ * most of them. `useLayoutEffect` on the server is a no-op that warns, so the
+ * hook degrades to the passive one where there is no window.
+ */
+const useMeasureEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 /**
  * Finding the thing the tour is pointing at, and keeping the measurement true
@@ -115,6 +128,30 @@ export function resolveAnchorElement(spec: TourAnchorSpec, root: ParentNode): HT
   return firstUsable(byText);
 }
 
+/**
+ * Whether the element the resolver already holds is still the right answer.
+ *
+ * The observer watches the whole document for class and attribute churn, so it
+ * fires constantly in a live app — a spinner, a live region, a hover. Every
+ * one of those firings re-ran the full resolution, and a `role` anchor that
+ * falls through to its text rung walks every element on the page to do it.
+ * Three cheap checks answer the overwhelmingly common case ("nothing about my
+ * anchor changed") without touching the rest of the document.
+ *
+ * `hasBox` is part of the answer, not an optimisation: `firstUsable` prefers a
+ * painted candidate, so a held element that has since collapsed has to go back
+ * through the full resolution in case a painted one has appeared.
+ */
+function stillResolves(element: HTMLElement, spec: TourAnchorSpec): boolean {
+  if (!element.isConnected || !hasBox(element)) return false;
+  if (spec.kind === "selector") return element.matches(spec.css);
+  if (spec.kind === "tour-id") return element.getAttribute("data-tour") === spec.id;
+  if (spec.kind === "role") {
+    return element.getAttribute("aria-label") === spec.name || element.textContent?.trim() === spec.name;
+  }
+  return false;
+}
+
 function toRect(box: DOMRect): TourRect {
   return { top: box.top, left: box.left, right: box.right, bottom: box.bottom, width: box.width, height: box.height };
 }
@@ -157,7 +194,7 @@ export function useTourAnchor(spec: TourAnchorSpec | undefined, active: boolean)
   /** Set by the resolving effect; called by the measurer when its element goes. */
   const reresolveRef = useRef<() => void>(() => undefined);
 
-  useEffect(() => {
+  useMeasureEffect(() => {
     if (!active || !spec || spec.kind === "none" || typeof document === "undefined") {
       setElement(null);
       setRect(null);
@@ -190,6 +227,8 @@ export function useTourAnchor(spec: TourAnchorSpec | undefined, active: boolean)
       }, ANCHOR_TIMEOUT_MS);
     };
     const attempt = () => {
+      const held = foundRef.current;
+      if (held !== null && stillResolves(held, spec)) return;
       const next = resolveAnchorElement(spec, document);
       if (next === null) {
         // The target was here and went away — a tab switched, a drawer closed.
@@ -233,7 +272,7 @@ export function useTourAnchor(spec: TourAnchorSpec | undefined, active: boolean)
     };
   }, [spec, active]);
 
-  useEffect(() => {
+  useMeasureEffect(() => {
     if (!element) {
       setRect(null);
       return;

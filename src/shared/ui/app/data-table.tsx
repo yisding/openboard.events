@@ -688,7 +688,13 @@ export function DataTable<Row>({
                     : {})}
                 >
                   {enableSelection && (
-                    <td onClick={(event) => event.stopPropagation()}>
+                    // `select-cell` names the body checkbox column so something
+                    // outside the table can address it — the guided tour points
+                    // at it when a step asks the organizer to tick rows, and
+                    // pointing at the row's title cell instead spotlit the
+                    // wrong half of the row. Body cells only: the header's
+                    // select-all is a different instruction.
+                    <td className="select-cell" onClick={(event) => event.stopPropagation()}>
                       {/* `.checkbox-hit` carries the 44x44 touch target the bare
                           native checkbox cannot (T7); the name comes from
                           `getRowLabel` so each row reads distinctly. */}

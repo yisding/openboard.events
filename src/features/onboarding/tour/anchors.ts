@@ -17,7 +17,7 @@ import type { TourAnchorSpec } from "@/shared/ui/app/guided-tour";
  *   3. **`data-tour`** — only for a control that is lazily mounted behind a
  *      boundary, or whose text is duplicated elsewhere on the same screen.
  *
- * Eight entries, each with a reason it could not be one of the first two.
+ * Nine entries, each with a reason it could not be one of the first two.
  * `anchor-registry.test.ts` parses all of `src/` and fails `pnpm check` — by
  * name, saying which step will break — if a script anchor stops resolving, if
  * an attribute is left behind with nothing pointing at it, or if a second
@@ -30,6 +30,13 @@ export const TOUR_ANCHOR_IDS = [
   "abstracts.row",
   /** The decision bar's send control: three sibling buttons, all `Button`, in the same bar. */
   "abstracts.decision-notify",
+  /**
+   * "Move to accept queue": the step before it watches for this button with a
+   * `via: "dom"` objective, and that objective can only read `data-tour`. The
+   * bar it sits in is rendered only while rows are ticked, which is exactly
+   * the thing being waited for.
+   */
+  "abstracts.move-accept",
   /** The Conflicts tab: one of six `role="tab"` buttons whose only distinguishing text is a word plus a count. */
   "agenda.conflicts-tab",
   /**

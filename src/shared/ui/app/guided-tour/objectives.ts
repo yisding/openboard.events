@@ -106,10 +106,23 @@ export const POLL_HARD_STOP_MS = 600_000;
 export const HINT_REVEAL_MS = 25_000;
 /** How long an `observe` anchor must be on screen to count as looked at. */
 export const OBSERVE_DWELL_MS = 1_200;
-/** Long enough to read the reward line, short enough not to be a wait. */
-export const CELEBRATION_MS = 900;
 /** After this, an anchor that never mounted is treated as absent. */
 export const ANCHOR_TIMEOUT_MS = 6_000;
+/**
+ * How long a step will hold its card back for an anchor that has not mounted
+ * yet.
+ *
+ * The card is drawn beside its anchor, so drawing it before the anchor
+ * resolves means drawing it in the middle of the screen and then moving it —
+ * the double-take that reads as flicker. An anchor already on the page
+ * resolves before the first paint and this never runs; one that arrives with a
+ * navigation, a drawer or a query boundary is worth a quarter of a second of
+ * patience. Past that the card appears centred with its notice, because a
+ * tutorial that shows nothing is worse than one that shows something in the
+ * wrong place. Well short of `ANCHOR_TIMEOUT_MS`, which is the much longer
+ * wait before an anchor is declared missing outright.
+ */
+export const ANCHOR_SETTLE_MS = 250;
 
 /**
  * 2 s while anything is happening; once a step has been open for half a

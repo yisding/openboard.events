@@ -18,11 +18,17 @@ import type { TourStep } from "./types";
  *
  * Three kinds of step, three shapes:
  *   - `beat` narrates and offers Continue.
- *   - `observe` waits until the anchor has been on screen long enough, then
- *     says "Got it" rather than "Next".
- *   - `act` has **no advance button at all** — a pulsing dot and an objective.
- *     It is the default, and the ratio of `act` to everything else is what
- *     makes this a tutorial rather than a slideshow.
+ *   - `observe` says "Got it", with "Take a look…" alongside it until the
+ *     anchor has been on screen long enough to count as looked at.
+ *   - `act` offers no way forward until its objective is met — a pulsing dot
+ *     and an objective. It is the default, and the ratio of `act` to
+ *     everything else is what makes this a tutorial rather than a slideshow.
+ *
+ * **The player advances; the tour never does it for them.** Every step ends on
+ * a press. An `act` step whose objective has just been satisfied says so, shows
+ * what it earned, and then waits — because the alternative, which is what this
+ * shipped as, is a card that congratulates you and replaces itself with the
+ * next one before you have finished reading either.
  */
 
 export type TourCoachMode = "waiting" | "ready" | "celebrating" | "stalled";
@@ -34,6 +40,13 @@ export type TourCoachProps = {
   position: CSSProperties | null;
   /** `document.body`, or the open `<dialog>` the anchor lives inside. */
   container: HTMLElement | null;
+  /**
+   * The anchor has not resolved yet and the engine is still waiting for it.
+   * The card renders — it keeps its place in the tree, its focus and its
+   * entrance — but stays invisible rather than being drawn centred and then
+   * moved to the control a frame later.
+   */
+  settling?: boolean;
   mode: TourCoachMode;
   /** An honest line about something the engine had to do: a dropped chapter, a missing anchor. */
   notice: string | null;
@@ -62,6 +75,10 @@ export type TourCoachProps = {
 };
 
 function continueLabel(step: TourStep, mode: TourCoachMode): string {
+  // A finished objective is the one place the label is not the author's to
+  // choose: "Next" is a promise about what the button does, and a `beat`'s
+  // "Let's go" on a card that has just said "done" is a different promise.
+  if (mode === "celebrating") return "Next";
   if (mode === "stalled") return "Continue";
   if (step.continueLabel) return step.continueLabel;
   return step.kind === "observe" ? "Got it" : "Continue";
@@ -76,7 +93,13 @@ function statusLine(step: TourStep, mode: TourCoachMode): string | null {
 
 function TourCoachBody({ step, progress, mode, notice, hintVisible, sideQuests, questsDone, titleId, bodyId, ...handlers }: TourCoachProps & { titleId: string; bodyId: string }) {
   const status = statusLine(step, mode);
-  const showAdvance = mode === "ready" || mode === "stalled";
+  // The only state with nothing to press is an `act` step still waiting on its
+  // objective — the one case where pressing on would be a lie. Everything
+  // else, the just-finished objective included, is the player's to leave when
+  // they have read it. `observe` keeps its button through the dwell for the
+  // same reason: an anchor that never quite crosses the intersection threshold
+  // used to leave "Take a look…" on screen with no way past it but Skip.
+  const showAdvance = step.kind !== "act" || mode !== "waiting";
   const questsComplete = sideQuests.length > 0 && sideQuests.every((quest) => questsDone.includes(quest.id));
   return <>
     <header className="tour-coach-head">
@@ -150,7 +173,7 @@ export function TourCoach(props: TourCoachProps) {
   const generatedId = useId();
   const titleId = `tour-title-${generatedId}`;
   const bodyId = `tour-body-${generatedId}`;
-  const { step, position, container, mobile, mode } = props;
+  const { step, position, container, mobile, mode, settling } = props;
 
   if (step.presentation === "modal" || step.presentation === "modal-wide") {
     // The cold open and the curtain call are the two beats that deserve to own
@@ -195,7 +218,7 @@ export function TourCoach(props: TourCoachProps) {
   if (!container) return null;
   const card: ReactNode = (
     <div
-      className={cn("tour-coach", mobile && "tour-coach-sheet", !position && !mobile && "tour-coach-centred", mode === "celebrating" && "tour-coach-won")}
+      className={cn("tour-coach", mobile && "tour-coach-sheet", !position && !mobile && "tour-coach-centred", settling && "tour-coach-settling", mode === "celebrating" && "tour-coach-won")}
       role="dialog"
       aria-labelledby={titleId}
       aria-describedby={bodyId}

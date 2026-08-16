@@ -347,7 +347,12 @@ export function DecisionBar({
             {selectAllMatching.busy ? `Selecting all ${selectAllMatching.count}…` : `Select all ${selectAllMatching.count} matching submissions`}
           </Button>
         )}
-        <Button variant="secondary" disabled={busy} onClick={() => move("accept_queue")}>Move to accept queue</Button>
+        {/* `data-tour`: the tour both points at this button and watches for it
+            — the bar it lives in only exists while rows are ticked, which is
+            what the step before this one is asking the organizer to do. An
+            accessible name would answer the anchor but not the `via: "dom"`
+            objective, which only ever looks at `data-tour`. */}
+        <Button data-tour="abstracts.move-accept" variant="secondary" disabled={busy} onClick={() => move("accept_queue")}>Move to accept queue</Button>
         <Button variant="secondary" disabled={busy} onClick={() => move("decline_queue")}>Move to decline queue</Button>
       </>}
       {...(pendingNotify > 0 ? { emptyNote: <span>{pendingNotify} decision email{pendingNotify === 1 ? " is" : "s are"} ready to send</span> } : {})}

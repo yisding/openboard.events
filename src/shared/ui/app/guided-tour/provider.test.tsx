@@ -256,7 +256,7 @@ describe("mounting", () => {
 });
 
 describe("objective verification", () => {
-  it("advances on the world reaching the objective, and records the step exactly once", async () => {
+  it("settles on the world reaching the objective and waits to be told to move on", async () => {
     document.body.insertAdjacentHTML("beforeend", '<nav class="dashboard-tabs">Today</nav>');
     const server = makeServer({ chapter: "grid", stepId: "grid.resolve" });
     await render(makeBootstrap(server));
@@ -273,7 +273,18 @@ describe("objective verification", () => {
     expect(coach()?.textContent).toContain("Two rooms, one time, zero apologies to write.");
     expect(harness.rain).toHaveBeenCalledWith(["🗓"], 6);
 
-    // Keep polling the same satisfying snapshot: the step must not re-record.
+    // And then it stops. The reward is paid, the card says so, and the step is
+    // still the player's until they press Next — nothing here advances on a
+    // timer over the top of somebody reading what they just did.
+    await tick(10_000);
+    expect(server.state.stepId).toBe("grid.resolve");
+    expect(server.records.filter((entry) => entry.stepId === "grid.resolve")).toHaveLength(0);
+    expect(coach()?.textContent).toContain("Two rooms, one time, zero apologies to write.");
+
+    await act(async () => control("Next").click());
+    await tick();
+    // Recorded exactly once on the way out, and never again however long the
+    // satisfying snapshot keeps arriving.
     await tick(10_000);
     expect(server.records.filter((entry) => entry.stepId === "grid.resolve")).toHaveLength(1);
     expect(server.state.stepId).toBe("live.publish");
@@ -552,7 +563,7 @@ describe("anchoring", () => {
     }));
     await tick(6_500);
     expect(coach()?.textContent).not.toContain("Take me there");
-    expect(coach()?.textContent).toContain("Nothing to point at yet");
+    expect(coach()?.textContent).toContain("No spotlight yet");
   });
 
   it("offers a step with no route of its own the way back to the page its chapter opened", async () => {
@@ -576,7 +587,7 @@ describe("anchoring", () => {
     }));
     await tick(6_500);
 
-    expect(coach()?.textContent).toContain("That control isn't on this screen right now");
+    expect(coach()?.textContent).toContain("The control for this step is on another screen");
     await act(async () => control("Take me there").click());
     expect(harness.push).toHaveBeenCalledWith("/events/evt-1/abstracts");
   });
@@ -596,7 +607,37 @@ describe("anchoring", () => {
     await tick(6_500);
 
     expect(coach()?.textContent).not.toContain("Take me there");
-    expect(coach()?.textContent).toContain("Nothing to point at yet");
+    expect(coach()?.textContent).toContain("No spotlight yet");
+  });
+
+  it("holds the card back rather than drawing it centred and then moving it", async () => {
+    // The flicker organizers reported, and the reason it happened on nearly
+    // every step: the card is positioned from the anchor's rectangle, so a
+    // card drawn before the anchor resolves is drawn in the middle of the
+    // screen and jumps to the control on the next frame — with the spotlight
+    // blinking on a frame behind it. It is held invisible instead, for a
+    // quarter of a second, and then shown wherever it has ended up.
+    harness.pathname = "/events/evt-1/agenda";
+    const server = makeServer();
+    await render(makeBootstrap(server, {
+      steps: [{ ...STEPS[0], anchor: MISSING_ANCHOR, route: { path: "/events/:eventId/agenda" } } as TourStep, ...STEPS.slice(1)],
+    }));
+    await tick();
+    expect(coach()?.className).toContain("tour-coach-settling");
+
+    // Past the grace period the card appears anyway: a tutorial that shows
+    // nothing is worse than one that shows something in the middle.
+    await tick(400);
+    expect(coach()?.className).not.toContain("tour-coach-settling");
+    expect(coach()?.className).toContain("tour-coach-centred");
+  });
+
+  it("draws an anchor it can already see without a settling frame", async () => {
+    document.body.insertAdjacentHTML("beforeend", '<nav class="dashboard-tabs">Today</nav>');
+    const server = makeServer();
+    await render(makeBootstrap(server));
+    await tick();
+    expect(coach()?.className).not.toContain("tour-coach-settling");
   });
 
   it("portals into an open dialog and suppresses its own scrim there", async () => {

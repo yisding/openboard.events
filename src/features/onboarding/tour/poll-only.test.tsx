@@ -318,8 +318,17 @@ describe("the golden path completes on polling alone", () => {
         const button = advanceControlFor(step);
         expect(button, `${step.id} offered no way forward`).not.toBeNull();
         if (button) await click(button);
+        await tick();
       }
-      // Reward lines hold the card for a beat before the tour moves on.
+      // Nothing advances on its own any more. An `act` step whose objective has
+      // just been met says so and then waits: the player reads what they did
+      // and presses Next, which is the whole difference between a tutorial and
+      // a card that congratulates you and vanishes mid-sentence.
+      if (objective) {
+        const next = control("Next");
+        expect(next, `${step.id} met its objective and offered no Next`).not.toBeNull();
+        if (next) await click(next);
+      }
       await tick(2_000);
     }
 
