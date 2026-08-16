@@ -2,6 +2,25 @@ import { z } from "zod";
 import { confirmationStatusSchema } from "./enums";
 import { contactIdSchema, fileIdSchema } from "./ids";
 
+/**
+ * `contacts.first_name`/`last_name` default to `''`, so a nameless contact is
+ * the ordinary state for anyone created from a submission or an invitation.
+ * Every public surface that renders a speaker — the gallery, the schedule, the
+ * `/speaking/<token>` share card, the dashboard rosters and the public JSON API
+ * — has to say the same thing about that contact, so every surface that derives
+ * the name in TypeScript shares this one constant rather than re-deriving (or
+ * silently skipping) it. A handful of reads coalesce to the literal string
+ * inside SQL instead (the v1 schedule read, the dashboard rosters); those can't
+ * import a TS constant, so they repeat `'Unnamed speaker'` verbatim and must be
+ * kept in step with this value by hand.
+ */
+export const UNNAMED_SPEAKER = "Unnamed speaker";
+
+export function speakerDisplayName(firstName: string | null | undefined, lastName: string | null | undefined): string {
+  const name = `${firstName ?? ""} ${lastName ?? ""}`.trim();
+  return name.length > 0 ? name : UNNAMED_SPEAKER;
+}
+
 export const contactDtoSchema = z.object({
   id: contactIdSchema,
   email: z.email(),

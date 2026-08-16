@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/db/client";
+import { speakerDisplayName } from "@/shared/contracts";
 import { apiV1ErrorResponse, checkV1RateLimit, corsPreflight, data, notFoundResponse, resolvePublicEvent } from "../../../_lib";
 
 export const dynamic = "force-dynamic";
@@ -61,7 +62,17 @@ async function handleGet(request: Request, params: Promise<{ slug: string }>) {
     trackColor: row.track_color,
     room: row.room_name,
     format: row.format_name,
-    speakers: row.speakers ?? [],
+    // Same `name` the gallery and `/speakers` answer: a contact created from a
+    // submission or an invitation has `''` for both name columns, and a
+    // consumer joining the two raw fields would print an empty byline.
+    speakers: (row.speakers ?? []).map((speaker) => ({
+      id: speaker.id,
+      name: speakerDisplayName(speaker.firstName, speaker.lastName),
+      firstName: speaker.firstName,
+      lastName: speaker.lastName,
+      company: speaker.company,
+      title: speaker.title,
+    })),
   }));
   return data(sessions, { count: sessions.length, event: { slug: event.slug, name: event.name, timezone: event.timezone } });
 }
