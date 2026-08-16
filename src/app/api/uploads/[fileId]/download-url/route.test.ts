@@ -1,15 +1,20 @@
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventId, FileId } from "@/shared/contracts";
+import { AppError } from "@/shared/lib/errors";
 import { GET } from "./route";
 
-// The route resolves the acting uploader through `@/features/auth`; a signed-out
-// caller is every guard returning null, which is what makes `requireUploader`
-// answer UNAUTHORIZED regardless of the event a real file names.
+// The route resolves the acting uploader through `@/features/auth`. A signed-out
+// caller has no admin session, and the portal guard does not answer null — it
+// throws its own "Portal sign-in required" (see requirePortalByEventId), the
+// exact wording a real file surfaces and a fake id never reaches. Reproducing
+// that throw here is what makes the message-oracle regression visible.
 vi.mock("@/features/auth", () => ({
   getAdminSession: vi.fn(async () => null),
   adminAuth: () => async () => null,
-  portalAuth: () => async () => null,
+  portalAuth: () => async () => {
+    throw new AppError("UNAUTHORIZED", "Portal sign-in required");
+  },
 }));
 
 const describeFile = vi.fn();
