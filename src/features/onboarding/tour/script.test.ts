@@ -3,6 +3,7 @@ import { TEMPLATE_KEYS } from "@/shared/contracts";
 import { arcSteps, type TourRoute, type TourStep } from "@/shared/ui/app/guided-tour";
 import {
   OVERDUE_HOLDOUT_SPEAKER_KEY,
+  RESOURCE_PAGES,
   ROOMS,
   SESSIONS,
   SET_PIECE_TARGET_SLOT,
@@ -229,6 +230,20 @@ describe("guided tour script", () => {
     expect(triage).toContain("Four proposals still waiting on you");
     expect(triage).toContain("Twenty-four arrived");
     expect(triage).not.toContain("Two dozen");
+  });
+
+  it("names the resource page the world actually leaves in draft", () => {
+    // The quest asks for a publish, so it has to name a page that is not
+    // published. It shipped naming the speaker handbook, which provisioning
+    // publishes — the row it pointed at wore a Published badge, and the hint
+    // underneath it described a different row.
+    const drafts = RESOURCE_PAGES.filter((page) => !page.published);
+    expect(drafts, "the quest names one page, so the dataset must leave exactly one").toHaveLength(1);
+    const quest = tourStepById("quest.speaker-resources") as TourStep;
+    expect(quest.title.toLowerCase()).toContain(drafts[0]?.title.toLowerCase());
+    for (const published of RESOURCE_PAGES.filter((page) => page.published)) {
+      expect(quest.title.toLowerCase(), published.key).not.toContain(published.title.toLowerCase());
+    }
   });
 
   it("counts the templates an event actually owns", () => {

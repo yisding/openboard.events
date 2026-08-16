@@ -753,7 +753,13 @@ const SIDE_QUESTS: readonly TourStep[] = [
     chapter: "field-trip",
     kind: "act",
     optional: true,
-    title: "Publish the speaker handbook.",
+    // The handbook is not the draft — provisioning publishes it, along with
+    // travel & reimbursement, and leaves *Recording release* in draft. A quest
+    // titled "publish the speaker handbook" therefore named the one row on the
+    // page that already carried a Published badge, while its own hint sent the
+    // player to a different one. `script.test.ts` holds the title to whichever
+    // page the dataset leaves unpublished.
+    title: "Publish the recording release.",
     body: "Three resource pages exist and one of them is still a draft. Speakers see published pages in their portal and nothing else.",
     route: at("/resources"),
     objective: world("resourcePagesPublished", "increased"),
