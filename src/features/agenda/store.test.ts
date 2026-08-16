@@ -77,6 +77,21 @@ describe("defaultScheduledRange", () => {
     });
   });
 
+  it("keeps every calendar day when the clock springs forward mid-event", () => {
+    // Stepping the cursor by 24 hours of absolute milliseconds moves the local
+    // time-of-day forward an hour across a spring-forward, so a cursor starting
+    // late in the evening rolls past midnight twice and the loop skipped a whole
+    // day. This is what builds the Day view's tab list — a session scheduled on
+    // 2026-03-08 had no tab to appear on at all — and `dayWindowsIn` mirrors it,
+    // so the planner reported every session it wanted to place there as having
+    // no legal slot.
+    expect(eventDayKeys("2026-03-08T04:30:00.000Z", "2026-03-09T16:00:00.000Z", "America/New_York")).toEqual([
+      "2026-03-07",
+      "2026-03-08",
+      "2026-03-09",
+    ]);
+  });
+
   it("does not expose a zero-length day when the event ends at local midnight", () => {
     const midnightEvent = {
       timezone: "America/Los_Angeles",

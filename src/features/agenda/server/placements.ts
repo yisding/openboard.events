@@ -15,7 +15,7 @@ import {
   type UnplacedSuggestionDTO,
 } from "@/shared/contracts";
 import { AppError, isAppError } from "@/shared/lib/errors";
-import { endOfDayInTz, eventDayKey, zonedInputToUtc } from "@/shared/lib/time";
+import { endOfDayInTz, eventDayKey, shiftDayKey, startOfDayInTz } from "@/shared/lib/time";
 import type { ScheduledSession } from "../conflicts";
 import { isCandidateLegal, suggestPlacements, type PlannerDayWindow, type PlannerRoom, type PlannerSession } from "../lib/suggest-placements";
 import { getSchedulableSessionsIn, listAgendaVocabularyIn } from "./queries";
@@ -54,21 +54,24 @@ async function eventBoundsIn(dbOrTx: DbOrTx, eventId: EventId): Promise<{ timezo
  */
 async function dayWindowsIn(dbOrTx: DbOrTx, eventId: EventId): Promise<PlannerDayWindow[]> {
   const { timezone, startsAtMs, endsAtMs } = await eventBoundsIn(dbOrTx, eventId);
-  // Mirrors `eventDayKeys` (store.ts): step by whole days from the start
-  // instant, in the event's own zone, so a DST transition can neither drop
-  // nor duplicate a day.
+  // Mirrors `eventDayKeys` (store.ts): step by *calendar day key*, not by 24
+  // hours of absolute milliseconds. Adding 24h moves the local time-of-day by an
+  // hour across a spring-forward, so a cursor starting late in the evening rolls
+  // past midnight twice and the loop skips a whole calendar day — for an event
+  // running 2026-03-07 23:30 to 2026-03-09 12:00 in America/New_York it produced
+  // ['2026-03-07','2026-03-09']. The old comment claimed a transition "can
+  // neither drop nor duplicate a day", and the `includes` dedupe covered only
+  // the duplicate direction.
   const days: string[] = [];
   const lastKey = eventDayKey(endsAtMs, timezone);
-  let cursor = startsAtMs;
-  const limit = endsAtMs + 2 * 24 * 60 * 60 * 1000;
-  for (let guard = 0; guard < 64 && cursor <= limit; guard += 1) {
-    const key = eventDayKey(cursor, timezone);
-    if (!days.includes(key)) days.push(key);
+  let key = eventDayKey(startsAtMs, timezone);
+  for (let guard = 0; guard < 64; guard += 1) {
+    days.push(key);
     if (key === lastKey) break;
-    cursor += 24 * 60 * 60 * 1000;
+    key = shiftDayKey(key, 1);
   }
   return days.map((dayKey) => {
-    const dayStartMs = zonedInputToUtc(`${dayKey}T00:00:00`, timezone).getTime();
+    const dayStartMs = startOfDayInTz(dayKey, timezone).getTime();
     // `endOfDayInTz` returns the day's last inclusive millisecond
     // (23:59:59.999 local); the planner wants a half-open upper bound, one
     // millisecond past it.

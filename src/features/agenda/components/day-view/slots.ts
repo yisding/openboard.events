@@ -1,5 +1,5 @@
 import type { ScheduledSessionDTO } from "@/shared/contracts";
-import { eventDayKey, hourMinuteInZone } from "@/shared/lib/time";
+import { eventDayKey, hourMinuteInZone, shiftDayKey } from "@/shared/lib/time";
 
 /**
  * Pure grid layout math for the Day view. No React, no server calls — every
@@ -172,13 +172,6 @@ export function gridRowCount(range: GridRange): number {
 /** `yyyy-MM-dd` shifted by whole calendar days. Pure date arithmetic on the day
  * key — no zone involved, because the key *is* the wall date and
  * `zonedInputToUtc` does the conversion afterwards. */
-function shiftDayKey(day: string, offsetDays: number): string {
-  if (offsetDays === 0) return day;
-  const anchor = new Date(`${day}T00:00:00.000Z`);
-  anchor.setUTCDate(anchor.getUTCDate() + offsetDays);
-  return anchor.toISOString().slice(0, 10);
-}
-
 /**
  * `${day}Thh:mm:00` — the local-wall-time string `zonedInputToUtc` expects,
  * from a day key plus minutes-since-midnight in the event's zone.
