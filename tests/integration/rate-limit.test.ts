@@ -156,6 +156,17 @@ describe("claimWebhookDelivery (issue #631)", () => {
     }
   });
 
+  // A swallowed storage failure would be the worst possible outcome here: every
+  // delivery would read as a replay, and the endpoint would go on answering 200
+  // while silently recording no suppressions at all. Unlike the abuse counters,
+  // this one must fail loudly.
+  it("propagates a storage failure instead of reporting it as a duplicate", async () => {
+    const broken = {
+      insert: () => { throw new Error('relation "rate_limit_buckets" does not exist'); },
+    } as unknown as TxDb;
+    await expect(claimWebhookDelivery(broken, "resend", "msg_storage_down")).rejects.toThrow(/rate_limit_buckets/);
+  });
+
   it("hashes the delivery id rather than storing it in the clear", async () => {
     await claimWebhookDelivery(tx, "resend", "msg_secret_delivery");
     const rows = await pglite.query<{ key_hash: string }>("SELECT key_hash FROM rate_limit_buckets");

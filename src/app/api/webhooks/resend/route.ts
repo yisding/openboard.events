@@ -47,7 +47,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     // time — because a 4xx here would put Svix into its retry ladder for a
     // message this endpoint has already handled.
     if (!await claimWebhookDelivery(db, "resend", id)) {
-      log({ level: "info", msg: "webhook.resend.duplicate", requestId, feature: "comms", route: "/api/webhooks/resend" });
+      log({ level: "info", msg: "webhook.resend.duplicate", requestId, feature: "comms", route: "/api/webhooks/resend", deliveryId: id });
       return NextResponse.json({ data: { ok: true, duplicate: true } });
     }
 
