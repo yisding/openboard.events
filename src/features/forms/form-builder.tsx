@@ -54,6 +54,7 @@ import { formAvailability, formAvailabilityActionCopy, formAvailabilityActionLab
 // module's — this file only mounts them at the right point in the wizard.
 import { BuilderPreview as LiveBuilderPreview } from "./components/builder/builder-preview";
 import { RoutingRulesPanel } from "./components/builder/routing-rules-panel";
+import { ruleSummary } from "./components/builder/rule-summary";
 import { VisibilityRuleEditor } from "./components/builder/visibility-rule-editor";
 // M14: the Settings/Notifications steps are owned by that module — see
 // components/builder/settings-step.tsx and notifications-step.tsx for the
@@ -961,7 +962,20 @@ function FieldInspector({ field, form, onChange, onSave, onDelete, busy }: { fie
         and is rejected server-side once the form has non-draft submissions —
         matching the locked hint already used above for Options. */}
     {!field.locked && (lockedStructure
-      ? <div className="condition-card"><div><b>Conditional visibility</b><small>Visibility is locked after the first submission.</small></div></div>
+      // Locked, but still *stated*. The editor is what a submission locks, not
+      // the fact: a question the list badges "Conditional" is governed by a
+      // rule, and hiding that rule left the organizer looking at a badge with
+      // no way to find out what it meant. The same `ruleSummary` sentence the
+      // editable card ends with, rendered read-only — which is also what the
+      // guided tour's "its rule is in the inspector" step points at, on the one
+      // form that is guaranteed to carry submissions.
+      ? <div className="condition-card visibility-rule-editor">
+        <div>
+          <b>Conditional visibility{field.visibility ? ` for “${field.label}”` : ""}</b>
+          <small>Visibility is locked after the first submission.</small>
+        </div>
+        {field.visibility && <p className="rule-summary-line">{ruleSummary(field.visibility, earlier, { tracks: [], tags: [] })}</p>}
+      </div>
       : <VisibilityRuleEditor field={field} earlierFields={earlier} value={field.visibility} onChange={(visibility) => onChange({ visibility })} />)}
     <Button disabled={busy} onClick={onSave}><Save size={15} /> Save question</Button>
     {!field.locked && <Button variant="ghost" disabled={busy || lockedStructure} className="delete-field" onClick={onDelete}><Trash2 size={15} /> Delete question</Button>}

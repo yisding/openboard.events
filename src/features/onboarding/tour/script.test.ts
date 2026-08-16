@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { TEMPLATE_KEYS } from "@/shared/contracts";
 import { arcSteps, type TourRoute, type TourStep } from "@/shared/ui/app/guided-tour";
 import {
   OVERDUE_HOLDOUT_SPEAKER_KEY,
@@ -7,6 +8,7 @@ import {
   SET_PIECE_TARGET_SLOT,
   SET_PIECE_TRAY_SESSION_KEY,
   SPEAKERS,
+  SUBMISSIONS,
 } from "../server/demo/dataset";
 import { DEMO_PROVISION_PHASES, type DemoProvisionPhase } from "../tour-schemas";
 import { anchorIsDialogBound } from "./anchors";
@@ -202,6 +204,43 @@ describe("guided tour script", () => {
       if (other.key === OVERDUE_HOLDOUT_SPEAKER_KEY) continue;
       expect(copy, other.key).not.toContain(`${other.firstName} ${other.lastName}`);
     }
+  });
+
+  it("counts the pile and the queue the way the provisioned world does", () => {
+    // The cold open is the tutorial's first verifiable claim and the dashboard
+    // is directly behind it, so a wrong number there spends the whole argument
+    // in one screen. It shipped saying "24 proposals waiting on a decision"
+    // against a world built with four pending — a figure the attention row,
+    // the Pending tile and the Submissions badge all print the moment the
+    // modal closes. Triage repeated the mistake from the other side, calling a
+    // four-row needs-decision view "two dozen proposals".
+    // Both cards spell the queue out in words, so the count is pinned here
+    // rather than interpolated: a dataset that stops building four pending
+    // proposals fails on this line, next to the two strings to change.
+    const pending = SUBMISSIONS.filter((submission) => submission.status === "pending").length;
+    expect(pending, "the cold open and triage both say 'four'").toBe(4);
+
+    const coldOpen = copyOf(tourStepById("coldopen.hello") as TourStep).join(" ");
+    expect(coldOpen).toContain(`${SUBMISSIONS.length} proposals`);
+    expect(coldOpen).toContain("four of them still waiting on you");
+    expect(coldOpen).toContain(`${SPEAKERS.length} speakers`);
+
+    const triage = copyOf(tourStepById("triage.rows") as TourStep).join(" ");
+    expect(triage).toContain("Four proposals still waiting on you");
+    expect(triage).toContain("Twenty-four arrived");
+    expect(triage).not.toContain("Two dozen");
+  });
+
+  it("counts the templates an event actually owns", () => {
+    // `TEMPLATE_KEYS` has fourteen entries and the Templates tab renders
+    // eleven: password reset, address verification and the organization
+    // invitation are account mail, sent by no event and editable on no event's
+    // tab. The card said fourteen and the player could count.
+    const eventTemplates = TEMPLATE_KEYS.filter((key) => !key.startsWith("admin_") && key !== "organization_invited");
+    const copy = copyOf(tourStepById("mission.templates") as TourStep).join(" ");
+    expect(eventTemplates).toHaveLength(11);
+    expect(copy).toContain("Eleven templates");
+    expect(copy).not.toContain("Fourteen");
   });
 
   it("names a talk the tray is actually holding, and a slot that is actually taken", () => {

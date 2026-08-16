@@ -194,7 +194,12 @@ const COLD_OPEN: readonly TourStep[] = [
     kind: "beat",
     presentation: "modal",
     title: "AI Engineer World's Fair is 65 days out.",
-    body: "18 speakers. 24 proposals waiting on a decision. Two scheduling conflicts nobody has noticed yet. None of it is real, all of it works, and nothing in here can email a living person.",
+    // "24 proposals waiting on a decision" was false on the screen behind this
+    // very modal: the demo is built with four pending, and the dashboard's own
+    // attention row — visible the moment this card is dismissed — says so.
+    // Twenty-four is the size of the pile that arrived, not the size of the
+    // queue, and `script.test.ts` now holds both numbers against the dataset.
+    body: "18 speakers. 24 proposals, four of them still waiting on you. Two scheduling conflicts nobody has noticed yet. None of it is real, all of it works, and nothing in here can email a living person.",
     route: at("/dashboard"),
     continueLabel: "Let's go",
     declineLabel: "I'll poke around myself",
@@ -303,8 +308,12 @@ const TRIAGE: readonly TourStep[] = [
     id: "triage.rows",
     chapter: "triage",
     kind: "observe",
-    title: "Two dozen proposals, one queue.",
-    body: "Open any row on the way past. The drawer pins every answer to the form version that speaker actually filled in, not to today's.",
+    // Not "two dozen proposals, one queue": this step opens the
+    // *needs-decision* view, and that view holds four rows. The tab strip the
+    // next step is about prints both numbers side by side, so a card claiming
+    // twenty-four here was contradicted by the control it was standing on.
+    title: "Four proposals still waiting on you.",
+    body: "Twenty-four arrived and the rest are settled. Open any row on the way past: the drawer pins every answer to the form version that speaker actually filled in, not to today's.",
     route: at("/abstracts", { view: "needs_decision" }),
     anchor: tourIdAnchor("abstracts.row"),
     placement: "bottom",
@@ -350,6 +359,11 @@ const JUDGEMENT: readonly TourStep[] = [
     body: "Round 1 is open and yours. Round 2 anonymises the proposal and the reviewer, so nobody scores a name they recognise.",
     route: at("/evaluation"),
     anchor: css(".plan-window"),
+    // Right, not the default bottom. `.plan-window` resolves to the first
+    // round's cell, and a card dropped underneath it covers the second round's
+    // row — including the *Blind review* badge that is the entire evidence for
+    // the sentence above. Beside the table, both rows stay readable.
+    placement: "right",
   },
   {
     id: "judge.score",
@@ -626,7 +640,12 @@ const MISSION_CONTROL: readonly TourStep[] = [
     chapter: "mission-control",
     kind: "act",
     title: "Open the Templates tab.",
-    body: "Fourteen messages ship with every event, and the ladder on this tab is why Victor was nudged about that overdue travel form.",
+    // Eleven, not fourteen. Fourteen is the size of `TEMPLATE_KEYS`, three of
+    // which are account mail — password reset, address verification, the
+    // organization invitation — and none of those belong to an event or appear
+    // on this tab. A player who counts finds eleven. The reminder ladder moved
+    // to the step that actually opens it.
+    body: "Eleven templates ship with every event, and every word a speaker ever reads from you comes out of one of them.",
     route: at("/communications", { tab: "reminders" }),
     anchor: css("#communications-tab-templates"),
     placement: "bottom",
@@ -646,7 +665,10 @@ const MISSION_CONTROL: readonly TourStep[] = [
     chapter: "mission-control",
     kind: "act",
     title: "Open Reminders.",
-    body: "Four ladders, all enabled, all firing on this demo for real. Every message they produce lands in the log as skipped.",
+    // One ladder with four rungs, which is what the tab draws: a heading, then
+    // 7 days before, 1 day before, 1 day after, 7 days after. "Four ladders"
+    // had the player looking for three more.
+    body: "One ladder, four rungs, and it is why Victor was nudged about that overdue travel form. It runs on this demo for real, and every message it writes lands in the log as skipped.",
     anchor: css("#communications-tab-reminders"),
     placement: "bottom",
     objective: goneTo("/communications", { tab: "reminders" }),
@@ -683,8 +705,10 @@ const CURTAIN_CALL: readonly TourStep[] = [
 /* --- side quests -------------------------------------------------------- */
 
 /**
- * Reachable at any time from the coach card's tray, and from the demo
- * dashboard once the tour is over. Their ids carry the `quest.` prefix because
+ * Reachable at any time from the coach card's tray, for as long as the tour is
+ * running — a finished tour has no surface that offers them, so the only way
+ * back to an unfinished quest today is the ribbon's *Restart tour*. Their ids
+ * carry the `quest.` prefix because
  * that is how the server tells an objective from a side quest when it counts
  * the finale's "17 of 19 objectives · 2 side quests".
  *
