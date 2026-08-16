@@ -385,9 +385,27 @@ export async function createUpload(input: CreateUploadInput): Promise<CreateUplo
     ...(input.uploadedByUserId ? { uploadedByUserId: input.uploadedByUserId } : {}),
     ...(input.uploadedByContactId ? { uploadedByContactId: input.uploadedByContactId } : {}),
   });
-  // Bind both claims into SigV4. A browser owns the actual Content-Length
-  // header, but for a Blob/File body it emits the byte length automatically;
-  // signing it prevents a client from PUTting more bytes than were authorized.
+  // These are handed to the client and sent on the PUT, but they are NOT bound
+  // into the signature: aws4fetch lists `content-type` and `content-length` in
+  // UNSIGNABLE_HEADERS and drops them unless `allHeaders` is set, which
+  // `presign` does not pass — so `X-Amz-SignedHeaders` is only `host`. A URL
+  // issued for a 1-byte headshot will therefore accept any body R2 takes in a
+  // single PUT.
+  //
+  // What actually enforces the limit is the post-copy inspection below:
+  // `finalizeUpload` copies to the published key, then `inspectPublished` ->
+  // `rejectionForSize` re-checks the bytes that really landed against both the
+  // kind ceiling and `authorizedBytes`, and deletes both objects and the row.
+  // Nothing oversize is ever published or served, and the unsigned content type
+  // never reaches a response header — `publicFileHeaders` uses the DB `mime`.
+  // The residual cost is unreclaimed `staging/` bytes until the daily sweep;
+  // `/api/uploads/presign` bounds that with a per-uploader rate limit.
+  //
+  // Passing `aws: { allHeaders: true }` in `presign` would bind them properly,
+  // but it makes every upload fail if the browser's own Content-Length or
+  // Content-Type differs from the signed value by a byte or a charset suffix,
+  // and that cannot be verified against a mocked R2. It needs a live-bucket
+  // check before it ships.
   const signedHeaders = { "content-type": input.mime, "content-length": String(input.sizeBytes) };
   const uploadUrl = await presign(stagingKey, "PUT", PRESIGN_PUT_SECONDS, signedHeaders);
   return {

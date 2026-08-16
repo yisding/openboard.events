@@ -1,4 +1,4 @@
-import { TEMPLATE_VAR_SCHEMAS, type TemplateKey, type TemplateVars } from "@/shared/contracts";
+import { TEMPLATE_VAR_SCHEMAS, isTransactionalTemplate, type TemplateKey, type TemplateVars } from "@/shared/contracts";
 import { z } from "zod";
 
 /**
@@ -87,5 +87,18 @@ function collectPaths(schema: z.ZodType, prefix: string[]): string[] {
 }
 
 export function templateVariablePaths(key: TemplateKey): string[] {
-  return collectPaths(TEMPLATE_VAR_SCHEMAS[key], []);
+  const paths = collectPaths(TEMPLATE_VAR_SCHEMAS[key], []);
+  // `unsubscribe.url` renders without a token on a transactional key —
+  // `buildContext` appends `?token=` only when `!isTransactionalTemplate` —
+  // and the unsubscribe page rejects a tokenless link as invalid or expired.
+  // Offering the chip meant an organizer editing `submission_accepted` could
+  // click it, save without complaint, and ship a guaranteed-broken link in
+  // every acceptance email. `emailLayout` already suppresses its own footer
+  // link for these keys; the picker was the hole left in that policy.
+  //
+  // Filtered here rather than removed from `TOKENS_BY_KEY`, so a template
+  // already saved with the token keeps validating and stays editable — an
+  // organizer must not discover a body they saved months ago has become
+  // unsaveable.
+  return isTransactionalTemplate(key) ? paths.filter((path) => path !== "unsubscribe.url") : paths;
 }

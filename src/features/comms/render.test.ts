@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TemplateVars } from "@/shared/contracts";
-import { SAMPLE_VARS } from "./components/sample-vars";
+import { SAMPLE_VARS, templateVariablePaths } from "./components/sample-vars";
 import { renderTemplate, renderTemplateContent, validateTemplateBody } from "./server/render";
 
 const common = {
@@ -46,6 +46,27 @@ describe("communications template renderer", () => {
     } as TemplateVars;
     expect(() => renderTemplateContent("submission_received", "Received", "<p>{{submission.title}}</p>", vars))
       .toThrowError(/missing variable submission\.title/u);
+  });
+
+  it("does not offer the unsubscribe token where it can only render a broken link", () => {
+    // `buildContext` appends `?token=` only for non-transactional keys, so on a
+    // transactional one `{{unsubscribe.url}}` renders tokenless and the
+    // unsubscribe page reports the link invalid or expired. The chip used to be
+    // offered anyway: an organizer editing `submission_accepted` could click it,
+    // save without complaint, and ship a guaranteed-broken link in every
+    // acceptance email. `emailLayout` already suppresses its own footer link for
+    // these keys.
+    expect(templateVariablePaths("submission_accepted")).not.toContain("unsubscribe.url");
+    expect(templateVariablePaths("portal_login")).not.toContain("unsubscribe.url");
+    expect(templateVariablePaths("admin_password_reset")).not.toContain("unsubscribe.url");
+
+    // Non-transactional mail still offers it, and still ships a working link.
+    expect(templateVariablePaths("task_reminder")).toContain("unsubscribe.url");
+    expect(templateVariablePaths("speaker_bulk_message")).toContain("unsubscribe.url");
+
+    // Still *accepted* on a transactional key, so a body saved before this
+    // filter existed keeps validating rather than becoming unsaveable.
+    expect(() => validateTemplateBody("submission_accepted", "Accepted", "<p>{{unsubscribe.url}}</p>")).not.toThrow();
   });
 
   it("breaks a line for every block-level closer, not only <br> and </p>", () => {
