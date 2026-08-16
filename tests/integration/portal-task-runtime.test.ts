@@ -275,6 +275,11 @@ describe("portal task runtime", () => {
 
     await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, deck, organizerUserId);
     expect(await actorOf(slidesTask)).toBe(organizerUserId);
+    // The speaker replaces the file themselves: the ON CONFLICT DO UPDATE
+    // repoints the completion at the new upload and the actor of record moves
+    // with it — back to nobody, since this time no organizer was behind it.
+    await completeTaskViaUpload(eventId, ada, slidesTask, talkOne, replacementDeck);
+    expect(await actorOf(slidesTask)).toBeNull();
 
     await completeTaskViaResponse(eventId, ada, profileTask, null, validAnswers(), undefined, organizerUserId);
     expect(await actorOf(profileTask)).toBe(organizerUserId);

@@ -192,7 +192,14 @@ describe("portal authentication", () => {
     const roster = async () => (await pglite.query<{ n: number }>(
       "SELECT count(*)::int AS n FROM contacts WHERE event_id=$1", [eventA],
     )).rows[0]?.n ?? 0;
+    // The outbox is `communication_logs`, keyed by `contact_id` — there is no
+    // per-address column an unknown sender could even land in — so measure the
+    // login-mail count across the pair of requests and prove only one landed.
+    const outbox = async () => (await pglite.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM communication_logs WHERE event_id=$1 AND template_key='portal_login'", [eventA],
+    )).rows[0]?.n ?? 0;
     const before = await roster();
+    const outboxBefore = await outbox();
 
     const known = await requestPortalLoginIn(tx, { eventId: eventA, eventSlug: "portal-a", email: "on-file@example.com", appBaseUrl: "https://preview.example.com", sessionSecret: secret, fallback: false });
     const unknown = await requestPortalLoginIn(tx, { eventId: eventA, eventSlug: "portal-a", email: stranger, appBaseUrl: "https://preview.example.com", sessionSecret: secret, fallback: false });
@@ -206,6 +213,9 @@ describe("portal authentication", () => {
     expect(await roster()).toBe(before);
     const trace = await pglite.query<{ n: number }>("SELECT count(*)::int AS n FROM contacts WHERE event_id=$1 AND email=$2", [eventA, stranger]);
     expect(trace.rows[0]?.n).toBe(0);
+    // Only the on-file request enqueued a login email; the unknown one queued
+    // nothing — there is no contact to hang an outbox row off.
+    expect(await outbox()).toBe(outboxBefore + 1);
   });
 
   it("carries a validated return path into the encrypted magic link", async () => {
