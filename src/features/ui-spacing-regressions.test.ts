@@ -308,6 +308,22 @@ describe("shared UI spacing regressions", () => {
     expect(css).toContain(".comm-detail dl>div{display:flex;justify-content:space-between;");
   });
 
+  it("keeps the Files filter strip on one row like every other list toolbar", () => {
+    const filesAdmin = read("./portal/deliverables/components/files-admin-view.tsx");
+    const speakersAdmin = read("./portal/components/speakers-admin/speakers-admin-view.tsx");
+
+    // The base rule is `select{width:100%}`, so an unclassed filter in the one
+    // toolbar that wraps takes a flex basis of the whole row: three filters,
+    // three 1106px-wide stacked lines. `.compact-select` is the idiom the rest
+    // of the app's list toolbars already use.
+    expect(speakersAdmin).toContain('className="compact-select"');
+    expect(filesAdmin.match(/<Select className="compact-select"/gu)).toHaveLength(3);
+    expect(css).toContain(".compact-select{width:auto;");
+    // Its options are event data, not a fixed vocabulary, so one long file
+    // request title must not become the whole toolbar.
+    expect(css).toContain(".files-data-toolbar .compact-select{max-width:190px}");
+  });
+
   it("keeps short session cards, the bulk bar's Clear, and the mobile nav honest", () => {
     const bulkBar = read("../shared/ui/app/bulk-action-bar.tsx");
     const shell = read("./shell/admin-shell.tsx");
