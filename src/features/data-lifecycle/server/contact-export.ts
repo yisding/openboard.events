@@ -5,6 +5,7 @@ import {
   communicationLogs,
   contactSuppressions,
   fileComments,
+  formResponses,
   portalSessions,
   portalTokens,
   sessionSpeakers,
@@ -40,6 +41,24 @@ export type ContactDataExport = {
   profile: SpeakerDetailDTO["contact"];
   submissions: SpeakerDetailDTO["submissions"];
   submissionAnswers: Array<{ submissionId: string; fieldId: string; value: unknown }>;
+  /**
+   * Portal task answers. `tasks` above carries only workflow state — which task,
+   * when it was due, whether it is done — while the answers the speaker actually
+   * typed live in `form_responses`, written by the task runtime. The route
+   * promises "every message ever sent to them and their submitted answer
+   * content", and erasure deletes this table as personal data; the export used
+   * to be the one path that did not know about it, so the two disagreed about
+   * what belongs to that person.
+   */
+  formResponses: Array<{
+    id: string;
+    formId: string;
+    formVersion: number;
+    submissionId: string | null;
+    answers: unknown;
+    createdAt: string;
+    updatedAt: string;
+  }>;
   tasks: SpeakerDetailDTO["tasks"];
   roster: SpeakerRosterExtras;
   sessionsSpeaking: Array<{ sessionId: string; title: string; role: string }>;
@@ -67,7 +86,7 @@ export async function exportContactDataIn(dbOrTx: DbOrTx, eventId: EventId, cont
   ]);
   if (!detail || !roster) return null;
 
-  const [answers, speaking, comms, invites, bulk, comments, tokens, portalSessionRows, suppression] = await Promise.all([
+  const [answers, speaking, comms, invites, bulk, comments, tokens, portalSessionRows, suppression, responses] = await Promise.all([
     dbOrTx.select({ submissionId: submissionAnswers.submissionId, fieldId: submissionAnswers.fieldId, value: submissionAnswers.value })
       .from(submissionAnswers)
       .innerJoin(submissionParticipants, eq(submissionParticipants.id, submissionAnswers.participantId))
@@ -114,6 +133,17 @@ export async function exportContactDataIn(dbOrTx: DbOrTx, eventId: EventId, cont
     }).from(portalSessions)
       .where(and(eq(portalSessions.eventId, eventId), eq(portalSessions.contactId, contactId))),
     dbOrTx.select({ reason: contactSuppressions.reason }).from(contactSuppressions).where(eq(contactSuppressions.contactId, contactId)).limit(1),
+    dbOrTx.select({
+      id: formResponses.id,
+      formId: formResponses.formId,
+      formVersion: formResponses.formVersion,
+      submissionId: formResponses.submissionId,
+      answers: formResponses.answers,
+      createdAt: formResponses.createdAt,
+      updatedAt: formResponses.updatedAt,
+    }).from(formResponses)
+      .where(and(eq(formResponses.eventId, eventId), eq(formResponses.contactId, contactId)))
+      .orderBy(desc(formResponses.createdAt)),
   ]);
 
   return {
@@ -144,6 +174,11 @@ export async function exportContactDataIn(dbOrTx: DbOrTx, eventId: EventId, cont
       createdAt: row.createdAt.toISOString(),
       expiresAt: row.expiresAt.toISOString(),
       impersonated: row.impersonatedByUserId !== null,
+    })),
+    formResponses: responses.map((row) => ({
+      ...row,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
     })),
     emailSuppressed: suppression.length > 0,
   };

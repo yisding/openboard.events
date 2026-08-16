@@ -10,6 +10,7 @@ import {
   portalSessions,
   portalTokens,
   rateLimitBuckets,
+  speakerBulkMessages,
 } from "@/db/schema";
 import type { JobStats } from "@/shared/contracts";
 
@@ -68,6 +69,7 @@ export type DataRetentionStats = JobStats & {
   redactedCommunicationLogs: number;
   redactedAdminAuthEmails: number;
   removedStaleCalendarCancellationJobs: number;
+  redactedSpeakerBulkMessages: number;
   staleRateLimitBuckets: number;
   staleAdminLoginAttempts: number;
 };
@@ -125,6 +127,33 @@ export async function runDataRetentionSweepIn(dbOrTx: DbOrTx, now: Date = new Da
     ))
     .returning();
 
+  // The third content store, and the one the sweep did not know about.
+  // `speaker_bulk_messages` holds one per-recipient subject and body per bulk
+  // send, written at compose time and read back once at render time — so at day
+  // 91 the `communication_logs` row above was redacted to NULL exactly as
+  // promised while the byte-identical body, still joined to that `contact_id`,
+  // stayed readable here indefinitely. The comment on the outbox redaction above
+  // states the rule this restores: the delivery record survives as the audit
+  // trail, the content does not.
+  //
+  // Deleted rather than blanked, because `subject`/`body_html` are NOT NULL and
+  // the row exists only to be read while its message is still being delivered.
+  // `buildContext` already treats a missing row as `SkipEmail`, and the join
+  // keeps that unreachable: only a message whose own log has reached a terminal
+  // status is removed, the same gate the cancellation sweep below uses.
+  const staleBulkMessages = await dbOrTx.delete(speakerBulkMessages)
+    .where(and(
+      lt(speakerBulkMessages.createdAt, bodyCutoff),
+      inArray(
+        speakerBulkMessages.idempotencyKey,
+        dbOrTx.select({ key: communicationLogs.idempotencyKey }).from(communicationLogs).where(and(
+          lt(communicationLogs.createdAt, bodyCutoff),
+          inArray(communicationLogs.status, ["sent", "skipped", "failed", "bounced", "complained"]),
+        )),
+      ),
+    ))
+    .returning();
+
   // A cancellation snapshot is active delivery state while its parent log is
   // queued, including during provider backoff. Terminal rows should already be
   // cleaned by the dispatcher; this sweep removes any old residue so attendee
@@ -147,6 +176,7 @@ export async function runDataRetentionSweepIn(dbOrTx: DbOrTx, now: Date = new Da
     redactedCommunicationLogs: redacted.length,
     redactedAdminAuthEmails: redactedAdminAuthEmails.length,
     removedStaleCalendarCancellationJobs: staleCancellationJobs.length,
+    redactedSpeakerBulkMessages: staleBulkMessages.length,
     staleRateLimitBuckets: staleRateLimitBuckets.length,
     staleAdminLoginAttempts: staleAdminLoginAttempts.length,
   };
