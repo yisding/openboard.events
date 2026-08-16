@@ -35,16 +35,16 @@ describe("roomCapacityWarning", () => {
     expect(roomCapacityWarning({ expectedAttendance: 5_000, roomId: "c1000000-0000-4000-8000-0000000000ff" }, rooms)).toBeNull();
   });
 
-  it("is wired into both manual placement paths, not just Auto-place", () => {
-    const dialog = readFileSync(new URL("../components/session-form-dialog.tsx", import.meta.url), "utf8");
+  // The dialog's half is asserted by rendering it, in
+  // `../components/session-capacity-advisory.test.tsx`: that the advisory
+  // appears against the draft's room, that it clears when a bigger room is
+  // picked, and — the property that matters — that Save stays clickable with
+  // the warning on screen. Reading the button's `disabled=` expression out of
+  // the source could never establish the last of those.
+  it("is wired into the drop path too, not just Auto-place and the dialog", () => {
     const move = readFileSync(new URL("../hooks/use-move-session.ts", import.meta.url), "utf8");
     const dayView = readFileSync(new URL("../components/day-view.tsx", import.meta.url), "utf8");
 
-    // The dialog warns against the draft's room, live, and never blocks Save:
-    // the button's disabled condition stays title/pending only.
-    expect(dialog).toContain("roomCapacityWarning({ expectedAttendance: session?.expectedAttendance ?? null, roomId: draft.roomId }, rooms)");
-    expect(dialog).toContain('className="agenda-capacity-note" role="status"');
-    expect(dialog).toContain("disabled={draft.title.trim().length === 0 || busy || (!session && creationId === null)}");
     // The drop path warns on the same toast that offers Undo.
     expect(move).toContain("const capacityWarning = roomCapacityWarning(result.session, rooms);");
     expect(dayView).toContain("useMoveSession(eventId, rooms)");
