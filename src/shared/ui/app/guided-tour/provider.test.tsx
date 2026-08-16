@@ -550,6 +550,24 @@ describe("anchoring", () => {
     expect(harness.push).toHaveBeenCalledWith("/events/evt-1/abstracts");
   });
 
+  it("counts a filter the organizer added as still being on the step's page", async () => {
+    // `trip.find-gap` routes to a bare `/speakers` and asks the organizer to
+    // filter it down to `?missing=either`. Exact-set equality then read the
+    // filtered roster as a *different* page: the next step said the control
+    // "isn't on this screen right now" and offered a trip whose only effect
+    // would have been to throw the filter away again.
+    harness.pathname = "/events/evt-1/agenda";
+    harness.search = "view=conflicts&room=main-stage";
+    const server = makeServer();
+    await render(makeBootstrap(server, {
+      steps: [{ ...STEPS[0], anchor: MISSING_ANCHOR, route: { path: "/events/:eventId/agenda" } } as TourStep, ...STEPS.slice(1)],
+    }));
+    await tick(6_500);
+
+    expect(coach()?.textContent).not.toContain("Take me there");
+    expect(coach()?.textContent).toContain("Nothing to point at yet");
+  });
+
   it("portals into an open dialog and suppresses its own scrim there", async () => {
     document.body.insertAdjacentHTML(
       "beforeend",

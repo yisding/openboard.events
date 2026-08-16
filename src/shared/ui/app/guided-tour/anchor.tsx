@@ -42,6 +42,7 @@ export function TourAnchor({ id, children }: { id: string; children: ReactNode }
    plain `<button aria-label="…">` still answers `{ kind: "role", role: "button" }`. */
 const IMPLICIT_ROLES: Readonly<Record<string, string>> = {
   a: "link",
+  aside: "complementary",
   button: "button",
   dialog: "dialog",
   form: "form",
