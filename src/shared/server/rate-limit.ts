@@ -66,7 +66,18 @@ export async function checkRateLimit(
     })
     .returning();
   if ((bucket?.count ?? 0) > args.limit) {
-    throw new AppError("RATE_LIMITED", args.message ?? "Too many requests. Please try again shortly.");
+    // The refused request already told us when its window opened, so the reset
+    // is arithmetic rather than a guess. `errorEnvelope` publishes it as
+    // `Retry-After`; floored at one second because a `Retry-After: 0` reads as
+    // "retry immediately", which is the one thing a refused caller must not do.
+    const windowStartedAt = bucket?.windowStartedAt ?? now;
+    const msUntilReset = new Date(windowStartedAt).getTime() + args.windowMs - now.getTime();
+    const retryAfterSeconds = Math.max(1, Math.ceil(msUntilReset / 1000));
+    throw new AppError(
+      "RATE_LIMITED",
+      args.message ?? "Too many requests. Please try again shortly.",
+      { retryAfterSeconds },
+    );
   }
 }
 

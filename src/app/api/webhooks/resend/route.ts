@@ -59,7 +59,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
     return NextResponse.json({ data: { ok: true } });
   } catch (error) {
-    const { envelope, status } = errorEnvelope(error, { requestId, feature: "comms", msg: "webhook.resend.failed" });
-    return NextResponse.json(envelope, { status });
+    const { envelope, status, headers } = errorEnvelope(error, { requestId, feature: "comms", route: "/api/webhooks/resend", msg: "webhook.resend.failed" });
+    return NextResponse.json(envelope, { status, headers });
   }
 }

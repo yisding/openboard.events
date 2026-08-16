@@ -48,6 +48,29 @@ export function isDefinitiveWriteFailure(error: unknown): error is AppError {
   return isAppError(error) && error.code !== "INTERNAL";
 }
 
+/**
+ * Seconds until a `RATE_LIMITED` caller's window resets, when the throw site
+ * knew the answer. `checkRateLimit` derives it from the bucket row's own
+ * `windowStartedAt`, so it is the real reset rather than a guess, and
+ * `errorEnvelope` turns it into the `Retry-After` header.
+ *
+ * This matters most on `/api/v1`, the documented cross-origin surface: a judge
+ * script or embed that gets a bare 429 has to invent a backoff, and the ones
+ * that invent badly come straight back.
+ *
+ * Returns `undefined` for anything else — a non-`AppError`, a different code,
+ * or a `RATE_LIMITED` thrown by a limiter that cannot compute a reset (Better
+ * Auth's own in-memory limiter, for one). A missing header is a caller
+ * choosing its own backoff, which is the status quo; a fabricated one is worse.
+ */
+export function retryAfterSeconds(error: unknown): number | undefined {
+  if (!isAppError(error) || error.code !== "RATE_LIMITED") return undefined;
+  if (typeof error.details !== "object" || error.details === null) return undefined;
+  const seconds = (error.details as { retryAfterSeconds?: unknown }).retryAfterSeconds;
+  if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds <= 0) return undefined;
+  return Math.ceil(seconds);
+}
+
 export function toHttp(code: AppErrorCode): number {
   switch (code) {
     case "FORM_CLOSED":

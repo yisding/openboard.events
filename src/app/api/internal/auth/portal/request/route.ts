@@ -62,11 +62,12 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json({ data: result });
   } catch (error) {
-    const { envelope, status } = errorEnvelope(error, {
+    const { envelope, status, headers } = errorEnvelope(error, {
       requestId,
       feature: "portal-auth",
+      route: "/api/internal/auth/portal/request",
       fallbackMessages: { validation: "Enter a valid email", internal: "Unable to request a code" },
     });
-    return NextResponse.json(envelope, { status });
+    return NextResponse.json(envelope, { status, headers });
   }
 }

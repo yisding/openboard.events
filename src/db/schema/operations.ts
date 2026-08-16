@@ -10,12 +10,19 @@ export const operationalErrorBuckets = pgTable("operational_error_buckets", {
   fingerprint: text("fingerprint").notNull(),
   feature: text("feature").notNull(),
   code: text("code").notNull(),
+  /**
+   * The route pattern (`/api/internal/forms/[formId]/fields`), or `''` for the
+   * callers with no request to name. Part of the identity, not a payload: an
+   * operator paged on `errors.recentCount` needs the bucket to say which
+   * endpoint broke.
+   */
+  route: text("route").notNull().default(""),
   bucketStartedAt: timestamp("bucket_started_at", { withTimezone: true }).notNull(),
   firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull(),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
   occurrences: integer("occurrences").notNull().default(1),
 }, (table) => [
-  primaryKey({ columns: [table.fingerprint, table.feature, table.code, table.bucketStartedAt] }),
+  primaryKey({ columns: [table.fingerprint, table.feature, table.code, table.route, table.bucketStartedAt] }),
   index("operational_error_buckets_last_seen_idx").on(table.lastSeenAt),
 ]);
 

@@ -10,7 +10,7 @@ const DOWNLOAD_URL_SECONDS = 60 * 60;
 
 /** Private kinds never serve through /f/{fileId}; this mints the short-lived GET. */
 export async function GET(request: NextRequest, route: { params: Promise<{ fileId: string }> }): Promise<Response> {
-  return jsonRoute(request, async () => {
+  return jsonRoute(request, "/api/uploads/[fileId]/download-url", async () => {
     const rawFileId = (await route.params).fileId;
     const parsedFileId = fileIdSchema.safeParse(rawFileId);
     if (!parsedFileId.success) throw new AppError("VALIDATION", "Invalid file id");

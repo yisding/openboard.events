@@ -20,11 +20,12 @@ function queryInput(searchParams: URLSearchParams): Record<string, string | stri
  *  error from this route still carries the same envelope shape every other
  *  internal route returns. */
 function errorResponse(error: unknown, request?: Request): Response {
-  const { envelope, status } = errorEnvelope(error, {
+  const { envelope, status, headers } = errorEnvelope(error, {
     requestId: request?.headers.get("cf-ray") ?? crypto.randomUUID(),
     feature: "submissions",
+    route: "/api/internal/submissions/[eventId]/export.csv",
   });
-  return Response.json(envelope, { status });
+  return Response.json(envelope, { status, headers });
 }
 
 /**

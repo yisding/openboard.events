@@ -29,11 +29,12 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json({ data: { eventId: session.eventId, contactId: session.contactId, alreadySignedIn: session.alreadySignedIn ?? false } });
   } catch (error) {
-    const { envelope, status } = errorEnvelope(error, {
+    const { envelope, status, headers } = errorEnvelope(error, {
       requestId,
       feature: "portal-auth",
+      route: "/api/internal/auth/portal/verify",
       fallbackMessages: { validation: "Enter a valid code", internal: "Unable to verify sign in" },
     });
-    return NextResponse.json(envelope, { status });
+    return NextResponse.json(envelope, { status, headers });
   }
 }

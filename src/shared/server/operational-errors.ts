@@ -49,7 +49,16 @@ function minuteBucket(now: Date): Date {
   return new Date(Math.floor(now.getTime() / 60_000) * 60_000);
 }
 
-/** Aggregate repeated failures into one row per fingerprint/feature/code/minute. */
+/**
+ * Aggregate repeated failures into one row per fingerprint/feature/code/route/
+ * minute.
+ *
+ * `route` is a *pattern* (`/api/internal/forms/[formId]/fields`) supplied by
+ * `defineHandler` and `src/instrumentation.ts`, never a concrete path — a path
+ * carries ids, so bucketing on one would mint a row per tenant and defeat the
+ * aggregation. Callers with no request to name (the private job adapter, the
+ * R2 seam) leave it unset and share the `''` bucket.
+ */
 export async function recordOperationalErrorIn(
   queryer: OperationalErrorQuery,
   error: unknown,
@@ -59,16 +68,17 @@ export async function recordOperationalErrorIn(
   const fingerprint = await operationalErrorFingerprint(error);
   const feature = context.feature.slice(0, 200);
   const code = (context.code ?? "UNKNOWN").slice(0, 100);
+  const route = (context.route ?? "").slice(0, 200);
   const bucketStartedAt = minuteBucket(now);
 
   await queryer.query(
     `insert into operational_error_buckets(
-       fingerprint, feature, code, bucket_started_at, first_seen_at, last_seen_at, occurrences
-     ) values($1,$2,$3,$4,$5,$5,1)
-     on conflict(fingerprint, feature, code, bucket_started_at) do update set
+       fingerprint, feature, code, route, bucket_started_at, first_seen_at, last_seen_at, occurrences
+     ) values($1,$2,$3,$4,$5,$6,$6,1)
+     on conflict(fingerprint, feature, code, route, bucket_started_at) do update set
        last_seen_at = greatest(operational_error_buckets.last_seen_at, excluded.last_seen_at),
        occurrences = operational_error_buckets.occurrences + 1`,
-    [fingerprint, feature, code, bucketStartedAt, now],
+    [fingerprint, feature, code, route, bucketStartedAt, now],
   );
 }
 

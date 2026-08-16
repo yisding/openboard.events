@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { eventIdSchema } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
-import { defineHandler, errorEnvelope } from "./handler";
+import { defineHandler, errorEnvelope, routeIdentity } from "./handler";
 import * as rateLimitModule from "./rate-limit";
 
 const publicGuard = async () => null;
@@ -245,6 +245,37 @@ describe("defineHandler rate limiting (PLAN P3-SEC)", () => {
     expect((await response.json()).error.code).toBe("RATE_LIMITED");
   });
 
+  // Issue #627 — `/api/v1` is the documented cross-origin surface, and a third
+  // party that gets a bare 429 has to invent its own backoff.
+  it("publishes the limiter's own reset as Retry-After", async () => {
+    vi.spyOn(rateLimitModule, "checkRateLimit").mockRejectedValue(
+      new AppError("RATE_LIMITED", "Too many requests. Please try again shortly.", { retryAfterSeconds: 42 }),
+    );
+    const route = defineHandler({
+      auth: publicGuard,
+      input: z.object({}),
+      rateLimit: { limit: 1, windowMs: 1000, key: () => "k" },
+      handler: async () => ({ ok: true }),
+    });
+    const response = await route(new NextRequest("https://example.test/resource"));
+    expect(response.headers.get("retry-after")).toBe("42");
+  });
+
+  // A limiter that cannot compute a reset says nothing rather than guessing:
+  // an invented number sends the caller back early or holds them out too long.
+  it("omits Retry-After when the throw site did not know the reset", async () => {
+    vi.spyOn(rateLimitModule, "checkRateLimit").mockRejectedValue(new AppError("RATE_LIMITED", "Too many requests."));
+    const route = defineHandler({
+      auth: publicGuard,
+      input: z.object({}),
+      rateLimit: { limit: 1, windowMs: 1000, key: () => "k" },
+      handler: async () => ({ ok: true }),
+    });
+    const response = await route(new NextRequest("https://example.test/resource"));
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBeNull();
+  });
+
   // A missing `rate_limit_buckets` table (deploy landing ahead of its
   // migration) or any other plumbing failure in the limiter itself must not
   // turn every request into a 500 — the request proceeds, degraded but
@@ -262,5 +293,56 @@ describe("defineHandler rate limiting (PLAN P3-SEC)", () => {
     const response = await route(new NextRequest("https://example.test/resource"));
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ data: { ok: true } });
+  });
+});
+
+describe("route attribution (issue #626)", () => {
+  it("replaces param values with their placeholders and names the owning feature", () => {
+    expect(routeIdentity("/api/internal/forms/9d2a/fields/7", { formId: "9d2a", fieldId: "7" })).toEqual({
+      route: "/api/internal/forms/[formId]/fields/[fieldId]",
+      feature: "forms",
+    });
+  });
+
+  it("collapses a catch-all's segments back into the single route it declares", () => {
+    expect(routeIdentity("/api/auth/reset-password/abc123", { action: ["reset-password", "abc123"] })).toEqual({
+      route: "/api/auth/[...action]",
+      feature: "auth",
+    });
+  });
+
+  it("keeps the public API's failures under the one name its hand-rolled routes already log", () => {
+    expect(routeIdentity("/api/v1/events/pycon/schedule", { slug: "pycon" })).toEqual({
+      route: "/api/v1/events/[slug]/schedule",
+      feature: "api-v1",
+    });
+  });
+
+  it("names a non-internal scope after itself", () => {
+    expect(routeIdentity("/api/uploads/presign", {})).toEqual({ route: "/api/uploads/presign", feature: "uploads" });
+  });
+});
+
+describe("request correlation (issue #632)", () => {
+  it("returns the request id to the caller on success and on failure", async () => {
+    const route = defineHandler({ auth: publicGuard, input: z.object({}), handler: async () => ({ ok: true }) });
+    const ok = await route(new NextRequest("https://example.test/resource", { headers: { "cf-ray": "ray-77" } }));
+    expect(ok.headers.get("x-request-id")).toBe("ray-77");
+
+    const failing = defineHandler({
+      auth: publicGuard,
+      input: z.object({}),
+      handler: async () => { throw new AppError("CONFLICT", "Already exists"); },
+    });
+    const conflict = await failing(new NextRequest("https://example.test/resource", { headers: { "cf-ray": "ray-78" } }));
+    expect(conflict.headers.get("x-request-id")).toBe("ray-78");
+  });
+
+  // Off Cloudflare there is no `cf-ray` for the caller to fish out of the
+  // response, which is exactly the case that had no correlator at all.
+  it("returns the minted fallback id when no cf-ray is present", async () => {
+    const route = defineHandler({ auth: publicGuard, input: z.object({}), handler: async () => ({ ok: true }) });
+    const response = await route(new NextRequest("https://example.test/resource"));
+    expect(response.headers.get("x-request-id")).toMatch(/^[0-9a-f-]{36}$/);
   });
 });

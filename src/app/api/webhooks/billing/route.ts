@@ -41,7 +41,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
     return NextResponse.json({ data: { ok: true } });
   } catch (error) {
-    const { envelope, status } = errorEnvelope(error, { requestId, feature: "billing", msg: "webhook.billing.failed" });
-    return NextResponse.json(envelope, { status });
+    const { envelope, status, headers } = errorEnvelope(error, { requestId, feature: "billing", route: "/api/webhooks/billing", msg: "webhook.billing.failed" });
+    return NextResponse.json(envelope, { status, headers });
   }
 }

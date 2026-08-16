@@ -21,11 +21,12 @@ export async function POST(request: NextRequest) {
     const location = await createImpersonationLink(input.eventId, input.contactId);
     return NextResponse.redirect(new URL(location, request.url), 303);
   } catch (error) {
-    const { envelope, status } = errorEnvelope(error, {
+    const { envelope, status, headers } = errorEnvelope(error, {
       requestId,
       feature: "portal-auth",
+      route: "/api/internal/auth/portal/impersonate",
       fallbackMessages: { validation: "Invalid impersonation request", internal: "Unable to start impersonation" },
     });
-    return NextResponse.json(envelope, { status });
+    return NextResponse.json(envelope, { status, headers });
   }
 }
