@@ -289,6 +289,10 @@ type FileComment = { id: string; authorRole: "organizer" | "speaker"; authorName
 type ExportJob = { id: string; status: "pending" | "processing" | "completed" | "failed"; entryCount: number; resultFileId: string | null; error: string | null };
 type SessionRow = { id: string; title: string; descriptionHtml: string; status: string; startsAt: string | null; rowVersion: number };
 type SessionRevision = { id: string; title: string; editedByName: string | null; restoredFromRevisionId: string | null; createdAt: string };
+// MTP-07: the endpoint now answers with both halves of a session's history —
+// content edits and recorded placement moves.
+type SessionPlacement = { id: string; from: { roomName: string | null }; to: { roomName: string | null }; movedByName: string | null };
+type SessionHistory = { content: SessionRevision[]; placements: SessionPlacement[] };
 type PublicSession = { title: string };
 
 /** A minimal, sequential reader for the STORE-only ZIP `zip.ts` builds: local file headers back to back, no data descriptors. */
@@ -507,9 +511,14 @@ test.describe("content-deliverables (M52)", () => {
       });
       expect(editedTwo.title).toBe(editTwo);
 
-      const revisions = await apiData<SessionRevision[]>(request, `${AGENDA_SESSIONS}/${created.id}/revisions?eventId=${encodeURIComponent(EVENT)}`);
+      const history = await apiData<SessionHistory>(request, `${AGENDA_SESSIONS}/${created.id}/revisions?eventId=${encodeURIComponent(EVENT)}`);
+      const revisions = history.content;
       expect(revisions.map((revision) => revision.title)).toEqual([editTwo, editOne, original]);
       expect(revisions.every((revision) => revision.editedByName)).toBe(true);
+      // Three title/description edits that never touched the room or the time:
+      // the placement half of the history must stay empty rather than fill up
+      // with "moves" nobody made.
+      expect(history.placements).toEqual([]);
       const originalRevision = revisions[2] as SessionRevision;
 
       // Still a draft: absent from the cache-busted public API.
@@ -524,7 +533,7 @@ test.describe("content-deliverables (M52)", () => {
       expect(restored.title).toBe(original);
       expect(restored.status, "restoring content is never itself a publish").toBe("draft");
 
-      const afterRestore = await apiData<SessionRevision[]>(request, `${AGENDA_SESSIONS}/${created.id}/revisions?eventId=${encodeURIComponent(EVENT)}`);
+      const afterRestore = (await apiData<SessionHistory>(request, `${AGENDA_SESSIONS}/${created.id}/revisions?eventId=${encodeURIComponent(EVENT)}`)).content;
       expect(afterRestore[0]?.title).toBe(original);
       expect(afterRestore[0]?.restoredFromRevisionId).toBe(originalRevision.id);
 

@@ -902,6 +902,24 @@ export function supportedTourSteps(
    */
   context: Readonly<Record<TourContextKey, string | null>>,
 ): readonly TourStep[] {
+  // Requiring the whole map makes the wrong context a type error; it cannot
+  // make an *empty* event id anything but a per-step drop, and every route in
+  // the script is anchored on `/events/:eventId`. Filtered one step at a time,
+  // that left seven orphans strung across five chapters and ending, with no
+  // successor, half-way through Mission Control — where the engine reads "no
+  // next step on the arc" as "the player finished" and retires the tutorial
+  // for good. There is no honest partial tour without an event id, so the
+  // answer is none of it.
+  //
+  // An empty list is a sentinel for the host, not a mount guard: the layout
+  // still builds a bootstrap around it, so the layer mounts, draws nothing —
+  // it has no step to render, which is the one case it renders `null` for —
+  // and its started-effect still records the cursor as `active`. Both call
+  // sites take the id from the `/events/:eventId` route segment, so an empty
+  // one cannot reach here today; this is defence against a caller handing
+  // over a context that has lost it, where a tour that shows nothing beats
+  // one that ends mid-chapter and marks itself finished.
+  if ((context.eventId ?? "") === "") return [];
   const stoppedAt = skippedAtPhase === null ? -1 : DEMO_PROVISION_PHASES.indexOf(skippedAtPhase);
   return TOUR_STEPS.filter((step) => {
     const phase = STEP_PHASE[step.id];

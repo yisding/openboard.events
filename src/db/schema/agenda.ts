@@ -44,3 +44,16 @@ export const sessionContentRevisions = pgTable("session_content_revisions", {
   editedByUserId: uuid("edited_by_user_id").references(() => users.id, { onDelete: "set null" }), restoredFromRevisionId: uuid("restored_from_revision_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [unique().on(table.id, table.eventId)]);
+
+// MTP-07 — the placement half of that history: one row per recorded move, from
+// the drag, the dialog and Auto-place alike. Room *names* are frozen on both
+// sides (drizzle/0050) so renaming or deleting a room cannot rewrite the
+// account of the placements it once held.
+export const sessionPlacementRevisions = pgTable("session_placement_revisions", {
+  id: uuid("id").defaultRandom().primaryKey(), eventId: uuid("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
+  sessionId: uuid("session_id").notNull().references(() => sessions.id, { onDelete: "cascade" }),
+  fromStartsAt: timestamp("from_starts_at", { withTimezone: true }), fromEndsAt: timestamp("from_ends_at", { withTimezone: true }), fromRoomName: text("from_room_name"),
+  toStartsAt: timestamp("to_starts_at", { withTimezone: true }), toEndsAt: timestamp("to_ends_at", { withTimezone: true }), toRoomName: text("to_room_name"),
+  movedByUserId: uuid("moved_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [index("session_placement_revisions_session_idx").on(table.sessionId, table.createdAt.desc().nullsFirst())]);
