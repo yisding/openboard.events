@@ -109,12 +109,18 @@ export function getPublicEmbedConfig(
 export async function getOrCreateEmbedConfigIn(dbOrTx: DbOrTx, eventId: EventId, contentType: CanonicalEmbedContentType): Promise<EmbedConfigDTO> {
   const existing = await findRow(dbOrTx, eventId, contentType);
   if (existing) return toDto(existing);
-  const [inserted] = await dbOrTx
+  await dbOrTx
     .insert(embeds)
-    .values({ eventId, contentType, name: DEFAULT_EMBED_NAME[contentType], enabled: true, style: {}, filters: {} })
-    .returning();
-  if (!inserted) throw new AppError("INTERNAL", "Could not create the embed config");
-  return toDto(inserted);
+    .values({ eventId, contentType, name: DEFAULT_EMBED_NAME[contentType], enabled: true, style: {}, filters: {} });
+  // Re-read rather than returning the row just inserted. There is no unique
+  // index on (event_id, content_type), and `findRow` deliberately takes the
+  // *earliest* row — so two admins opening the embeds page at once for a
+  // never-configured event both insert, and the one that returned its own row
+  // then PATCHed the duplicate forever. Every toggle, the kill switch included,
+  // looked saved while the public route kept serving the other row.
+  const created = await findRow(dbOrTx, eventId, contentType);
+  if (!created) throw new AppError("INTERNAL", "Could not create the embed config");
+  return toDto(created);
 }
 export const getOrCreateEmbedConfig = (eventId: EventId, contentType: CanonicalEmbedContentType): Promise<EmbedConfigDTO> =>
   getOrCreateEmbedConfigIn(db, eventId, contentType);
@@ -136,7 +142,7 @@ export async function getOrCreateSpeakerListConfigIn(dbOrTx: DbOrTx, eventId: Ev
   const existing = await findRow(dbOrTx, eventId, "speaker_list");
   if (existing) return toDto(existing);
   const legacy = await findRow(dbOrTx, eventId, "speaker_gallery");
-  const [inserted] = await dbOrTx
+  await dbOrTx
     .insert(embeds)
     .values({
       eventId,
@@ -145,8 +151,9 @@ export async function getOrCreateSpeakerListConfigIn(dbOrTx: DbOrTx, eventId: Ev
       enabled: legacy?.enabled ?? true,
       style: legacy?.style ?? {},
       filters: legacy?.filters ?? {},
-    })
-    .returning();
+    });
+  // Same re-read as above, for the same reason.
+  const inserted = await findRow(dbOrTx, eventId, "speaker_list");
   if (!inserted) throw new AppError("INTERNAL", "Could not create the embed config");
   return toDto(inserted);
 }

@@ -12,7 +12,7 @@ import {
   listEmbedConfigsIn,
 } from "@/features/public/server/embed-config-queries";
 import { updateEmbedConfigIn } from "@/features/public/server/embed-config-mutations";
-import type { EmbedId, EventId } from "@/shared/contracts";
+import { eventIdSchema, type EmbedId, type EventId } from "@/shared/contracts";
 
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
 const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql", import.meta.url), "utf8");
@@ -105,6 +105,61 @@ describe("embed config CRUD (M33/M53)", () => {
       [eventId],
     );
     expect(rows.rows[0]?.count).toBe("1");
+  });
+
+  it("always hands back the row every reader will see", async () => {
+    // There is no unique index on (event_id, content_type), and `findRow`
+    // deliberately takes the *earliest* row. `getOrCreate…` used to return the
+    // row it had just inserted, so two admins opening the embeds page at once
+    // for a never-configured event both inserted, and the one holding its own
+    // row then PATCHed the duplicate forever — every toggle, the kill switch
+    // included, looked saved while the public route kept serving the other row.
+    //
+    // The race itself needs two live connections, which the harness cannot
+    // provide — so this pins the contract the fix restores: whatever
+    // `getOrCreate…` answers is the row `findRow` resolves, which is the row
+    // every public reader and every later PATCH will use. The source assertion
+    // below covers the insert path, where the race actually bites.
+    const duplicateEventId = eventIdSchema.parse("b7000000-0000-4000-8000-0000000000d1");
+    await pglite.query(
+      "INSERT INTO events(id,name,slug,timezone,starts_at,ends_at) VALUES($1,'Dup Embed','dup-embed','UTC','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')",
+      [duplicateEventId],
+    );
+    await pglite.query(
+      "INSERT INTO embeds(event_id,content_type,name,enabled,style,filters,created_at) VALUES($1,'schedule_itinerary','Earliest',false,'{}'::jsonb,'{}'::jsonb, now() - interval '1 hour')",
+      [duplicateEventId],
+    );
+
+    const config = await getOrCreateEmbedConfigIn(db, duplicateEventId, "schedule_itinerary");
+    // The earliest row — the one `isEmbedEnabledIn` and every public reader
+    // resolve — not a fresh one whose edits nobody would ever serve. `enabled`
+    // is the kill switch, and a freshly inserted row would have defaulted to
+    // true.
+    expect(config.enabled).toBe(false);
+    const stored = await pglite.query<{ id: string }>(
+      "SELECT id FROM embeds WHERE event_id=$1 AND content_type='schedule_itinerary' ORDER BY created_at LIMIT 1",
+      [duplicateEventId],
+    );
+    expect(config.id).toBe(stored.rows[0]?.id);
+
+    await pglite.query("DELETE FROM events WHERE id=$1", [duplicateEventId]);
+  });
+
+  it("resolves the row after inserting rather than trusting its own insert", async () => {
+    // There is no unique index on (event_id, content_type). Two admins opening
+    // the embeds page at once for a never-configured event both insert; the one
+    // that returned its own `.returning()` row then PATCHed the duplicate
+    // forever, so every toggle — the kill switch included — looked saved while
+    // the public route kept serving the other row. Asserted on the source
+    // because reproducing it needs two connections.
+    const source = readFileSync(new URL("../../src/features/public/server/embed-config-queries.ts", import.meta.url), "utf8");
+    const creators = source.split("export async function getOrCreate").slice(1);
+    expect(creators).toHaveLength(2);
+    for (const creator of creators) {
+      const body = creator.slice(0, creator.indexOf("\n}"));
+      expect(body).not.toContain(".returning()");
+      expect(body).toContain("await findRow(");
+    }
   });
 
   it("round-trips enabled + style through updateEmbedConfigIn, scoped by event id", async () => {
