@@ -38,7 +38,11 @@ export function AttentionQueue({ items }: { items: DashboardOverview["attention"
           const Icon = ICONS[item.code];
           return (
             <li key={item.code}>
-              <Link href={item.href}>
+              {/* First Fair: the queue mounts lazily inside `WidgetBoundary
+                  name="attention"`, so there is no selector the tour can wait
+                  on. Only the lead row is pinned — that is the one the tutorial
+                  points at, and it is the row that carries the argument. */}
+              <Link href={item.href} {...(index === 0 ? { "data-tour": "dashboard.attention-row" } : {})}>
                 <span className="dashboard-rank">{index + 1}</span>
                 <Icon size={15} aria-hidden="true" />
                 <span>{MESSAGES[item.code](item.count)}</span>

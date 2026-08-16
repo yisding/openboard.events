@@ -16,6 +16,9 @@ const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql",
 const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
 const migrationTenancy = readFileSync(new URL("../../drizzle/0010_organization_tenancy.sql", import.meta.url), "utf8");
 const migrationOnboardingMilestones = readFileSync(new URL("../../drizzle/0023_onboarding_milestones.sql", import.meta.url), "utf8");
+// `events.is_demo` — the public read selects it to keep a tutorial's own call
+// for speakers out of the activation funnel, so the fixture needs the column.
+const migrationDemoEvents = readFileSync(new URL("../../drizzle/0047_demo_events_and_tour.sql", import.meta.url), "utf8");
 
 const eventId = "b1000000-0000-4000-8000-000000000001";
 const otherEventId = "b1000000-0000-4000-8000-000000000002";
@@ -35,6 +38,7 @@ describe("getPublicForm", () => {
     await pglite.exec(migrationReviewOps);
     await pglite.exec(migrationTenancy);
     await pglite.exec(migrationOnboardingMilestones);
+    await pglite.exec(migrationDemoEvents);
     db = drizzle(pglite, { schema }) as unknown as DbOrTx;
 
     await pglite.query(
@@ -111,6 +115,31 @@ describe("getPublicForm", () => {
       "SELECT count(*)::int AS n FROM organization_onboarding_milestones WHERE milestone='public_form_visited'",
     );
     expect(visits.rows[0]?.n).toBe(1);
+  });
+
+  it("does not record the visit milestone for a demo event's own call for speakers", async () => {
+    // The demo's CFP is provisioned open and the tour walks the organizer
+    // through it, so without the is_demo test every organization that takes
+    // the tutorial reaches the deepest step of the activation funnel without
+    // publishing a real CFP — and the milestone being once-per-organization,
+    // the real event could never record it afterwards.
+    await pglite.query("DELETE FROM organization_onboarding_milestones WHERE milestone='public_form_visited'");
+    await pglite.query("UPDATE events SET is_demo=true WHERE id=$1", [eventId]);
+    const result = await getPublicFormIn(db, "ai-engineer", cfpForm);
+    // Still a fully functional public form; only the funnel write is withheld.
+    expect(result.openState).toEqual({ open: true, reason: "ok" });
+    const visits = await pglite.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM organization_onboarding_milestones WHERE milestone='public_form_visited'",
+    );
+    expect(visits.rows[0]?.n).toBe(0);
+
+    // And the real event that follows still records it.
+    await pglite.query("UPDATE events SET is_demo=false WHERE id=$1", [eventId]);
+    await getPublicFormIn(db, "ai-engineer", cfpForm);
+    const after = await pglite.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM organization_onboarding_milestones WHERE milestone='public_form_visited'",
+    );
+    expect(after.rows[0]?.n).toBe(1);
   });
 
   it("omits the participant section when participant collection is disabled", async () => {

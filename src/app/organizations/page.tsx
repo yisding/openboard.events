@@ -38,8 +38,12 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ i
   const createIntent = (await searchParams).intent === "create-event";
   const visibleMemberships = createIntent ? manageableOrganizations(memberships) : memberships;
   const [onlyManageable] = visibleMemberships;
+  // `?mode=create` (First Fair, design §1.2): arriving here with
+  // `intent=create-event` *is* an explicit create intent, so it is carried
+  // through rather than dropped — otherwise the guided-setup page would be
+  // entitled to offer the demo fork to somebody who already chose.
   if (createIntent && visibleMemberships.length === 1 && onlyManageable) {
-    redirect(`/organizations/${onlyManageable.organization.id}/onboarding`);
+    redirect(`/organizations/${onlyManageable.organization.id}/onboarding?mode=create`);
   }
   const [only] = memberships;
   if (!createIntent && memberships.length === 0) redirect("/events");
@@ -67,7 +71,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ i
         />
       ) : <div className="event-grid">
         {visibleMemberships.map(({ organization, role }) => (
-          <Link key={organization.id} href={createIntent ? `/organizations/${organization.id}/onboarding` : `/organizations/${organization.id}`} className="panel settings-section org-picker-card">
+          <Link key={organization.id} href={createIntent ? `/organizations/${organization.id}/onboarding?mode=create` : `/organizations/${organization.id}`} className="panel settings-section org-picker-card">
             <span className="metric-icon accent"><Building2 size={20} /></span>
             <span>
               <b>{organization.name}</b>

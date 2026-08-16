@@ -44,11 +44,16 @@ export function CommsAdminPage({
   timezone,
   initialTab,
   querySeeds,
+  isDemo = false,
 }: {
   eventId: EventId;
   timezone: string;
   initialTab: CommsTab;
   querySeeds: readonly QuerySeed[];
+  /** First Fair (design §5.1) — every demo send is rendered, logged and then
+   * skipped (`SkipEmail`, `src/features/comms/server/context.ts`); this only
+   * changes what the header says about that, never what the tabs do. */
+  isDemo?: boolean;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<CommsTab>(initialTab);
@@ -73,7 +78,13 @@ export function CommsAdminPage({
   return (
     <QueryBoundary seeds={querySeeds}>
       <div className="page communications-page communications-admin-page">
-        <PageHeader eyebrow="ENGAGE" title="Communications" description="Design messages, automate reminders, and understand what reached your audience." />
+        <PageHeader
+          eyebrow="ENGAGE"
+          title="Communications"
+          description={isDemo
+            ? "Demo event. Every send is rendered, logged and then skipped — no mail leaves Openboard."
+            : "Design messages, automate reminders, and understand what reached your audience."}
+        />
         <div className="communications-tabs" role="tablist" aria-label="Communications sections">
           {TABS.map((entry) => {
             const Icon = entry.icon;
@@ -119,6 +130,7 @@ export function CommsAdminPage({
         )}
         {tab === "suppressions" && (
           <div className="communications-panel" id="communications-panel-suppressions" role="tabpanel" aria-labelledby="communications-tab-suppressions">
+            {isDemo && <p className="portal-note" role="status">Empty on purpose — nothing has ever actually sent, so nothing has ever bounced.</p>}
             <TabBoundary name="suppressions">
               <SuppressionsTab eventId={eventId} timezone={timezone} />
             </TabBoundary>

@@ -11,6 +11,7 @@ import { api } from "@/shared/lib/api-client";
 import { zoneAbbreviation } from "@/shared/lib/time";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
+import { emitTourSignal } from "@/shared/ui/app/guided-tour/signals";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { SpeakerQuickAdd, type QuickAddedSpeaker } from "@/shared/ui/app/speaker-quick-add";
@@ -238,6 +239,11 @@ export function SessionFormDialog({
         };
     try {
       await save.mutateAsync(payload);
+      // A latency shortcut for the guided tour: placing a session is the
+      // objective the tutorial's set-piece waits on, and this saves it a poll
+      // interval. It is never the authority — the objective is still decided by
+      // the server's world snapshot, so removing this line costs two seconds.
+      emitTourSignal("agenda.session-saved");
       toast(session ? "Session updated" : "Session created");
       closeAfterMutation();
     } catch (caught) {

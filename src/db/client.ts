@@ -99,6 +99,16 @@ export type DbOrTx = typeof db | TxDb;
  * writers, then re-reads attempt and assignment authority before inserting.
  * Manual completion now uses `withTx` so that mutex spans its guarded insert;
  * form and file completion reuse their existing transactions.
+ * Demo-event provisioning (First Fair) runs one bounded phase per HTTP request
+ * (`src/features/onboarding/server/demo/phases/*`). The phases that build
+ * submissions, evaluation, the agenda and the speaker portal use `withTx`
+ * because `createSubmissionIn`, the evaluation writers and the portal task
+ * writers require a `TxDb`. Each phase is individually idempotent under
+ * `stableUuid` id namespacing, so a mid-phase abort is recovered by re-running
+ * that phase rather than by rolling back the whole demo — the same deliberate
+ * non-atomic insert-then-heal discipline `createEventIn` already documents,
+ * and the reason ~430 statements never share one transaction inside a Worker
+ * request.
  * The command-line seed orchestrator is the sole non-runtime exception.
  */
 export async function withTx<T>(work: (tx: TxDb) => Promise<T>): Promise<T> {

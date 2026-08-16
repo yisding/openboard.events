@@ -30,7 +30,7 @@ export default async function Page({
 
   const tab = resolveTab((await searchParams).tab);
   const [event, templates, reminderRules, log, suppressions, deliverability] = await Promise.all([
-    db.select({ timezone: events.timezone }).from(events).where(eq(events.id, eventId)).limit(1),
+    db.select({ timezone: events.timezone, isDemo: events.isDemo }).from(events).where(eq(events.id, eventId)).limit(1),
     listTemplates(eventId),
     listReminderRules(eventId),
     listLog(eventId, { limit: 500 }),
@@ -51,6 +51,7 @@ export default async function Page({
       timezone={event[0]?.timezone ?? "America/Los_Angeles"}
       initialTab={tab}
       querySeeds={querySeeds}
+      isDemo={event[0]?.isDemo ?? false}
     />
   );
 }

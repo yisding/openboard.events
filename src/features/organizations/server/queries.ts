@@ -149,7 +149,15 @@ export const getOrganizationMemberRole = (organizationId: OrganizationId, userId
  * producer of that frozen contract to change in lockstep.
  */
 export type OrganizationEventRow = { id: EventId; name: string; slug: string; startsAt: string; endsAt: string };
-export type OrganizationEventAccessRow = OrganizationEventRow & { eventRole: MemberRole | null };
+/**
+ * First Fair (design §1.4, §8.2): `isDemo` rides on *this* row type and not on
+ * `eventDtoSchema`, which is CP1-frozen. The organization home is the one
+ * screen that has to tell a tutorial apart from a customer's real programme —
+ * it decides whether the eventless organizer is redirected into setup, and it
+ * labels the card — so the read it already performs answers the question, with
+ * no second query and no change to a frozen contract.
+ */
+export type OrganizationEventAccessRow = OrganizationEventRow & { eventRole: MemberRole | null; isDemo: boolean };
 
 export async function listOrganizationEventsIn(dbOrTx: DbOrTx, organizationId: OrganizationId): Promise<OrganizationEventRow[]> {
   const rows = await dbOrTx.select({
@@ -190,6 +198,7 @@ export async function listOrganizationEventsForUserIn(
     startsAt: events.startsAt,
     endsAt: events.endsAt,
     eventRole: eventMembers.role,
+    isDemo: events.isDemo,
   })
     .from(events)
     .leftJoin(eventMembers, and(eq(eventMembers.eventId, events.id), eq(eventMembers.userId, userId)))
@@ -202,6 +211,7 @@ export async function listOrganizationEventsForUserIn(
     startsAt: row.startsAt.toISOString(),
     endsAt: row.endsAt.toISOString(),
     eventRole: row.eventRole,
+    isDemo: row.isDemo,
   }));
 }
 export const listOrganizationEventsForUser = (organizationId: OrganizationId, userId: UserId): Promise<OrganizationEventAccessRow[]> =>

@@ -86,6 +86,12 @@ export type PublicEvent = {
   location: string | null;
   startsAt: Date | string;
   endsAt: Date | string;
+  // First Fair (design §5.1) — additive: `/api/v1`'s response contract is
+  // unchanged for everything else in this PR. A judge script or integration
+  // that does not know this field exists keeps working exactly as before;
+  // one that does can filter a demo event out for itself. Default-filtering
+  // it out of every `/api/v1` result set is a stated follow-on, not this PR.
+  isDemo: boolean;
 };
 
 export function publicEventDto(event: PublicEvent) {
@@ -98,6 +104,7 @@ export function publicEventDto(event: PublicEvent) {
     location: event.location,
     startsAt: new Date(event.startsAt).toISOString(),
     endsAt: new Date(event.endsAt).toISOString(),
+    isDemo: event.isDemo,
   };
 }
 
@@ -117,6 +124,7 @@ export async function resolvePublicEvent(slug: string): Promise<PublicEvent | nu
       location: events.location,
       startsAt: events.startsAt,
       endsAt: events.endsAt,
+      isDemo: events.isDemo,
     })
     .from(events)
     .where(eq(events.slug, slug))

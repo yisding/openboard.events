@@ -17,7 +17,15 @@ const migration1 = readFileSync(new URL("../../drizzle/0001_views_triggers.sql",
 // aligned with the columns the repository modules now read.
 const migrationReviewOps = readFileSync(new URL("../../drizzle/0004_review_operations.sql", import.meta.url), "utf8");
 const migrationPublicScheduleRevision = readFileSync(new URL("../../drizzle/0034_public_schedule_revision.sql", import.meta.url), "utf8");
+// First Fair added `events.is_demo`, which `resolveEventBySlug` now names on
+// every `select()` it runs — this fixture needs 0047 even though it never
+// touches a demo event, the same reason `public-ics.test.ts` needed it. 0047
+// also widens 0023's milestone CHECK (which itself needs organization tenancy
+// for `organizations`' FK), so both of those have to be present too.
+const migrationOrganizationTenancy = readFileSync(new URL("../../drizzle/0010_organization_tenancy.sql", import.meta.url), "utf8");
+const migrationOnboardingMilestones = readFileSync(new URL("../../drizzle/0023_onboarding_milestones.sql", import.meta.url), "utf8");
 const migrationSubmissionStatusViews = readFileSync(new URL("../../drizzle/0045_public_views_submission_status.sql", import.meta.url), "utf8");
+const migrationDemoEvents = readFileSync(new URL("../../drizzle/0047_demo_events_and_tour.sql", import.meta.url), "utf8");
 
 const eventId = "a1000000-0000-4000-8000-000000000001";
 const otherEventId = "a1000000-0000-4000-8000-000000000002";
@@ -56,7 +64,10 @@ describe("public schedule + speaker gallery published-view queries", () => {
     await pglite.exec(migration1);
     await pglite.exec(migrationReviewOps);
     await pglite.exec(migrationPublicScheduleRevision);
+    await pglite.exec(migrationOrganizationTenancy);
+    await pglite.exec(migrationOnboardingMilestones);
     await pglite.exec(migrationSubmissionStatusViews);
+    await pglite.exec(migrationDemoEvents);
     db = drizzle(pglite, { schema }) as unknown as DbOrTx;
 
     // PDT (UTC-7) in September: a session starting 2026-09-16T05:30:00Z is

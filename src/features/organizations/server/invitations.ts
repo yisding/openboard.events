@@ -208,12 +208,21 @@ export async function inviteEventReviewerIn(
   const [target] = await dbOrTx.select({
     organizationId: events.organizationId,
     eventName: events.name,
+    isDemo: events.isDemo,
   }).from(events).innerJoin(eventMembers, and(
     eq(eventMembers.eventId, events.id),
     eq(eventMembers.userId, invitedByUserId),
     inArray(eventMembers.role, ["owner", "organizer"]),
   )).where(eq(events.id, eventId)).limit(1);
   if (!target) throw new AppError("FORBIDDEN", "Only an event organizer can invite reviewers");
+  // A demo event's mail is suppressed at the dispatcher, but a reviewer
+  // invitation is written to `admin_auth_email_outbox` — the *other* outbox,
+  // which the comms context guard never sees. Refusing here rather than
+  // skipping there is deliberate: the organizer learns immediately, instead of
+  // a stranger's invitation vanishing into a log row nobody reads.
+  if (target.isDemo) {
+    throw new AppError("VALIDATION", "The demo event cannot invite reviewers — nothing in it is allowed to send mail");
+  }
 
   const email = input.email.trim().toLowerCase();
   const [existing] = await dbOrTx.select({ userId: eventMembers.userId })

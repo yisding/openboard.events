@@ -7,6 +7,7 @@ import type { SubmissionListRow, SubmissionStatus } from "@/shared/contracts";
 import type { NotifyPreview } from "@/features/submissions";
 import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
+import { emitTourSignal } from "@/shared/ui/app/guided-tour/signals";
 import { STATUS_BADGES, type StatusBadgeValue } from "@/shared/ui/status-badge";
 import { Button } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
@@ -301,6 +302,11 @@ export function DecisionBar({
         ? "Nothing was queued to notify"
         : `${decided} decided · ${emailsQueued} email${emailsQueued === 1 ? "" : "s"} queued`
           + (skippedNoRecipient.length > 0 ? ` · ${skippedNoRecipient.length} had no recipient` : ""));
+      // A latency shortcut for the guided tour and nothing more: it asks the
+      // tour to look at the world now instead of on its next poll. Objectives
+      // are still decided server-side, so deleting this line costs at most two
+      // seconds and changes no outcome.
+      emitTourSignal("submissions.decisions-notified");
       onDone();
       router.refresh();
       setConfirmingNotify(false);
@@ -328,7 +334,10 @@ export function DecisionBar({
       </>}
       {...(pendingNotify > 0 ? { emptyNote: <span>{pendingNotify} decision email{pendingNotify === 1 ? " is" : "s are"} ready to send</span> } : {})}
       {...(pendingNotify > 0 ? {
-        trailing: <Button disabled={busy || previewing} onClick={() => void openNotifyPreflight()}>{busy ? "Queuing…" : previewing ? "Preparing…" : `Send ${pendingNotify} decision email${pendingNotify === 1 ? "" : "s"}`}</Button>,
+        // `data-tour`: three sibling `Button`s live in this bar and the label
+        // carries a count, so neither a selector nor an accessible name can
+        // address this one on its own.
+        trailing: <Button data-tour="abstracts.decision-notify" disabled={busy || previewing} onClick={() => void openNotifyPreflight()}>{busy ? "Queuing…" : previewing ? "Preparing…" : `Send ${pendingNotify} decision email${pendingNotify === 1 ? "" : "s"}`}</Button>,
       } : {})}
     />
     <ConfirmDialog

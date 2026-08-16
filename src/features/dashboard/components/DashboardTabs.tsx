@@ -13,9 +13,32 @@ import { AttentionQueue } from "./AttentionQueue";
 import { MilestoneBanner } from "./MilestoneBanner";
 import { SpeakerTrackingPanel } from "./SpeakerTrackingPanel";
 import { TodayPanel } from "./TodayPanel";
+import { TourResumeCard } from "./TourResumeCard";
 import { WidgetBoundary } from "./WidgetBoundary";
 
 export type DashboardTab = "today" | "speakers";
+
+/**
+ * First Fair (design §3.9) — everything the dashboard needs to know about a
+ * guided tour, and nothing more.
+ *
+ * The dashboard has no business knowing what a demo event is, so the route
+ * module resolves the cursor and hands down this flat shape. `resume` present
+ * means "the tutorial is waiting and this slot is its"; `tourHref` present on
+ * a **real** event means "this organizer has never finished the tour and the
+ * launch guide may offer it".
+ */
+export type DashboardTourState = {
+  /** Suppresses the milestone banner and the launch guide: one voice at a time. */
+  isDemo: boolean;
+  /**
+   * Present when the tutorial owes the organizer a way back in: it is paused,
+   * or it is running on a cursor the engine cannot draw a card for (`stranded`),
+   * which is the one case where an *active* tour leaves the screen empty.
+   */
+  resume?: { chapter: string; stepId: string; chapterLabel: string; percent: number; resumeHref: string; stranded?: true };
+  tourHref?: string;
+};
 
 export function DashboardTabNav({ eventId, active }: { eventId: EventId; active: DashboardTab }) {
   return <nav className="dashboard-tabs" aria-label="Dashboard sections">
@@ -29,6 +52,8 @@ type DashboardTabsProps = {
   initialTab: DashboardTab;
   firstName: string;
   live?: boolean;
+  /** Absent on every event that has no tutorial to speak of, which is most of them. */
+  tour?: DashboardTourState;
   /** Used only to hydrate the query boundary; the live view never receives a second prop copy. */
   serverOverview: DashboardOverview;
 };
@@ -38,7 +63,7 @@ export function DashboardTabs({ serverOverview, ...props }: DashboardTabsProps) 
   return <QueryBoundary seeds={seeds}><DashboardTabsInner {...props} /></QueryBoundary>;
 }
 
-function DashboardTabsInner({ eventId, initialTab, firstName, live = true }: Omit<DashboardTabsProps, "serverOverview">) {
+function DashboardTabsInner({ eventId, initialTab, firstName, live = true, tour }: Omit<DashboardTabsProps, "serverOverview">) {
   const query = useDashboardOverview(eventId, live);
   if (!query.data) return <DashboardLoadError />;
   return <DashboardTabsView
@@ -50,10 +75,11 @@ function DashboardTabsInner({ eventId, initialTab, firstName, live = true }: Omi
     live={live}
     onRetry={() => void query.refetch()}
     overview={query.data}
+    {...(tour ? { tour } : {})}
   />;
 }
 
-export function DashboardTabsView({ eventId, firstName, initialTab, isError = false, isFetching = false, live = true, onRetry = () => undefined, overview }: {
+export function DashboardTabsView({ eventId, firstName, initialTab, isError = false, isFetching = false, live = true, onRetry = () => undefined, overview, tour }: {
   eventId: EventId;
   firstName: string;
   initialTab: DashboardTab;
@@ -62,6 +88,7 @@ export function DashboardTabsView({ eventId, firstName, initialTab, isError = fa
   live?: boolean;
   onRetry?: () => void;
   overview: DashboardOverview;
+  tour?: DashboardTourState;
 }) {
   const phase = computeEventPhase(overview);
   return <div className="dashboard-page dashboard-live">
@@ -76,8 +103,16 @@ export function DashboardTabsView({ eventId, firstName, initialTab, isError = fa
         ongoing work. Milestones and the launch guide are dashboard content,
         not peers of the event heading or priority queue, so both follow the
         primary navigation. */}
-    <WidgetBoundary name="milestones"><MilestoneBanner eventId={eventId} overview={overview} /></WidgetBoundary>
-    <WidgetBoundary name="activation"><ActivationGuide overview={overview} /></WidgetBoundary>
+    {/* First Fair (design §3.9) — on a demo event the tutorial owns this
+        slot outright. The milestone banner and the launch guide exist to
+        activate a *real* event, and three onboarding voices talking over each
+        other is worse than any one of them alone. */}
+    {!tour?.isDemo && <WidgetBoundary name="milestones"><MilestoneBanner eventId={eventId} overview={overview} /></WidgetBoundary>}
+    {tour?.resume
+      ? <WidgetBoundary name="activation"><TourResumeCard eventId={eventId} {...tour.resume} /></WidgetBoundary>
+      : <WidgetBoundary name="activation">
+        <ActivationGuide overview={overview} isDemo={tour?.isDemo ?? false} demoTourHref={tour?.tourHref ?? null} />
+      </WidgetBoundary>}
     {initialTab === "speakers" ? <SpeakerTrackingPanel overview={overview} /> : <TodayPanel overview={overview} firstName={firstName} phase={phase} />}
   </div>;
 }

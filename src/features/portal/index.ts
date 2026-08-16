@@ -77,6 +77,20 @@ export {
   saveTaskInputSchema,
 } from "./tasks-admin/server/mutations";
 
+// M26 — resource/wiki pages. `resources/index.ts` kept its own barrel because
+// only its own route files consumed it; First Fair's demo provisioner is the
+// first caller from another feature, and `architecture:check` recognizes only
+// a top-level `index.ts` as a public entrypoint. The `dbOrTx` writers are
+// re-exported rather than the db-bound wrappers, because provisioning phases
+// run inside a transaction. Reads stay where they are — nothing outside this
+// feature lists resource pages.
+export type { SaveResourcePageInput } from "./resources/server/mutations";
+export {
+  createResourcePageIn,
+  saveResourcePageIn,
+  saveResourcePageInputSchema,
+} from "./resources/server/mutations";
+
 // M27 — Speakers admin. Every count comes off the read-model views
 // (resolution #14's fan-out rule, consumed not re-derived); both writes go
 // through `updateContactFields` above (resolution #13).

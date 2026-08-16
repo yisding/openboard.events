@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { CalendarDays, ClipboardCheck, Search, Sparkles, Users, Zap } from "lucide-react";
+import { CalendarDays, ClipboardCheck, Compass, Search, Sparkles, Users, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { MemberRole } from "@/shared/contracts";
 import { isSameNavigationDestination, useGuardedAction } from "@/shared/ui/app/unsaved-work-guard";
@@ -26,6 +26,37 @@ import {
  * "Fewer steps" §1: the palette is the road, the sidebar stays the map.
  */
 type Verb = { id: string; label: string; hint: string; href: string };
+
+/**
+ * A verb the shell supplies rather than the palette owning.
+ *
+ * First Fair (design §1.3, §3.6): the guided tour's *Explore*, *Resume* and
+ * *Restart* are the palette's only host-provided entries, and two of them do
+ * more than navigate — resuming a paused tutorial has to move a server-side
+ * cursor before the browser goes anywhere. `destination` is still required, so
+ * the unsaved-work guard can name where the organizer is about to end up
+ * either way.
+ */
+export type CommandPaletteAction = {
+  id: string;
+  label: string;
+  hint: string;
+  destination: string;
+  /** Runs instead of a plain push. It owns the navigation to `destination`. */
+  run?: () => void;
+  /**
+   * Set when `run` ends in a real document load (`location.assign`) rather
+   * than a router push, and especially when it does so *asynchronously*.
+   *
+   * The router-level one-shot allowance is granted and consumed by the
+   * `navigate` event; a hard unload that lands ticks later would then find
+   * `beforeunload` unguarded and raise a native "Leave site?" on an organizer
+   * who has already confirmed "Discard changes" in-app — and cancelling it
+   * would leave the server-side cursor moved while the page stayed put. This
+   * is the same allowance the sign-out button asks for.
+   */
+  hardUnload?: boolean;
+};
 
 function verbsForRole(base: string, role: MemberRole): Verb[] {
   if (role === "reviewer") {
@@ -57,7 +88,7 @@ const RESULT_LABEL: Record<SearchResultType, string> = {
   session: "Session",
 };
 
-type PaletteItem = { key: string; icon: LucideIcon; label: string; hint: string; href: string };
+type PaletteItem = { key: string; icon: LucideIcon; label: string; hint: string; href: string; run?: () => void; hardUnload?: boolean };
 
 // Easter eggs: everyone types something silly into a new command palette
 // sooner or later, and the classics should be rewarded. Each egg's item only
@@ -80,14 +111,28 @@ export function paletteEggsForQuery(query: string): PaletteItem[] {
   return PALETTE_EGGS.filter((egg) => egg.terms.some((trigger) => term.includes(trigger))).map((egg) => egg.item);
 }
 
-function toItems(verbs: Verb[], results: SearchResult[]): PaletteItem[] {
+function toItems(verbs: Verb[], actions: readonly CommandPaletteAction[], results: SearchResult[]): PaletteItem[] {
   return [
     ...verbs.map((verb) => ({ key: `verb:${verb.id}`, icon: Zap, label: verb.label, hint: verb.hint, href: verb.href })),
+    ...actions.map((action) => ({
+      key: `action:${action.id}`,
+      icon: Compass,
+      label: action.label,
+      hint: action.hint,
+      href: action.destination,
+      ...(action.run ? { run: action.run } : {}),
+      ...(action.hardUnload ? { hardUnload: true } : {}),
+    })),
     ...results.map((result) => ({ key: `${result.type}:${result.id}`, icon: RESULT_ICON[result.type], label: result.label, hint: searchResultHint(RESULT_LABEL[result.type], result), href: result.href })),
   ];
 }
 
-export function PaletteDialog({ eventId, base, role, onClose }: { eventId: string; base: string; role: MemberRole; onClose: () => void }) {
+/** Host verbs filter by label the same way the built-in ones do. */
+function filterByLabel<T extends { label: string }>(entries: readonly T[], term: string): T[] {
+  return term ? entries.filter((entry) => entry.label.toLowerCase().includes(term)) : [...entries];
+}
+
+export function PaletteDialog({ eventId, base, role, actions = [], onClose }: { eventId: string; base: string; role: MemberRole; actions?: readonly CommandPaletteAction[]; onClose: () => void }) {
   const router = useRouter();
   const { toast } = useToast();
   const { runGuarded, allowNextNavigation } = useGuardedAction();
@@ -128,10 +173,8 @@ export function PaletteDialog({ eventId, base, role, onClose }: { eventId: strin
    */
   const entitySearch = role !== "reviewer";
   const verbs = useMemo(() => verbsForRole(base, role), [base, role]);
-  const filteredVerbs = useMemo(() => {
-    const term = query.trim().toLowerCase();
-    return term ? verbs.filter((verb) => verb.label.toLowerCase().includes(term)) : verbs;
-  }, [verbs, query]);
+  const filteredVerbs = useMemo(() => filterByLabel(verbs, query.trim().toLowerCase()), [verbs, query]);
+  const filteredActions = useMemo(() => filterByLabel(actions, query.trim().toLowerCase()), [actions, query]);
 
   // Debounced — every keystroke firing a request against the event's
   // submissions/contacts/sessions would be wasteful and would race itself;
@@ -174,10 +217,10 @@ export function PaletteDialog({ eventId, base, role, onClose }: { eventId: strin
       : term.length >= 2 ? loadingCommandPaletteSearch(term) : idleCommandPaletteSearch(term);
 
   const items = useMemo(() => {
-    const list = toItems(filteredVerbs, currentSearchState.results);
+    const list = toItems(filteredVerbs, filteredActions, currentSearchState.results);
     list.push(...paletteEggsForQuery(query));
     return list;
-  }, [filteredVerbs, currentSearchState.results, query]);
+  }, [filteredVerbs, filteredActions, currentSearchState.results, query]);
   const activeOptionId = items[activeIndex] ? `${listboxId}-option-${activeIndex}` : undefined;
   useEffect(() => setActiveIndex(0), [items.length]);
   const feedback = commandPaletteSearchFeedback(currentSearchState, items.length, { entitySearch });
@@ -190,14 +233,19 @@ export function PaletteDialog({ eventId, base, role, onClose }: { eventId: strin
       onClose();
       return;
     }
-    if (isSameNavigationDestination(item.href, window.location.href)) {
+    // A host action owns the trip itself — resuming a guided tour has to move
+    // a server-side cursor before the browser goes anywhere — so "you are
+    // already there" is not a reason to skip it.
+    const run = item.run;
+    if (!run && isSameNavigationDestination(item.href, window.location.href)) {
       onClose();
       return;
     }
     runGuarded(() => allowNextNavigation(() => {
-      router.push(item.href);
+      if (run) run();
+      else router.push(item.href);
       onClose();
-    }, { destination: item.href }));
+    }, item.hardUnload ? { hardUnload: true, destination: item.href } : { destination: item.href }));
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -289,7 +337,7 @@ export function PaletteDialog({ eventId, base, role, onClose }: { eventId: strin
   );
 }
 
-export function CommandPalette({ eventId, base, role }: { eventId: string; base: string; role: MemberRole }) {
+export function CommandPalette({ eventId, base, role, actions }: { eventId: string; base: string; role: MemberRole; actions?: readonly CommandPaletteAction[] }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
@@ -319,7 +367,7 @@ export function CommandPalette({ eventId, base, role }: { eventId: string; base:
       <button ref={triggerRef} type="button" className="search-trigger" aria-label="Search anything" onClick={() => setOpen(true)}>
         <Search size={17} /><span>Search anything</span><kbd>⌘ K</kbd>
       </button>
-      {open && <PaletteDialog eventId={eventId} base={base} role={role} onClose={close} />}
+      {open && <PaletteDialog eventId={eventId} base={base} role={role} {...(actions ? { actions } : {})} onClose={close} />}
     </>
   );
 }

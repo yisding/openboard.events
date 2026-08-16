@@ -1,9 +1,14 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { PublicItinerary } from "@/features/public/public-itinerary";
-import { getPublishedSchedule } from "@/features/public/server/public-queries";
+import { getPublicEventIsDemo, getPublishedSchedule } from "@/features/public/server/public-queries";
 
-export const metadata: Metadata = { title: "My schedule" };
+/** First Fair (design §6.3) — see `agenda/page.tsx`'s identical comment. */
+export async function generateMetadata({ params }: { params: Promise<{ eventSlug: string }> }): Promise<Metadata> {
+  const { eventSlug } = await params;
+  const isDemo = await getPublicEventIsDemo(eventSlug);
+  return { title: "My schedule", ...(isDemo ? { robots: { index: false, follow: false } } : {}) };
+}
 
 /** Same cache contract as every other public surface — see sessions/page.tsx. */
 export const revalidate = 60;

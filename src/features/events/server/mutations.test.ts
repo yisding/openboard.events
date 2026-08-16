@@ -41,6 +41,13 @@ const migrationUserManagement = readFileSync(new URL("../../../../drizzle/0011_u
 // Manual agenda creates now atomically consume their caller-owned id in a
 // durable receipt, so the event/session bounds race exercises this migration.
 const migrationAgendaCreationReceipts = readFileSync(new URL("../../../../drizzle/0031_agenda_session_creation_receipts.sql", import.meta.url), "utf8");
+// First Fair added `events.is_demo`, which `createEventIn` now names on every
+// insert (same reasoning as `migrationTenancy` above) and which this suite
+// asserts on directly. 0044 also widens 0023's milestone CHECK, so that
+// migration has to be in the fixture for the ALTER to have a constraint to
+// replace.
+const migrationOnboardingMilestones = readFileSync(new URL("../../../../drizzle/0023_onboarding_milestones.sql", import.meta.url), "utf8");
+const migrationDemoEvents = readFileSync(new URL("../../../../drizzle/0047_demo_events_and_tour.sql", import.meta.url), "utf8");
 
 function baseInput(overrides: Partial<Parameters<typeof createEventIn>[2]> = {}) {
   return {
@@ -77,6 +84,8 @@ describe("database-backed event mutations", () => {
     await pglite.exec(migrationTenancy);
     await pglite.exec(migrationUserManagement);
     await pglite.exec(migrationAgendaCreationReceipts);
+    await pglite.exec(migrationOnboardingMilestones);
+    await pglite.exec(migrationDemoEvents);
     database = drizzle(pglite, { schema }) as unknown as DbOrTx;
     const [user] = await database.insert(schema.users).values({ email: "organizer@test.dev", name: "Test Organizer" }).returning();
     actorUserId = userIdSchema.parse(user?.id);
@@ -122,6 +131,28 @@ describe("database-backed event mutations", () => {
     const unscoped = await createEventIn(database, actorUserId, baseInput({ name: "Default Conf", slug: "default-conf" }));
     const unscopedRow = await pglite.query<{ organization_id: string }>("SELECT organization_id FROM events WHERE id=$1", [unscoped.id]);
     expect(unscopedRow.rows[0]?.organization_id).toBe(DEFAULT_ORGANIZATION_ID);
+  });
+
+  /**
+   * First Fair — `is_demo` is set inside the INSERT from a server-only options
+   * argument, so a demo event cannot exist unflagged for even one instant (the
+   * comms dispatcher's suppression guard hangs off that column), and the flag
+   * has no HTTP surface at all. The companion assertion — that
+   * `createEventInputSchema` has no `isDemo` key, so a POST body cannot supply
+   * one — lives in `../schemas.test.ts` beside the schema it protects.
+   */
+  it("marks an event as a demo only when the server-only option asks, never by default", async () => {
+    const demo = await createEventIn(database, actorUserId, baseInput({ name: "Demo Conf", slug: "demo-conf" }), undefined, { isDemo: true });
+    const demoRow = await pglite.query<{ is_demo: boolean }>("SELECT is_demo FROM events WHERE id=$1", [demo.id]);
+    expect(demoRow.rows[0]?.is_demo).toBe(true);
+
+    const plain = await createEventIn(database, actorUserId, baseInput({ name: "Real Conf", slug: "real-conf" }));
+    const plainRow = await pglite.query<{ is_demo: boolean }>("SELECT is_demo FROM events WHERE id=$1", [plain.id]);
+    expect(plainRow.rows[0]?.is_demo).toBe(false);
+
+    const explicitlyFalse = await createEventIn(database, actorUserId, baseInput({ name: "Also Real", slug: "also-real" }), undefined, {});
+    const explicitRow = await pglite.query<{ is_demo: boolean }>("SELECT is_demo FROM events WHERE id=$1", [explicitlyFalse.id]);
+    expect(explicitRow.rows[0]?.is_demo).toBe(false);
   });
 
   it("rejects a reserved slug", async () => {

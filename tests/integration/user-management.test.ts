@@ -55,6 +55,10 @@ const MIGRATIONS = [
   "0016_speaker_moments",
   "0022_admin_auth_email_outbox", "0025_platform_invitation_email",
   "0029_event_reviewer_invitations", "0041_stable_user_contact_links",
+  // First Fair: `events.is_demo`, which the reviewer-invitation demo barrier
+  // reads on both the writer and the dispatcher side. 0023 comes with it
+  // because 0044 widens that table's milestone CHECK.
+  "0023_onboarding_milestones", "0047_demo_events_and_tour",
 ];
 
 const eventId = eventIdSchema.parse("e4400000-0000-4000-8000-000000000001");
@@ -715,6 +719,60 @@ describe("M44 user management", () => {
         expect(skipped).toMatchObject({ status: "skipped", error: "organization invitation is no longer pending" });
         expect(skipped?.secretPayloadCiphertext).toBeNull();
       } finally {
+        await pglite.query("DELETE FROM organizations WHERE id=$1", [org.id]);
+      }
+    });
+
+    /**
+     * First Fair — the *second* outbox. `buildContext`'s `is_demo` guard only
+     * covers `communication_logs`; a reviewer invitation is written to
+     * `admin_auth_email_outbox` and drained here, so the demo barrier needs
+     * its own two halves on this path: a writer that refuses, and a dispatcher
+     * that would refuse anyway.
+     */
+    it("never sends a reviewer invitation for a demo event, from either end", async () => {
+      const org = await createOrganizationIn(db, ownerId, { name: "Demo Mail Co", slug: "demo-mail-co" });
+      const demoEventId = eventIdSchema.parse("e4400000-0000-4000-8000-000000000097");
+      await pglite.query(
+        `INSERT INTO events(id,organization_id,name,slug,starts_at,ends_at,is_demo)
+         VALUES($1,$2,'AI Engineer World''s Fair 2026','demo-mail-co-demo','2026-10-15T16:00:00Z','2026-10-17T01:00:00Z',true)`,
+        [demoEventId, org.id],
+      );
+      await pglite.query("INSERT INTO event_members(user_id,event_id,role) VALUES($1,$2,'owner')", [ownerId, demoEventId]);
+      const sendEnv = parseEnv({
+        ...env,
+        EMAIL_MODE: "send",
+        EMAIL_FALLBACK_UI: "0",
+        EMAIL_FROM: "Openboard <hello@example.com>",
+        RESEND_API_KEY: "re_test",
+      });
+      try {
+        // The writer refuses, loudly, rather than minting a row that would
+        // vanish into the log with a reason nobody reads.
+        await expect(testDb.transaction((tx) => inviteEventReviewerIn(
+          tx as unknown as TxDb,
+          demoEventId,
+          ownerId,
+          { email: "real.stranger@example.com" },
+          sendEnv,
+        ))).rejects.toMatchObject({ code: "VALIDATION" });
+        expect(await db.select().from(adminAuthEmailOutbox)
+          .where(eq(adminAuthEmailOutbox.recipientEmail, "real.stranger@example.com"))).toEqual([]);
+
+        // And the dispatcher refuses behind it: an invitation naming a demo
+        // event that reached the outbox some other way — an older build, a
+        // future writer — still never reaches the provider.
+        const { invitation } = await inviteForTest(org.id, ownerId, { email: "smuggled@example.com", role: "reviewer" });
+        await pglite.query("UPDATE organization_invitations SET event_id=$2 WHERE id=$1", [invitation.id, demoEventId]);
+        const sender = vi.fn().mockResolvedValue("must-not-send");
+        const stats = await dispatchAdminAuthEmailOutboxIn(db, 10, { env: sendEnv, sender });
+        expect(stats).toMatchObject({ claimed: 1, sent: 0, skipped: 1 });
+        expect(sender).not.toHaveBeenCalled();
+        const [skipped] = await db.select().from(adminAuthEmailOutbox)
+          .where(eq(adminAuthEmailOutbox.recipientEmail, "smuggled@example.com"));
+        expect(skipped).toMatchObject({ status: "skipped", error: "demo event — mail is never delivered" });
+      } finally {
+        await pglite.query("DELETE FROM events WHERE id=$1", [demoEventId]);
         await pglite.query("DELETE FROM organizations WHERE id=$1", [org.id]);
       }
     });

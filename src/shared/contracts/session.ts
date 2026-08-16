@@ -113,6 +113,11 @@ export const publishedScheduleDtoSchema = z.object({
     accentColor: z.string().nullable(),
     logoUrl: z.string().nullable(),
     backgroundUrl: z.string().nullable(),
+    // First Fair (design §6.3). The public read every one of the five `/e/`
+    // pages and their embeds already perform — `generateMetadata` reads this
+    // field off the same fetch rather than opening a second query, and the
+    // shell reads it to render the "Sample event" ribbon.
+    isDemo: z.boolean().default(false),
   }),
   days: z.array(z.string()),
   sessions: z.array(publishedSessionDtoSchema),
@@ -151,6 +156,8 @@ export const publishedSpeakersDtoSchema = z.object({
     accentColor: z.string().nullable(),
     logoUrl: z.string().nullable(),
     backgroundUrl: z.string().nullable(),
+    // First Fair (design §6.3) — see `publishedScheduleDtoSchema`'s twin field.
+    isDemo: z.boolean().default(false),
   }),
   speakers: z.array(publishedSpeakerDtoSchema),
 });

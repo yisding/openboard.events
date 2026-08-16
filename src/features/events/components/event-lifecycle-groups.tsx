@@ -6,7 +6,7 @@ import { groupEventsByLifecycle, nextEventLifecycleRefreshMs } from "../event-li
 import { EventCard } from "./event-card";
 
 function EventGrid({ events }: { events: EventAccessDTO[] }) {
-  return <div className="event-grid">{events.map((event) => <EventCard key={event.id} event={event} eventRole={event.role} />)}</div>;
+  return <div className="event-grid">{events.map((event) => <EventCard key={event.id} event={event} eventRole={event.role} isDemo={event.isDemo} />)}</div>;
 }
 
 export function EventLifecycleGroups({ events, nowIso }: { events: EventAccessDTO[]; nowIso: string }) {

@@ -188,7 +188,11 @@ export function AbstractsTable({
       header: "Title",
       accessorKey: "title",
       cell: ({ row }) => (
-        <div className="submission-title-cell">
+        // First Fair: the tour needs to point at the first proposal. The `<tr>`
+        // belongs to the shared DataTable and the whole table sits behind a
+        // QueryBoundary, so the lead row's title cell carries the anchor —
+        // which is also the part of the row a spotlight should frame.
+        <div className="submission-title-cell" {...(row.index === 0 ? { "data-tour": "abstracts.row" } : {})}>
           <b>{row.original.title}</b>
           <Dash value={row.original.descriptionPlain}>
             <span>{row.original.descriptionPlain?.slice(0, 120)}</span>
