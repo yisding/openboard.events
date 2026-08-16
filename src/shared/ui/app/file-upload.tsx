@@ -171,17 +171,26 @@ export function FileUpload({
     setPhase("error");
   }
 
+  // "uploaded, but could not be saved" is only true when this component already
+  // published the bytes. When the association endpoint finalizes, a refusal may
+  // equally mean it rejected what landed and deleted it, so the copy stops
+  // claiming the file is safely stored — the caller's own toast carries the
+  // server's reason either way.
+  const associationFailed = associationFinalizes
+    ? "That did not go through. Try again, or choose another file."
+    : "The file uploaded, but could not be saved. Try again.";
+
   async function associate(fileId: string, meta: UploadedMeta) {
     setPhase("associating");
     try {
       const accepted = await onUploaded(fileId, meta);
-      if (accepted === false) throw new Error("The file uploaded, but could not be saved. Try again.");
+      if (accepted === false) throw new Error(associationFailed);
       setPendingAssociation(null);
       setUploaded({ fileId, meta });
       setPhase("done");
     } catch (associationError) {
       setPendingAssociation({ fileId, meta });
-      fail(associationError instanceof Error ? associationError.message : "The file uploaded, but could not be saved. Try again.");
+      fail(associationError instanceof Error ? associationError.message : associationFailed);
     }
   }
 

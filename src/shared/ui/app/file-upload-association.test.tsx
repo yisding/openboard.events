@@ -57,14 +57,14 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-async function pickInto(associationFinalizes: boolean) {
+async function pickInto(associationFinalizes: boolean, accept: (attempt: number) => boolean = () => true) {
   await act(async () => root.render(
     <FileUpload
       eventId="e1"
       kind="upload"
       fileRequestId="c4000000-0000-4000-8000-0000000000b1"
       associationFinalizes={associationFinalizes}
-      onUploaded={(fileId) => { uploadedWith.push(fileId); }}
+      onUploaded={(fileId) => { uploadedWith.push(fileId); return accept(uploadedWith.length); }}
     />,
   ));
   const input = container.querySelector<HTMLInputElement>('input[type="file"]');
@@ -96,5 +96,20 @@ describe("FileUpload — who finalizes", () => {
     expect(posted()).toEqual(["/api/uploads/presign"]);
     expect(putUrls).toEqual(["https://r2.example/staging/put"]);
     expect(uploadedWith).toEqual([FILE_ID]);
+  });
+
+  it("retries a refused association against the same staged file, without re-uploading it", async () => {
+    // The bytes are already in `staging/`; the only thing that failed is the
+    // request that would publish and record them. Re-presigning would abandon
+    // them and cost the speaker the upload a second time.
+    await pickInto(true, (attempt) => attempt > 1);
+    const retry = [...container.querySelectorAll("button")].find((button) => button.textContent === "Try saving again");
+    if (!retry) throw new Error("expected a retry for the failed association");
+    await act(async () => { retry.click(); });
+    await settle();
+
+    expect(uploadedWith).toEqual([FILE_ID, FILE_ID]);
+    expect(posted()).toEqual(["/api/uploads/presign"]);
+    expect(putUrls).toHaveLength(1);
   });
 });
