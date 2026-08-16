@@ -59,6 +59,7 @@ export {
   bulkSetPublishedIn,
   deleteSession,
   deleteSessionIn,
+  dischargeStrandedScheduleNoticesIn,
   moveSession,
   moveSessionInputSchema,
   moveSessionInTx,

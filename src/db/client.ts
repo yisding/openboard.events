@@ -79,7 +79,11 @@ export type DbOrTx = typeof db | TxDb;
  * Vocabulary deletion also keeps its target-row lock, JSON/array dependency
  * checks, embed cleanup, nullable foreign-key cleanup, and final delete in one
  * transaction (`src/features/events/server/vocab.ts`); migration 0040 gives
- * dependency writers the matching key-share side of that lock protocol.
+ * dependency writers the matching key-share side of that lock protocol. That
+ * transaction is opened by the DELETE route rather than the feature, because a
+ * room deletion must also enqueue the "schedule changed" notices for the
+ * published sessions it strands and the notifier lives in the agenda feature —
+ * committing the delete without them is #622, the stranded calendar invite.
  * Evaluation plan saves, reviewer-set replacements, and explicit-queue
  * replacements also use a transaction: they acquire the plan-row lock in one
  * statement, then run the snapshot-dependent graph change in a fresh statement

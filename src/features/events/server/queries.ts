@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { eventMembers, events, rooms, sessionFormats, tags, tracks } from "@/db/schema";
 import {
@@ -162,3 +162,48 @@ export async function getEventVocabularyIn(dbOrTx: DbOrTx, eventId: EventId): Pr
   return { tracks: trackRows, rooms: roomRows, formats: formatRows, tags: tagRows };
 }
 export const getEventVocabulary = (eventId: EventId) => getEventVocabularyIn(db, eventId);
+
+/**
+ * What the organizer is about to set in motion by deleting one room (#622).
+ *
+ * Rooms are the only vocabulary kind whose deletion is allowed *because* it has
+ * consequences rather than refused for having them: tracks and formats name
+ * their blockers and stop, but a room takes its sessions off the map and mails
+ * their speakers. D4 asks the confirm to say what is lost, and "some sessions"
+ * is not that.
+ *
+ * Read when the dialog opens rather than served with the room list, because the
+ * number an organizer is deciding on has to be the number at the moment of the
+ * decision — the settings tab can sit open across a whole afternoon of agenda
+ * edits in another window.
+ *
+ * `speakers` counts people, not messages: somebody speaking twice in this room
+ * receives one notice per session, but the sentence being built is "who finds
+ * out", and naming them twice reads as a bug in the count.
+ */
+export async function getRoomDeletionImpactIn(dbOrTx: DbOrTx, eventId: EventId, roomId: string): Promise<{
+  sessions: number; publishedSessions: number; speakers: number;
+}> {
+  const result = await dbOrTx.execute<{ sessions: number; published_sessions: number; speakers: number }>(sql`
+    WITH placed AS (
+      SELECT s.id, s.status::text = 'published' AND s.starts_at IS NOT NULL AS notifies
+      FROM sessions s
+      WHERE s.event_id = ${eventId} AND s.room_id = ${roomId}
+    )
+    SELECT
+      (SELECT count(*) FROM placed) AS sessions,
+      (SELECT count(*) FROM placed WHERE notifies) AS published_sessions,
+      (
+        SELECT count(DISTINCT ss.contact_id) FROM session_speakers ss
+        JOIN placed ON placed.id = ss.session_id
+        WHERE ss.event_id = ${eventId} AND placed.notifies
+      ) AS speakers
+  `);
+  const row = (result.rows ?? [])[0];
+  return {
+    sessions: Number(row?.sessions ?? 0),
+    publishedSessions: Number(row?.published_sessions ?? 0),
+    speakers: Number(row?.speakers ?? 0),
+  };
+}
+export const getRoomDeletionImpact = (eventId: EventId, roomId: string) => getRoomDeletionImpactIn(db, eventId, roomId);

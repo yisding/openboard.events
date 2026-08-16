@@ -244,7 +244,7 @@ regression, not a known exception.
 | CF-10 | Every shipped template (including `{{portal.magic_link}}`) validates and previews; Save is enabled | MTP-08, MTP-12 |
 | CF-11 | The tour reaches the Curtain Call; Escape on the command palette closes only the palette | MTP-18 §2 |
 | CF-12 | A throttled sign-in names the throttle and its window, not "Invalid email or password" | MTP-02, MTP-17 §4 |
-| CF-13 | Audit-log invite/revoke rows name the invitee; actor/action filters exist; room-delete confirm copy is room-specific | MTP-13, MTP-16 §3 |
+| CF-13 | Audit-log invite/revoke rows name the invitee; actor/action filters exist; the room-delete confirm is room-specific and counts the sessions and speakers that delete will reach | MTP-13, MTP-16 §3 |
 | CF-14 | An owner can export org data; a contact can be erased behind a type-the-name confirm whose copy names exactly what is deleted | MTP-13 |
 | CF-15 | CRM tags, custom fields, and merge-recovery are reachable from the UI; a tag+custom-field segment resolves correctly | MTP-13 |
 | CF-16 | Signed-out requests to `/api/uploads/<id>/download-url` for a real and a fake id return a byte-identical 401 | MTP-17 §1 |
@@ -1406,9 +1406,9 @@ rooms — without silently invalidating what has already been built on top of it
 | 13 | Delete a **track** that a form's routing or visibility rule references, or that an evaluation round is scoped to | Refused, naming *where* it is still used — forms and rounds by name, not a count |
 | 14 | Delete a **format** that is still in use | Refused the same way |
 | 15 | Clear those references, then delete the track and the format | They go, and nothing that referenced them is left pointing at a dead id |
-| 16 | Delete a **room** that has sessions in it, including one that is published and timed | Allowed, and it cascades in one statement: those sessions lose their room, the published-and-timed ones advance their schedule revision exactly once, and the room disappears from any embed's filter. Confirm each of the three |
-| 17 | Drain the outbox after step 16, then open the affected speaker's calendar item | **No mail is sent by the deletion itself** — see Known gaps. The speaker's invite still names a room that no longer exists until that session is next saved, which is when the advanced revision finally ships. Record whether the organizer was warned before deleting (D4) |
-| 17a | Save one of those sessions and drain again | *Now* a **Schedule changed** message goes out, carrying the room's absence — one per speaker, not a duplicate invite (MTP-12 step 18) |
+| 16 | Delete a **room** that has sessions in it, including one that is published and timed | The confirm names the cost before you commit to it: how many sessions lose the room, how many of those are published, and how many speakers that means emailing (D4). Then it cascades in one statement: those sessions lose their room, the published-and-timed ones advance their schedule revision exactly once, and the room disappears from any embed's filter. Confirm the count matched, then each of the three |
+| 17 | Drain the outbox after step 16, then open the affected speaker's calendar item | A **Schedule changed** message per speaker on a published, timed session — sent by the deletion itself, with nobody having resaved anything — and the invite no longer names the deleted room. A draft in the same room mails nobody |
+| 17a | Save one of those sessions and drain again | **Nothing new goes out.** The debt was settled by the deletion, and the schedule has not moved since; a second message here is a duplicate invite (MTP-12 step 18), which is the failure this step exists to catch |
 | 18 | Delete a **tag** that is applied to submissions | Record what happens; a tag that vanishes from the vocabulary but survives on rows is a data finding |
 | 19 | Rename a track that is on a published session | The public pages show the new name without needing a redeploy |
 
@@ -1429,19 +1429,20 @@ surface. Specifically: **D4** on every deletion in §3 — each must name what i
 survives; **D9** on the date and timezone fields; **D2** on the one-time secret display (it is
 useless if it can be dismissed by accident with no way back).
 
-**Known gaps.** Deleting a room advances the schedule revision of every published, timed session
-it strands but does not enqueue anything: the notification path belongs to the agenda's own save,
-which this statement does not go through. Until a session is saved again, its speakers hold a
-calendar item naming a deleted room. Tracked as
-[#622](https://github.com/yisding/openboard.events/issues/622); steps 17 and 17a keep it visible —
-confirm it still behaves this way rather than filing a duplicate.
+**Closed gap, still worth watching.** Deleting a room used to advance the schedule revision of
+every published, timed session it stranded and enqueue nothing, leaving those speakers holding a
+calendar item that named a deleted room until somebody happened to resave the session
+([#622](https://github.com/yisding/openboard.events/issues/622)). The DELETE route now commits the
+cascade and the speaker notices in one transaction, and the confirm counts the damage first. Steps
+16–17a are the regression check: the failure it replaced was silent on every screen, so a run that
+skips them proves nothing.
 
 ### Exit criteria
 
 Steps 5a, 6 and 8 (an event's shape cannot be changed out from under its schedule, whatever the
-client sends), 13–16 (a vocabulary deletion either refuses or cleans up after itself, and never
-leaves a dangling reference), and 20–22 (a secret is shown once and a retry does not mint a
-second).
+client sends), 13–17a (a vocabulary deletion either refuses or cleans up after itself, never leaves
+a dangling reference, and tells the speakers it affected — once), and 20–22 (a secret is shown once
+and a retry does not mint a second).
 
 ---
 

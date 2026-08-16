@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canDeleteVocabItem, restoreFailedVocabDeletion, restoreVocabItemAtIndex, restoreVocabOrder } from "./vocab-state";
+import { canDeleteVocabItem, restoreFailedVocabDeletion, restoreVocabItemAtIndex, restoreVocabOrder, roomDeletionImpactCopy } from "./vocab-state";
 
 describe("restoreVocabItemAtIndex", () => {
   it("puts a failed middle deletion back at its original position", () => {
@@ -44,5 +44,31 @@ describe("canDeleteVocabItem", () => {
   it("blocks deletion while a reorder mutation is pending", () => {
     expect(canDeleteVocabItem(true)).toBe(false);
     expect(canDeleteVocabItem(false)).toBe(true);
+  });
+});
+
+describe("roomDeletionImpactCopy", () => {
+  const ready = (sessions: number, publishedSessions: number, speakers: number) =>
+    roomDeletionImpactCopy({ status: "ready", impact: { sessions, publishedSessions, speakers } });
+
+  it("promises mail exactly when mail is actually sent", () => {
+    // The one distinction the organizer is deciding on: an empty or unpublished
+    // room is a private edit, a published one reaches other people's calendars.
+    expect(ready(0, 0, 0)).toContain("Nothing is scheduled");
+    expect(ready(2, 0, 0)).toContain("no one is emailed");
+    // Placed and published, but nobody is assigned to speak in them yet.
+    expect(ready(2, 2, 0)).toContain("no one is emailed");
+    expect(ready(3, 2, 4)).toContain("4 speakers will be emailed");
+  });
+
+  it("counts in whole sentences rather than pluralized fragments", () => {
+    expect(ready(1, 1, 1)).toBe("1 session loses its room. It is published, so 1 speaker will be emailed that the schedule changed.");
+    expect(ready(3, 2, 4)).toBe("3 sessions lose their room. 2 of them are published, so 4 speakers will be emailed that the schedule changed.");
+  });
+
+  it("never lets a failed or pending read read as an all-clear", () => {
+    expect(roomDeletionImpactCopy({ status: "loading" })).toContain("Checking");
+    expect(roomDeletionImpactCopy({ status: "unavailable" })).toContain("could not be checked");
+    expect(roomDeletionImpactCopy({ status: "unavailable" })).not.toContain("Nothing is scheduled");
   });
 });
