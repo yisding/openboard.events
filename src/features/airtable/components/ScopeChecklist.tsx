@@ -29,6 +29,16 @@ export function ScopeChecklist({ scopes }: { scopes: readonly string[] }) {
               {entry.granted ? <Check size={14} /> : <X size={14} />}
             </span>
             <div>
+              {/*
+                * The tick is decorative and the rest of the state lives in a
+                * class name, so without this a screen reader heard seven
+                * capabilities and no indication of which ones the token
+                * actually has — on the one screen whose entire job is telling
+                * an organizer what their token is missing.
+                */}
+              <span className="sr-only">{entry.granted
+                ? AIRTABLE_COPY.token.scopeGranted
+                : entry.required ? AIRTABLE_COPY.token.scopeMissing : AIRTABLE_COPY.token.scopeMissingOptional}</span>
               <b>{entry.title}</b>
               <small>{entry.why}</small>
             </div>

@@ -1,6 +1,7 @@
 import {
   PRIVATE_JOB_HEADER,
   PRIVATE_JOB_HEADER_VALUE,
+  SKIPPED_DISABLED_SUFFIX,
   type JobName,
   type JobStats,
 } from "@/shared/contracts";
@@ -66,7 +67,7 @@ export async function settledJobStats(
  */
 function isHeartbeatWorthy(stats: JobStats): boolean {
   const keys = Object.keys(stats);
-  return keys.length === 0 || !keys.every((key) => key.endsWith("SkippedDisabled"));
+  return keys.length === 0 || !keys.every((key) => key.endsWith(SKIPPED_DISABLED_SUFFIX));
 }
 
 export function definePrivateJobRoute(job: JobName, run: () => Promise<JobStats>) {

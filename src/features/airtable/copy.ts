@@ -88,6 +88,12 @@ export const AIRTABLE_COPY = {
     unreachable: "We couldn't reach Airtable to check that token. Check your connection and try again.",
     next: "Next",
     scopesHeading: "Permissions on this token",
+    // Read aloud in place of the ✓/✗, which is decorative. Phrased as a
+    // statement about the token rather than as "yes"/"no", which says nothing
+    // on its own once it is separated from the tick it was labelling.
+    scopeGranted: "Granted:",
+    scopeMissing: "Missing, and required:",
+    scopeMissingOptional: "Missing, and optional:",
     scopesFooter: "Add the scope on the same token — you don't need to make a new one.",
     recheck: "Re-check the token",
     blockedByScopes: "Add the missing permissions in Airtable, then re-check. Nothing is lost — your token stays saved.",
@@ -117,6 +123,7 @@ export const AIRTABLE_COPY = {
     submit: "Start the first sync",
     submitting: "Setting things up…",
     listFailed: "We couldn't list your bases. Airtable didn't answer — try again in a moment.",
+    retryList: "Try again",
   },
 
   /** State D — step 3, the delight beat. */

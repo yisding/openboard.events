@@ -62,7 +62,7 @@ their own Airtable tables — they show up as the `multipleRecordLinks` fields a
   URL at push time that would need to be refreshed before it expires; that machinery does not
   exist yet.
 
-### The four privacy toggles ("What we sync" drawer)
+### The "What we sync" drawer
 
 | Toggle | Default | Notes |
 |---|---|---|
@@ -70,7 +70,7 @@ their own Airtable tables — they show up as the `multipleRecordLinks` fields a
 | Include bios | **on** | Public program copy, pushed as plain text (HTML stripped). |
 | Include pronouns | **off** | Explicit opt-in, not bundled with the roster basics. |
 | Include gender | **off** | Same, plus a retention warning in the drawer copy. |
-| Purge removed records | **off** | See below. |
+| Purge removed records | **off** | Not a privacy toggle — listed here because it is the fifth row of the same drawer. See below. |
 
 Flipping any toggle takes effect on the next sync (about 15 minutes on the scheduled cadence, or
 immediately with "Sync now") — no manual re-sync or reconnect is needed. The newly included (or
@@ -167,7 +167,7 @@ zero-paste path.
 
 ### Rate limits and budgets
 
-```
+```text
 AIRTABLE_EVENTS_PER_TICK   = 5        events claimed per cron tick
 AIRTABLE_WRITES_PER_RUN    = 300      write cap per event per run (30 batches of 10)
 AIRTABLE_RUN_BUDGET_MS     = 20_000   one event, cron trigger
@@ -238,7 +238,9 @@ commit**, gated on:
 2. A captured transcript from `scripts/airtable-acceptance.ts` run by hand against a real PAT:
    `whoami` → create a scratch base → `ensureBaseSchema` → push a seeded fixture event → push again
    and assert **zero** write calls → delete one session and assert exactly **one** delete call →
-   print a counters-only table → offer to delete the scratch base. The script reads
+   print a counters-only table → print the scratch base's URL. Airtable exposes no base-deletion
+   API, so the last step is a printed instruction to delete the base by hand, not a prompt: nothing
+   waits for an answer, and the operator has to go and do it. The script reads
    `AIRTABLE_API_KEY` through `getEnv()` and never echoes it; that env var is a local-only
    convenience for this script and is rejected by `src/shared/lib/env.ts` in any deployed
    environment.

@@ -344,7 +344,10 @@ describe("a run that came back blocked", () => {
   });
 
   it("offers a rebuild to a token that can change the base, and re-selects the same base to do it", async () => {
-    const connection = connectionFixture();
+    // `schema_drifted` is what the server records against the connection when a
+    // run ends blocked on the base's shape; the banner is gated on it so that
+    // "Rebuild it" is never offered for a block rebuilding cannot fix.
+    const connection = connectionFixture({ lastErrorKey: "schema_drifted" });
     apiMock.mockResolvedValueOnce({
       connection,
       created: false,
@@ -365,7 +368,7 @@ describe("a run that came back blocked", () => {
     const writeText = vi.fn(async (value: string) => { copied.push(value); });
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     await renderPanel({
-      connection: connectionFixture({ scopes: ["data.records:read", "data.records:write", "schema.bases:read"] }),
+      connection: connectionFixture({ scopes: ["data.records:read", "data.records:write", "schema.bases:read"], lastErrorKey: "schema_drifted" }),
       runs: [runFixture({ status: "blocked", error: "Some tables or fields don't match." })],
     });
 

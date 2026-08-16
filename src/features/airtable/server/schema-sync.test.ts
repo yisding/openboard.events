@@ -12,7 +12,7 @@ import { ensureBaseSchema } from "./schema-sync";
 
 const BASE_ID = "appTEST00000001";
 
-type CallLogEntry = { method: string; table?: string; field?: string };
+type CallLogEntry = { method: string; table?: string; field?: string; linkedTableId?: string };
 
 function fakeSchemaClient(initialTables: AirtableTableRef[] = []): { client: AirtableClient; calls: CallLogEntry[]; tables: () => AirtableTableRef[] } {
   let tables = initialTables.map((table) => ({ ...table, fields: [...table.fields] }));
@@ -40,9 +40,17 @@ function fakeSchemaClient(initialTables: AirtableTableRef[] = []): { client: Air
       return table;
     },
 
-    async createField(_baseId, tableId, spec) {
-      calls.push({ method: "createField", table: tableId, field: spec.name });
-      const field: AirtableFieldRef = { id: `fld${String(nextFieldSeq++).padStart(3, "0")}`, name: spec.name, type: spec.type };
+    // `linkedTableId` is recorded, not discarded. A fake that swallows it lets a
+    // regression that passes the wrong target — or none — stay green, and the
+    // wrong target is the failure the real client cannot detect for itself.
+    async createField(_baseId, tableId, spec, linkedTableId) {
+      calls.push({ method: "createField", table: tableId, field: spec.name, ...(linkedTableId ? { linkedTableId } : {}) });
+      const field: AirtableFieldRef = {
+        id: `fld${String(nextFieldSeq++).padStart(3, "0")}`,
+        name: spec.name,
+        type: spec.type,
+        ...(linkedTableId ? { linkedTableId } : {}),
+      };
       tables = tables.map((table) => (table.id === tableId ? { ...table, fields: [...table.fields, field] } : table));
       return field;
     },
@@ -245,13 +253,123 @@ describe("ensureBaseSchema — link fields", () => {
     expect(sessions.id).not.toBe(tracks.id);
   });
 
-  it("never creates a link field whose target table does not yet exist when the token cannot create one", async () => {
-    // A base with every scalar field already present but no tables at all for
-    // the token to link against, and no permission to create them.
-    const { client } = fakeSchemaClient();
+  it("passes each link field the id of the table it is meant to point at", async () => {
+    // The assertion above proves a link field was created and landed in the
+    // snapshot. It cannot prove it points anywhere in particular, because the
+    // target is an argument the fake used to throw away. Every link created here
+    // is checked against the id of the table its plan names.
+    const { client, calls, tables } = fakeSchemaClient();
+    const result = await ensureBaseSchema(client, { baseId: BASE_ID, canManageSchema: true });
+    expect(result.ok).toBe(true);
+
+    const idByName = new Map(tables().map((table) => [table.name, table.id]));
+    const linkCreates = calls.filter((call) => call.method === "createField" && call.linkedTableId !== undefined);
+    const expected = SYNC_TABLE_ORDER.flatMap((key) =>
+      TABLE_PLANS[key].fields
+        .filter((field) => field.type === "multipleRecordLinks")
+        .map((field) => ({ field: field.name, target: TABLE_PLANS[field.linkTo].displayName })));
+
+    expect(linkCreates).toHaveLength(expected.length);
+    for (const { field, target } of expected) {
+      const call = linkCreates.find((entry) => entry.field === field);
+      expect(call, field).toBeDefined();
+      expect(call?.linkedTableId, `${field} -> ${target}`).toBe(idByName.get(target));
+    }
+  });
+
+  it("reports every missing link as a missingField naming its target table when the token cannot create one", async () => {
+    // Every table and every scalar field already present, and no link fields at
+    // all — the only shape in which pass 2 has something to say and pass 1 has
+    // nothing. Built explicitly, because an empty base makes pass 1 report seven
+    // missing tables and pass 2 never runs, which is a different test.
+    const tables: AirtableTableRef[] = SYNC_TABLE_ORDER.map((key) => {
+      const plan = TABLE_PLANS[key];
+      let seq = 0;
+      return {
+        id: `tbl-${key}`,
+        name: plan.displayName,
+        fields: plan.fields
+          .filter((field) => field.type !== "multipleRecordLinks")
+          .map((field) => scalarRef(field, `fld-${key}-${seq++}`)),
+      };
+    });
+    const { client, calls } = fakeSchemaClient(tables);
+
     const result = await ensureBaseSchema(client, { baseId: BASE_ID, canManageSchema: false });
+
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.issues.every((issue) => issue.kind !== "wrongType")).toBe(true);
+    expect(calls.some((call) => call.method === "createField")).toBe(false);
+
+    const expected = SYNC_TABLE_ORDER.flatMap((key) =>
+      TABLE_PLANS[key].fields
+        .filter((field) => field.type === "multipleRecordLinks")
+        .map((field) => ({
+          table: TABLE_PLANS[key].displayName,
+          field: field.name,
+          target: TABLE_PLANS[field.linkTo].displayName,
+        })));
+    expect(result.issues).toHaveLength(expected.length);
+    for (const { table, field, target } of expected) {
+      const found = result.issues.find((entry) => entry.table === table && entry.field === field);
+      expect(found, `${table}.${field}`).toBeDefined();
+      expect(found?.kind).toBe("missingField");
+      // The instruction has to name the target: "add a link field" is not an
+      // instruction anyone can follow in a base with seven tables in it.
+      expect(found?.instruction).toContain(target);
+    }
+  });
+
+  it("reports a link field of the right name and type that points at the wrong table", async () => {
+    const tables: AirtableTableRef[] = SYNC_TABLE_ORDER.map((key) => {
+      const plan = TABLE_PLANS[key];
+      let seq = 0;
+      return {
+        id: `tbl-${key}`,
+        name: plan.displayName,
+        fields: plan.fields.map((field) => ({
+          ...scalarRef(field, `fld-${key}-${seq++}`),
+          ...(field.type === "multipleRecordLinks" ? { linkedTableId: `tbl-${field.linkTo}` } : {}),
+        })),
+      };
+    });
+    // Sessions' "Track" now links to Rooms. Same name, same type, and every
+    // track id we write would resolve against the wrong table.
+    const sessions = tables.find((table) => table.name === "Sessions");
+    if (!sessions) throw new Error("expected a Sessions table in the fixture");
+    sessions.fields = sessions.fields.map((field) => (field.name === "Track" ? { ...field, linkedTableId: "tbl-rooms" } : field));
+    const { client, calls } = fakeSchemaClient(tables);
+
+    const result = await ensureBaseSchema(client, { baseId: BASE_ID, canManageSchema: true });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0]).toMatchObject({ kind: "wrongType", table: "Sessions", field: "Track" });
+    expect(result.issues[0]?.instruction).toContain("Tracks");
+    // Reported, never repaired: repointing a link detaches every record already
+    // linked through it, in a base we do not own.
+    expect(calls.some((call) => call.method === "createField")).toBe(false);
+  });
+});
+
+describe("ensureBaseSchema — leniency has a floor", () => {
+  it("refuses an Airtable `date` where the plan wants `dateTime`, because the time of day is the point", async () => {
+    const tables: AirtableTableRef[] = SYNC_TABLE_ORDER.map((key) => {
+      const plan = TABLE_PLANS[key];
+      let seq = 0;
+      return { id: `tbl-${key}`, name: plan.displayName, fields: plan.fields.map((field) => scalarRef(field, `fld-${key}-${seq++}`)) };
+    });
+    const sessions = tables.find((table) => table.name === "Sessions");
+    if (!sessions) throw new Error("expected a Sessions table in the fixture");
+    sessions.fields = sessions.fields.map((field) => (field.name === "Starts at" ? { ...field, type: "date" } : field));
+    const { client } = fakeSchemaClient(tables);
+
+    const result = await ensureBaseSchema(client, { baseId: BASE_ID, canManageSchema: true });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    const issue = result.issues.find((entry) => entry.table === "Sessions" && entry.field === "Starts at");
+    expect(issue).toMatchObject({ kind: "wrongType", expected: "dateTime", actual: "date" });
   });
 });

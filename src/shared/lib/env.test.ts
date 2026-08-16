@@ -103,6 +103,13 @@ describe("parseEnv", () => {
     expect(() => parseEnv({ ADMIN_AUTH_PROVIDER: "better-auth" })).toThrow(/ADMIN_AUTH_PROVIDER/);
   });
 
+  it("rejects the retired global Airtable base id rather than silently dropping it", () => {
+    // M39 replaced one global base with one sealed token per event. Left
+    // undeclared, `z.object` strips this key: the deployment parses clean and
+    // the operator's own configuration claims a base that nothing reads.
+    expect(() => parseEnv({ AIRTABLE_BASE_ID: "appABCD12345678" })).toThrow(/AIRTABLE_BASE_ID/);
+  });
+
   it("requires Google credentials for every deployed admin auth environment", () => {
     const preview = {
       ...deployed,

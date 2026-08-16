@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -43,8 +43,19 @@ import { runAirtableSyncForEventIn, runDueAirtableSyncsIn } from "@/features/air
 const SECRET = "airtable-integration-test-secret-at-least-32-bytes";
 const FAKE_PAT = "patFAKE0000000000000000INTEGRATIONTEST";
 
-const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
-const migration52 = readFileSync(new URL("../../drizzle/0052_airtable_connections.sql", import.meta.url), "utf8");
+/*
+ * The whole ordered chain, not `0000_init` plus this feature's own migration.
+ *
+ * The engine projects `tracks`, `rooms`, `session_formats`, `tags`, `contacts`,
+ * `sessions` and `submissions` — seven tables that a dozen later migrations have
+ * since altered, adding columns, defaults and constraints that `0000_init` alone
+ * does not carry. A fixture that skips them is a schema no deployment has ever
+ * run, and the assertions about what the projection reads and what the database
+ * will accept are only worth what the fixture's fidelity is worth.
+ */
+const MIGRATIONS = readdirSync(new URL("../../drizzle/", import.meta.url))
+  .filter((name) => name.endsWith(".sql"))
+  .sort();
 
 const captureErrorMock = vi.hoisted(() => vi.fn());
 vi.mock("@/shared/lib/error-tracking", () => ({ captureError: captureErrorMock }));
@@ -306,8 +317,9 @@ async function countRows(sql: string, params: unknown[]): Promise<number> {
 
 beforeAll(async () => {
   pglite = new PGlite();
-  await pglite.exec(migration0);
-  await pglite.exec(migration52);
+  for (const name of MIGRATIONS) {
+    await pglite.exec(readFileSync(new URL(`../../drizzle/${name}`, import.meta.url), "utf8"));
+  }
   db = drizzle(pglite, { schema }) as unknown as DbOrTx;
   vi.stubEnv("SESSION_SECRET", SECRET);
 }, 60_000);
@@ -893,6 +905,49 @@ describe("the sweep: claiming, budgets, isolation", () => {
     for (const neverSynced of eventIds.slice(0, 3)) expect(claimed).toContain(neverSynced);
   });
 
+  /**
+   * The claim query filters on three things at once —
+   * `status = 'connected' AND sync_enabled AND base_id IS NOT NULL` — and every
+   * other sweep test here seeds a connection that satisfies all three. So each
+   * clause was, individually, load-bearing and untested: dropping any one of
+   * them would leave this suite entirely green while the sweep started opening
+   * tokens for events an organizer had paused, or for connections that never
+   * finished the connect flow and have no base to write to.
+   */
+  it("excludes paused, half-connected, and attention-needing connections from both the claim and the sweep", async () => {
+    await quarantineAllOtherConnections();
+    const excluded: { label: string; eventId: EventId }[] = [];
+    for (const [label, options] of [
+      ["paused", { syncEnabled: false }],
+      ["pending", { status: "pending" as const }],
+      ["needs attention", { status: "needs_attention" as const }],
+    ] satisfies [string, Parameters<typeof connectEvent>[1]][]) {
+      const eventId = eventIdSchema.parse(nextId());
+      await seedEvent(eventId, `Sweep excluded: ${label}`);
+      await seedTrack(nextId(), eventId, "Platform");
+      await connectEvent(eventId, { ...options, nextSyncAfter: past() });
+      excluded.push({ label, eventId });
+    }
+
+    const { eventIds: claimed } = await claimDueAirtableConnectionsIn(db, 10);
+    for (const { label, eventId } of excluded) expect(claimed, label).not.toContain(eventId);
+
+    // And the sweep on top of it: nothing claimed means no client is ever made,
+    // so no sealed token is opened for any of the three.
+    await quarantineAllOtherConnections();
+    await pglite.query(
+      `UPDATE airtable_connections SET next_sync_after = now() - interval '1 minute' WHERE event_id = ANY($1)`,
+      [excluded.map((entry) => entry.eventId)],
+    );
+    let makeClientCalls = 0;
+    const stats = await runDueAirtableSyncsIn(db, {
+      cronFlag: "1",
+      makeClient: () => { makeClientCalls += 1; return createFakeAirtableClient(createFakeStore()); },
+    });
+    expect(makeClientCalls).toBe(0);
+    expect(stats.airtableEvents ?? 0).toBe(0);
+  });
+
   it("two events are fully isolated: syncing one touches no state row and opens no token belonging to the other", async () => {
     const eventA = eventIdSchema.parse(nextId());
     const eventB = eventIdSchema.parse(nextId());
@@ -915,6 +970,11 @@ describe("the sweep: claiming, budgets, isolation", () => {
   });
 
   it("AIRTABLE_CRON off: the sweep reports skippedDisabled and makes zero client calls; manual sync is unaffected", async () => {
+    // The assertion below is an exact deep-equal on the whole stats object, and
+    // `runDueAirtableSyncsIn` scans the entire table rather than one event — so
+    // the fixtures left deliberately due by earlier tests have to be pushed out
+    // of the window first, exactly as the two neighbouring sweep tests do.
+    await quarantineAllOtherConnections();
     const eventId = eventIdSchema.parse(nextId());
     const trackId = nextId();
     await seedEvent(eventId);

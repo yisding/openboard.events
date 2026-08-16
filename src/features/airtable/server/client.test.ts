@@ -88,9 +88,11 @@ describe("request spacing", () => {
     await client.whoami();
     await client.whoami();
     // The second call happened at clock=0 still (nothing advanced it), so the
-    // spacer itself must have slept the gap — assert via the sleep spy having
-    // been invoked at least once for the second call.
-    expect(sleep).toHaveBeenCalled();
+    // spacer itself must have slept the gap. Asserting the *argument*, not just
+    // that it slept: the claim in the title is that there is no extra gap, and
+    // `toHaveBeenCalled()` would stay green for a regression that doubled it.
+    expect(sleep).toHaveBeenCalledTimes(1);
+    expect(sleep).toHaveBeenCalledWith(MIN_REQUEST_INTERVAL_MS);
   });
 });
 
@@ -299,15 +301,21 @@ describe("the token never leaks", () => {
     const { now, sleep } = fakeClock();
     const seenUrls: string[] = [];
     const seenBodies: unknown[] = [];
+    const seenAuth: (string | null)[] = [];
     const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       seenUrls.push(String(input));
       if (init?.body) seenBodies.push(init.body);
+      seenAuth.push(new Headers(init?.headers).get("authorization"));
       return fakeResponse(200, { id: "usrTEST00000001", scopes: [] });
     });
     const client = createAirtableClient(PAT, { fetchImpl, now, sleep });
     await client.whoami();
     for (const url of seenUrls) expect(url).not.toContain(PAT);
     for (const body of seenBodies) expect(JSON.stringify(body)).not.toContain(PAT);
+    // And the other half of "only ever": a refactor that dropped the header
+    // would satisfy every assertion above while sending unauthenticated
+    // requests, which is a passing test for a client that cannot work.
+    expect(seenAuth).toEqual([`Bearer ${PAT}`]);
   });
 });
 

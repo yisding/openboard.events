@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
+import { and, count, eq, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import { airtableConnections, airtableSyncState, type AirtableConnectionOptions, type AirtableSchemaSnapshot } from "@/db/schema";
 import { db, type DbOrTx } from "@/db/client";
 import { airtableConnectionIdSchema, eventIdSchema, type AirtableConnectionId, type EventId, type UserId } from "@/shared/contracts";
@@ -659,9 +659,14 @@ export const chooseAirtableBase = (eventId: EventId, input: ChooseBaseInput) =>
 export const updateAirtableOptions = (eventId: EventId, patch: AirtableOptionsPatch & { syncEnabled?: boolean | undefined }) =>
   updateAirtableOptionsIn(db, eventId, patch);
 
-/** Connections with a base chosen — what "is this event set up?" means everywhere else. */
+/**
+ * Connections with a base chosen — what "is this event set up?" means everywhere
+ * else. Counted in the database rather than by reading `result.length`: the
+ * alerting runbook polls `/api/health` on a schedule, and there is no reason to
+ * ship one row per connected event across the wire only to discard it.
+ */
 export async function connectedEventCountIn(dbOrTx: DbOrTx): Promise<number> {
-  const result = await dbOrTx.select({ id: airtableConnections.id }).from(airtableConnections)
+  const [row] = await dbOrTx.select({ total: count() }).from(airtableConnections)
     .where(and(eq(airtableConnections.status, "connected"), isNotNull(airtableConnections.baseId)));
-  return result.length;
+  return Number(row?.total ?? 0);
 }

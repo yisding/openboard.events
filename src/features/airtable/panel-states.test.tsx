@@ -22,13 +22,17 @@ const { ToastProvider } = await import("@/shared/ui/toast");
 const { AirtableSettingsPanel } = await import("./index.client");
 const { ConnectDialog } = await import("./components/ConnectDialog");
 const { emptySyncRunStats } = await import("./schemas");
-type Schemas = typeof import("./schemas");
+// The exported types, not `schema["_output"]`: `_output` is a Zod internal that
+// happens to be reachable, and it stops carrying the doc comments the summary
+// types have on their fields.
+type AirtableConnectionSummary = import("./schemas").AirtableConnectionSummary;
+type SyncRunSummary = import("./schemas").SyncRunSummary;
 
 const eventId = "6f1f0e2a-1f7e-4a2f-9f1e-2c3d4e5f6a7b" as never;
 
 function connectionFixture(
-  overrides: Partial<Schemas["airtableConnectionSummarySchema"]["_output"]> = {},
-): Schemas["airtableConnectionSummarySchema"]["_output"] {
+  overrides: Partial<AirtableConnectionSummary> = {},
+): AirtableConnectionSummary {
   return {
     id: "aaaaaaa1-1f7e-4a2f-9f1e-2c3d4e5f6a7b" as never,
     status: "connected",
@@ -51,8 +55,8 @@ function connectionFixture(
 }
 
 function runFixture(
-  overrides: Partial<Schemas["syncRunSummarySchema"]["_output"]> = {},
-): Schemas["syncRunSummarySchema"]["_output"] {
+  overrides: Partial<SyncRunSummary> = {},
+): SyncRunSummary {
   return {
     id: "bbbbbbb1-1f7e-4a2f-9f1e-2c3d4e5f6a7b" as never,
     trigger: "cron",
@@ -157,7 +161,10 @@ describe("Airtable settings panel states", () => {
 
   it("I — stays amber and offers a rebuild when the token may change the base's shape", () => {
     const markup = panel({
-      initialConnection: connectionFixture(),
+      // `lastErrorKey` is what the server writes alongside a blocked run, and
+      // what tells a schema block apart from a rejected-records one: the banner
+      // below offers "Rebuild it", which is only the remedy for the first.
+      initialConnection: connectionFixture({ lastErrorKey: "schema_drifted" }),
       initialRuns: [runFixture({ status: "blocked", error: "Some tables or fields in your base don't match what we expect. The list below says exactly which." })],
     });
     expect(markup).toContain("Your base needs one change before the next sync");
@@ -168,12 +175,30 @@ describe("Airtable settings panel states", () => {
 
   it("I — falls back to a copyable field list when the token cannot change the base", () => {
     const markup = panel({
-      initialConnection: connectionFixture({ scopes: ["data.records:read", "data.records:write", "schema.bases:read"] }),
+      initialConnection: connectionFixture({ scopes: ["data.records:read", "data.records:write", "schema.bases:read"], lastErrorKey: "schema_drifted" }),
       initialRuns: [runFixture({ status: "blocked", error: "Some tables or fields in your base don't match what we expect. The list below says exactly which." })],
     });
     expect(markup).toContain("Copy the field list");
     expect(markup).toContain("Openboard ID");
     expect(markup).not.toContain("Rebuild it");
+  });
+
+  it("I — does not offer a rebuild for a block that rebuilding cannot fix", () => {
+    // `records_rejected` is two of the organizer's own rows sharing a hidden
+    // Openboard ID, or a value a column's type will not take. The schema is
+    // fine; re-running `ensureBaseSchema` would do nothing but spend meta calls
+    // and imply the wrong remedy. The run's own sentence still reaches them,
+    // in the history table below.
+    const markup = panel({
+      initialConnection: connectionFixture({ lastErrorKey: "records_rejected" }),
+      initialRuns: [runFixture({
+        status: "blocked",
+        error: "Airtable wouldn't accept some of these records.",
+      })],
+    });
+    expect(markup).not.toContain("Rebuild it");
+    expect(markup).not.toContain("Your base needs one change before the next sync");
+    expect(markup).toContain("Airtable wouldn&#x27;t accept some of these records.");
   });
 
   it("orphans — counts them even with removals off, and does not act without a confirmation", () => {

@@ -119,6 +119,12 @@ const envSchema = z.object({
   // local configuration fails closed instead of silently implying a switch
   // that no longer exists.
   ADMIN_AUTH_PROVIDER: z.never().optional(),
+  // Retired by M39. `z.object` strips undeclared keys, so a deployment still
+  // carrying this from the single-global-base design parsed clean and dropped
+  // it — an operator reading their own configuration would see a base id
+  // configured and nothing anywhere using it. Declared as `never` so it fails
+  // the parse and names itself.
+  AIRTABLE_BASE_ID: z.never().optional(),
   GOOGLE_CLIENT_ID: optionalString,
   GOOGLE_CLIENT_SECRET: optionalString,
   // Reviewed customer terms live outside the repository until their drafts in

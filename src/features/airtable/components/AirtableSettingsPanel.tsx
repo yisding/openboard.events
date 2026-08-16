@@ -10,7 +10,7 @@ import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, Drawer, EmptyState, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { AIRTABLE_COPY, statsRecordCount, tableRecordCount } from "../copy";
-import { TABLE_PLANS, type SyncTableKey } from "../plan";
+import { TABLE_PLANS, type SyncTableKey, type TablePlan } from "../plan";
 import {
   airtableBaseChoiceResultSchema,
   airtableConnectionSummarySchema,
@@ -185,12 +185,16 @@ export function AirtableSettingsPanel({
       setConnection(null);
       setLatestRun(null);
       toast(AIRTABLE_COPY.disconnect.done);
-      await refreshStatus();
     } catch (caught) {
       if (isDefinitiveWriteFailure(caught)) toast(AIRTABLE_COPY.errors.disconnectFailed, { kind: "error" });
       else toast(AIRTABLE_COPY.errors.disconnectUnknown, { kind: "error" });
     } finally {
       setBusy(false);
+      // Outside the `try`, the way `syncNow` does it. Inside, a status refresh
+      // that failed *after* the DELETE had already succeeded toasted
+      // "we couldn't disconnect" over a connection that was gone from the
+      // screen — an error naming an operation that worked.
+      await refreshStatus();
     }
   }
 
@@ -228,9 +232,25 @@ export function AirtableSettingsPanel({
   const connected = connection !== null && connection.status !== "pending" && connection.baseId !== null;
   const canManageSchema = connection?.scopes.includes("schema.bases:write") ?? false;
   const heldTable = latestRun?.stats.perTable.find((table) => table.purgeHeld > 0);
+  // `key` comes back out of persisted run statistics, so it is a string that was
+  // a `SyncTableKey` when it was written. Resolved rather than asserted: a run
+  // stored before a table was renamed would otherwise index `TABLE_PLANS` to
+  // `undefined` and take the whole settings panel down on `.displayName`.
+  const heldPlan = heldTable ? TABLE_PLANS[heldTable.key as SyncTableKey] as TablePlan | undefined : undefined;
   // A deleted base leaves the connection `connected` and the run `blocked`, so
   // the run's own key is what tells these two blocked states apart.
   const baseMissing = latestRun?.status === "blocked" && connection?.lastErrorKey === "base_missing";
+  // The banner below is specifically about the *shape* of the base, which is why
+  // it offers "Rebuild it". Gating it on `blocked` alone made it the catch-all
+  // for every blocked reason: it survived a successful rebuild — which clears
+  // `lastErrorKey` but cannot retroactively unblock the run that is still the
+  // latest one — so the organizer read "Your base matches again" and "Your base
+  // needs one change" at the same time, with a button that could only repeat
+  // work already done. It also offered that button for `records_rejected`, where
+  // rebuilding the schema is not the remedy. Those keep their sentence in the
+  // run history, which prints every run's error.
+  const schemaBlocked = latestRun?.status === "blocked"
+    && (connection?.lastErrorKey === "schema_drifted" || connection?.lastErrorKey === "missing_scope");
 
   function openConnect(startAt: "token" | "base") {
     setConnectStartAt(startAt);
@@ -284,7 +304,7 @@ export function AirtableSettingsPanel({
         </div>
       )}
 
-      {connected && connection && latestRun?.status === "blocked" && !baseMissing && (
+      {connected && connection && schemaBlocked && !baseMissing && (
         <div className="airtable-attention" role="status">
           <AlertTriangle size={17} aria-hidden />
           <div>
@@ -309,14 +329,14 @@ export function AirtableSettingsPanel({
         </div>
       )}
 
-      {connected && heldTable && (
+      {connected && heldTable && heldPlan && (
         <div className="airtable-attention" role="status">
           <AlertTriangle size={17} aria-hidden />
           <div>
             <span>{AIRTABLE_COPY.orphans.held(
               heldTable.purgeHeld,
               tableRecordCount(heldTable) + heldTable.purgeHeld,
-              TABLE_PLANS[heldTable.key as SyncTableKey].displayName,
+              heldPlan.displayName,
             )}</span>
           </div>
         </div>

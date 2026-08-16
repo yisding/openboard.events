@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { eventIdSchema, airtableConnectionIdSchema } from "@/shared/contracts";
-import { openPayload, sealPayload } from "@/shared/server/sealed-payload";
+import { openPayload, sealPayload, sealedPayloadAdditionalData } from "@/shared/server/sealed-payload";
 import { z } from "zod";
 import { airtablePatFingerprint, airtablePatHint, openAirtablePat, sealAirtablePat } from "./secret-payload";
 
@@ -40,13 +40,20 @@ describe("sealAirtablePat / openAirtablePat", () => {
     await expect(openAirtablePat(sealed, { eventId, connectionId }, "a-completely-different-secret-32-bytes")).rejects.toMatchObject({ code: "VALIDATION" });
   });
 
+  /*
+   * Both negative controls below build their AAD with the same helper
+   * `sealAirtablePat` uses, rather than hand-encoding `${eventId}:${connectionId}`.
+   * A hand-rolled encoding that drifted from the real one would leave these
+   * tests green for the wrong reason — rejected on an AAD mismatch rather than
+   * on the HKDF `info` mismatch their names claim to isolate.
+   */
   it("cannot open an envelope sealed for a different purpose, even under the same secret", async () => {
     // A stand-in for another payload kind (e.g. "portal_login-v1"): same root
     // secret, different HKDF info string.
     const envelope = await sealPayload({ token: "irrelevant" }, SECRET, {
       schema: z.object({ token: z.string() }),
       info: "some_other_payload-v1",
-      additionalData: new TextEncoder().encode(`${eventId}:${connectionId}`),
+      additionalData: sealedPayloadAdditionalData(eventId, connectionId),
     });
     await expect(openAirtablePat(envelope, { eventId, connectionId }, SECRET)).rejects.toMatchObject({ code: "VALIDATION" });
   });
@@ -56,7 +63,7 @@ describe("sealAirtablePat / openAirtablePat", () => {
     await expect(openPayload(sealed, SECRET, {
       schema: z.object({ pat: z.string() }),
       info: "not_airtable_pat-v1",
-      additionalData: new TextEncoder().encode(`${eventId}:${connectionId}`),
+      additionalData: sealedPayloadAdditionalData(eventId, connectionId),
       label: "wrong kind",
     })).rejects.toMatchObject({ code: "VALIDATION" });
   });

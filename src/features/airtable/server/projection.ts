@@ -262,19 +262,24 @@ export async function candidateRecordsIn(
   };
 }
 
-type OrphanSqlRow = { record_pk: string; airtable_record_id: string; orphan_total: string | number; state_total: string | number };
+type OrphanSqlRow = { record_pk: string; airtable_record_id: string; orphan_total: string | number };
 
 /**
  * Rows we have pushed whose source is gone. Counted on every run whether or not
- * `pruneRemoved` is on — the status card names them either way, and
- * `stateTotal` is what the mass-delete circuit breaker measures against.
+ * `pruneRemoved` is on — the status card names them either way.
+ *
+ * The breaker's denominator is *not* returned here. Every count in this query
+ * rides on the orphan rows, so a table with no orphans returns no rows and any
+ * such total would read 0 no matter how much `airtable_sync_state` holds — the
+ * one shape that turns a circuit breaker into a rubber stamp. `syncedRowCountIn`
+ * asks that question in its own statement, and is what the caller uses.
  */
 export async function orphanRecordsIn(
   dbOrTx: DbOrTx,
   eventId: EventId,
   key: SyncTableKey,
   limit: number,
-): Promise<{ rows: OrphanRow[]; orphanTotal: number; stateTotal: number }> {
+): Promise<{ rows: OrphanRow[]; orphanTotal: number }> {
   const result = await dbOrTx.execute<OrphanSqlRow>(sql`
     WITH state AS (
       SELECT record_pk, airtable_record_id FROM airtable_sync_state
@@ -284,8 +289,7 @@ export async function orphanRecordsIn(
       WHERE NOT EXISTS (${sourceExistsSql(key, eventId)})
     )
     SELECT o.record_pk, o.airtable_record_id,
-           (SELECT count(*) FROM orphan) AS orphan_total,
-           (SELECT count(*) FROM state) AS state_total
+           (SELECT count(*) FROM orphan) AS orphan_total
     FROM orphan o ORDER BY o.record_pk LIMIT ${limit}
   `);
   const rows = result.rows ?? [];
@@ -293,7 +297,6 @@ export async function orphanRecordsIn(
   return {
     rows: rows.map((row) => ({ recordPk: row.record_pk, airtableRecordId: row.airtable_record_id })),
     orphanTotal: first ? Number(first.orphan_total) : 0,
-    stateTotal: first ? Number(first.state_total) : 0,
   };
 }
 

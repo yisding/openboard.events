@@ -104,6 +104,15 @@ export function ConnectDialog({
   const [run, setRun] = useState<SyncRunSummary | null>(null);
   const [syncing, setSyncing] = useState(false);
   const validatedRef = useRef<string | null>(null);
+  /*
+   * The debounce cancels timers, not requests already in flight, so two
+   * validations can overlap whenever the organizer edits a token that had
+   * already started one — a paste followed by a correction is enough. Both then
+   * call `setTokenState` in *arrival* order, and a late "valid" for the token
+   * they abandoned would re-enable Next against a verdict this token never
+   * earned. Only the newest request is allowed to speak.
+   */
+  const validationSeqRef = useRef(0);
 
   useEffect(() => {
     if (!open) return;
@@ -127,6 +136,9 @@ export function ConnectDialog({
     // `selectedBaseId` the new token may have no access to.
     setBases(null);
     setBasesError(null);
+    // Retires any validation still in flight from the previous pass, so its
+    // answer cannot land on this one.
+    validationSeqRef.current += 1;
     setChoice("existing");
     setSelectedBaseId(null);
     setSchemaReport(null);
@@ -141,18 +153,23 @@ export function ConnectDialog({
   /* ---- Step 1: live validation ---- */
 
   const validateToken = useCallback(async (candidate: string) => {
+    const seq = validationSeqRef.current + 1;
+    validationSeqRef.current = seq;
+    const isCurrent = () => validationSeqRef.current === seq;
     setTokenState({ kind: "checking" });
     try {
       const result = await api(`events/${eventId}/airtable/token`, airtableTokenResultSchema, {
         method: "POST",
         body: { token: candidate },
       });
+      if (!isCurrent()) return;
       validatedRef.current = candidate;
       setTokenState({ kind: "valid", verdict: result.verdict });
       setScopes(result.verdict.scopes);
       setCanManageSchema(result.verdict.canManageSchema);
       onConnection(result.connection);
     } catch (caught) {
+      if (!isCurrent()) return;
       if (isDefinitiveWriteFailure(caught)) {
         setTokenState({
           kind: "rejected",
@@ -177,6 +194,15 @@ export function ConnectDialog({
 
   /* ---- Step 2: the bases this token can see ---- */
 
+  /*
+   * `bases === null` is the only "not loaded yet" signal, so a failed fetch must
+   * leave it null. Setting it to `[]` on failure said two untrue things at once:
+   * that the load had finished, and that this token can see no bases — which is
+   * the branch that forces "create a new base for me" and, without
+   * `schema.bases:write`, a wizard with no way forward. A network blip is not a
+   * verdict about the organizer's Airtable account. The error is held separately
+   * and gates the effect, so the retry below is what asks again.
+   */
   const loadBases = useCallback(async () => {
     setBasesError(null);
     try {
@@ -184,15 +210,14 @@ export function ConnectDialog({
       setBases(result.bases);
       if (result.bases.length === 0) setChoice("create");
     } catch (caught) {
-      setBases([]);
       setBasesError(isAppError(caught) ? caught.message : AIRTABLE_COPY.base.listFailed);
     }
   }, [eventId]);
 
   useEffect(() => {
-    if (!open || step !== "base" || bases !== null) return;
+    if (!open || step !== "base" || bases !== null || basesError !== null) return;
     void loadBases();
-  }, [open, step, bases, loadBases]);
+  }, [open, step, bases, basesError, loadBases]);
 
   /* ---- Step 3: the first sync, watched live ---- */
 
@@ -388,8 +413,15 @@ export function ConnectDialog({
 
           {choice === "existing" && (
             <div className="airtable-base-list">
-              {bases === null && <p className="loading-note" role="status">{AIRTABLE_COPY.base.loadingBases}</p>}
-              {basesError && <p className="field-error" role="alert">{basesError}</p>}
+              {bases === null && !basesError && <p className="loading-note" role="status">{AIRTABLE_COPY.base.loadingBases}</p>}
+              {basesError && (
+                <div className="airtable-base-error">
+                  <p className="field-error" role="alert">{basesError}</p>
+                  <Button size="sm" variant="secondary" onClick={() => void loadBases()}>
+                    {AIRTABLE_COPY.base.retryList}
+                  </Button>
+                </div>
+              )}
               {bases !== null && bases.length === 0 && !basesError && (
                 <p className="airtable-note" role="status">{AIRTABLE_COPY.base.noBases}</p>
               )}

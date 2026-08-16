@@ -1,8 +1,8 @@
 import { db, type DbOrTx } from "@/db/client";
-import type { AirtableSyncRunId, EventId, JobStats } from "@/shared/contracts";
+import { skippedDisabledKey, type AirtableSyncRunId, type EventId, type JobStats } from "@/shared/contracts";
 import { getEnv } from "@/shared/lib/env";
 import { captureError } from "@/shared/lib/error-tracking";
-import { AppError, isAppError } from "@/shared/lib/errors";
+import { isAppError } from "@/shared/lib/errors";
 import { OPENBOARD_ID_FIELD, SYNC_TABLE_ORDER, type SyncTableKey } from "../plan";
 import { emptySyncRunStats, type SyncRunStats, type SyncTableStats } from "../schemas";
 import {
@@ -179,7 +179,16 @@ export async function runAirtableSyncForEventIn(
 
   try {
     const connection = await openAirtableConnectionIn(dbOrTx, eventId);
-    if (!connection) throw new AppError("NOT_FOUND", "Connect an Airtable account first");
+    if (!connection) {
+      // Reachable without anything being wrong: the sweep claims a batch, and an
+      // organizer disconnects before this event's turn comes round. Thrown as
+      // `NOT_FOUND` it fell through `classifyError` to `internal`, which pages an
+      // operator and tells the organizer "something on our side stopped this
+      // sync" about a row they themselves deleted. It is a clean stop, so it
+      // reads as one.
+      await finishSyncRunIn(dbOrTx, eventId, runId, { status: "blocked", stats, errorKey: "disconnected" });
+      return { runId, status: "blocked", stats, errorKey: "disconnected" };
+    }
     const baseId = connection.baseId;
     if (!baseId) {
       await finishSyncRunIn(dbOrTx, eventId, runId, { status: "blocked", stats, errorKey: "base_missing" });
@@ -211,12 +220,19 @@ export async function runAirtableSyncForEventIn(
       await recordSyncOutcomeIn(dbOrTx, eventId, { ok: false, errorKey });
       return { runId, status: "blocked", stats, errorKey };
     }
-    await saveSchemaSnapshotIn(dbOrTx, eventId, ensured.snapshot, ensured.fingerprint);
+    // Skipped when `ensureBaseSchema` answered from the snapshot it was handed:
+    // the write would rewrite that row with itself and bump `updated_at`, on
+    // every connected event, every fifteen minutes, forever. Keyed on the
+    // explicit `fromCache` rather than on comparing the snapshot back, because
+    // the second one is a reference-identity check that silently stops working
+    // the day something clones the object on the way through.
+    if (!ensured.fromCache) await saveSchemaSnapshotIn(dbOrTx, eventId, ensured.snapshot, ensured.fingerprint);
 
     let reEnsured = false;
     let stoppedEarly = false;
     let rateLimitedOut = false;
     const completed = new Set<SyncTableKey>();
+    const remainderKnown = new Set<SyncTableKey>();
 
     for (const key of SYNC_TABLE_ORDER) {
       const table = emptyTableStats(key);
@@ -230,12 +246,29 @@ export async function runAirtableSyncForEventIn(
       // or, worse, write into the table they renamed.
       let targetId = target.id;
 
+      // Every exit that leaves `table.deferred` truthful marks the key here, and
+      // the remainder pass at the end skips what it finds. The distinction is
+      // narrow but it has to be: a page that *threw* — a 429 mid-batch — ran the
+      // candidate query and still knows nothing about what is left, so it must
+      // not be marked, or the run would report a remainder of zero for a table
+      // it abandoned halfway.
+      const remainderIsKnown = () => { remainderKnown.add(key); };
+
       const pushPage = async (): Promise<"done" | "deferred" | "stopped"> => {
         for (;;) {
           const pageLimit = Math.min(CANDIDATE_PAGE_SIZE, writeCap - writesUsed);
           if (pageLimit <= 0) return "deferred";
           const { rows, total } = await candidateRecordsIn(dbOrTx, eventId, key, connection.options, pageLimit);
-          if (rows.length === 0) return "done";
+          if (rows.length === 0) { remainderIsKnown(); return "done"; }
+
+          // What this page has actually landed, which is what `total` has to be
+          // reduced by. Counting the whole page instead was wrong on the one
+          // path that matters: a deadline that fires between batches leaves
+          // rows fetched but unwritten, and `total - rows.length` then reported
+          // "nothing left to do" for a table the run walked away from
+          // mid-stride. Rows are only subtracted once `recordSyncedRowsIn` has
+          // them, so a batch Airtable answered short still counts as remaining.
+          let landedThisPage = 0;
 
           for (const batch of chunk(rows, MAX_RECORDS_PER_BATCH)) {
             const result = await airtable.upsertRecords(
@@ -252,20 +285,23 @@ export async function runAirtableSyncForEventIn(
               return record ? { recordPk: row.recordPk, airtableRecordId: record.id, contentHash: row.contentHash } : null;
             }).filter((entry): entry is { recordPk: string; airtableRecordId: string; contentHash: string } => entry !== null);
             await recordSyncedRowsIn(dbOrTx, eventId, key, landed);
+            landedThisPage += landed.length;
             for (const entry of landed) {
               if (created.has(entry.airtableRecordId)) table.created += 1;
               else table.updated += 1;
             }
             writesUsed += batch.length;
             if (remainingMs() <= 0 || writesUsed >= writeCap) {
-              table.deferred = Math.max(0, total - rows.length);
+              table.deferred = Math.max(0, total - landedThisPage);
+              remainderIsKnown();
               return "stopped";
             }
           }
 
-          if (total <= rows.length) return "done";
+          if (total <= landedThisPage) { remainderIsKnown(); return "done"; }
           if (remainingMs() <= 0 || writesUsed >= writeCap) {
-            table.deferred = Math.max(0, total - rows.length);
+            table.deferred = Math.max(0, total - landedThisPage);
+            remainderIsKnown();
             return "stopped";
           }
         }
@@ -333,11 +369,19 @@ export async function runAirtableSyncForEventIn(
 
     // Name the remainder, all of it. A run that stopped after Sessions still
     // knows how many Proposals it never looked at, and "300 synced, 118 to go"
-    // is the sentence that makes bounded work read as competence rather than
-    // as truncation. One cheap count per unreached table buys that.
+    // is the sentence that makes bounded work read as competence rather than as
+    // truncation.
+    //
+    // It is not free, and the comment used to claim it was. "Changed" is defined
+    // by hash inequality, so counting the remainder means building the full
+    // projection and a sha256 per row; `LIMIT 1` cannot be pushed below the
+    // window function, so each call is a full scan of that table. What *is*
+    // avoidable is asking twice, which is why the pages above bank their own
+    // `total` — the table the run actually stopped inside is the largest one
+    // here, and it already knows its answer.
     if (stoppedEarly) {
       for (const key of SYNC_TABLE_ORDER) {
-        if (completed.has(key)) continue;
+        if (completed.has(key) || remainderKnown.has(key)) continue;
         const { total } = await candidateRecordsIn(dbOrTx, eventId, key, connection.options, 1);
         const entry = stats.perTable.find((candidate) => candidate.key === key);
         if (entry) entry.deferred = total;
@@ -414,7 +458,10 @@ export type SweepOptions = {
  * budget, to buy latency that a fifteen-minute cadence cannot perceive.
  */
 export async function runDueAirtableSyncsIn(dbOrTx: DbOrTx, options: SweepOptions = {}): Promise<JobStats> {
-  if (!scheduledSyncEnabled(options.cronFlag)) return { airtableSkippedDisabled: 1 };
+  // Built from the shared suffix rather than spelled out, so that the key this
+  // returns and the key `isHeartbeatWorthy` looks for cannot drift apart — the
+  // drift would show up as a healthy heartbeat for a sweep that never ran.
+  if (!scheduledSyncEnabled(options.cronFlag)) return { [skippedDisabledKey("airtable")]: 1 };
 
   const now = options.now ?? (() => Date.now());
   const startedAt = now();

@@ -106,7 +106,14 @@ export function redactAirtableError(error: unknown): string {
  */
 export type AirtableWhoami = { userId: string; email: string | null; scopes: string[] | null };
 export type AirtableBaseRef = { id: string; name: string; permissionLevel: string };
-export type AirtableFieldRef = { id: string; name: string; type: string };
+/**
+ * `linkedTableId` is carried because a `multipleRecordLinks` field of the right
+ * name and type can still point at the wrong table, and that is not a cosmetic
+ * mismatch: writing a track's record id into a link that targets Rooms either
+ * 422s every run or, worse, resolves against a record that happens to exist
+ * there. Present only for link fields; Airtable reports it under `options`.
+ */
+export type AirtableFieldRef = { id: string; name: string; type: string; linkedTableId?: string };
 export type AirtableTableRef = { id: string; name: string; fields: AirtableFieldRef[] };
 export type AirtableTableSpec = { name: string; description?: string; fields: AirtableFieldSpec[] };
 export type AirtableRecordPayload = { fields: Record<string, unknown> };
@@ -300,7 +307,16 @@ export function createAirtableClient(pat: string, options: AirtableClientOptions
 
       if (response.ok) {
         if (response.status === 204) return undefined as T;
-        return (await response.json()) as T;
+        // A 2xx whose body is not JSON is almost always an intermediary — a
+        // proxy's HTML error page wearing a 200. Left bare, `response.json()`
+        // throws a `SyntaxError` with no `kind`, which `classifyError` reads as
+        // an internal fault and pages an operator over someone else's captive
+        // portal. The error path below already guards the same call.
+        try {
+          return (await response.json()) as T;
+        } catch {
+          throw new AirtableError("server", "Airtable returned a body that was not JSON", response.status);
+        }
       }
 
       const payload = await response.json().catch(() => null);
@@ -338,8 +354,15 @@ export function createAirtableClient(pat: string, options: AirtableClientOptions
     }
   }
 
-  function toTableRef(table: { id: string; name: string; fields?: { id: string; name: string; type: string }[] }): AirtableTableRef {
-    return { id: table.id, name: table.name, fields: (table.fields ?? []).map((field) => ({ id: field.id, name: field.name, type: field.type })) };
+  type RawField = { id: string; name: string; type: string; options?: { linkedTableId?: string } };
+
+  function toFieldRef(field: RawField): AirtableFieldRef {
+    const linkedTableId = field.options?.linkedTableId;
+    return { id: field.id, name: field.name, type: field.type, ...(linkedTableId ? { linkedTableId } : {}) };
+  }
+
+  function toTableRef(table: { id: string; name: string; fields?: RawField[] }): AirtableTableRef {
+    return { id: table.id, name: table.name, fields: (table.fields ?? []).map(toFieldRef) };
   }
 
   return {
@@ -359,8 +382,11 @@ export function createAirtableClient(pat: string, options: AirtableClientOptions
       // that world anyway.
       for (let page = 0; page < 10; page += 1) {
         const query = offset ? `?offset=${encodeURIComponent(offset)}` : "";
-        const body = await request<{ bases: AirtableBaseRef[]; offset?: string }>("GET", `/v0/meta/bases${query}`);
-        bases.push(...body.bases.map((base) => ({ id: base.id, name: base.name, permissionLevel: base.permissionLevel })));
+        const body = await request<{ bases?: AirtableBaseRef[]; offset?: string }>("GET", `/v0/meta/bases${query}`);
+        // `?? []` for the same reason `getBaseSchema` and `deleteRecords` use
+        // it: a 200 of an unexpected shape must stay an `AirtableError` the
+        // caller can classify, not a raw `TypeError` that reads as our bug.
+        bases.push(...(body.bases ?? []).map((base) => ({ id: base.id, name: base.name, permissionLevel: base.permissionLevel })));
         if (!body.offset) break;
         offset = body.offset;
       }
@@ -368,7 +394,7 @@ export function createAirtableClient(pat: string, options: AirtableClientOptions
     },
 
     async createBase(input) {
-      const body = await request<{ id: string; tables: { id: string; name: string; fields?: AirtableFieldRef[] }[] }>(
+      const body = await request<{ id: string; tables: { id: string; name: string; fields?: RawField[] }[] }>(
         "POST",
         "/v0/meta/bases",
         {
@@ -385,7 +411,7 @@ export function createAirtableClient(pat: string, options: AirtableClientOptions
     },
 
     async getBaseSchema(baseId) {
-      const body = await request<{ tables: { id: string; name: string; fields?: AirtableFieldRef[] }[] }>(
+      const body = await request<{ tables: { id: string; name: string; fields?: RawField[] }[] }>(
         "GET",
         `/v0/meta/bases/${encodeURIComponent(baseId)}/tables`,
       );
@@ -393,7 +419,7 @@ export function createAirtableClient(pat: string, options: AirtableClientOptions
     },
 
     async createTable(baseId, spec) {
-      const body = await request<{ id: string; name: string; fields?: AirtableFieldRef[] }>(
+      const body = await request<{ id: string; name: string; fields?: RawField[] }>(
         "POST",
         `/v0/meta/bases/${encodeURIComponent(baseId)}/tables`,
         {
@@ -406,12 +432,12 @@ export function createAirtableClient(pat: string, options: AirtableClientOptions
     },
 
     async createField(baseId, tableId, spec, linkedTableId) {
-      const body = await request<AirtableFieldRef>(
+      const body = await request<RawField>(
         "POST",
         `/v0/meta/bases/${encodeURIComponent(baseId)}/tables/${encodeURIComponent(tableId)}/fields`,
         fieldSpecBody(spec, linkedTableId),
       );
-      return { id: body.id, name: body.name, type: body.type };
+      return toFieldRef(body);
     },
 
     async upsertRecords(baseId, tableId, records, mergeOn) {

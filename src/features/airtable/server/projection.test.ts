@@ -85,8 +85,10 @@ describe("Airtable projection (M39)", () => {
     await recordSyncedRowsIn(db, eventId, "rooms", [{ recordPk: roomGhostId, airtableRecordId: "recGone", contentHash: "x" }]);
     const orphans = await orphanRecordsIn(db, eventId, "rooms", 50);
     expect(orphans.orphanTotal).toBe(1);
-    expect(orphans.stateTotal).toBe(1);
     expect(orphans.rows[0]?.airtableRecordId).toBe("recGone");
+    // The breaker's denominator is asked for separately, so that it still
+    // answers truthfully for a table that has no orphans at all.
+    expect(await syncedRowCountIn(db, eventId, "rooms")).toBe(1);
   });
 
   it("a track rename does not flip a linked session's hash — the link carries a resolved record id, not the track's label", async () => {

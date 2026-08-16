@@ -23,6 +23,7 @@ export const SYNC_RUN_ERRORS = {
   rate_limited: "Airtable asked us to slow down. We stopped cleanly and will pick up where we left off.",
   airtable_unavailable: "Airtable didn't answer. Nothing was lost — the next sync carries on from here.",
   token_unreadable: "We couldn't read the stored token. Reconnect and we'll take it from there.",
+  disconnected: "This event was disconnected from Airtable before the run started, so nothing was written.",
   interrupted: "This run stopped before it finished. Nothing was duplicated — the next one picks up where it left off.",
   internal: "Something on our side stopped this sync. We've been told, and the next run will try again.",
 } as const;

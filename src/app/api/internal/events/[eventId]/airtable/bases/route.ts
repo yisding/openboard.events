@@ -31,9 +31,20 @@ function reportSchema(schema: Awaited<ReturnType<typeof chooseAirtableBase>>["sc
     : { ok: false, reason: schema.reason, issues: schema.issues, createdTables: 0, createdFields: 0 };
 }
 
+// Rate limited despite being a GET, and despite the organizer already being
+// authenticated: `listAirtableBases` opens the sealed PAT and calls Airtable's
+// meta API with the *customer's* token, up to ten pages of it. Airtable's limits
+// are per token, so an organizer holding down refresh here spends a budget the
+// scheduled sync needs — the 429s would land on the runs, not on this handler.
+// The `choose` verb below has always been limited for the same reason.
 const list = defineHandler({
   auth: adminAuth({ role: "organizer" }),
   input: z.object({}),
+  rateLimit: {
+    limit: 12,
+    windowMs: 60_000,
+    key: ({ eventId, session }) => `airtable-bases-list:${eventId ?? "none"}:${session?.actorId ?? "anon"}`,
+  },
   handler: async ({ eventId }) => {
     if (!eventId) throw new AppError("VALIDATION", "eventId is required");
     return { bases: await listAirtableBases(eventId) };

@@ -3252,6 +3252,8 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
 .airtable-choice__card small,.airtable-base small{margin-top:2px;color:var(--muted);font-size:var(--text-xs)}
 .airtable-choice__card:has(input:disabled){cursor:default;opacity:.65}
 .airtable-base-list{display:grid;gap:8px;max-height:260px;overflow-y:auto}
+.airtable-base-error{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.airtable-base-error .field-error{margin:0}
 
 .airtable-checklist{margin:0;padding:0;list-style:none;display:grid;gap:7px}
 .airtable-checklist li{position:relative;padding-left:22px;color:var(--muted);font-size:var(--text-xs)}

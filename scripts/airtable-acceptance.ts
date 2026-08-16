@@ -1,4 +1,5 @@
-import { basename } from "node:path";
+import { basename, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { db } from "@/db/client";
 import {
   chooseAirtableBaseIn,
@@ -177,9 +178,34 @@ async function run(): Promise<void> {
   }
 }
 
-if (process.argv[1] && basename(process.argv[1]) === "airtable-acceptance.ts") {
+/*
+ * Resolved module path against `argv[1]`, rather than the
+ * `basename(argv[1]) === "<this file>.ts"` guard the other scripts under
+ * `scripts/` use.
+ *
+ * Everywhere else, a guard that fails to match is harmless — the script simply
+ * was not the entry point that run. Here it is the worst outcome available:
+ * this script exists to produce the transcript an operator files as evidence
+ * that M39 was accepted, and a silent exit 0 having contacted nothing is
+ * indistinguishable from a clean run to anything reading an exit code. The
+ * name-based test says "not launched under my file name", which is true both of
+ * an ordinary import *and* of this file launched through a compiled output or a
+ * wrapper. Comparing the paths tells those two apart, so the second can fail
+ * loudly without the first ever setting an exit code on a process that merely
+ * imported something from here.
+ */
+const entry = process.argv[1];
+const selfPath = fileURLToPath(import.meta.url);
+if (entry && resolve(entry) === selfPath) {
   run().catch((error: unknown) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   });
+} else if (entry && basename(entry).startsWith("airtable-acceptance")) {
+  console.error(
+    `airtable-acceptance was launched as "${entry}" rather than as `
+    + `${selfPath}, and did nothing. Nothing was contacted, and this run is not acceptance `
+    + `evidence — run it directly: tsx scripts/airtable-acceptance.ts`,
+  );
+  process.exitCode = 1;
 }

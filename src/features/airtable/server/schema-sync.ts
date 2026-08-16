@@ -31,7 +31,20 @@ import { AirtableError, type AirtableClient, type AirtableTableRef } from "./cli
  */
 
 export type EnsureSchemaResult =
-  | { ok: true; snapshot: AirtableSchemaSnapshot; fingerprint: string; createdTables: number; createdFields: number }
+  | {
+    ok: true;
+    snapshot: AirtableSchemaSnapshot;
+    fingerprint: string;
+    createdTables: number;
+    createdFields: number;
+    /**
+     * The caller handed us a snapshot we could trust, so no meta call was made
+     * and the snapshot returned is byte-for-byte the one already stored. Lets a
+     * steady-state run skip re-writing a row it would not change — every fifteen
+     * minutes, per connected event.
+     */
+    fromCache: boolean;
+  }
   | {
     ok: false;
     reason: "missing_scope" | "drifted";
@@ -50,16 +63,23 @@ export type EnsureSchemaResult =
  * Deliberately lenient: an organizer whose `Description` is a rich-text field
  * rather than long text has a base that works perfectly, and failing their sync
  * over it would be pedantry with a support ticket attached.
+ *
+ * The test each entry has to pass is *lossless*, not merely "Airtable accepts
+ * it". `date` is the case that fails it and is therefore absent: every field we
+ * declare as `dateTime` is an instant whose time of day is the point — "Starts
+ * at", "Ends at", "Submitted at", "Decided at" — and an Airtable `date` field
+ * stores no time component at all. Accepting one meant a session at 14:00 and a
+ * session at 09:00 landing indistinguishable in the organizer's own base, with
+ * the run reporting success. It is now a `wrongType` issue: amber, named, and
+ * repaired by the one person allowed to retype a column in their base.
  */
 const TEXT_LIKE = new Set(["singleLineText", "multilineText", "richText", "email", "url", "phoneNumber"]);
 const NUMBER_LIKE = new Set(["number", "percent", "duration", "rating", "currency"]);
-const DATE_LIKE = new Set(["dateTime", "date"]);
 
 function typeIsAcceptable(expected: AirtableFieldSpec["type"], actual: string): boolean {
   if (expected === actual) return true;
   if (TEXT_LIKE.has(expected) && TEXT_LIKE.has(actual)) return true;
   if (expected === "number") return NUMBER_LIKE.has(actual);
-  if (expected === "dateTime") return DATE_LIKE.has(actual);
   return false;
 }
 
@@ -118,7 +138,7 @@ export async function ensureBaseSchema(
   // The steady-state path: a matching fingerprint over a complete snapshot
   // means a run makes zero meta calls before it starts writing records.
   if (cached?.fingerprint === fingerprint && cached.snapshot && snapshotCovers(cached.snapshot)) {
-    return { ok: true, snapshot: cached.snapshot, fingerprint, createdTables: 0, createdFields: 0 };
+    return { ok: true, snapshot: cached.snapshot, fingerprint, createdTables: 0, createdFields: 0, fromCache: true };
   }
 
   let tables = await client.getBaseSchema(input.baseId);
@@ -153,9 +173,12 @@ export async function ensureBaseSchema(
 
   // Pass 1 — tables and their scalar fields. Link fields cannot be created
   // until every target table exists, so they are deliberately absent here.
+  // `tables` is not reassigned until this pass is over, so the index is built
+  // once rather than once per table.
+  const beforePass1 = indexTables(tables);
   for (const key of SYNC_TABLE_ORDER) {
     const plan = TABLE_PLANS[key];
-    const existing = indexTables(tables).get(plan.displayName);
+    const existing = beforePass1.get(plan.displayName);
     if (!existing) {
       const made = canWrite
         ? await tryWrite(() => client.createTable(input.baseId, {
@@ -203,21 +226,38 @@ export async function ensureBaseSchema(
 
   if (createdTables > 0 || createdFields > 0) tables = await client.getBaseSchema(input.baseId);
 
-  // Pass 2 — links, now that every target table is guaranteed to exist.
+  // Pass 2 — links, now that every target table is guaranteed to exist. The
+  // index is built once here rather than per table and again per link field:
+  // `tables` is only ever reassigned by the two re-fetches, and rebuilding it
+  // inside the loops read as though it might change under them.
+  const byTableName = indexTables(tables);
   let createdLinks = 0;
   for (const key of SYNC_TABLE_ORDER) {
     const plan = TABLE_PLANS[key];
-    const existing = indexTables(tables).get(plan.displayName);
+    const existing = byTableName.get(plan.displayName);
     if (!existing) continue;
     const byFieldName = new Map(existing.fields.map((field) => [field.name, field]));
     for (const spec of linkFields(plan)) {
-      const target = indexTables(tables).get(TABLE_PLANS[spec.linkTo].displayName);
+      const targetName = TABLE_PLANS[spec.linkTo].displayName;
+      const target = byTableName.get(targetName);
       const found = byFieldName.get(spec.name);
       if (found) {
         if (!typeIsAcceptable(spec.type, found.type)) {
           issues.push(issue(
             "wrongType", plan.displayName, spec.name, describeType(spec), found.type,
-            `“${spec.name}” in “${plan.displayName}” is a ${found.type} field. It needs to link to “${TABLE_PLANS[spec.linkTo].displayName}”.`,
+            `“${spec.name}” in “${plan.displayName}” is a ${found.type} field. It needs to link to “${targetName}”.`,
+          ));
+        } else if (target && found.linkedTableId && found.linkedTableId !== target.id) {
+          // Right name, right type, wrong destination. Left unchecked this is
+          // the quietest failure in the whole synchronizer: we would write
+          // resolved record ids from one table into a link that points at
+          // another, and Airtable either rejects every batch or attaches the
+          // record that happens to share that id. Reported, never repaired —
+          // repointing a link field detaches every record already linked
+          // through it.
+          issues.push(issue(
+            "wrongType", plan.displayName, spec.name, `Link to ${targetName}`, `Link to a different table`,
+            `“${spec.name}” in “${plan.displayName}” links to another table. Point it at “${targetName}”, or rename it and we'll create ours alongside.`,
           ));
         }
         continue;
@@ -275,5 +315,5 @@ export async function ensureBaseSchema(
     return { ok: false, reason: gapReason, issues: missing, ...(writeDenied ? { schemaWriteDenied: true } : {}) };
   }
 
-  return { ok: true, snapshot, fingerprint, createdTables, createdFields };
+  return { ok: true, snapshot, fingerprint, createdTables, createdFields, fromCache: false };
 }
