@@ -26,6 +26,16 @@ describe("Field", () => {
     expect(html).toContain("Question label");
   });
 
+  it("names the control the caller meant when the field holds more than one", () => {
+    // Implicit nesting labels the first labelable descendant, which is the
+    // calendar button, not the input the organizer types a date into.
+    const html = renderToStaticMarkup(React.createElement(Field, { label: "Starts at", htmlFor: "starts-at" }, [
+      React.createElement("input", { key: "input", id: "starts-at", readOnly: true }),
+      React.createElement("button", { key: "open" }, "Open date picker"),
+    ]));
+    expect(html).toContain('<label for="starts-at"');
+  });
+
   it("renders a named group instead of a label when the control is a set of buttons", () => {
     const html = renderToStaticMarkup(React.createElement(Field, { label: "Response type", group: true }, grid()));
     expect(html).not.toContain("<label");

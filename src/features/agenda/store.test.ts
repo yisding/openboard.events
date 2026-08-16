@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { roomIdSchema, scheduledSessionDtoSchema, type ScheduledSessionDTO } from "@/shared/contracts";
-import { createSessionDefaultDay, defaultScheduledRange, eventDayKeys, scheduledNeedingRoom } from "./store";
+import { contactIdSchema, roomIdSchema, scheduledSessionDtoSchema, type ScheduledSessionDTO } from "@/shared/contracts";
+import { createSessionDefaultDay, defaultScheduledRange, eventDayKeys, nameLookup, scheduledNeedingRoom, withQuickAddedSpeakers } from "./store";
 
 const event = {
   timezone: "America/Los_Angeles",
@@ -157,5 +157,28 @@ describe("scheduledNeedingRoom", () => {
       "d5000000-0000-4000-8000-000000000001",
       "d5000000-0000-4000-8000-000000000002",
     ]);
+  });
+});
+
+describe("withQuickAddedSpeakers", () => {
+  const contactId = (suffix: string) => contactIdSchema.parse(`d5100000-0000-4000-8000-0000000000${suffix}`);
+
+  it("names a contact the server render has not caught up with yet", () => {
+    const merged = withQuickAddedSpeakers([], [{ contactId: String(contactId("01")), name: "Amara Osei" }]);
+
+    expect(nameLookup({ rooms: [], tracks: [], speakers: merged }).speakers([String(contactId("01"))]))
+      .toEqual(["Amara Osei"]);
+  });
+
+  it("lets the server's copy win once it arrives, and never lists a contact twice", () => {
+    const known = [{ contactId: contactId("01"), name: "Amara Osei" }];
+    const added = [
+      { contactId: String(contactId("01")), name: "amara@example.com" },
+      { contactId: String(contactId("02")), name: "Ken Adeyemi" },
+      { contactId: String(contactId("02")), name: "Ken Adeyemi" },
+    ];
+
+    expect(withQuickAddedSpeakers(known, added).map((speaker) => speaker.name))
+      .toEqual(["Amara Osei", "Ken Adeyemi"]);
   });
 });
