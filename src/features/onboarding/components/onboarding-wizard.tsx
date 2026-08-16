@@ -348,6 +348,24 @@ export function OnboardingWizard({
   const [slug, setSlug] = useState(initialState?.event.slug ?? "");
   const [eventType, setEventType] = useState<EventType>((initialState?.event.eventType as EventType | undefined) ?? "conference");
   const [timezone, setTimezone] = useState(initialState?.event.timezone ?? DEFAULT_TZ);
+  /**
+   * The zone list is client-only until hydration.
+   *
+   * Both the list and every label are CLDR data read from *the rendering
+   * runtime's own* `Intl` — and the runtime that renders the HTML is never the
+   * browser that hydrates it. Production renders in workerd; a visitor's
+   * Chromium is a third independent ICU build. Three of the ~419 labels
+   * already disagree between Node 22 and Chromium (Palmer Land / Palmer, Troll
+   * Station / Troll, Ürümqi / Urumqi), React needs one, and its answer to a
+   * text mismatch is to throw the server tree away and re-render the whole
+   * wizard on the client — on the first screen of setup, where a dropped
+   * keystroke costs the most.
+   *
+   * Nothing is lost by deferring: the control is `disabled` until `hydrated`
+   * anyway, so the options a visitor could not open yet were never load-bearing
+   * — and not shipping 419 of them in the HTML is its own small win.
+   */
+  const zoneOptions = hydrated ? timeZones : [timezone];
   const [startsAt, setStartsAt] = useState<string | null>(initialState?.event.startsAt ?? null);
   const [endsAt, setEndsAt] = useState<string | null>(initialState?.event.endsAt ?? null);
   // First Fair (design §5.4) — "Start from my demo's setup". Only meaningful
@@ -489,6 +507,15 @@ export function OnboardingWizard({
         ...(startsAt ? {} : { startsAt: "Start date and time are required" }),
         ...(endsAt ? {} : { endsAt: "End date and time are required" }),
       });
+    }
+    // The same rule `createEventIn` enforces, checked before the request rather
+    // than only after it. `assertValidSlug`'s neighbour has always rejected an
+    // end that is not after the start, but the wizard let the organizer pick
+    // one, press Create event, and wait out a round trip to be told — and on
+    // the create path a definitive failure also clears the retained field set,
+    // so the refusal read as the form having simply not gone anywhere.
+    if (!(Date.parse(endsAt) > Date.parse(startsAt))) {
+      return fail("The end must be after the start", { endsAt: "Ends must be after starts" });
     }
     setSaving(true);
     fail("");
@@ -850,7 +877,7 @@ export function OnboardingWizard({
           </Field>
           <details ref={slugDetailsRef} className="onboarding-advanced" open={Boolean(event) || eventCreateRecoveryRequired}>
             <summary>{event ? "Public URL" : "Customize public URL"}</summary>
-            <Field label="Event slug" required={Boolean(event)} hint={event ? "Used in your public URLs — changing it means existing CFP links will stop working" : "Optional — leave blank to generate it from the event name"} hintId="onboarding-event-slug-help" error={fieldErrors.slug} errorId="onboarding-event-slug-error">
+            <Field label="Event slug" required={Boolean(event)} hint={event ? "Used in your public URLs — changing it means existing call-for-speakers links will stop working" : "Optional — leave blank to generate it from the event name"} hintId="onboarding-event-slug-help" error={fieldErrors.slug} errorId="onboarding-event-slug-error">
               <input id="onboarding-event-slug" name="slug" required={Boolean(event)} disabled={!hydrated || saving || eventCreateRecoveryRequired} aria-invalid={Boolean(fieldErrors.slug) || undefined} aria-describedby={fieldErrors.slug ? "onboarding-event-slug-error" : "onboarding-event-slug-help"} value={slug} onChange={(event) => { setSlug(event.target.value); clearFieldError("slug"); }} placeholder="your-event" />
             </Field>
           </details>
@@ -862,7 +889,12 @@ export function OnboardingWizard({
             </Field>
             <Field label="Timezone" required error={fieldErrors.timezone} errorId="onboarding-event-timezone-error">
               <Select id="onboarding-event-timezone" name="timezone" required disabled={!hydrated || saving || eventCreateRecoveryRequired} aria-invalid={Boolean(fieldErrors.timezone) || undefined} aria-describedby={fieldErrors.timezone ? "onboarding-event-timezone-error" : undefined} value={timezone} onChange={(event) => { setTimezone(event.target.value); clearFieldError("timezone"); }}>
-                {timeZones.map((zone) => <option key={zone} value={zone}>{timeZoneOptionLabel(zone)}</option>)}
+                {/* `suppressHydrationWarning` on the one option that *is*
+                    server-rendered: even a single label can disagree across ICU
+                    builds, and a select nobody can touch yet is not worth
+                    discarding the wizard over. Its value — the IANA id — is the
+                    part that has to match, and that is not locale data. */}
+                {zoneOptions.map((zone) => <option key={zone} value={zone} suppressHydrationWarning>{timeZoneOptionLabel(zone)}</option>)}
               </Select>
             </Field>
           </div>

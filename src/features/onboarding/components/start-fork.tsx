@@ -69,7 +69,11 @@ export function StartFork({ organizationId, demo = null }: {
 
         <section className="panel" style={{ display: "grid", alignContent: "start", gap: 10, padding: 20 }}>
           <span className="metric-icon" aria-hidden="true"><CalendarPlus size={20} /></span>
-          <h2 style={{ margin: 0, fontSize: "var(--text-base)" }}>Set up my real event</h2>
+          {/* "my real event" contrasts with a demo that does not exist yet on
+              this screen — a brand-new organization reads it as a distinction
+              being drawn about something they have not seen. Inside the demo,
+              where the contrast is the point, "Create my real event" stays. */}
+          <h2 style={{ margin: 0, fontSize: "var(--text-base)" }}>Set up my own event</h2>
           <p style={{ margin: 0, color: "var(--muted)", fontSize: "var(--text-sm)", lineHeight: 1.55 }}>
             You know your conference. Name, dates, a track or two, and a public call for speakers.
           </p>
@@ -86,7 +90,10 @@ export function StartFork({ organizationId, demo = null }: {
           during a page render, and one request without the redirect is all
           "not right now" needs to mean. */}
       <p style={{ margin: "16px 0 0", fontSize: "var(--text-sm)" }}>
-        <Link href={`/organizations/${organizationId}?skip=1`}>Skip both — take me to my organization &rarr;</Link>
+        {/* No trailing arrow. Both doors above carry one on a button, and a
+            third on a plain sentence read as a stray glyph rather than as a
+            direction — this is an escape hatch, not a step forward. */}
+        <Link href={`/organizations/${organizationId}?skip=1`}>Skip both — take me to my organization</Link>
       </p>
     </div>
   );

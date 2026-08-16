@@ -39,7 +39,7 @@ describe("StartFork", () => {
 
     expect(startForkVariant(null)).toBe("first-run");
     expect(html).toContain("Explore a finished conference");
-    expect(html).toContain("Set up my real event");
+    expect(html).toContain("Set up my own event");
     // The claims the provisioner actually keeps — a tutorial whose first
     // verifiable statement is false has spent its whole argument.
     expect(html).toContain("18 speakers, 24 proposals");
@@ -57,8 +57,8 @@ describe("StartFork", () => {
     expect(startForkVariant(ready)).toBe("demo-exists");
     expect(html).toContain(`href="/events/${eventId}/dashboard"`);
     expect(html).toContain("Back to your demo conference");
-    // The real-event door never disappears: the demo is the point of departure.
-    expect(html).toContain("Set up my real event");
+    // The own-event door never disappears: the demo is the point of departure.
+    expect(html).toContain("Set up my own event");
   });
 
   it("resumes a half-built demo instead of offering to start one again", () => {
