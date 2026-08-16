@@ -138,6 +138,22 @@ export function activeAdminSection(pathname: string, base: string): string | und
   return pathname.startsWith(`${base}/`) ? pathname.slice(base.length + 1).split("/")[0] : undefined;
 }
 
+/**
+ * The width at which this shell becomes the mobile one. It must stay equal to
+ * the `@media(max-width:768px)` blocks in globals.css that take `.admin-sidebar`
+ * off-canvas and reveal `.mobile-menu`, because the two halves describe one
+ * layout: the stylesheet decides what is on screen, and this query decides what
+ * `adminMobileNavigationState` marks `inert`.
+ *
+ * It read 860px while the stylesheet read 768px, and every width in between got
+ * the desktop stylesheet with the mobile inert state: a sidebar sitting in plain
+ * view at full opacity, holding the event switcher and every nav link, that
+ * answered no click and no keypress — with the hamburger still display:none, so
+ * nothing on screen could revive it. iPad portrait (810–834px) lands inside that
+ * band. Change one number here and the matching blocks in globals.css together.
+ */
+const MOBILE_SHELL_QUERY = "(max-width: 768px)";
+
 export function adminMobileNavigationState(isMobile: boolean, open: boolean) {
   return {
     sidebarHidden: isMobile && !open,
@@ -184,7 +200,7 @@ export function AdminShell({ eventId, role, event: serverEvent, counts, user, ca
   }, []);
 
   useEffect(() => {
-    const media = window.matchMedia("(max-width: 860px)");
+    const media = window.matchMedia(MOBILE_SHELL_QUERY);
     function syncMobileState() {
       setIsMobile(media.matches);
       if (!media.matches) setOpen(false);

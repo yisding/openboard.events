@@ -86,6 +86,30 @@ describe("the guided tour's mount point", () => {
   });
 });
 
+describe("the shell's mobile breakpoint and the stylesheet's", () => {
+  // These two numbers describe one layout. While they disagreed — 860 here,
+  // 768 in the stylesheet — every width between them rendered the desktop
+  // sidebar and then marked it inert, with no hamburger to reopen it.
+  it("marks the sidebar inert at exactly the width the stylesheet takes it off-canvas", () => {
+    const source = readFileSync(new URL("./admin-shell.tsx", import.meta.url), "utf8");
+    const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
+
+    const query = source.match(/const MOBILE_SHELL_QUERY = "\(max-width: (\d+)px\)"/u);
+    expect(query, "admin-shell.tsx should declare MOBILE_SHELL_QUERY").not.toBeNull();
+    expect(source).toContain("window.matchMedia(MOBILE_SHELL_QUERY)");
+
+    // The stylesheet block that actually takes the sidebar off-canvas: the last
+    // max-width media query opened before the translateX rule that hides it.
+    const hidden = css.indexOf("translateX(-102%)");
+    expect(hidden, "globals.css should take .admin-sidebar off-canvas").toBeGreaterThan(-1);
+    const breakpoints = [...css.slice(0, hidden).matchAll(/@media\s*\(\s*max-width:\s*(\d+)px\s*\)/gu)];
+    const offCanvasWidth = breakpoints.at(-1)?.[1];
+
+    expect(offCanvasWidth, "the off-canvas rule should sit inside a max-width block").toBeDefined();
+    expect(query?.[1]).toBe(offCanvasWidth);
+  });
+});
+
 describe("admin mobile navigation accessibility state", () => {
   it("removes the closed off-canvas sidebar from navigation", () => {
     expect(adminMobileNavigationState(true, false)).toEqual({ sidebarHidden: true, backgroundInert: false });
