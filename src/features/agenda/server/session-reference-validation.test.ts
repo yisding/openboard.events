@@ -12,6 +12,7 @@ const migration0 = readFileSync(new URL("../../../../drizzle/0000_init.sql", imp
 const migrationContentRevisions = readFileSync(new URL("../../../../drizzle/0006_content_deliverables.sql", import.meta.url), "utf8");
 const migrationCreationReceipts = readFileSync(new URL("../../../../drizzle/0031_agenda_session_creation_receipts.sql", import.meta.url), "utf8");
 const migrationCalendarCancellationSnapshots = readFileSync(new URL("../../../../drizzle/0043_calendar_cancellation_snapshots.sql", import.meta.url), "utf8");
+const migrationPlacementRevisions = readFileSync(new URL("../../../../drizzle/0050_session_placement_revisions.sql", import.meta.url), "utf8");
 
 const eventId = eventIdSchema.parse("b4100000-0000-4000-8000-000000000001");
 const otherEventId = eventIdSchema.parse("b4100000-0000-4000-8000-000000000002");
@@ -43,6 +44,7 @@ describe("a foreign or dangling reference on session create", () => {
     await pg.exec(migrationContentRevisions);
     await pg.exec(migrationCreationReceipts);
     await pg.exec(migrationCalendarCancellationSnapshots);
+    await pg.exec(migrationPlacementRevisions);
     database = drizzle(pg, { schema }) as unknown as DbOrTx;
     await pg.query(
       `INSERT INTO events(id,name,slug,timezone,starts_at,ends_at) VALUES
@@ -90,5 +92,44 @@ describe("a foreign or dangling reference on session create", () => {
 
     expect(outcome.code).toBe("VALIDATION");
     expect(outcome.fieldErrors).toMatchObject({ trackId: expect.any(String) });
+  });
+
+  it("maps a cross-event room on *edit* through the update path's rejection handler", async () => {
+    // The update path scopes the FK→VALIDATION mapping to a single statement via
+    // `.then(value => value, mapReferenceRejection)`, a code path no create-path
+    // test reaches. Create a clean session first, then edit it to point at the
+    // foreign room: the composite (id, event_id) FK must refuse the UPDATE and
+    // that refusal must arrive as the same field-scoped VALIDATION, not a 500.
+    const created = await saveSessionIn(database, eventId, {
+      ...base,
+      creationId: sessionIdSchema.parse("b4500000-0000-4000-8000-000000000003"),
+      title: "Editable session",
+    });
+
+    const outcome = await refusal(() =>
+      saveSessionIn(database, eventId, {
+        id: created.id,
+        expectedVersion: created.rowVersion,
+        title: "Editable session",
+        descriptionHtml: "<p>Details</p>",
+        startsAt: null,
+        endsAt: null,
+        speakerContactIds: [],
+        status: "draft" as const,
+        roomId: foreignRoomId,
+      }),
+    );
+
+    expect(outcome.code).toBe("VALIDATION");
+    expect(outcome.fieldErrors).toMatchObject({ roomId: expect.any(String) });
+
+    // The UPDATE was refused, so the row keeps its original (null) room and its
+    // version never advanced past the create.
+    const rows = await pg.query<{ room_id: string | null; row_version: number }>(
+      "SELECT room_id, row_version FROM sessions WHERE id=$1",
+      [created.id],
+    );
+    expect(rows.rows[0]?.room_id).toBeNull();
+    expect(Number(rows.rows[0]?.row_version)).toBe(created.rowVersion);
   });
 });

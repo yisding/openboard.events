@@ -227,4 +227,51 @@ describe("native Better Auth error envelope", () => {
       "openboard_admin.session=abc; Path=/; HttpOnly",
     ]);
   });
+
+  it("carries a rejection's Set-Cookie through the re-shaped envelope", async () => {
+    // Better Auth clears its session cookie on some rejections; wrapping the
+    // body must not drop that side effect.
+    const raw = Response.json(
+      { code: "INVALID_EMAIL_OR_PASSWORD", message: "Invalid email or password" },
+      {
+        status: 401,
+        headers: { "set-cookie": "openboard_admin.session=; Path=/; Max-Age=0" },
+      },
+    );
+
+    const wrapped = await wrapBetterAuthError(raw);
+
+    expect(wrapped).not.toBe(raw);
+    expect(wrapped.headers.getSetCookie()).toEqual([
+      "openboard_admin.session=; Path=/; Max-Age=0",
+    ]);
+    await expect(wrapped.json()).resolves.toEqual({
+      error: { code: "INVALID_EMAIL_OR_PASSWORD", message: "Invalid email or password" },
+    });
+  });
+
+  it("maps a bodyless 500 to INTERNAL, never a credential outcome", async () => {
+    // An unhandled adapter/DB fault returns a bare 500 with no JSON code or
+    // message. It must not surface as UNAUTHORIZED "Invalid email or password",
+    // which both mis-states the cause and contradicts toHttp (UNAUTHORIZED→401).
+    const raw = new Response("Internal Server Error", { status: 500 });
+
+    const wrapped = await wrapBetterAuthError(raw);
+
+    expect(wrapped.status).toBe(500);
+    const parsed = await wrapped.json() as { error: { code: string; message: string } };
+    expect(parsed.error.code).toBe("INTERNAL");
+    expect(parsed.error.message).not.toBe("Invalid email or password");
+  });
+
+  it("maps a bodyless 400 to VALIDATION rather than an auth code", async () => {
+    const raw = new Response("Bad Request", { status: 400 });
+
+    const wrapped = await wrapBetterAuthError(raw);
+
+    expect(wrapped.status).toBe(400);
+    const parsed = await wrapped.json() as { error: { code: string; message: string } };
+    expect(parsed.error.code).toBe("VALIDATION");
+    expect(parsed.error.message).not.toBe("Invalid email or password");
+  });
 });

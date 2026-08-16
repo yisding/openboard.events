@@ -663,6 +663,13 @@ export async function saveSessionIn(
     for (let attempt = 0; attempt < 12; attempt += 1) {
       const slug = attempt === 0 ? base : `${base}-${attempt + 1}`;
       try {
+        // Scope the FK→VALIDATION mapping to the committing write alone, exactly
+        // as the update path does (`.then(..., mapReferenceRejection)` below). The
+        // post-commit `notifySchedule` enqueue carries its own FKs; a 23503 from
+        // *that* must stay an INTERNAL so the recovery flow still fires for the
+        // one case the session actually was created — reclassifying it to
+        // VALIDATION would tell the client "nothing was written" and orphan the
+        // committed row.
         const row = await insertSession(
           dbOrTx,
           eventId,
@@ -672,7 +679,7 @@ export async function saveSessionIn(
           speakers,
           actorUserId,
           payloadFingerprint,
-        );
+        ).then((value) => value, mapReferenceRejection);
         await notifySchedule(
           dbOrTx, eventId, row.id as SessionId,
           { status: "draft", startsAt: null, scheduleRevision: 0 },
@@ -681,8 +688,10 @@ export async function saveSessionIn(
         );
         return toDto(row, speakers);
       } catch (error) {
-        const badReference = referenceViolation(error);
-        if (badReference) throw badReference;
+        // A mapped VALIDATION (insertSession's own FK refusal, already converted
+        // above) is not a unique violation, so it re-throws here rather than
+        // being retried; a raw 23503 from the post-commit notify falls through as
+        // an INTERNAL, keeping the recovery flow intact.
         if (!isUniqueViolation(error)) throw error;
         if (input.creationId !== undefined) {
           const recovered = await recoverCreatedSession(

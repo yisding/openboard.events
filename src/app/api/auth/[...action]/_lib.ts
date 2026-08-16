@@ -50,6 +50,30 @@ function copyCookies(source: Response, target: NextResponse): void {
   for (const cookie of source.headers.getSetCookie()) target.headers.append("set-cookie", cookie);
 }
 
+// Better Auth omits a code on some rejections (the rate limiter, a bare 500 from
+// an unhandled adapter fault, a schema 400). Derive one from the status so the
+// wrapped envelope stays internally consistent with `toHttp` in
+// `shared/lib/errors.ts` — a 500 must not surface as `UNAUTHORIZED` (401) or a
+// 400 assert a credential outcome, which is the very mismatch this PR removes.
+function codeForStatus(status: number): string {
+  if (status === 429) return "RATE_LIMITED";
+  if (status === 403) return "FORBIDDEN";
+  if (status === 404) return "NOT_FOUND";
+  if (status === 400) return "VALIDATION";
+  if (status >= 500) return "INTERNAL";
+  return "UNAUTHORIZED";
+}
+
+// Only bites when the body carries no `message` of its own (real credential
+// rejections always do). Keep it status-neutral for non-401s so a server fault
+// never tells the caller their password was wrong.
+function fallbackMessage(status: number): string {
+  if (status >= 500) return "Something went wrong. Please try again.";
+  if (status === 429) return "Too many attempts. Please try again in a moment.";
+  if (status === 400) return "That request could not be processed.";
+  return "Invalid email or password";
+}
+
 /**
  * Re-shape a *native* Better Auth error response into the application envelope.
  *
@@ -63,13 +87,6 @@ function copyCookies(source: Response, target: NextResponse): void {
  * Success is returned verbatim: the whole point of the exchange is the session
  * cookie and body Better Auth mints, and only rejections were ever off-grammar.
  */
-function codeForStatus(status: number): string {
-  if (status === 429) return "RATE_LIMITED";
-  if (status === 403) return "FORBIDDEN";
-  if (status === 404) return "NOT_FOUND";
-  return "UNAUTHORIZED";
-}
-
 export async function wrapBetterAuthError(response: Response): Promise<Response> {
   if (response.ok) return response;
   const body = await response.clone().json().catch(() => null) as { code?: unknown; message?: unknown } | null;
@@ -77,7 +94,7 @@ export async function wrapBetterAuthError(response: Response): Promise<Response>
   // `EMAIL_NOT_VERIFIED`), but its built-in rate limiter answers with a bare
   // `message` — fall back to the status so a 429 never surfaces as an auth code.
   const code = typeof body?.code === "string" ? body.code : codeForStatus(response.status);
-  const message = typeof body?.message === "string" ? body.message : "Invalid email or password";
+  const message = typeof body?.message === "string" ? body.message : fallbackMessage(response.status);
   const wrapped = NextResponse.json({ error: { code, message } }, { status: response.status });
   // Better Auth clears its cookie on some rejections; carry any Set-Cookie so
   // re-shaping the body never changes the session side effects.
