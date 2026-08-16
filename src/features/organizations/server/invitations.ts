@@ -5,10 +5,12 @@ import { adminAuthEmailOutbox, communicationLogs, eventMembers, events, organiza
 import {
   eventIdSchema,
   idem,
+  organizationEventInvitationDtoSchema,
   organizationInvitationDtoSchema,
   organizationIdSchema,
   type EventId,
   type MemberRole,
+  type OrganizationEventInvitationDTO,
   type OrganizationId,
   type OrganizationInvitationDTO,
   type OrganizationInvitationId,
@@ -316,12 +318,13 @@ export const revokeEventReviewerInvitation = (
 ) => withTx((tx) => revokeEventReviewerInvitationIn(tx, eventId, invitationId, actorUserId));
 
 /**
- * The two pending-invitation lists below differ by exactly one predicate:
- * whether `event_id` is set. Everything else — what "pending" means, the
- * columns, the ordering, the DTO mapping — has to stay identical between them,
- * because the export presents both as the same kind of record, and this whole
- * change exists because those two readings of one table disagreed once already.
- * Sharing the body is what keeps them from drifting apart again.
+ * The two pending-invitation lists below differ by one predicate — whether
+ * `event_id` is set — and, downstream of it, by whether the DTO carries that
+ * event. What "pending" means, the columns and the ordering have to stay
+ * identical between them, because the export presents both as the same kind of
+ * record, and this whole change exists because those two readings of one table
+ * disagreed once already. Sharing the row query is what keeps them from
+ * drifting apart again.
  *
  * `expires_at > now()` is the same bound the token lookup enforces. Without it
  * an expired invitation stayed under the Team panel's "Pending invitations"
@@ -331,14 +334,11 @@ export const revokeEventReviewerInvitation = (
  * Re-inviting the same address upserts the expired row and refreshes its
  * expiry, so nothing is stranded by hiding it.
  */
-async function listPendingInvitationsScopedIn(
-  dbOrTx: DbOrTx,
-  organizationId: OrganizationId,
-  scope: "workspace" | "event",
-): Promise<OrganizationInvitationDTO[]> {
-  const rows = await dbOrTx.select({
+async function listPendingInvitationRowsScopedIn(dbOrTx: DbOrTx, organizationId: OrganizationId, scope: "workspace" | "event") {
+  return dbOrTx.select({
     id: organizationInvitations.id,
     organizationId: organizationInvitations.organizationId,
+    eventId: organizationInvitations.eventId,
     email: organizationInvitations.email,
     role: organizationInvitations.role,
     invitedByUserId: organizationInvitations.invitedByUserId,
@@ -355,12 +355,17 @@ async function listPendingInvitationsScopedIn(
       sql`${organizationInvitations.expiresAt} > now()`,
     ))
     .orderBy(asc(organizationInvitations.createdAt));
-  return rows.map((row) => organizationInvitationDtoSchema.parse({
+}
+
+type PendingInvitationRow = Awaited<ReturnType<typeof listPendingInvitationRowsScopedIn>>[number];
+
+function invitationFields(row: PendingInvitationRow) {
+  return {
     id: row.id, organizationId: row.organizationId, email: row.email, role: row.role,
     invitedByUserId: row.invitedByUserId, createdAt: row.createdAt.toISOString(), expiresAt: row.expiresAt.toISOString(),
     acceptedAt: row.acceptedAt ? row.acceptedAt.toISOString() : null,
     revokedAt: row.revokedAt ? row.revokedAt.toISOString() : null,
-  }));
+  };
 }
 
 /**
@@ -373,13 +378,22 @@ async function listPendingInvitationsScopedIn(
  * administrative record reported `pendingInvitations: []` while five reviewer
  * invitations were outstanding, and contradicted its own audit log, which shows
  * the `reviewer.invited` entries that sent them.
+ *
+ * Carries `eventId`, because it is the whole difference between this list and
+ * the workspace one: an event-scoped invitation names a role and an address,
+ * and without the event it grants access to, a reader cannot reconstruct what
+ * was granted. `organization_invitations.event_id` is nullable in general and
+ * non-null for every row this predicate admits, so the DTO requires it and the
+ * parse below is what enforces that the two agree.
  */
-export function listPendingOrganizationEventInvitationsIn(dbOrTx: DbOrTx, organizationId: OrganizationId): Promise<OrganizationInvitationDTO[]> {
-  return listPendingInvitationsScopedIn(dbOrTx, organizationId, "event");
+export async function listPendingOrganizationEventInvitationsIn(dbOrTx: DbOrTx, organizationId: OrganizationId): Promise<OrganizationEventInvitationDTO[]> {
+  const rows = await listPendingInvitationRowsScopedIn(dbOrTx, organizationId, "event");
+  return rows.map((row) => organizationEventInvitationDtoSchema.parse({ ...invitationFields(row), eventId: row.eventId }));
 }
 
-export function listPendingOrganizationInvitationsIn(dbOrTx: DbOrTx, organizationId: OrganizationId): Promise<OrganizationInvitationDTO[]> {
-  return listPendingInvitationsScopedIn(dbOrTx, organizationId, "workspace");
+export async function listPendingOrganizationInvitationsIn(dbOrTx: DbOrTx, organizationId: OrganizationId): Promise<OrganizationInvitationDTO[]> {
+  const rows = await listPendingInvitationRowsScopedIn(dbOrTx, organizationId, "workspace");
+  return rows.map((row) => organizationInvitationDtoSchema.parse(invitationFields(row)));
 }
 export const listPendingOrganizationInvitations = (organizationId: OrganizationId) =>
   listPendingOrganizationInvitationsIn(db, organizationId);

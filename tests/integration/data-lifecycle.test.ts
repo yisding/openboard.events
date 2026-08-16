@@ -698,7 +698,11 @@ describe("exportOrganizationDataIn", () => {
       [organizationId, eventId, adminUserId],
     );
     const bundle = await exportOrganizationDataIn(db, organizationId);
-    expect(bundle?.pendingEventInvitations.map((invitation) => invitation.email)).toContain("reviewer-invitee@example.com");
+    const exported = bundle?.pendingEventInvitations.find((invitation) => invitation.email === "reviewer-invitee@example.com");
+    expect(exported).toBeDefined();
+    // The event is the grant. An entry naming a role and an address but not
+    // what it grants access to would be a quieter version of the same omission.
+    expect(exported?.eventId).toBe(eventId);
     // And the workspace list still means workspace invitations only.
     expect(bundle?.pendingInvitations.map((invitation) => invitation.email)).not.toContain("reviewer-invitee@example.com");
   });

@@ -17,6 +17,7 @@ import {
 import type {
   OrganizationAuditLogEntryDTO,
   OrganizationDTO,
+  OrganizationEventInvitationDTO,
   OrganizationId,
   OrganizationInvitationDTO,
   OrganizationMemberDTO,
@@ -55,8 +56,13 @@ export type OrganizationDataExport = {
    * those out — so a bundle whose stated purpose is the complete administrative
    * record reported no pending invitations while five were outstanding, and
    * contradicted its own audit log's `reviewer.invited` entries.
+   *
+   * Each carries its `eventId`: the grant *is* event-scoped, so an entry
+   * without one would name a role and an address while leaving the reader no
+   * way to reconstruct what access was pending — a second, quieter version of
+   * the same omission this field exists to close.
    */
-  pendingEventInvitations: OrganizationInvitationDTO[];
+  pendingEventInvitations: OrganizationEventInvitationDTO[];
   auditLog: OrganizationAuditLogEntryDTO[];
   onboardingMilestones: OrganizationOnboardingMilestone[];
   events: OrganizationEventExportRow[];

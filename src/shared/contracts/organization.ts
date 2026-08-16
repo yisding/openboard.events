@@ -101,6 +101,22 @@ export const organizationInvitationDtoSchema = z.object({
 export type OrganizationInvitationDTO = z.infer<typeof organizationInvitationDtoSchema>;
 
 /**
+ * An invitation scoped to one event — a reviewer invitation. Identical to the
+ * workspace form except that `eventId` is what the invitation grants access
+ * to, so it is required rather than nullable: the row is only this kind of
+ * invitation *because* the column is set.
+ *
+ * Separate from `organizationInvitationDtoSchema` rather than a nullable field
+ * on it because an event-scoped invitation without its event is not a weaker
+ * record, it is an unusable one — it names a role and an address but nothing
+ * to reconstruct the grant from.
+ */
+export const organizationEventInvitationDtoSchema = organizationInvitationDtoSchema.extend({
+  eventId: eventIdSchema,
+});
+export type OrganizationEventInvitationDTO = z.infer<typeof organizationEventInvitationDtoSchema>;
+
+/**
  * M44 — one row of the organization audit log. `actorUserId`/`targetUserId`
  * are nullable because the underlying `users` row can be deleted out from
  * under a historical entry (`ON DELETE SET NULL`); the log outlives the
