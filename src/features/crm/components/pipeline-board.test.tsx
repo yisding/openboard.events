@@ -800,4 +800,30 @@ describe("PipelineBoard empty state", () => {
     await act(async () => action?.click());
     expect(container.querySelector('input[aria-label="Search the directory"]')).not.toBeNull();
   });
+
+  it("hides the 'cards link back to the directory' footnote when there are no cards to link back", async () => {
+    await renderBoard();
+
+    expect(container.querySelector(".empty-state")).not.toBeNull();
+    // With zero cards on screen, a footnote about what cards do refers to nothing.
+    expect(container.textContent).not.toContain("Cards link back to");
+  });
+
+  it("shows the 'cards link back to the directory' footnote once a card exists", async () => {
+    const existingEntry = crmPipelineEntryDtoSchema.parse({
+      id: "c8000000-0000-4000-8000-000000000007",
+      organizationContactId: contactId,
+      targetEventId: null,
+      stage: "open",
+      notes: "Existing prospect",
+      createdAt: "2026-08-13T17:00:00.000Z",
+      updatedAt: "2026-08-13T17:00:00.000Z",
+    });
+    await renderBoard([existingEntry], {
+      [contactId]: { id: contactId, name: "Ada Speaker", email: contact.email, company: contact.company },
+    });
+
+    expect(container.querySelector(".empty-state")).toBeNull();
+    expect(container.textContent).toContain("Cards link back to");
+  });
 });
