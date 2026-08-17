@@ -75,6 +75,14 @@ export type MyTaskDetail = MyTaskDTO & {
   /** Newest first; `isLatest` marks the one version this task actually completed with. */
   uploads: FileVersionDTO[];
   comments: FileCommentDTO[];
+  /**
+   * Where the work behind a `manual` task actually happens, when that place
+   * isn't this page — e.g. the speaker bio, which lives on Profile, not on a
+   * `portal_tasks` field of its own (#719). `path` is relative to
+   * `/portal/<eventSlug>/`; the caller (which already holds the slug) builds
+   * the href.
+   */
+  relatedTaskLink: { path: string; label: string } | null;
 };
 
 type TaskRow = {
@@ -100,6 +108,23 @@ function toTask(row: TaskRow): MyTaskDTO {
     completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : null,
     overdue: row.overdue,
   };
+}
+
+/**
+ * `portal_tasks` has no key or slug column, and adding one is out of scope
+ * for #719 — so this keys off the one thing that survives from
+ * `TASK_DEFINITIONS` into the row: the task's exact name. Deliberately a
+ * closed lookup, not a substring/keyword match, so an organizer's own manual
+ * task never picks up a link it didn't ask for just because its name happens
+ * to mention the same word.
+ */
+const MANUAL_TASK_RELATED_LINKS: Readonly<Record<string, { path: string; label: string }>> = {
+  "Write your speaker bio": { path: "profile", label: "Go to your Profile page" },
+};
+
+export function relatedTaskLinkFor(taskName: string, completionMode: MyTaskDTO["completionMode"]): MyTaskDetail["relatedTaskLink"] {
+  if (completionMode !== "manual") return null;
+  return MANUAL_TASK_RELATED_LINKS[taskName] ?? null;
 }
 
 const TASK_SELECT = sql`
@@ -181,7 +206,14 @@ export async function getMyTaskIn(
     comments = commentRows;
   }
 
-  return { ...toTask(row), formId: row.form_id, fileRequest, uploads, comments };
+  return {
+    ...toTask(row),
+    formId: row.form_id,
+    fileRequest,
+    uploads,
+    comments,
+    relatedTaskLink: relatedTaskLinkFor(row.task_name, row.completion_mode),
+  };
 }
 
 /**
