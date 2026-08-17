@@ -142,14 +142,14 @@ describe("submission detail drawer recovery", () => {
     await mount();
 
     expect(container.textContent).toContain("Check your connection and try again");
-    expect(buttonNamed("Retry")).toBeDefined();
+    expect(buttonNamed("Try again")).toBeDefined();
 
     fetchMock.mockResolvedValueOnce(Response.json({ data: detail() }));
-    await act(async () => buttonNamed("Retry")?.click());
+    await act(async () => buttonNamed("Try again")?.click());
     await settle();
 
     expect(container.querySelector(".drawer-hero h2")?.textContent).toBe("Original title");
-    expect(buttonNamed("Retry")).toBeUndefined();
+    expect(buttonNamed("Try again")).toBeUndefined();
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
@@ -163,7 +163,7 @@ describe("submission detail drawer recovery", () => {
 
     expect(container.textContent).toContain(message);
     expect(container.textContent).not.toContain("Check your connection");
-    expect(buttonNamed("Retry")).toBeUndefined();
+    expect(buttonNamed("Try again")).toBeUndefined();
   });
 
   it("keeps a transient response failure retryable without calling it a connection failure", async () => {
@@ -172,7 +172,7 @@ describe("submission detail drawer recovery", () => {
 
     expect(container.textContent).toContain("Unexpected server error");
     expect(container.textContent).not.toContain("Check your connection");
-    expect(buttonNamed("Retry")).toBeDefined();
+    expect(buttonNamed("Try again")).toBeDefined();
   });
 
   it("says the save did not land when the write drops, and leaves the edit retryable", async () => {
@@ -190,7 +190,7 @@ describe("submission detail drawer recovery", () => {
     expect(buttonNamed("Save changes")?.disabled).toBe(false);
   });
 
-  it("keeps stale fields locked until the rejected row version is replaced", async () => {
+  it("keeps the refused draft until the organizer confirms the replacement", async () => {
     fetchMock
       .mockResolvedValueOnce(Response.json({ data: detail() }))
       .mockResolvedValueOnce(Response.json({ error: { code: "STALE_WRITE", message: "Submission changed" } }, { status: 409 }))
@@ -204,12 +204,32 @@ describe("submission detail drawer recovery", () => {
     await act(async () => buttonNamed("Save changes")?.click());
     await settle();
 
+    // The conflict neither reloads nor discards: the words the organizer typed
+    // are still on screen, still editable, and the row version is what is
+    // refused. Nothing was read from the server yet.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain("This submission changed since you opened it");
+    expect(container.querySelector<HTMLInputElement>('input[aria-label="Session title"]')?.value).toBe("My interrupted edit");
+    expect(container.querySelector<HTMLInputElement>('input[aria-label="Session title"]')?.disabled).toBe(false);
+    expect(buttonNamed("Latest version required")?.disabled).toBe(true);
+
+    await act(async () => buttonNamed("Load latest")?.click());
+    expect(container.textContent).toContain("Your unsaved changes will be replaced");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    // The confirm dialog renders after the drawer, so its own "Load latest" is
+    // the last one in the document.
+    const confirmButtons = [...container.querySelectorAll<HTMLButtonElement>("button")]
+      .filter((button) => button.textContent?.trim() === "Load latest");
+    await act(async () => confirmButtons.at(-1)?.click());
+    await settle();
+
     expect(container.textContent).toContain("The latest version couldn’t be loaded. Check your connection and retry.");
-    expect(buttonNamed("Retry loading latest")).toBeDefined();
+    expect(buttonNamed("Try again")).toBeDefined();
     expect(buttonNamed("Latest version required")?.disabled).toBe(true);
     expect(container.querySelector<HTMLInputElement>('input[aria-label="Session title"]')?.disabled).toBe(true);
 
-    await act(async () => buttonNamed("Retry loading latest")?.click());
+    await act(async () => buttonNamed("Try again")?.click());
     await settle();
 
     const reloaded = container.querySelector<HTMLInputElement>('input[aria-label="Session title"]');

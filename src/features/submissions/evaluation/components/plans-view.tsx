@@ -7,6 +7,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { ColorChip } from "@/shared/ui/app/color-chip";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { DataTable } from "@/shared/ui/app/data-table";
+import { LoadFailure } from "@/shared/ui/app/load-failure";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { Button, EmptyState, PageHeader, ProgressBar, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
@@ -516,12 +517,7 @@ function ReminderPreflight({
   onRetry: () => void;
 }) {
   if (loading) return <p role="status">Checking who still has reviews to finish…</p>;
-  if (previewError) {
-    return <div className="form-stack" role="alert">
-      <p>{previewError}</p>
-      <Button variant="secondary" onClick={onRetry}>Retry preview</Button>
-    </div>;
-  }
+  if (previewError) return <LoadFailure message={previewError} onRetry={onRetry} />;
   if (!preview) return <p role="status">A fresh recipient preview is required before reminders can be sent.</p>;
   if (preview.length === 0) return <p>Nobody on this round has outstanding work.</p>;
   return <div className="form-stack">

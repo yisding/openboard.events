@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { SkeletonText } from "@/shared/ui/app/skeleton";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { SignupForm } from "@/features/auth/components/signup-form";
@@ -23,6 +24,6 @@ export default async function SignupPage({
   const googleEnabled = Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);
   return <main className="login-page">
     <AuthBrandPanel />
-    <section className="login-form-panel"><div><Suspense fallback={<p>Loading…</p>}><SignupForm googleEnabled={googleEnabled} legalConsent={signupLegalConsent(env)} /></Suspense></div></section>
+    <section className="login-form-panel"><div><Suspense fallback={<SkeletonText lines={4} label="Loading the sign-up form…" />}><SignupForm googleEnabled={googleEnabled} legalConsent={signupLegalConsent(env)} /></Suspense></div></section>
   </main>;
 }

@@ -8,6 +8,8 @@ import { participantRoleLabel } from "../../lib/participant-role";
 import { SendReminderDialog } from "@/features/comms/index.client";
 import { eventIdSchema } from "@/shared/contracts";
 import { FlowNavControls } from "@/shared/ui/app/flow-nav-controls";
+import { LoadFailure } from "@/shared/ui/app/load-failure";
+import { SkeletonText } from "@/shared/ui/app/skeleton";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { Button, Drawer, StatusBadge } from "@/shared/ui/ui-kit";
 import { SpeakerHeadshot } from "./speaker-headshot";
@@ -44,6 +46,9 @@ export function SpeakerFlowDrawer({
   const [detail, setDetail] = useState<SpeakerDetailDTO | null>(null);
   const [error, setError] = useState("");
   const [reminding, setReminding] = useState(false);
+  // Bumped by the failure surface's "Try again"; the read below is the only
+  // thing that has to change, so the retry is one more run of the same effect.
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,7 +68,7 @@ export function SpeakerFlowDrawer({
     // Flowing down a list opens several speakers in a row; a late response for
     // one already passed must not replace what is on screen now.
     return () => { cancelled = true; };
-  }, [eventId, row.contactId]);
+  }, [eventId, row.contactId, reloadToken]);
 
   return (
     <>
@@ -80,6 +85,10 @@ export function SpeakerFlowDrawer({
             <p>{row.jobTitle || row.company ? `${row.jobTitle ?? ""}${row.jobTitle && row.company ? " at " : ""}${row.company ?? ""}` : row.email}</p>
           </header>
           <div className="drawer-content">
+            {/* One failure, announced once. Both sections below read from the
+                same detail fetch, so repeating the sentence beside each of
+                them only made a screen reader say it twice. */}
+            {error && <LoadFailure message={error} onRetry={() => setReloadToken((token) => token + 1)} />}
             <section>
               <h3>Profile</h3>
               <div className="speaker-card">
@@ -96,8 +105,7 @@ export function SpeakerFlowDrawer({
             <section>
               <h3>Tasks</h3>
               <p className="long-copy">{row.openTasks} open{row.overdueTasks > 0 ? ` · ${row.overdueTasks} overdue` : ""} of {row.openTasks + (detail?.tasks.filter((task) => task.completed).length ?? 0)}.</p>
-              {error && <p className="portal-note" role="alert">{error}</p>}
-              {!detail && !error && <p className="portal-note">Loading…</p>}
+              {!detail && !error && <SkeletonText lines={2} label="Loading this speaker’s tasks…" />}
               {detail && detail.tasks.length === 0 && <p className="long-copy">No onboarding tasks assigned yet.</p>}
               {detail?.tasks.map((task) => (
                 <div className="mini-session" key={task.taskId}>
@@ -120,11 +128,9 @@ export function SpeakerFlowDrawer({
             <section>
               <h3>Submissions</h3>
               {/* Opens on row data so the section is never a bare heading while
-                  the detail fetch is in flight. `error` is announced once, by
-                  the Tasks section above, so it renders here as plain copy. */}
+                  the detail fetch is in flight. */}
               <p className="long-copy">{row.submissionCount} on this event.</p>
-              {error && <p className="portal-note">{error}</p>}
-              {!detail && !error && <p className="portal-note">Loading…</p>}
+              {!detail && !error && <SkeletonText lines={2} label="Loading this speaker’s submissions…" />}
               {detail && detail.submissions.length === 0 && <p className="long-copy">No submissions from this contact.</p>}
               {detail?.submissions.map((submission) => (
                 <Link key={submission.submissionId} className="mini-session" href={`/events/${eventId}/abstracts?submission=${submission.submissionId}`}>

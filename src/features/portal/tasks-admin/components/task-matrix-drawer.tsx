@@ -5,6 +5,8 @@ import { RotateCcw } from "lucide-react";
 import type { BulkReminderRecoveryController } from "@/features/comms/index.client";
 import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
 import { FlowNavControls } from "@/shared/ui/app/flow-nav-controls";
+import { LoadFailure } from "@/shared/ui/app/load-failure";
+import { SkeletonText } from "@/shared/ui/app/skeleton";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { Button, Drawer, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
@@ -159,8 +161,8 @@ export function TaskMatrixDrawer({
               </Button>
             }
           />
-          {rows === null && !loadError && <p className="portal-note">Loading…</p>}
-          {loadError && <p className="portal-note" role="alert">Assignments could not be loaded. <button type="button" className="text-button" onClick={() => void load()}>Try again</button></p>}
+          {rows === null && !loadError && <SkeletonText lines={3} label="Loading assignees…" />}
+          {loadError && <LoadFailure message="Assignments could not be loaded." onRetry={() => void load()} />}
           {!loadError && rows !== null && rows.length === 0 && <p className="portal-note">Nobody is assigned to this task yet.</p>}
           {rows !== null && rows.map((row) => {
             const key = assignmentKey(row);

@@ -5,6 +5,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { EventId } from "@/shared/contracts";
 import { api } from "@/shared/lib/api-client";
 import { isAppError, isDefinitiveWriteFailure } from "@/shared/lib/errors";
+import { LoadFailure } from "@/shared/ui/app/load-failure";
+import { SkeletonText } from "@/shared/ui/app/skeleton";
 import { Button, Field, Modal, ProgressBar } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { AIRTABLE_COPY, SYNC_TABLE_CHECKLIST, statsRecordCount, tableRecordCount, tableStats } from "../copy";
@@ -413,15 +415,8 @@ export function ConnectDialog({
 
           {choice === "existing" && (
             <div className="airtable-base-list">
-              {bases === null && !basesError && <p className="loading-note" role="status">{AIRTABLE_COPY.base.loadingBases}</p>}
-              {basesError && (
-                <div className="airtable-base-error">
-                  <p className="field-error" role="alert">{basesError}</p>
-                  <Button size="sm" variant="secondary" onClick={() => void loadBases()}>
-                    {AIRTABLE_COPY.base.retryList}
-                  </Button>
-                </div>
-              )}
+              {bases === null && !basesError && <SkeletonText lines={3} label={AIRTABLE_COPY.base.loadingBases} />}
+              {basesError && <LoadFailure message={basesError} onRetry={() => void loadBases()} />}
               {bases !== null && bases.length === 0 && !basesError && (
                 <p className="airtable-note" role="status">{AIRTABLE_COPY.base.noBases}</p>
               )}

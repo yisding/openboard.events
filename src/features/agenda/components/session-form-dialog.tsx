@@ -11,8 +11,10 @@ import { formatInZone, zoneAbbreviation } from "@/shared/lib/time";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
 import { emitTourSignal } from "@/shared/ui/app/guided-tour/signals";
+import { LoadFailure } from "@/shared/ui/app/load-failure";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
+import { SkeletonText } from "@/shared/ui/app/skeleton";
 import { SpeakerQuickAdd, type QuickAddedSpeaker } from "@/shared/ui/app/speaker-quick-add";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
@@ -637,13 +639,9 @@ function SessionHistoryPanel({
   return (
     <>
     <Field label="Content history" group {...(hint ? { hint } : {})}>
-      {query.isLoading && <p className="portal-note">Loading history…</p>}
+      {query.isLoading && <SkeletonText lines={3} label="Loading content history…" />}
       {query.isError && (
-        <p className="portal-note" role="alert">
-          Could not load content history. <Button size="sm" variant="secondary" disabled={query.isFetching} onClick={() => { void query.refetch(); }}>
-            {query.isFetching ? "Retrying…" : "Retry"}
-          </Button>
-        </p>
+        <LoadFailure message="Could not load content history." retrying={query.isFetching} onRetry={() => { void query.refetch(); }} />
       )}
       {!query.isLoading && !query.isError && revisions.length === 0 && <p className="portal-note">No edits recorded yet.</p>}
       {revisions.length > 0 && (

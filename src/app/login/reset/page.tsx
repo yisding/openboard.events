@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { SkeletonText } from "@/shared/ui/app/skeleton";
 import type { Metadata } from "next";
 import { AuthBrandPanel } from "@/features/auth/components/auth-brand-panel";
 import { ResetPasswordForm } from "@/features/auth/components/reset-password-form";
@@ -14,6 +15,6 @@ export const metadata: Metadata = { title: "Choose a new password" };
 export default function ResetPasswordPage() {
   return <main className="login-page">
     <AuthBrandPanel />
-    <section className="login-form-panel"><div><Suspense fallback={<p>Loading…</p>}><ResetPasswordForm /></Suspense></div></section>
+    <section className="login-form-panel"><div><Suspense fallback={<SkeletonText lines={4} label="Loading the password reset form…" />}><ResetPasswordForm /></Suspense></div></section>
   </main>;
 }

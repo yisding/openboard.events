@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { sanitizeTemplateBody } from "@/shared/lib/template-body";
 import { TEMPLATE_KEYS, type EventId, type TemplateKey } from "@/shared/contracts";
 import { isAppError } from "@/shared/lib/errors";
+import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
+import { StaleWriteNotice, staleWriteConfirm } from "@/shared/ui/app/stale-write";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { RichTextEditor, type RichTextEditorHandle } from "@/shared/ui/app/rich-text-editor-lazy";
 import { templateLabel } from "@/shared/ui/template-label";
@@ -35,6 +37,7 @@ export function TemplatesTab({ eventId }: { eventId: EventId }) {
   const [bodyMode, setBodyMode] = useState<TemplateBodyMode>("rich");
   const [dirty, setDirty] = useState(false);
   const [staleConflict, setStaleConflict] = useState(false);
+  const [confirmingLoadLatest, setConfirmingLoadLatest] = useState(false);
   const [focusTarget, setFocusTarget] = useState<FocusTarget>("body");
   const subjectRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
@@ -51,6 +54,7 @@ export function TemplatesTab({ eventId }: { eventId: EventId }) {
     setBodyMode("rich");
     setDirty(false);
     setStaleConflict(false);
+    setConfirmingLoadLatest(false);
   }
 
   const variablePaths = useMemo(() => templateVariablePaths(selectedKey), [selectedKey]);
@@ -137,6 +141,7 @@ export function TemplatesTab({ eventId }: { eventId: EventId }) {
   if (!selected) return <p className="long-copy">This event has no templates yet.</p>;
 
   return (
+    <>
     <div className="comms-templates">
       <nav className="comms-rail" aria-label="Template keys">
         {templates.map((row) => (
@@ -158,10 +163,7 @@ export function TemplatesTab({ eventId }: { eventId: EventId }) {
           <span className={`template-state ${enabled ? "is-enabled" : ""}`}>{enabled ? "Enabled" : "Paused"}</span>
         </header>
         {staleConflict && (
-          <div className="stale-write-banner">
-            <span>This template changed since you loaded it.</span>
-            <Button size="sm" onClick={() => runGuarded(() => { void reload(); })}>Reload</Button>
-          </div>
+          <StaleWriteNotice subject="template" onLoadLatest={() => setConfirmingLoadLatest(true)} />
         )}
         <div className="template-editor-grid">
           <div className="form-stack">
@@ -226,5 +228,12 @@ export function TemplatesTab({ eventId }: { eventId: EventId }) {
         </div>
       </div>
     </div>
+    <ConfirmDialog
+      open={confirmingLoadLatest}
+      {...staleWriteConfirm("template")}
+      onConfirm={async () => { await reload(); setConfirmingLoadLatest(false); }}
+      onCancel={() => setConfirmingLoadLatest(false)}
+    />
+    </>
   );
 }

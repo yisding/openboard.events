@@ -489,7 +489,7 @@ export function PipelineBoard({
             <b>{authorityRefresh === "pending" ? "Refreshing the pipeline…" : "Pipeline refresh needs another try"}</b>
             <small>{authorityRefresh === "pending" ? "Prospect changes are paused until the latest server state arrives." : PIPELINE_REFRESH_ERROR_MESSAGE}</small>
           </p>
-          {authorityRefresh === "failed" && <Button variant="secondary" onClick={() => void refreshAuthority()}>Retry refresh</Button>}
+          {authorityRefresh === "failed" && <Button variant="secondary" onClick={() => void refreshAuthority()}>Try again</Button>}
         </div>
       )}
 

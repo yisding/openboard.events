@@ -6,7 +6,9 @@ import type { CommLogId, EventId } from "@/shared/contracts";
 import { Dash } from "@/shared/ui/app/dash";
 import { templateLabel } from "@/shared/ui/template-label";
 import { Button, Drawer, StatusBadge } from "@/shared/ui/ui-kit";
+import { LoadFailure } from "@/shared/ui/app/load-failure";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
+import { SkeletonText } from "@/shared/ui/app/skeleton";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { useToast } from "@/shared/ui/toast";
 import { useCommLogDetail } from "../hooks/use-comm-log";
@@ -70,8 +72,8 @@ export function LogDetailSheet({ eventId, logId, timezone, onClose }: { eventId:
 
   return (
     <Drawer open={logId !== null} onClose={onClose} title="Message detail">
-      {query.isLoading && <p className="long-copy">Loading…</p>}
-      {query.isError && <p className="long-copy">This message couldn&apos;t be loaded.</p>}
+      {query.isLoading && <SkeletonText lines={4} label="Loading this message…" />}
+      {query.isError && <LoadFailure message="This message couldn’t be loaded." retrying={query.isFetching} onRetry={() => void query.refetch()} />}
       {detail && (
         <div className="comm-detail">
           <div className="comm-detail-status">

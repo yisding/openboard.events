@@ -8,6 +8,8 @@ import { eventAccessDtoSchema, type EventAccessDTO, type EventId, type MemberRol
 import { eventManagementHref } from "@/features/events/access";
 import { eventLifecycle, orderEventsByLifecycle } from "@/features/events/event-lifecycle";
 import { api } from "@/shared/lib/api-client";
+import { LoadFailure } from "@/shared/ui/app/load-failure";
+import { SkeletonText } from "@/shared/ui/app/skeleton";
 import { StatusBadge } from "@/shared/ui/ui-kit";
 import { formatDateRangeInZone, formatInZone } from "@/shared/lib/time";
 
@@ -133,15 +135,15 @@ export function EventSwitcher({
             background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 10, boxShadow: "var(--shadow)", zIndex: 40, padding: 6,
           }}
         >
-          {orderedEvents === null && !loadError && <div style={{ padding: 12, fontSize: "var(--text-xs)", color: "var(--muted)" }}>Loading…</div>}
+          {orderedEvents === null && !loadError && <SkeletonText lines={3} label="Loading your events…" className="event-switcher-skeleton" />}
           {orderedEvents === null && loadError && (
-            <div role="alert" style={{ display: "grid", gap: 8, padding: 12, fontSize: "var(--text-xs)", color: "var(--muted)" }}>
-              <span>{loadError}</span>
-              <button type="button" className="text-button" onClick={() => {
+            <LoadFailure
+              message={loadError}
+              onRetry={() => {
                 setLoadError("");
                 setLoadAttempt((attempt) => attempt + 1);
-              }}>Retry</button>
-            </div>
+              }}
+            />
           )}
           {orderedEvents?.length === 0 && <div style={{ padding: 12, fontSize: "var(--text-xs)", color: "var(--muted)" }}>No events yet</div>}
           {orderedEvents?.map((event) => (

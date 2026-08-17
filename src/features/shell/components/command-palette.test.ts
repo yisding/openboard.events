@@ -82,7 +82,9 @@ describe("PaletteDialog", () => {
     expect(source).toContain('aria-live={currentSearchState.status === "error" ? "assertive" : "polite"}');
     expect(source).toContain('aria-busy={currentSearchState.status === "loading"}');
     expect(source).toContain("feedback.retry && <button");
-    expect(source).toContain("Retry search");
+    // One retry label across the product, so "did that work?" reads the same
+    // here as it does in every drawer and on the route error boundary.
+    expect(source).toContain("Try again");
   });
 });
 

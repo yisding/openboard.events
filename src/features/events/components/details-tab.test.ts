@@ -6,10 +6,8 @@ import {
   eventDetailsValidationErrors,
   eventSlugValidationError,
   focusDetailsError,
-  focusDetailsNotice,
   incomingEventDetailsAction,
   isEventDetailsDraftDirty,
-  STALE_NOTICE_A11Y,
 } from "./details-tab";
 
 const fixtureEvent = {
@@ -63,14 +61,8 @@ describe("event details slug validation", () => {
     expect(focus).toHaveBeenCalledOnce();
   });
 
-  it("announces and focuses a stale-write recovery notice", () => {
-    expect(STALE_NOTICE_A11Y).toEqual({ role: "alert", tabIndex: -1 });
-    const focus = vi.fn();
-    const schedule = vi.fn((callback: () => void) => callback());
-    focusDetailsNotice({ current: { focus } }, schedule);
-    expect(schedule).toHaveBeenCalledOnce();
-    expect(focus).toHaveBeenCalledOnce();
-  });
+  // The stale-write notice itself is the shared `<StaleWriteNotice>`, which
+  // owns its own announcement and focus — see `stale-write.test.tsx`.
 
   it("compares every organizer-editable detail against the saved baseline", () => {
     const baseline = eventDetailsDraftFrom(fixtureEvent);
@@ -96,8 +88,7 @@ describe("event details slug validation", () => {
 
     expect(details).toContain("useUnsavedWorkGuard(dirty)");
     expect(details).toContain("if (dirty) setConfirmingLoadLatest(true)");
-    expect(details).toContain('title="Load the latest event details?"');
-    expect(details).toContain('confirmLabel="Load latest"');
+    expect(details).toContain('{...staleWriteConfirm("event")}');
     expect(details).toContain("const latest = await api(`events/${event.id}`, eventDtoSchema)");
     expect(details).toContain("replaceWith(latest)");
     expect(details).not.toContain("router.refresh()");

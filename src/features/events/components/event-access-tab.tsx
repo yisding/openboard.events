@@ -14,6 +14,8 @@ import {
 import { api } from "@/shared/lib/api-client";
 import { isAppError, isDefinitiveWriteFailure } from "@/shared/lib/errors";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
+import { LoadFailure } from "@/shared/ui/app/load-failure";
+import { SkeletonText } from "@/shared/ui/app/skeleton";
 import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, EmptyState, Field, Modal, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
@@ -335,8 +337,8 @@ export function EventAccessTab({ eventId }: { eventId: EventId }) {
             {busy ? "Checking…" : "Check event access"}
           </Button>
         </div>}
-        {loading && <p className="loading-note" role="status">Loading event access…</p>}
-        {error && <div className="form-stack"><p className="field-error" role="alert">{error}</p><Button size="sm" variant="secondary" onClick={() => void load()}>Retry</Button></div>}
+        {loading && <SkeletonText lines={3} label="Loading event access…" />}
+        {error && <LoadFailure message={error} retrying={loading} onRetry={() => void load()} />}
         {!loading && !error && members.length === 0 && (
           <EmptyState icon={<KeyRound size={20} />} title="No event members" description="Every event should have an owner. Reload before making another access change." />
         )}
