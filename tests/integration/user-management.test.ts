@@ -870,6 +870,7 @@ describe("M44 user management", () => {
       try {
         const sessions = await listAdminSessionsIn(db, ownerId);
         const session = sessions.find((s) => s.id === "e4400000-0000-4000-8000-000000000304");
+        expect(session, "the inserted session should be listed").toBeDefined();
         expect(session).toMatchObject({ ipAddress: null });
       } finally {
         await revokeAdminSessionByIdIn(db, ownerId, "e4400000-0000-4000-8000-000000000304");
