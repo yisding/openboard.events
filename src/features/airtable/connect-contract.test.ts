@@ -29,7 +29,7 @@ const summary = {
   baseId: "appABCD12345678",
   baseName: "SH-5 2026 Program",
   syncEnabled: true,
-  options: { includeEmail: true, includeBio: true, includePronouns: false, includeGender: false, pruneRemoved: false },
+  options: { includeEmail: true, includeBio: true, includePronouns: false, includeGender: false, includeHeadshots: true, pruneRemoved: false },
   schemaReady: true,
   nextSyncAfter: "2026-08-15T12:00:00.000Z",
   lastSyncedAt: "2026-08-15T11:45:00.000Z",

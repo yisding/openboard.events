@@ -307,6 +307,7 @@ export async function updateAirtableOptionsIn(
     includeBio: optionsPatch.includeBio ?? row.options.includeBio,
     includePronouns: optionsPatch.includePronouns ?? row.options.includePronouns,
     includeGender: optionsPatch.includeGender ?? row.options.includeGender,
+    includeHeadshots: optionsPatch.includeHeadshots ?? row.options.includeHeadshots,
     pruneRemoved: optionsPatch.pruneRemoved ?? row.options.pruneRemoved,
   };
   const [updated] = await dbOrTx.update(airtableConnections).set({

@@ -124,7 +124,7 @@ export function TaskList({
     <>
       <div className="portal-task-summary">
         <div>
-          <strong>{progress.done}/{progress.all}</strong>
+          <strong>{progress.done}/{progress.all}</strong>{" "}
           <span>tasks complete</span>
         </div>
         <ProgressBar label="Task completion" value={progress.all === 0 ? 100 : Math.round((progress.done / progress.all) * 100)} tone="green" />
@@ -152,15 +152,12 @@ export function TaskList({
               </button>
             ))}
         </div>
-        <label className="table-search">
-          <span className="sr-only">Filter tasks</span>
-          <Select value={filter} onChange={(event) => setFilter(event.target.value as Filter)} aria-label="Filter tasks">
-            <option value="open">Open</option>
-            <option value="completed">Completed</option>
-            <option value="overdue">Overdue</option>
-            <option value="all">Everything</option>
-          </Select>
-        </label>
+        <Select value={filter} onChange={(event) => setFilter(event.target.value as Filter)} aria-label="Filter tasks">
+          <option value="open">Open</option>
+          <option value="completed">Completed</option>
+          <option value="overdue">Overdue</option>
+          <option value="all">Everything</option>
+        </Select>
       </div>
 
       <div id="task-panel" role="tabpanel" aria-labelledby={`task-tab-${tab}`}>

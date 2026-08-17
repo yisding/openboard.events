@@ -297,7 +297,7 @@ const THE_CALL: readonly TourStep[] = [
     title: "Publish the version.",
     body: "Every publish is an immutable snapshot. Proposals already in flight keep answering the version their speaker actually read.",
     route: at("/forms/:cfpFormId"),
-    anchor: named("button", "Publish the current step as a new immutable form version"),
+    anchor: named("button", "Publish version — publishes the current step as a new immutable form version"),
     objective: world("formVersions", "increased"),
     reward: { emoji: "📝", line: "A new version, and nobody’s draft changed under them." },
   },
@@ -359,11 +359,16 @@ const JUDGEMENT: readonly TourStep[] = [
     body: "Round 1 is open and yours. Round 2 anonymises the proposal and the reviewer, so nobody scores a name they recognise.",
     route: at("/evaluation"),
     anchor: css(".plan-window"),
-    // Right, not the default bottom. `.plan-window` resolves to the first
-    // round's cell, and a card dropped underneath it covers the second round's
-    // row — including the *Blind review* badge that is the entire evidence for
-    // the sentence above. Beside the table, both rows stay readable.
-    placement: "right",
+    // Left, not right (#716). `.plan-window` resolves to round 1's cell, and
+    // a card dropped underneath it lands on round 2's row below — covering
+    // the *Blind review* badge that is the entire evidence for the sentence
+    // above. Right dodged that (both rows' Window column stays clear below
+    // the card) but opened onto the Reviewers/Progress/Status columns beside
+    // it instead. Left clears both: the coach card is wider than the Window
+    // column, so opening left of it lands entirely on the Round/#/Scale/Scope
+    // columns — the only ones neither round's badge nor the assignment
+    // columns share a pixel with.
+    placement: "left",
   },
   {
     id: "judge.score",
@@ -450,6 +455,15 @@ const THE_DECISION: readonly TourStep[] = [
     title: "Confirm the queue.",
     body: "Counts, a sample of each message, and any speaker with no address. Queue decision emails once it reads the way you expect.",
     anchor: css(".decision-email-preflight"),
+    // Right, not the default bottom (#716). The card portals into the open
+    // dialog (`portalTargetFor` in anchor.tsx) and is clamped to its box, and
+    // `.decision-email-preflight` is the whole scrollable body — taller than
+    // the dialog itself, so its bottom edge sits far below the viewport and
+    // the default placement fell back to the viewport's bottom edge, right on
+    // top of the decline sample's message the copy invites reading. The wide
+    // dialog leaves clear space beside it; right opens there instead of over
+    // either sample.
+    placement: "right",
     spotlight: false,
     objective: world("decisionEmailsQueued", "increased"),
   },
@@ -466,9 +480,16 @@ const THE_DECISION: readonly TourStep[] = [
     //
     // No claim to a render, though (#679): the dispatcher skips a demo send
     // *before* it renders, which is why a live row carries the skip reason
-    // where its subject would be. Only the nine backdated rows have subjects —
+    // where its subject would be. Only the backdated rows have subjects —
     // history the demo was built with, not something the dispatcher produced.
-    body: "Every row reads skipped, reason: demo event — mail is never delivered. Nine backdated rows carry subjects the demo was built with; anything queued live stops before it renders, so the reason takes the subject’s place.",
+    //
+    // The backdated rows number nine at the dataset level (`COMM_LOG_ROWS` in
+    // demo/dataset.ts), but the log this card points at also holds the live
+    // reminder sweeper's output — `task_assigned`/`task_reminder` rows for
+    // every seeded assignment, ~50 more of them (#709). A player who counts
+    // the rows on screen gets a number the copy no longer states, so the copy
+    // stopped counting instead of trying to keep a second number in sync.
+    body: "Every row reads skipped, reason: demo event — mail is never delivered. The oldest rows carry subjects the demo was built with; anything queued live stops before it renders, so the reason takes the subject’s place.",
     route: at("/communications", { tab: "log" }),
     anchor: css("#communications-tab-log"),
     placement: "bottom",
@@ -684,7 +705,14 @@ const MISSION_CONTROL: readonly TourStep[] = [
     body: "Eleven templates ship with every event, and every word a speaker ever reads from you comes out of one of them.",
     route: at("/communications", { tab: "reminders" }),
     anchor: css("#communications-tab-templates"),
-    placement: "bottom",
+    // Right, not the default bottom (#716). This step opens on the Reminders
+    // tab so its own copy — "eleven templates" — can point at the Templates
+    // tab next to it, but a card dropped below the tab strip landed square on
+    // the reminder ladder the Reminders panel was already showing, hiding the
+    // very rungs the next couple of steps are about. The Templates tab sits
+    // at the row's leading edge, so right (not left — see `grid.tray`) opens
+    // into the gap beside the row instead of over the rungs beneath it.
+    placement: "right",
     objective: goneTo("/communications", { tab: "templates" }),
   },
   {
@@ -768,10 +796,13 @@ const SIDE_QUESTS: readonly TourStep[] = [
     kind: "observe",
     optional: true,
     title: "Read the mail you did not send.",
-    // Same restoration as `decide.outbox`: the nine seeded rows are backdated
-    // history, and they are nine skips. And the same rule as there (#679): no
-    // claim to a render, because the dispatcher stops a demo send before one.
-    body: "Nine backdated messages the world was built with, plus everything this tour queued — and every one of them was logged and then skipped, with the reason on the row.",
+    // Same restoration as `decide.outbox`, and the same de-counting (#709):
+    // the seed writes nine backdated rows, but the live reminder sweeper adds
+    // roughly fifty more `task_assigned`/`task_reminder` rows to this log, so
+    // "nine" is falsifiable by counting the very screen the card points at.
+    // And the same rule as there (#679): no claim to a render, because the
+    // dispatcher stops a demo send before one.
+    body: "The oldest rows are messages the world was built with, plus everything this tour queued — and every one of them was logged and then skipped, with the reason on the row.",
     route: at("/communications", { tab: "log" }),
     anchor: css("#communications-tab-log"),
     placement: "bottom",
@@ -848,7 +879,11 @@ const SIDE_QUESTS: readonly TourStep[] = [
     body: "It fills the gaps it can prove are free and leaves the rest alone. Anything it cannot place stays in the tray with a reason.",
     route: at("/agenda", { view: "day" }),
     anchor: tourIdAnchor("agenda.auto-place-tray"),
-    placement: "left",
+    // Right, not left, and for the same reason `grid.tray` documents above:
+    // the tray lives against the leading edge, so a card opening leftward
+    // only ever clamps to the 12px margin — on top of the navigation rail
+    // (#716).
+    placement: "right",
     objective: world("sessionsScheduled", "increased"),
   },
   {

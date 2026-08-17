@@ -147,11 +147,30 @@ describe("user-facing copy regressions", () => {
     // demo send before it renders (#679), which is why a live row carries the
     // skip reason where its subject would be — so the tour may not promise a
     // render the product deliberately never performs.
+    //
+    // The count is gone too (#709): nine is the *seed's* backdated row count,
+    // but the log this card points at also holds the live reminder sweeper's
+    // output — roughly fifty more rows — so a player who counts what is on
+    // screen gets a number well past nine. The copy now says "the oldest
+    // rows" instead of a number that only the dataset, never the screen,
+    // agrees with.
     expect(script).toContain("Every row reads skipped");
     expect(script).not.toContain("rendered in full");
     expect(script).not.toContain("rendered and logged");
     expect(script).not.toContain("rendered, logged");
     expect(script).not.toContain("Nine seeded messages");
+  });
+
+  // A refusal that opens with the success screen's own heading is read as a
+  // confirmation, and this one is shown to someone deciding whether to keep
+  // waiting for an email that was never sent.
+  it("does not word the portal sign-in throttle as a delivery confirmation", () => {
+    const throttle = read("./auth/server/portal.ts");
+    const [, message] = /PORTAL_LOGIN_THROTTLE_MESSAGE = "([^"]+)"/u.exec(throttle) ?? [];
+
+    expect(message).toBeDefined();
+    expect(message).not.toMatch(/^Check your inbox/u);
+    expect(message).toMatch(/already have a code/u);
   });
 
   // These credentials belong to a real deployment whose mail is restricted, not

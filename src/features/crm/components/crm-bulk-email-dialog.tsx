@@ -28,7 +28,8 @@ import {
 } from "@/features/comms/index.bulk-send-recovery";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
-import { Button, Field, Modal, Select } from "@/shared/ui/ui-kit";
+import { FilterSelect } from "@/shared/ui/app/filter-select";
+import { Button, Field, Modal } from "@/shared/ui/ui-kit";
 import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
@@ -107,6 +108,13 @@ export function CrmBulkEmailDialog({
   const [subject, setSubject] = useState(restored?.subject ?? "");
   const [bodyHtml, setBodyHtml] = useState(restored?.bodyHtml ?? "");
   const [previewId, setPreviewId] = useState(restored?.previewRecipientId ?? previewCandidates[0]?.id ?? "");
+  // Up to `PREVIEW_SAMPLE` contacts, which is far past where a native dropdown
+  // stops being scannable. Filtering searches the address too: a segment can
+  // hold two people with the same name, and only the address tells them apart.
+  const previewOptions = useMemo(
+    () => previewCandidates.map((row) => ({ value: row.id, label: row.name, hint: row.email })),
+    [previewCandidates],
+  );
   const [preview, setPreview] = useState<ApprovedPreview | null>(() => restored ? {
     result: restored.approvedPreview,
     fingerprint: restored.fingerprint,
@@ -450,9 +458,15 @@ export function CrmBulkEmailDialog({
                 ? { hint: `Showing the first ${previewCandidates.length} of ${recipients.length} — every recipient still gets the send.` }
                 : {})}
             >
-              <Select value={previewId} disabled={recoveryRequired} onChange={(event) => { invalidatePreview(); setPreviewId(event.target.value); }}>
-                {previewCandidates.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
-              </Select>
+              <FilterSelect
+                value={previewId}
+                onChange={(next) => { invalidatePreview(); setPreviewId(next); }}
+                options={previewOptions}
+                disabled={recoveryRequired}
+                ariaLabel="Preview recipient"
+                filterPlaceholder="Filter by name or email…"
+                emptyLabel="No recipient in this sample matches"
+              />
             </Field>
             <Button size="sm" variant="secondary" disabled={!ready || busyPreview || recoveryRequired} onClick={() => void runPreview()}>{busyPreview ? "Rendering…" : "Refresh preview"}</Button>
             {currentPreview ? (

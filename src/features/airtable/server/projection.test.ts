@@ -17,7 +17,10 @@ const contactId = "a17b0000-0000-4000-8000-0000000000c1";
 const sessionId = "a17b0000-0000-4000-8000-0000000000b1";
 const roomGhostId = "a17b0000-0000-4000-8000-0000000000d9";
 
-const OPTIONS = { includeEmail: true, includeBio: true, includePronouns: false, includeGender: false, pruneRemoved: false };
+const OPTIONS = {
+  includeEmail: true, includeBio: true, includePronouns: false, includeGender: false,
+  includeHeadshots: true, pruneRemoved: false, appBaseUrl: "https://events.example.com",
+};
 
 let pglite: PGlite;
 let db: DbOrTx;
@@ -109,6 +112,66 @@ describe("Airtable projection (M39)", () => {
     expect(people.rows[0]?.fields.Name).toBe("Ada Lovelace");
     const gated = await candidateRecordsIn(db, eventId, "people", { ...OPTIONS, includeEmail: false }, 50);
     expect(gated.rows[0]?.fields.Email).toBeNull();
+  });
+
+  /**
+   * The whole reason headshots were deferred was a belief that an Airtable
+   * attachment needs a signed R2 URL that expires. It does not: Airtable
+   * fetches the bytes once and keeps its own copy, and `headshot` is a public
+   * file kind served at a permanent, unauthenticated `/f/{fileId}`. These
+   * assertions pin the two things that makes true — the URL we hand over, and
+   * the fact that it is stable enough not to re-push a speaker every run.
+   */
+  describe("Headshot", () => {
+    const headshotFileId = "a17b0000-0000-4000-8000-0000000000f5";
+    const stagedFileId = "a17b0000-0000-4000-8000-0000000000f6";
+
+    async function peopleRow() {
+      const people = await candidateRecordsIn(db, eventId, "people", OPTIONS, 50);
+      return people.rows.find((row) => row.recordPk === contactId);
+    }
+
+    it("is an empty array for a speaker who has not sent one", async () => {
+      expect((await peopleRow())?.fields.Headshot).toEqual([]);
+    });
+
+    it("carries the public /f/{fileId} URL, and hashes the same on a second run", async () => {
+      await pglite.query(
+        "INSERT INTO file_assets(id,event_id,kind,r2_key,filename,mime) VALUES($1,$2,'headshot',$3,'ada.jpg','image/jpeg')",
+        [headshotFileId, eventId, `evt_${eventId}/headshot/${headshotFileId}/ada.jpg`],
+      );
+      await pglite.query("UPDATE contacts SET headshot_file_id = $1 WHERE id = $2", [headshotFileId, contactId]);
+
+      const row = await peopleRow();
+      expect(row?.fields.Headshot).toEqual([
+        { url: `https://events.example.com/f/${headshotFileId}`, filename: "ada.jpg" },
+      ]);
+      // A cell that re-hashed every run would re-push every speaker forever,
+      // and every push makes Airtable download the photo again.
+      expect((await peopleRow())?.contentHash).toBe(row?.contentHash);
+    });
+
+    it("ignores a headshot still on its staging key — /f/{fileId} 404s until finalize moves it", async () => {
+      await pglite.query(
+        "INSERT INTO file_assets(id,event_id,kind,r2_key,filename,mime) VALUES($1,$2,'headshot',$3,'half.jpg','image/jpeg')",
+        [stagedFileId, eventId, `staging/evt_${eventId}/headshot/${stagedFileId}/half.jpg`],
+      );
+      await pglite.query("UPDATE contacts SET headshot_file_id = $1 WHERE id = $2", [stagedFileId, contactId]);
+      expect((await peopleRow())?.fields.Headshot).toEqual([]);
+
+      await pglite.query("UPDATE contacts SET headshot_file_id = $1 WHERE id = $2", [headshotFileId, contactId]);
+    });
+
+    it("clears the column when the organizer switches the gate off", async () => {
+      const gated = await candidateRecordsIn(db, eventId, "people", { ...OPTIONS, includeHeadshots: false }, 50);
+      expect(gated.rows.find((row) => row.recordPk === contactId)?.fields.Headshot).toEqual([]);
+    });
+
+    it("re-pushes when the deployment's own origin moves, so Airtable never refetches from a dead host", async () => {
+      const here = await peopleRow();
+      const moved = await candidateRecordsIn(db, eventId, "people", { ...OPTIONS, appBaseUrl: "https://moved.example.com" }, 50);
+      expect(moved.rows.find((row) => row.recordPk === contactId)?.contentHash).not.toBe(here?.contentHash);
+    });
   });
 
   it("skips rows whose hash already matches, and reports orphans", async () => {

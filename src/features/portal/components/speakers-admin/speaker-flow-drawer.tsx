@@ -71,7 +71,7 @@ export function SpeakerFlowDrawer({
         open
         onClose={onClose}
         title={row.name}
-        {...(nav ? { headerExtra: <FlowNavControls index={nav.index} total={nav.total} itemLabel={row.name} onPrev={nav.onPrev} onNext={nav.onNext} /> } : {})}
+        {...(nav ? { headerExtra: <FlowNavControls index={nav.index} total={nav.total} itemLabel={row.name} itemNoun="speaker" onPrev={nav.onPrev} onNext={nav.onNext} /> } : {})}
       >
         <div className="submission-drawer">
           <header className="drawer-hero">

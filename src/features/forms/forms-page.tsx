@@ -142,7 +142,7 @@ export function FormsPage({ event, initialForms }: { event: BuilderEvent; initia
       </div>
       {visible.length === 0 ? <EmptyState icon={<FileText />} title="No forms here" description="Create a form or clear the current filters." /> : <div className="form-cards">{visible.map((form) => <article className="form-list-card" key={form.id}>
         <div className="form-list-icon"><FileEdit size={22} /></div>
-        <div className="form-list-main"><div><h2>{form.internalName}</h2><StatusBadge value={form.availability} /></div><p>{form.externalTitle || "Untitled public form"}</p><div className="form-list-meta">
+        <div className="form-list-main"><div><h2><Link className="form-list-title-link" href={`/events/${event.id}/forms/${form.id}`}>{form.internalName}</Link></h2><StatusBadge value={form.availability} /></div><p>{form.externalTitle || "Untitled public form"}</p><div className="form-list-meta">
           <span><Users size={14} /> {form.submissionCount} submissions</span>
           <span><FileText size={14} /> {form.draftCount} drafts</span>
           <span>Version {form.currentVersion}</span>

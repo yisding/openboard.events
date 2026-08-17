@@ -54,6 +54,15 @@ describe("form builder accessibility", () => {
     expect(source).toContain('<button type="button" className="icon-button" aria-label={`Move ${field.label} down`}');
   });
 
+  // `.selected builder-field-row` is a border and a glow. Speech gets neither,
+  // so without a state on the row's own button the question the inspector is
+  // editing is indistinguishable from the twenty questions around it.
+  it("says which question the inspector is editing, not only paints it", () => {
+    const source = readFileSync(new URL("./form-builder.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain('className="field-row-main" aria-pressed={selected === field.id}');
+  });
+
   it("keeps the full field editor reachable when the desktop inspector is hidden", () => {
     const source = readFileSync(new URL("./form-builder.tsx", import.meta.url), "utf8");
     const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
@@ -108,7 +117,11 @@ describe("form builder accessibility", () => {
     expect(source).toContain('className="builder-edit-actions" role="group" aria-label="Form editing actions"');
     expect(source).toContain('aria-label="Copy live form link" title="Copy live form link"');
     expect(source).toContain('aria-label="Preview form" title="Preview form"');
-    expect(source).toContain('id="publish-form-version" aria-label="Publish the current step as a new immutable form version"');
+    // The accessible name must start with the visible label ("Publish
+    // version") per WCAG 2.5.3 label-in-name — the rest is the long-form
+    // context, kept for narrow viewports where the visible label is hidden
+    // (see `.builder-action-label{display:none}` below).
+    expect(source).toContain('id="publish-form-version" aria-label="Publish version — publishes the current step as a new immutable form version"');
     expect(source).toContain('onClick={() => void saveStep()}');
     expect(source).toContain('className="builder-lifecycle-actions" role="group" aria-label="Form availability"');
     expect(source).toContain('<CircleStop size={16} />');

@@ -40,6 +40,7 @@ const headshotTask = "c4000000-0000-4000-8000-000000000030";
 const slidesTask = "c4000000-0000-4000-8000-000000000031";
 const secondSlidesTask = "c4000000-0000-4000-8000-000000000033";
 const profileTask = "c4000000-0000-4000-8000-000000000032";
+const bioTask = "c4000000-0000-4000-8000-000000000034";
 const slidesRequest = "c4000000-0000-4000-8000-000000000040";
 const deck = "c4000000-0000-4000-8000-000000000041";
 const replacementDeck = "c4000000-0000-4000-8000-000000000046";
@@ -204,6 +205,13 @@ describe("portal task runtime", () => {
       "INSERT INTO portal_tasks(id,event_id,name,target_type,completion_mode,form_id,sort_order) VALUES($1,$2,'Update your details','contact','form',$3,2)",
       [profileTask, eventId, formId],
     );
+    // #719: a manual task named exactly like the demo dataset's bio task, so
+    // `getMyTask` can be asserted to route it to Profile while leaving the
+    // differently-named `headshotTask` manual task alone.
+    await pglite.query(
+      "INSERT INTO portal_tasks(id,event_id,name,description_html,target_type,completion_mode,sort_order) VALUES($1,$2,'Write your speaker bio','<p>Two or three sentences.</p>','contact','manual',3)",
+      [bioTask, eventId],
+    );
 
     // `r2_key` is the readiness marker: finalize repoints a row from its staging
     // key to the immutable published one, so the fixtures have to be built the
@@ -260,6 +268,18 @@ describe("portal task runtime", () => {
     expect(overdue?.dueAt).toMatch(/^\d{4}-/);
     // A task with no due date is a designed state, not an overdue one.
     expect((await listMyTasks(eventId, ada)).find((task) => task.taskId === profileTask)?.overdue).toBe(false);
+  });
+
+  /**
+   * The manual bio task offered nothing but "Mark as complete" — no field,
+   * no route to the Profile page that actually owns the bio (#719).
+   */
+  it("points the speaker bio task's detail view at Profile, and leaves other manual tasks alone", async () => {
+    const bio = await getMyTask(eventId, ada, bioTask, null);
+    expect(bio?.relatedTaskLink).toEqual({ path: "profile", label: "Go to your Profile page" });
+
+    const headshot = await getMyTask(eventId, ada, headshotTask, null);
+    expect(headshot?.relatedTaskLink).toBeNull();
   });
 
   it("gives a co-speaker who is not the primary contact no submission tasks", async () => {

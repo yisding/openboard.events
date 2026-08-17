@@ -42,7 +42,15 @@ export const PORTAL_LOGIN_NEUTRAL_MESSAGE = "If that address is on file, we’ve
 
 /** How long a login request is throttled for, and how many are allowed inside it. */
 export const PORTAL_LOGIN_THROTTLE = { limit: 3, windowMs: 10 * 60 * 1_000 } as const;
-export const PORTAL_LOGIN_THROTTLE_MESSAGE = "Check your inbox, or try again in a few minutes";
+/**
+ * A refusal, and it has to read as one. This used to open with "Check your
+ * inbox" — the same words the *success* screen uses — so the one thing the
+ * sentence had to say (no code was sent this time) was the one thing nobody
+ * read it as. It still has to be byte-identical for an address on file and one
+ * that is not, which is why it names the earlier code conditionally rather than
+ * promising one is waiting.
+ */
+export const PORTAL_LOGIN_THROTTLE_MESSAGE = "Too many code requests. If you already have a code, it still works — otherwise try again in a few minutes";
 
 export type PortalSession = {
   contactId: ContactId;

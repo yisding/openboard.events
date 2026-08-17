@@ -4,6 +4,7 @@ import { ExternalLink, GripVertical, X } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/shared/lib/cn";
+import { dropFromTopLayer, raiseIntoTopLayer } from "@/shared/ui/top-layer";
 import { Button, Modal, ProgressBar } from "@/shared/ui/ui-kit";
 import type { TourProgress } from "./objectives";
 import type { TourStep } from "./types";
@@ -183,6 +184,62 @@ function useCardDrag(stepId: string, cardRef: { current: HTMLDivElement | null }
   return { offset, dragging, onPointerDown, onKeyDown };
 }
 
+/**
+ * Keeps the card visible over a modal `<dialog>` that opens on top of it.
+ *
+ * A modal dialog lives in the top layer, which paints above every z-index there
+ * is, dims everything behind its `::backdrop` and — the part that actually
+ * hurts — makes everything it does not contain inert: no pointer events, out of
+ * the accessibility tree. The step that says "press ⌘K" therefore lost its own
+ * card the moment the player did as they were told, blurred and unclickable
+ * behind the command palette.
+ *
+ * So when a dialog the card is not inside is open, the card joins the top layer
+ * too, as a `popover="manual"` — manual because this card never traps focus and
+ * never closes on Escape, and both of those are exactly what the other popover
+ * kinds would take away. Top-layer order is insertion order, so raising it
+ * *after* the dialog opened is what puts it in front; the observer is there
+ * because the palette opens while the card is already on screen.
+ *
+ * With no dialog open the card goes back to being an ordinary z-indexed
+ * element, which is what every other step wants: nothing to be above.
+ */
+function useTopLayerCard(card: HTMLDivElement | null) {
+  useEffect(() => {
+    if (!card) return;
+    /*
+     * What the last sync acted on, so the raise happens on a change and not on
+     * every mutation the observer sees — and it sees a great many, because the
+     * app it is watching is a React tree that commits constantly.
+     *
+     * Raising is not idempotent: it hides the popover and shows it again, to
+     * re-enter the top layer at the end. Hiding a popover that contains the
+     * focused element hands focus back to whatever had it before, so a player
+     * who had tabbed to "Skip this" while the palette was open would have been
+     * thrown back into the palette's search box by the next keystroke's
+     * re-render — and the card, an `aria-live` region, would have left and
+     * re-joined the accessibility tree each time with it.
+     */
+    let above: Element[] = [];
+    const same = (next: Element[]) => next.length === above.length && next.every((dialog, index) => dialog === above[index]);
+    const sync = () => {
+      const buried = [...document.querySelectorAll("dialog[open]")].filter((dialog) => !dialog.contains(card));
+      if (same(buried)) return;
+      above = buried;
+      if (buried.length > 0) raiseIntoTopLayer(card); else dropFromTopLayer(card);
+    };
+    sync();
+    // Attributes as well as nodes: `showModal()` sets `open` on a dialog that
+    // is already in the tree, which is how every dialog in this app opens.
+    const observer = new MutationObserver(sync);
+    observer.observe(document.documentElement, { subtree: true, childList: true, attributeFilter: ["open"] });
+    return () => {
+      observer.disconnect();
+      dropFromTopLayer(card);
+    };
+  }, [card]);
+}
+
 function continueLabel(step: TourStep, mode: TourCoachMode): string {
   // A finished objective is the one place the label is not the author's to
   // choose: "Next" is a promise about what the button does, and a `beat`'s
@@ -210,6 +267,12 @@ function TourCoachBody({ step, progress, mode, notice, hintVisible, sideQuests, 
   // used to leave "Take a look…" on screen with no way past it but Skip.
   const showAdvance = step.kind !== "act" || mode !== "waiting";
   const questsComplete = sideQuests.length > 0 && sideQuests.every((quest) => questsDone.includes(quest.id));
+  // A side quest borrows its chapter from wherever it thematically belongs, so
+  // the arc's "Chapter N of M" and the arc's own percent both describe a
+  // position the player has stepped out of — the eyebrow and the bar below it
+  // switch to the one honest measure of a detour: quests done vs. quests total.
+  const isSideQuest = step.optional === true;
+  const questPercent = sideQuests.length === 0 ? 0 : Math.round((questsDone.length / sideQuests.length) * 100);
   return <>
     <header className={cn("tour-coach-head", drag && "tour-coach-grab")} onPointerDown={drag?.onPointerDown}>
       {drag && (
@@ -223,20 +286,29 @@ function TourCoachBody({ step, progress, mode, notice, hintVisible, sideQuests, 
           <GripVertical size={14} aria-hidden />
         </button>
       )}
-      <span className="tour-coach-chapter">
-        {progress.chapterCount > 0 && progress.chapterIndex > 0
-          ? `Chapter ${progress.chapterIndex} of ${progress.chapterCount}${progress.chapter ? ` — ${progress.chapter.name}` : ""}`
-          : progress.chapter?.name ?? "Side quest"}
-      </span>
+      {isSideQuest ? (
+        <span className="tour-coach-quest">
+          Side quest{progress.chapter ? ` · ${progress.chapter.name}` : ""}
+        </span>
+      ) : (
+        <span className="tour-coach-chapter">
+          {progress.chapterCount > 0 && progress.chapterIndex > 0
+            ? `Chapter ${progress.chapterIndex} of ${progress.chapterCount}${progress.chapter ? ` — ${progress.chapter.name}` : ""}`
+            : progress.chapter?.name ?? "Side quest"}
+        </span>
+      )}
       <button type="button" className="tour-coach-close" aria-label="Pause the tour" onClick={handlers.onPause}>
         <X size={15} aria-hidden />
       </button>
     </header>
-    <ProgressBar value={progress.percent} label="Tour progress" />
-    <b id={titleId} className="tour-coach-title">{step.title}</b>
+    <ProgressBar
+      value={isSideQuest ? questPercent : progress.percent}
+      label={isSideQuest ? "Side quests done" : "Tour progress"}
+    />
+    <b id={titleId} className={cn("tour-coach-title", mode === "celebrating" && "tour-coach-title-done")}>{step.title}</b>
     <p id={bodyId} className="tour-coach-body">{step.body}</p>
     {notice && <p className="tour-coach-notice">{notice}</p>}
-    {hintVisible && step.hint && <p className="tour-coach-hint">{step.hint}</p>}
+    {mode !== "celebrating" && hintVisible && step.hint && <p className="tour-coach-hint">{step.hint}</p>}
     {status && (
       <p className={cn("tour-coach-status", mode === "celebrating" && "tour-coach-status-done")}>
         {mode === "waiting" && <i className="tour-coach-pulse" aria-hidden />}
@@ -295,7 +367,15 @@ export function TourCoach(props: TourCoachProps) {
   const bodyId = `tour-body-${generatedId}`;
   const { step, position, container, mobile, mode, settling } = props;
   const cardRef = useRef<HTMLDivElement | null>(null);
+  // State as well as a ref: the raise has to run when the node arrives and
+  // again when it is replaced, which a ref alone would never tell an effect.
+  const [cardNode, setCardNode] = useState<HTMLDivElement | null>(null);
+  const attachCard = useCallback((node: HTMLDivElement | null) => {
+    cardRef.current = node;
+    setCardNode(node);
+  }, []);
   const drag = useCardDrag(step.id, cardRef);
+  useTopLayerCard(cardNode);
 
   if (step.presentation === "modal" || step.presentation === "modal-wide") {
     // The cold open and the curtain call are the two beats that deserve to own
@@ -352,7 +432,7 @@ export function TourCoach(props: TourCoachProps) {
   const moved = drag.offset.x !== 0 || drag.offset.y !== 0;
   const card: ReactNode = (
     <div
-      ref={cardRef}
+      ref={attachCard}
       className={cn("tour-coach", mobile && "tour-coach-sheet", centred && "tour-coach-centred", docked && "tour-coach-docked", settling && "tour-coach-settling", drag.dragging && "tour-coach-dragging", mode === "celebrating" && "tour-coach-won")}
       role="dialog"
       aria-labelledby={titleId}

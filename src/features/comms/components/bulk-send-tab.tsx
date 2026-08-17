@@ -38,9 +38,10 @@ import {
   contactIdSchema,
   resolvedSpeakerSegmentSchema,
 } from "@/shared/contracts";
-import { Button, Field, Select } from "@/shared/ui/ui-kit";
+import { Button, Field } from "@/shared/ui/ui-kit";
 import { statusBadgeLabel } from "@/shared/ui/status-badge";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
+import { FilterSelect } from "@/shared/ui/app/filter-select";
 import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { useToast } from "@/shared/ui/toast";
 import {
@@ -259,6 +260,13 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
   const variablePaths = useMemo(() => templateVariablePaths(KEY), []);
   const unknownTokens = useMemo(() => unknownTokensClientSide(KEY, subject, bodyHtml), [subject, bodyHtml]);
   const canCompose = segment !== null && segment.contactIds.length > 0 && subject.trim().length > 0 && bodyHtml.trim().length > 0 && unknownTokens.length === 0;
+  // A segment's preview sample runs to hundreds of names. The address is the
+  // hint rather than part of the label so a long address cannot push the name
+  // out of a narrow control, and both are still searchable.
+  const previewOptions = useMemo(
+    () => (segment?.preview ?? []).map((recipient) => ({ value: recipient.contactId, label: recipient.name, hint: recipient.email })),
+    [segment],
+  );
   const currentPreviewFingerprint = useMemo(() => bulkSendPreviewFingerprint({
     contactIds: segment?.contactIds ?? [],
     previewContactId,
@@ -703,9 +711,16 @@ export function BulkSendTab({ eventId }: { eventId: EventId }) {
             )}
             {segment && segment.preview.length > 0 && (
               <Field label="Preview as">
-                <Select value={previewContactId} disabled={sendBlocked} onChange={(event) => { invalidateMessagePreview(); setPreviewContactId(event.target.value as ContactId); }}>
-                  {segment.preview.map((recipient) => <option key={recipient.contactId} value={recipient.contactId}>{recipient.name} ({recipient.email})</option>)}
-                </Select>
+                <FilterSelect
+                  value={previewContactId}
+                  onChange={(next) => { invalidateMessagePreview(); setPreviewContactId(next as ContactId); }}
+                  options={previewOptions}
+                  disabled={sendBlocked}
+                  ariaLabel="Preview as"
+                  placeholder="Pick a recipient…"
+                  filterPlaceholder="Filter by name or email…"
+                  emptyLabel="No recipient in this sample matches"
+                />
               </Field>
             )}
             <div className="bulk-send-actions">

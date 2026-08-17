@@ -14,6 +14,14 @@ describe("portal form builder destructive actions", () => {
     expect(success.slice(success.indexOf("catch"))).not.toContain("setPendingDelete(null)");
   });
 
+  // Same gap as the event form builder: the selected question row is conveyed
+  // by a CSS class only, so speech cannot tell which question the editor holds.
+  it("says which question the editor is on, not only paints it", () => {
+    const source = readFileSync(new URL("./portal-form-builder.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain('className="field-row-main" aria-pressed={selectedFieldId === field.id}');
+  });
+
   it("rejects whitespace-only metadata and question labels while normalizing valid values", () => {
     expect(validatePortalFormMetadata("  ", "Speaker update")).toEqual({ ok: false, message: "Internal form name is required" });
     expect(validatePortalFormMetadata("Profile", "  ")).toEqual({ ok: false, message: "Public title is required" });

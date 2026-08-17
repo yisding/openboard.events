@@ -135,6 +135,15 @@ describe("roomTrackSize", () => {
   });
 });
 
+describe("SLOT_ROW_HEIGHT_PX", () => {
+  it("stays tall enough that a 30-minute card has room to breathe (#648)", () => {
+    // A regression floor, not a magic target: at 16px/row a half-hour card was
+    // 32px tall — barely enough for its own padding, let alone a title and a
+    // time. Below 20px/row the grid is back to the cramped state #648 reported.
+    expect(SLOT_ROW_HEIGHT_PX).toBeGreaterThanOrEqual(20);
+  });
+});
+
 describe("pixelDeltaToSlotDelta", () => {
   it("rounds a jiggle under half a row to zero slots", () => {
     expect(pixelDeltaToSlotDelta(SLOT_ROW_HEIGHT_PX / 2 - 1)).toBe(0);

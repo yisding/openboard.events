@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
 import { Donut } from "@/shared/ui/app/donut";
+import { FilterSelect, type FilterSelectOption } from "@/shared/ui/app/filter-select";
 import { FileUpload } from "@/shared/ui/app/file-upload";
 import { StatTile } from "@/shared/ui/app/stat-tile";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
@@ -11,6 +12,33 @@ import { Field, PageHeader, Select } from "@/shared/ui/ui-kit";
 
 const TIMEZONE = "America/Los_Angeles";
 const DEMO_EVENT_ID = "11111111-1111-4111-8111-111111111111";
+
+// A roster the size that motivated `FilterSelect`: long enough that scrolling a
+// native popup is slower than typing three letters.
+const SHOWCASE_SPEAKER_NAMES = [
+  "Ada Lovelace", "Alan Turing", "Barbara Liskov", "Grace Hopper", "Katherine Johnson",
+  "Edsger Dijkstra", "Frances Allen", "Donald Knuth", "Radia Perlman", "Leslie Lamport",
+  "Margaret Hamilton", "Ken Thompson", "Shafi Goldwasser", "Tony Hoare", "Jean Bartik",
+  "Vint Cerf", "Éva Tardos", "Andrew Ng", "Ürüm Qi", "Anita Borg",
+] as const;
+
+const SHOWCASE_SPEAKERS: FilterSelectOption[] = Array.from({ length: 120 }, (_, index) => {
+  const name = SHOWCASE_SPEAKER_NAMES[index % SHOWCASE_SPEAKER_NAMES.length] ?? "Speaker";
+  const round = Math.floor(index / SHOWCASE_SPEAKER_NAMES.length) + 1;
+  return {
+    value: `speaker-${index}`,
+    label: round === 1 ? name : `${name} ${round}`,
+    hint: `${name.toLowerCase().replaceAll(" ", ".")}${round === 1 ? "" : round}@example.com`,
+  };
+});
+
+const SHOWCASE_ROOMS: FilterSelectOption[] = [
+  { value: "main-stage", label: "Main Stage", group: "Level 1", hint: "1,200 seats" },
+  { value: "atrium", label: "Atrium", group: "Level 1", hint: "300 seats" },
+  { value: "room-201", label: "Room 201", group: "Level 2", hint: "80 seats" },
+  { value: "room-202", label: "Room 202", group: "Level 2", hint: "80 seats" },
+  { value: "workshop-a", label: "Workshop A", group: "Level 3", hint: "40 seats" },
+];
 
 // The standing XSS probe, rendered through the one sanitizing view.
 const HOSTILE_HTML = '<p>Bio with <b>bold</b>, a <a href="https://example.com">link</a>, '
@@ -21,6 +49,8 @@ export function RichPrimitives() {
   const [dueDate, setDueDate] = useState<string | null>(null);
   const [uploaded, setUploaded] = useState<string | null>(null);
   const [track, setTrack] = useState("ai-agents");
+  const [speaker, setSpeaker] = useState("");
+  const [room, setRoom] = useState("main-stage");
   const [bio, setBio] = useState("<p>Paste a <script>alert(1)</script> here and watch it not survive.</p>");
 
   return (
@@ -101,6 +131,43 @@ export function RichPrimitives() {
               <option value="infrastructure">Infrastructure</option>
               <option value="safety">Safety</option>
             </Select>
+          </Field>
+        </div>
+      </section>
+
+      <section style={{ marginBottom: 32 }}>
+        <h2 className="section-title">FilterSelect — the same box, for lists longer than the screen</h2>
+        <p>
+          The second dropdown primitive. Closed it is deliberately the same control as <code>Select</code>;
+          open it is searchable. Type <code>ada</code>, <code>lovelace@</code> or even <code>ang los</code> —
+          every token has to match somewhere, in any order, and the matched run is marked in each row.
+          <kbd>↑</kbd>/<kbd>↓</kbd>, <kbd>Home</kbd>/<kbd>End</kbd>, <kbd>Enter</kbd> and <kbd>Esc</kbd> all
+          behave the way the native element taught, and typing a letter straight at the closed control opens
+          the list already filtered.
+        </p>
+        <div style={{ display: "grid", gap: 12, maxWidth: 460 }}>
+          <Field label="Speaker" hint={`${SHOWCASE_SPEAKERS.length} contacts — the size where a native popup stops being usable`}>
+            <FilterSelect
+              value={speaker}
+              onChange={setSpeaker}
+              options={SHOWCASE_SPEAKERS}
+              ariaLabel="Speaker"
+              placeholder="Choose a speaker…"
+              filterPlaceholder="Filter by name or email…"
+              emptyLabel="No speaker matches"
+            />
+          </Field>
+          <Field label="Room" hint="Grouped — consecutive options sharing a group render under one heading">
+            <FilterSelect
+              value={room}
+              onChange={setRoom}
+              options={SHOWCASE_ROOMS}
+              ariaLabel="Room"
+              placeholder="Choose a room…"
+            />
+          </Field>
+          <Field label="Speaker" hint="Disabled — the same treatment every other control uses">
+            <FilterSelect value={speaker} onChange={setSpeaker} options={SHOWCASE_SPEAKERS} ariaLabel="Speaker (disabled)" disabled />
           </Field>
         </div>
       </section>
