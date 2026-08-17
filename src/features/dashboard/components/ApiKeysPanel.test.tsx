@@ -357,3 +357,13 @@ describe("API key revoke outcome", () => {
     );
   });
 });
+
+describe("API key panel copy", () => {
+  // The intro used to send organizers to "docs/api.md" — a repo file path
+  // they have no way to open (issue #670).
+  it("does not point organizers at a repo file path", async () => {
+    await renderPanel();
+    expect(container.textContent).not.toContain("docs/api.md");
+    expect(container.textContent).toContain("Authorization: Bearer");
+  });
+});

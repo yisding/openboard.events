@@ -168,7 +168,7 @@ export function ApiKeysPanel({ eventId, initialKeys, timezone }: { eventId: Even
         <h2>API keys</h2>
         <p>
           Bearer keys for <code>/api/v1</code>&apos;s keyed endpoints (submissions, outstanding tasks, stats, comms log),
-          scoped to this event only. See <code>docs/api.md</code> for the full reference.
+          scoped to this event only. Send the key as <code>Authorization: Bearer &lt;key&gt;</code>.
         </p>
       </header>
 
