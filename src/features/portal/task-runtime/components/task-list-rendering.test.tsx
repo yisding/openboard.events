@@ -5,7 +5,6 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { TaskList } from "./task-list";
 import type { MyTaskDTO } from "../server/queries";
 
 /**
@@ -17,6 +16,12 @@ import type { MyTaskDTO } from "../server/queries";
  */
 
 Object.assign(globalThis, { React, IS_REACT_ACT_ENVIRONMENT: true });
+
+// Imported dynamically, after the React global above: `task-list.tsx` builds
+// its `MODE_ICON` map with JSX at module scope, which the classic transform
+// evaluates at import time — a static import would run it before this file's
+// body sets the global (same idiom as `airtable/panel-states.test.tsx`).
+const { TaskList } = await import("./task-list");
 
 const TASKS: MyTaskDTO[] = [
   {
