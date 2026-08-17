@@ -289,6 +289,16 @@ describe("CFP session resume", () => {
     expect(source).toContain("const [signingOut, setSigningOut] = useState(false);");
     expect(source).toContain('disabled={busy || signingOut}>{busy ? "Restoring your draft…" : "Continue"}');
   });
+
+  it("never gates 'Send me a code' on the email field, so the click can reach the designed field error (#677)", () => {
+    const source = readFileSync(new URL("./components/cfp-steps.tsx", import.meta.url), "utf8");
+
+    // A disabled button with no hint is a no-op click: `requestCode` is the
+    // form's own field-error pipeline for an empty/invalid email (it sets
+    // `emailError` and focuses the input), and that can only fire if the
+    // click reaches it.
+    expect(source).toContain('<Button type="submit" disabled={busy}>{busy ? "Sending…" : "Send me a code"}</Button>');
+  });
 });
 
 describe("CFP success redirect", () => {
