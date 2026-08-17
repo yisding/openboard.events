@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { adminAuthEmailOutbox, events, organizationInvitations } from "@/db/schema";
 import { organizationInvitationIdSchema, type TemplateKey, type UserId } from "@/shared/contracts";
@@ -464,4 +464,121 @@ export function nudgeAdminAuthEmailOutbox(waitUntil: (promise: Promise<unknown>)
     // No Cloudflare execution context in tests/next dev; the promise is
     // already running and the scheduled job recovers it if the process ends.
   }
+}
+
+export type AuthOutboxRequeueRow = {
+  id: string;
+  recipientEmail: string;
+  templateKey: TemplateKey;
+  attempts: number;
+  error: string | null;
+  createdAt: Date;
+};
+
+export type AuthOutboxRequeueResult = {
+  requeued: AuthOutboxRequeueRow[];
+  /** Terminal rows that cannot be re-sent, and why the operator cannot fix them here. */
+  unrecoverable: AuthOutboxRequeueRow[];
+};
+
+/**
+ * Re-open terminal `admin_auth_email_outbox` failures.
+ *
+ * Once a row exhausted the shared six-attempt cutoff, `failRow` wrote
+ * `status: "failed"` and nothing in the product could ever re-open it —
+ * `retryFailedCommunicationsIn` is event-scoped to `communication_logs` and
+ * has no reach here. Since this table carries password resets, email
+ * verification, and organization invitations, that made "the provider was
+ * down for an hour" indistinguishable from "these people are locked out
+ * permanently", with SQL as the only remedy.
+ *
+ * `attempts` resets to zero rather than being nudged: the row already spent
+ * its ladder on a condition an operator has since fixed, and leaving it at six
+ * would let one more transient failure close it again immediately.
+ *
+ * Rows whose sealed payload is gone are reported as `unrecoverable` instead of
+ * requeued. The link *is* the message for every template in this table, so
+ * re-sending one without its payload would deliver a mail that cannot do
+ * anything — worse than not sending it, because the recipient stops waiting.
+ * Those people need a fresh reset/verification request, not a redelivery.
+ */
+export type AuthOutboxFilter = { ids?: string[]; emails?: string[] };
+
+function failedScope(filter: AuthOutboxFilter) {
+  const emails = filter.emails?.map((email) => email.trim().toLowerCase()).filter(Boolean) ?? [];
+  return and(
+    eq(adminAuthEmailOutbox.status, "failed"),
+    ...(filter.ids?.length ? [inArray(adminAuthEmailOutbox.id, filter.ids)] : []),
+    ...(emails.length ? [inArray(sql`lower(${adminAuthEmailOutbox.recipientEmail})`, emails)] : []),
+  );
+}
+
+function summarizeOutboxRow(row: typeof adminAuthEmailOutbox.$inferSelect): AuthOutboxRequeueRow {
+  return {
+    id: row.id,
+    recipientEmail: row.recipientEmail,
+    templateKey: row.templateKey,
+    attempts: row.attempts,
+    error: row.error,
+    createdAt: row.createdAt,
+  };
+}
+
+/**
+ * The read half, so the operator command can show a blast radius before it
+ * changes anything. It shares `failedScope` with the requeue rather than
+ * rebuilding the predicate: a report that selects a different set from the
+ * command it is previewing is worse than no report.
+ */
+export async function listFailedAdminAuthEmailsIn(
+  dbOrTx: DbOrTx,
+  filter: AuthOutboxFilter = {},
+): Promise<AuthOutboxRequeueRow[]> {
+  const rows = await dbOrTx.select().from(adminAuthEmailOutbox)
+    .where(failedScope(filter))
+    .orderBy(asc(adminAuthEmailOutbox.createdAt), asc(adminAuthEmailOutbox.id));
+  return rows.map(summarizeOutboxRow);
+}
+
+export async function requeueFailedAdminAuthEmailsIn(
+  dbOrTx: DbOrTx,
+  filter: AuthOutboxFilter = {},
+): Promise<AuthOutboxRequeueResult> {
+  const scope = failedScope(filter);
+
+  const unrecoverable = await dbOrTx.select().from(adminAuthEmailOutbox)
+    .where(and(scope, isNull(adminAuthEmailOutbox.secretPayloadCiphertext)));
+
+  // Read before the UPDATE rewrites `attempts` and `error`, so the summary can
+  // still say what each row actually died of — which is what tells the
+  // operator whether they have fixed the cause.
+  const candidates = await dbOrTx.select().from(adminAuthEmailOutbox)
+    .where(and(scope, isNotNull(adminAuthEmailOutbox.secretPayloadCiphertext)));
+
+  // `status = 'failed'` is inside the UPDATE's own WHERE, so the set that is
+  // written is decided at write time rather than from the read above. The
+  // drain runs every minute; a row it claims in between is simply not matched,
+  // and the intersection below keeps it out of the report too.
+  const reopened = await dbOrTx.update(adminAuthEmailOutbox).set({
+    status: "queued",
+    attempts: 0,
+    error: null,
+    lockedUntil: null,
+    nextAttemptAt: sql`now()`,
+  }).where(and(scope, isNotNull(adminAuthEmailOutbox.secretPayloadCiphertext))).returning();
+  const reopenedIds = new Set(reopened.map((row) => row.id));
+  const requeued = candidates.filter((row) => reopenedIds.has(row.id)).map(summarizeOutboxRow);
+
+  log({
+    level: "info",
+    msg: "auth.outbox_requeued",
+    requestId: "-",
+    feature: "auth",
+    stats: { requeued: requeued.length, unrecoverable: unrecoverable.length },
+  });
+  return { requeued, unrecoverable: unrecoverable.map(summarizeOutboxRow) };
+}
+
+export function requeueFailedAdminAuthEmails(filter?: AuthOutboxFilter): Promise<AuthOutboxRequeueResult> {
+  return requeueFailedAdminAuthEmailsIn(db, filter);
 }

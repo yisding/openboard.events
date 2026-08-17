@@ -43,7 +43,13 @@ printf '200'
 const healthy = {
   ok: true,
   db: { ok: true, version: "18" },
-  comms: { ok: true, queuedCount: 0, failedCount: 0, oldestQueuedAgeSeconds: null },
+  comms: {
+    ok: true,
+    queuedCount: 0,
+    failedCount: 0,
+    oldestQueuedAgeSeconds: null,
+    authOutbox: { queuedCount: 0, failedCount: 0, oldestQueuedAgeSeconds: null },
+  },
   errors: { ok: true, windowSeconds: 3600, recentCount: 0, latestAgeSeconds: null },
   jobs: {
     ok: true,
@@ -110,5 +116,50 @@ describe("uptime scheduled-job heartbeat threshold", () => {
     const page = run({ ...healthy, jobs: { ...healthy.jobs, outboxLastSuccessAgeSeconds: 301 } });
     expect(page.status).toBe(1);
     expect(page.stdout).toContain("exceeds page threshold (300)");
+  });
+});
+
+/**
+ * Issue #625 — `admin_auth_email_outbox` had no health signal and no alerting
+ * row, so every admin could lose password recovery with the check still green.
+ */
+describe("uptime admin auth outbox thresholds", () => {
+  const withAuth = (authOutbox: Record<string, unknown>) => ({
+    ...healthy,
+    comms: { ...healthy.comms, authOutbox: { ...healthy.comms.authOutbox, ...authOutbox } },
+  });
+
+  it("pages when password-recovery mail is backing up", () => {
+    const result = run(withAuth({ queuedCount: 101 }));
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain("comms.authOutbox.queuedCount=101");
+  });
+
+  it("names the remedy when terminal failures cross the page threshold", () => {
+    const result = run(withAuth({ failedCount: 11 }));
+    expect(result.status).toBe(1);
+    // Nothing retries these on its own, so the alert has to say what does.
+    expect(result.stdout).toContain("pnpm auth:requeue");
+  });
+
+  it("warns without failing on a handful of terminal failures", () => {
+    const result = run(withAuth({ failedCount: 4 }));
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+    expect(result.stdout).toContain("comms.authOutbox.failedCount=4");
+  });
+
+  // Its thresholds sit an order of magnitude below event mail's on purpose:
+  // a queue depth that is a Tuesday for event mail is an incident here.
+  it("leaves event-mail volumes that are healthy for their own thresholds alone", () => {
+    const result = run({ ...healthy, comms: { ...healthy.comms, queuedCount: 40, failedCount: 5 } });
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+  });
+
+  it("stays quiet during the additive rollout, when an older artifact has no authOutbox", () => {
+    const oldComms: Record<string, unknown> = { ...healthy.comms };
+    delete oldComms.authOutbox;
+    const result = run({ ...healthy, comms: oldComms });
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+    expect(result.stdout).not.toContain("authOutbox");
   });
 });

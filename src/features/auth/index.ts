@@ -12,15 +12,18 @@ export { openPortalLoginPayload, sealPortalLoginPayload } from "./server/secret-
 export type { AdminLinkPayload } from "./server/secret-payload";
 export { openAdminLinkPayload } from "./server/secret-payload";
 export { openPlatformAdminLinkPayload, sealPlatformAdminLinkPayload } from "./server/secret-payload";
-export type { AdminAuthTemplateKey } from "./server/admin-mail";
+export type { AdminAuthTemplateKey, AuthOutboxFilter, AuthOutboxRequeueResult, AuthOutboxRequeueRow } from "./server/admin-mail";
 export {
   dispatchAdminAuthEmailOutbox,
   dispatchAdminAuthEmailOutboxIn,
   getAdminAuthFallbackLink,
   getAdminAuthFallbackLinkIn,
+  listFailedAdminAuthEmailsIn,
   nudgeAdminAuthEmailOutbox,
   recordAdminAuthEmailSuppression,
   recordAdminAuthEmailSuppressionIn,
+  requeueFailedAdminAuthEmails,
+  requeueFailedAdminAuthEmailsIn,
   sendAdminAuthEmail,
   sendAdminAuthEmailIn,
 } from "./server/admin-mail";

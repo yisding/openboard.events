@@ -73,7 +73,31 @@ cannot be replayed at will. Two consequences for reading it:
 | `comms.ok` | `true` | `false` on one poll | treat as a page once it recurs across **multiple separate uptime-workflow runs** | The `communication_logs` aggregate query itself failed — table locked, migration mid-flight, or a real DB fault the version probe didn't happen to hit. `scripts/uptime-check.sh` annotates this as a warning rather than failing the run outright (see rationale below), so a recurring `comms.ok: false` shows up as repeated warnings in the workflow's run history — that history is what "recurs" means here; there is no automated run-counter. |
 | `comms.queuedCount` | low double digits or less | `> 100` | `> 300` | The jobs Worker's cron claims up to 50 rows/minute (`dispatchOutboxIn`'s default budget) — a healthy dispatcher keeps this near zero between ticks. Sustained growth past 100 means sends are being enqueued faster than the dispatcher drains them, or the dispatcher has stopped running. |
 | `comms.failedCount` | `0` | `> 10` | `> 50` | Terminal failures (`markFailure`'s `attempts >= 6` cutoff, or a non-retriable `AppError` code). A nonzero baseline is normal — a bad address, a disabled template — but a spike means a systemic problem: `RESEND_API_KEY` rotated/revoked, `EMAIL_FROM`/`EMAIL_REPLY_TO` broken, or the allowlist blocking every preview address. |
+| `comms.authOutbox.queuedCount` | `0`–a handful | `> 25` | `> 100` | `admin_auth_email_outbox` — password resets, email verification, organization invitations. Its volume is a fraction of event mail (nobody sends it in bulk), so the thresholds sit an order of magnitude lower than `comms.queuedCount` above: twenty-five people waiting on a password reset is already an incident here, where twenty-five queued event emails is a Tuesday. |
+| `comms.authOutbox.failedCount` | `0` | `> 3` | `> 10` | Terminal failures on the *recovery* path. This is the field that decides whether "the provider was down" is over: every row here is a person who asked to get back into their account and never got the mail. It never self-heals — `failRow` writes `status: "failed"` and only `pnpm auth:requeue` re-opens it — so unlike `comms.failedCount` a nonzero value stays nonzero until an operator acts. Treat any value as work to do, not a baseline. |
+| `comms.authOutbox.oldestQueuedAgeSeconds` | under a couple of minutes | `> 900` (15 min) | `> 3600` (1 hour) | Same drain and the same retry ladder as event mail (`OUTBOX_MAX_ATTEMPTS` = 6, `2 ** attempts` minutes capped at 60), so the same reasoning about the page threshold sitting above the backoff cap applies. What differs is urgency below the threshold: a reset link has its own expiry, so a row queued for most of an hour may deliver a link that is already dead by the time it arrives. |
 | `comms.oldestQueuedAgeSeconds` | under a couple of minutes | `> 900` (15 min) | `> 3600` (1 hour) | The cron ticks every minute (`workers/jobs/wrangler.jsonc`'s `* * * * *`); a row legitimately mid-retry backoff can sit `queued` up to 60 minutes past `created_at` (`markFailure`'s `2 ** attempts` minutes, capped at 60 — see that function's own comment). The 1-hour page threshold sits *above* that cap on purpose: below it, "oldest queued row" includes rows retrying exactly as designed, and paging on those would train whoever's on call to ignore this alert. |
+
+### Requeueing the admin auth outbox
+
+`comms.authOutbox.failedCount` is the only mail threshold with a manual remedy, because it is the
+only one where nothing retries on its own:
+
+```bash
+pnpm auth:requeue                          # report every failed row: who, which template, what it died of
+pnpm auth:requeue -- --email a@b.com       # narrow to one recipient
+pnpm auth:requeue -- --apply               # re-open them; the every-minute drain does the rest
+```
+
+Reporting is the default and `--apply` is opt-in on purpose — this re-sends real mail to real
+people, so the blast radius comes before the action. Rows whose sealed link payload is gone are
+reported as unrecoverable rather than re-sent: the link *is* the message for all three templates,
+so redelivering one without its payload would give the recipient a mail that cannot do anything and
+stop them waiting for a real one. Those people need a fresh reset or verification request instead.
+
+Fix the cause before requeueing — a rotated `RESEND_API_KEY`, a broken `EMAIL_FROM`, an allowlist
+excluding the address — or the requeued rows spend a fresh six-attempt ladder and land back in
+`failed`.
 
 `comms.ok: false` is deliberately never a first-failure page — unlike `db.ok`, a `commsHealth`
 failure is caught in its own try/catch inside the route precisely so a transient lock contention
