@@ -34,6 +34,7 @@ type OptionKey = keyof AirtableConnectionOptionsDTO;
 const OPTION_ROWS: readonly { key: OptionKey; copy: { label: string; hint: string } }[] = [
   { key: "includeEmail", copy: AIRTABLE_COPY.options.includeEmail },
   { key: "includeBio", copy: AIRTABLE_COPY.options.includeBio },
+  { key: "includeHeadshots", copy: AIRTABLE_COPY.options.includeHeadshots },
   { key: "includePronouns", copy: AIRTABLE_COPY.options.includePronouns },
   { key: "includeGender", copy: AIRTABLE_COPY.options.includeGender },
   { key: "pruneRemoved", copy: AIRTABLE_COPY.options.pruneRemoved },

@@ -35,7 +35,7 @@ Seven tables, in this order (link targets always sync before the tables that lin
 | Rooms | `rooms` | |
 | Formats | `session_formats` | |
 | Tags | `tags` | |
-| People | `contacts` | Only contacts who are an actual speaker or submission participant — a ticket-buyer contact never appears here. |
+| People | `contacts` | Only contacts who are an actual speaker or submission participant — a ticket-buyer contact never appears here. Carries the speaker's headshot in an `Attachment` column. |
 | Sessions | `sessions` | Links to Tracks, Rooms, Formats, People. |
 | Proposals | `submissions` | Links to Tracks, Formats, People, Tags. |
 
@@ -49,8 +49,10 @@ their own Airtable tables — they show up as the `multipleRecordLinks` fields a
 ### What is *not* pushed, and why
 
 - **Attendee/ticket data, form answers, speaker logistics values, contact unavailability, audit
-  and history tables, attachments.** Out of scope for v1; none of this is programme data an
-  organizer's Airtable base needs.
+  and history tables, and every uploaded file except the speaker headshot.** Out of scope for v1;
+  none of this is programme data an organizer's Airtable base needs. Slides, submission-answer
+  files and file-request uploads are all *private* file kinds served only through a presigned,
+  expiring GET, which is a genuinely different problem from the headshot below.
 - **`unsubscribed_at` is never exported, under any toggle.** It is CAN-SPAM consent state. A
   marketing team bulk-mailing off a stale copy of it in a spreadsheet is a legal problem, not a
   sync bug, so there is no toggle that can turn this one on.
@@ -58,9 +60,42 @@ their own Airtable tables — they show up as the `multipleRecordLinks` fields a
   is `NOT NULL` with no organization-scoped sibling column; there is no correct way to anchor an
   organization's CRM data to one "home" event the moment that organization runs a second event.
   Syncing CRM data would need its own migration and its own design, not a toggle here.
-- **Speaker headshots/attachments are deferred.** An Airtable attachment field needs a signed R2
-  URL at push time that would need to be refreshed before it expires; that machinery does not
-  exist yet.
+
+### Speaker headshots need no signed-URL machinery
+
+This column was deferred on a premise that turned out to be false, so the reasoning is written
+down rather than left as a resolved ticket.
+
+An Airtable attachment cell is written as `[{ url, filename }]`, and **Airtable fetches those
+bytes once, at write time, and then serves its own copy from its own storage.** The URL is
+therefore not a link Airtable keeps — it only has to resolve during that single fetch. Nothing
+about the cell decays when the URL does, so there is no expiry to refresh and no refresh
+scheduler to build.
+
+That is decisive here specifically because `headshot` is a **public** file kind
+(`KIND_POLICY` in `src/shared/server/r2.ts`): it is served by `/f/{fileId}`, unauthenticated,
+with no signature, and immutably — replacing a speaker's photo mints a new file id rather than
+rewriting an existing one. So the projected value is
+`[{"url": "{APP_BASE_URL}/f/{fileId}", "filename": …}]` and every property the sync engine
+already relies on holds unchanged:
+
+- **Stable hash.** The value is a pure function of the file id and filename, so a speaker with an
+  unchanged headshot is never re-pushed. That matters more here than for a text column: every
+  push of a People row makes Airtable download the photo again.
+- **`APP_BASE_URL` is inside the hash.** Moving the deployment to a new origin re-pushes every
+  speaker who has one, rather than leaving Airtable holding attachments fetched from a hostname
+  that no longer resolves.
+- **Only finalized assets are offered.** A row still on its `staging/` key never passed the size
+  check and content sniff, and `/f/{fileId}` 404s for it, so the projection skips it until
+  finalize moves the object. Handing Airtable a 404 buys a broken attachment chip in a base we do
+  not own.
+- **Empty means empty.** No headshot, and the gate switched off, both project `[]` — Airtable's
+  own spelling of "no attachments" — rather than the SQL `NULL` the other gated columns use.
+
+Private file kinds (slides, submission-answer uploads, file-request uploads) are a different
+question and remain out of scope: those genuinely do need a presigned, expiring GET, and pushing
+them would put files that an organizer has restricted behind Openboard's access rules into a base
+with its own sharing model.
 
 ### The "What we sync" drawer
 
@@ -68,9 +103,10 @@ their own Airtable tables — they show up as the `multipleRecordLinks` fields a
 |---|---|---|
 | Include email addresses | **on** | It is the organizer's own speaker roster in the organizer's own base — the one field a program team actually needs there. Named explicitly in the pre-connect disclosure, and toggleable off. |
 | Include bios | **on** | Public program copy, pushed as plain text (HTML stripped). |
+| Include headshots | **on** | Same class as bios — public programme copy the event's own speaker page already shows. See the section above for why no signed URL is involved. |
 | Include pronouns | **off** | Explicit opt-in, not bundled with the roster basics. |
 | Include gender | **off** | Same, plus a retention warning in the drawer copy. |
-| Purge removed records | **off** | Not a privacy toggle — listed here because it is the fifth row of the same drawer. See below. |
+| Purge removed records | **off** | Not a privacy toggle — listed here because it is the sixth row of the same drawer. See below. |
 
 Flipping any toggle takes effect on the next sync (about 15 minutes on the scheduled cadence, or
 immediately with "Sync now") — no manual re-sync or reconnect is needed. The newly included (or

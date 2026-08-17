@@ -4,6 +4,10 @@ import {
   SYNC_TABLE_ORDER,
   TABLE_PLANS,
   type AirtableFieldSpec,
+  // The same label the "build these columns by hand" instructions use, so an
+  // issue's `expected` and those instructions can never name one column two
+  // different ways.
+  fieldTypeLabel as describeType,
   linkFields,
   scalarFields,
   tablePlansFingerprint,
@@ -92,10 +96,6 @@ function issue(
   instruction: string,
 ): SchemaIssue {
   return { kind, table, field, expected, actual, instruction };
-}
-
-function describeType(spec: AirtableFieldSpec): string {
-  return spec.type === "multipleRecordLinks" ? `Link to ${TABLE_PLANS[spec.linkTo].displayName}` : spec.type;
 }
 
 function indexTables(tables: readonly AirtableTableRef[]): Map<string, AirtableTableRef> {
