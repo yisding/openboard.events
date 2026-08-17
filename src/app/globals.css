@@ -1831,7 +1831,8 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .dv-unscheduled-panel h3{font-size:var(--text-xs);margin:0}
 .dv-unscheduled-panel header span{min-width:18px;height:18px;border-radius:9px;background:var(--accent-soft);color:var(--accent-dark);display:grid;place-items:center;font-size:var(--text-xs)}
 .dv-unscheduled-hint{font-size:var(--text-xs);color:var(--muted);margin:6px 0}
-.dv-unscheduled-card{width:100%;border:1px solid var(--line);border-radius:7px;background:var(--surface);margin-top:6px;padding:8px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:center;text-align:left}
+.dv-unscheduled-card{width:100%;border:1px solid var(--line);border-radius:7px;background:var(--surface);margin-top:6px;padding:10px 8px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:center;text-align:left;transition:border-color .15s}
+.dv-unscheduled-card:hover{border-color:var(--accent-border)}
 .dv-tray-drag{min-width:0;display:grid;grid-template-columns:13px minmax(0,1fr);gap:6px;align-items:center;cursor:grab}
 .dv-tray-drag>svg{color:var(--muted)}
 .dv-unscheduled-card b{display:block;font-size:var(--text-xs);line-height:1.4}
@@ -1848,7 +1849,8 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .dv-hour-label{border-top:1px solid var(--fill);text-align:right;padding-right:8px;font-size:var(--text-xs);color:var(--muted);position:relative;top:-6px}
 .dv-cell{border-top:1px solid var(--fill);border-left:1px solid var(--line)}
 .dv-cell--over{background:var(--accent-faint)}
-.dv-session-card{position:relative;margin:1px 4px;border-radius:6px;border:1px solid var(--accent-border);border-left:3px solid var(--accent);background:var(--accent-soft);color:var(--accent-dark);padding:6px 8px 6px 8px;overflow:hidden;cursor:grab;z-index:2}
+.dv-session-card{position:relative;margin:1px 4px;border-radius:6px;border:1px solid var(--accent-border);border-left:3px solid var(--accent);background:var(--accent-soft);color:var(--accent-dark);padding:8px 8px;overflow:hidden;cursor:grab;z-index:2;transition:box-shadow .15s,border-color .15s}
+.dv-session-card:hover{box-shadow:var(--shadow-sm);border-color:var(--accent)}
 .dv-session-card:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 /* Clamped, because the card's own overflow is hidden and its height is the
    session's duration: a title long enough to wrap past the available lines
