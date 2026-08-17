@@ -191,6 +191,11 @@ export const publishedSpeakersDtoSchema = z.object({
   event: z.object({
     name: z.string(),
     timezone: z.string(),
+    // Issue #667: the schedule DTO's twin field — without these the hero
+    // band's date eyebrow has nothing to render and the dark strip sits
+    // empty on Speakers/Gallery while every other public surface shows it.
+    startsAt: z.iso.datetime(),
+    endsAt: z.iso.datetime(),
     accentColor: z.string().nullable(),
     logoUrl: z.string().nullable(),
     backgroundUrl: z.string().nullable(),
