@@ -10,11 +10,13 @@ import { portalAuthRequest } from "./portal-auth-request";
 type Fallback = { otp: string; magicLink: string };
 
 /**
- * Why the code step is on screen. `sent` means this visit just minted a code;
- * `existing` means it did not — the speaker either said they already had one or
- * was throttled — and the copy must not claim otherwise.
+ * Why the code step is on screen, because the three answers are three different
+ * sentences. `sent` minted a code just now. `existing` is the speaker saying
+ * they already hold one, so nothing was sent and nothing is being waited for.
+ * `throttled` is the refusal: no code was minted, and there is a measured wait
+ * before one can be. Only `throttled` may talk about waiting.
  */
-export type CodeStepOrigin = "sent" | "existing";
+export type CodeStepOrigin = "sent" | "existing" | "throttled";
 
 /**
  * The wait the limiter itself measured, as a sentence fragment. Rounded up to
@@ -27,13 +29,24 @@ export function retryWindowHint(seconds: number | undefined): string {
   return minutes <= 1 ? "in about a minute" : `in about ${minutes} minutes`;
 }
 
-export function PortalCodeStep({ eventSlug, email, next, fallback, origin, retryAfterSeconds, headingRef, onUseDifferentEmail, onRequestNewCode, requesting }: {
+function codeStepIntro(origin: CodeStepOrigin, email: string, retryAfterSeconds: number | undefined) {
+  if (origin === "sent") return <p>Enter the six-digit code sent to <b>{email}</b>.</p>;
+  if (origin === "existing") return <p>Enter the six-digit code we sent to <b>{email}</b>. Codes stay valid for 15 minutes — ask for a new one below if yours has run out.</p>;
+  // The refusal has to serve both people it can reach: the speaker with a code
+  // sitting in their inbox, and the one who never got that far, because the
+  // per-IP bucket refuses a shared network too. Neither is told a code is
+  // waiting for them, and neither is left without a next move.
+  return <p>We can’t send another code to <b>{email}</b> yet. If you already have one it still works; otherwise ask again {retryWindowHint(retryAfterSeconds)}.</p>;
+}
+
+export function PortalCodeStep({ eventSlug, email, next, fallback, origin, retryAfterSeconds, error, headingRef, onUseDifferentEmail, onRequestNewCode, requesting }: {
   eventSlug: string;
   email: string;
   next?: string;
   fallback: Fallback | null;
   origin: CodeStepOrigin;
   retryAfterSeconds?: number;
+  error?: string;
   headingRef: RefObject<HTMLHeadingElement | null>;
   onUseDifferentEmail: () => void;
   onRequestNewCode: () => void;
@@ -41,16 +54,14 @@ export function PortalCodeStep({ eventSlug, email, next, fallback, origin, retry
 }) {
   return <>
     <h1 ref={headingRef} tabIndex={-1}>{origin === "sent" ? "Check your inbox" : "Enter your code"}</h1>
-    {origin === "sent"
-      // The throttled wording covers both people it can reach: the speaker who
-      // has a code sitting in their inbox, and the one who never got that far
-      // (the per-IP bucket refuses a shared network too). Neither is told a
-      // code is waiting for them, and neither is left without a next move.
-      ? <p>Enter the six-digit code sent to <b>{email}</b>.</p>
-      : <p>If you already have a code for <b>{email}</b>, enter it below — it stays valid for 15 minutes. Otherwise request a new one {retryWindowHint(retryAfterSeconds)}.</p>}
+    {codeStepIntro(origin, email, retryAfterSeconds)}
     <OtpForm eventSlug={eventSlug} email={email} {...(next ? { next } : {})} />
     {fallback && <aside className="demo-code"><b>Test environment</b><span>Your one-time code: <code>{fallback.otp}</code></span><Link href={fallback.magicLink}>Continue with a sign-in link</Link></aside>}
-    {origin === "existing" && <button className="text-button" type="button" disabled={requesting} onClick={onRequestNewCode}>{requesting ? "Sending…" : "Send a new code"}</button>}
+    {/* The resend has its own failure to report and no form of its own to
+        report it in — without this it would flip back from "Sending…" to
+        "Send a new code" and say nothing at all. */}
+    {error && <p className="field-error" role="alert">{error}</p>}
+    {origin !== "sent" && <button className="text-button" type="button" disabled={requesting} onClick={onRequestNewCode}>{requesting ? "Sending…" : "Send a new code"}</button>}
     <button className="text-button" type="button" onClick={onUseDifferentEmail}>Use a different email</button>
   </>;
 }
@@ -70,7 +81,12 @@ export function PortalLoginForm({ eventSlug, next }: { eventSlug: string; next?:
     return focusOnNextFrame(requestedHeadingRef);
   }, [origin]);
 
-  async function sendCode(value: string) {
+  // Normalizing here rather than at each call site is what keeps the address
+  // this posts, the address the code step names, and the address the verify
+  // step spends the code against the same one string.
+  async function sendCode(address: string) {
+    const value = address.trim().toLowerCase();
+    setEmail(value);
     setPending(true);
     setError("");
     try {
@@ -84,7 +100,7 @@ export function PortalLoginForm({ eventSlug, next }: { eventSlug: string; next?:
         if (result.status === 429) {
           setFallback(null);
           setRetryAfterSeconds(result.retryAfterSeconds);
-          setOrigin("existing");
+          setOrigin("throttled");
           return;
         }
         setError(result.status === null
@@ -102,9 +118,7 @@ export function PortalLoginForm({ eventSlug, next }: { eventSlug: string; next?:
 
   async function requestCode(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const value = email.trim().toLowerCase();
-    setEmail(value);
-    await sendCode(value);
+    await sendCode(email);
   }
 
   /**
@@ -130,10 +144,11 @@ export function PortalLoginForm({ eventSlug, next }: { eventSlug: string; next?:
     fallback={fallback}
     origin={origin}
     {...(retryAfterSeconds === undefined ? {} : { retryAfterSeconds })}
+    {...(error ? { error } : {})}
     headingRef={requestedHeadingRef}
     requesting={pending}
     onRequestNewCode={() => { void sendCode(email); }}
-    onUseDifferentEmail={() => setOrigin(null)}
+    onUseDifferentEmail={() => { setError(""); setOrigin(null); }}
   />;
 
   return <form onSubmit={requestCode}>

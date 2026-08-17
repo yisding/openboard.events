@@ -121,6 +121,26 @@ describe("PortalLoginForm rate-limit recovery", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(container.querySelector('input[name="code"]')).not.toBeNull();
     expect(container.textContent).toContain("speaker@example.com");
+    // Nobody throttled this speaker, so nothing may tell them to wait — the
+    // resend beside the message is live right now.
+    expect(container.textContent).not.toContain("ask again");
+    expect(container.textContent).not.toContain("in a few minutes");
+  });
+
+  it("says so when the resend on the code step fails", async () => {
+    await renderForm();
+    await typeEmail("speaker@example.com");
+    await clickText("I already have a code");
+
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: { code: "INTERNAL", message: "…" } }), {
+      status: 500,
+      headers: { "content-type": "application/json" },
+    }));
+    await clickText("Send a new code");
+    await settle();
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("We couldn't send a code right now");
+    expect(container.querySelector('input[name="code"]')).not.toBeNull();
   });
 
   it("keeps an ordinary send failure on the email step", async () => {
