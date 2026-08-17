@@ -118,13 +118,17 @@ function toTask(row: TaskRow): MyTaskDTO {
  * task never picks up a link it didn't ask for just because its name happens
  * to mention the same word.
  */
-const MANUAL_TASK_RELATED_LINKS: Readonly<Record<string, { path: string; label: string }>> = {
-  "Write your speaker bio": { path: "profile", label: "Go to your Profile page" },
-};
+const MANUAL_TASK_RELATED_LINKS: ReadonlyMap<string, { path: string; label: string }> = new Map([
+  ["Write your speaker bio", { path: "profile", label: "Go to your Profile page" }],
+]);
 
 export function relatedTaskLinkFor(taskName: string, completionMode: MyTaskDTO["completionMode"]): MyTaskDetail["relatedTaskLink"] {
   if (completionMode !== "manual") return null;
-  return MANUAL_TASK_RELATED_LINKS[taskName] ?? null;
+  // A Map, not an object literal: task names are organizer-typed, and an
+  // object lookup answers `Object.prototype` for names like "toString" or
+  // "constructor" — a truthy non-link that would render a link with an
+  // undefined href and no label.
+  return MANUAL_TASK_RELATED_LINKS.get(taskName) ?? null;
 }
 
 const TASK_SELECT = sql`

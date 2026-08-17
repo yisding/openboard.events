@@ -21,6 +21,13 @@ describe("relatedTaskLinkFor", () => {
     expect(relatedTaskLinkFor("Update your bio and shirt size", "manual")).toBeNull();
   });
 
+  it("does not answer Object.prototype for an organizer who names a task after one of its members", () => {
+    // Task names are typed by organizers, so the lookup has to be a real
+    // membership test rather than a property read that inherits.
+    expect(relatedTaskLinkFor("toString", "manual")).toBeNull();
+    expect(relatedTaskLinkFor("constructor", "manual")).toBeNull();
+  });
+
   it("never links a form or file_request task, even one named exactly like the bio task", () => {
     expect(relatedTaskLinkFor("Write your speaker bio", "form")).toBeNull();
     expect(relatedTaskLinkFor("Write your speaker bio", "file_request")).toBeNull();
