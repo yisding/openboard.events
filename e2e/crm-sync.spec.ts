@@ -124,7 +124,7 @@ test.describe("crm-directory", () => {
       await page.getByRole("textbox", { name: "Search the directory" }).press("Enter");
       // Filters live in the URL, so a filtered directory is a shareable link.
       await expect.poll(() => new URL(page.url()).searchParams.get("search")).toBe(email);
-      const row = page.getByRole("row", { name: new RegExp(email.replace(/[.+]/gu, "\\$&")) });
+      const row = page.getByRole("row").filter({ hasText: email });
       await expect(row).toHaveCount(1);
       await expect(row).toContainText(tagName);
 
@@ -182,7 +182,7 @@ test.describe("crm-directory", () => {
       await page.goto(`${CRM_PAGE}/pipeline`);
       const card = page.locator(".crm-board-card").filter({ hasText: email });
       await expect(card).toBeVisible();
-      await expect(card.getByRole("combobox", { name: /Move Pipeline Probe/u })).toHaveValue("won");
+      await expect(card.getByRole("combobox", { name: "Move Pipeline Probe" })).toHaveValue("won");
       const wonColumn = page.locator(".crm-board-column")
         .filter({ has: page.locator(".crm-board-column-header", { hasText: "Won" }) });
       await expect(wonColumn.locator(".crm-board-card").filter({ hasText: email })).toHaveCount(1);

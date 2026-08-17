@@ -163,7 +163,7 @@ test.describe("comms-outbox", () => {
     await test.step("the Delivery log shows this message, and its detail is a full audit record", async () => {
       await openCommsTab(page, "Delivery log");
       await page.getByRole("textbox", { name: "Search recipients" }).fill(email);
-      const row = page.getByRole("row", { name: new RegExp(email.replace(/[.+]/g, "\\$&")) });
+      const row = page.getByRole("row").filter({ hasText: email });
       await expect(row).toHaveCount(1);
       await row.click();
 

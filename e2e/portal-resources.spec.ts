@@ -102,9 +102,9 @@ test.describe("portal-resources", () => {
     await test.step("the admin table shows published and draft pages alike", async () => {
       await page.goto(RESOURCES_ADMIN);
       await expect(page.getByRole("heading", { name: "Resources", level: 1 })).toBeVisible();
-      await expect(page.getByRole("row", { name: new RegExp(SEEDED.guide.title) })).toContainText("Published");
+      await expect(page.getByRole("row", { name: SEEDED.guide.title })).toContainText("Published");
       // The one page the portal must never show is still an organizer's to see.
-      await expect(page.getByRole("row", { name: new RegExp(SEEDED.draft.title) })).toContainText("Draft");
+      await expect(page.getByRole("row", { name: SEEDED.draft.title })).toContainText("Draft");
     });
 
     await test.step("HTML source is where an embed is pasted, and it is the only way", async () => {
@@ -125,7 +125,7 @@ test.describe("portal-resources", () => {
 
       await editor.getByRole("button", { name: "Create page" }).click();
       await expect(page.getByText("Page created")).toBeVisible({ timeout: 20_000 });
-      await expect(page.getByRole("row", { name: new RegExp(title) })).toContainText("Published");
+      await expect(page.getByRole("row", { name: title })).toContainText("Published");
     });
 
     const speaker = await anAcceptedSpeaker(request);
@@ -137,7 +137,7 @@ test.describe("portal-resources", () => {
       await loginAsSpeaker(portal, EVENTS.main.slug, speaker.email);
       await portal.goto(PORTAL_RESOURCES);
       await portal.getByRole("textbox", { name: "Search resources" }).fill(String(stamp));
-      await portal.getByRole("link", { name: new RegExp(title) }).click();
+      await portal.getByRole("link", { name: title }).click();
 
       await expect(portal.getByRole("heading", { name: title })).toBeVisible();
       await expect(portal.getByRole("heading", { name: heading })).toBeVisible();
@@ -163,7 +163,7 @@ test.describe("portal-resources", () => {
 
     await test.step("an unpublished page is a 404 in the portal, never a 403", async () => {
       await portal.goto(PORTAL_RESOURCES);
-      await expect(portal.getByRole("link", { name: new RegExp(SEEDED.draft.title) })).toHaveCount(0);
+      await expect(portal.getByRole("link", { name: SEEDED.draft.title })).toHaveCount(0);
       const direct = await portal.request.get(`${PORTAL_RESOURCES}/${SEEDED.draft.slug}`);
       expect(direct.status(), "a draft and a slug that never existed answer identically").toBe(404);
       const missing = await portal.request.get(`${PORTAL_RESOURCES}/never-existed-${stamp}`);
@@ -172,17 +172,17 @@ test.describe("portal-resources", () => {
 
     await test.step("unpublishing removes the page from the portal without deleting it", async () => {
       await page.goto(RESOURCES_ADMIN);
-      await page.getByRole("row", { name: new RegExp(title) }).getByRole("button", { name: "Edit" }).click();
+      await page.getByRole("row", { name: title }).getByRole("button", { name: "Edit" }).click();
       const editor = page.getByRole("dialog", { name: "Edit resource page" });
       await expect(editor).toBeVisible();
       await editor.getByRole("switch", { name: "Published" }).click();
       await editor.getByRole("button", { name: "Save changes" }).click();
       await expect(page.getByText("Page updated")).toBeVisible({ timeout: 20_000 });
-      await expect(page.getByRole("row", { name: new RegExp(title) })).toContainText("Draft");
+      await expect(page.getByRole("row", { name: title })).toContainText("Draft");
 
       expect((await portal.request.get(`${PORTAL_RESOURCES}/${slug}`)).status()).toBe(404);
       await portal.goto(PORTAL_RESOURCES);
-      await expect(portal.getByRole("link", { name: new RegExp(title) })).toHaveCount(0);
+      await expect(portal.getByRole("link", { name: title })).toHaveCount(0);
     });
 
     assertPortalClean();
