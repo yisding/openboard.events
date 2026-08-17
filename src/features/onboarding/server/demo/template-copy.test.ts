@@ -188,6 +188,40 @@ describe("copying a demo's scaffold onto a real event", () => {
     });
   }, 180_000);
 
+  /**
+   * The other half of the same trap. `remapOptions` drops an option whose tag
+   * did not survive the copy, but the *source* form still lists that option —
+   * so a rule naming it looked remappable and produced a stable id for an
+   * option the copy never wrote. Since a dangling condition value now fails the
+   * publish, that turned "I deleted a tag during free play" into a scaffold
+   * copy that raises instead of one that quietly loses a question.
+   */
+  it("drops a rule whose option lost the tag it was bound to", async () => {
+    const { eventId: demoId } = await organizationWithProvisionedDemo("template-copy-dropped-option");
+    const organizationId = organizationIdSchema.parse(
+      (await database.select({ organizationId: schema.events.organizationId }).from(schema.events).where(eq(schema.events.id, demoId)).limit(1))[0]?.organizationId,
+    );
+    const realEventId = await createRealEvent(organizationId, "template-copy-dropped-option-real");
+
+    const demoCfpFormId = demoFormId(demoId, "cfp");
+    const demoFields = await database.select().from(schema.formFields).where(eq(schema.formFields.formId, demoCfpFormId));
+    const topics = demoFields.find((field) => field.key === "topics");
+    const approach = demoFields.find((field) => field.key === "approach");
+    const doomed = ((topics?.options as Array<{ id: string; tagId?: string }> | null) ?? []).find((option) => option.tagId);
+    expect(doomed?.tagId).toBeDefined();
+
+    await database.update(schema.formFields)
+      .set({ visibility: { match: "all", conditions: [{ sourceFieldId: topics?.id, op: "eq", value: doomed?.id }] } })
+      .where(eq(schema.formFields.id, approach?.id ?? ""));
+    await database.delete(schema.tags).where(eq(schema.tags.id, doomed?.tagId ?? ""));
+
+    await copyDemoScaffoldIn(database, demoId, realEventId);
+
+    const realFields = await database.select().from(schema.formFields).where(eq(schema.formFields.eventId, realEventId));
+    expect(realFields.length).toBeGreaterThan(0);
+    expect(realFields.find((field) => field.key === "approach")?.visibility).toBeNull();
+  }, 180_000);
+
   it("is a no-op when the organization's demo was never provisioned", async () => {
     const organization = await createOrganizationIn(database, ownerUserId, { name: "template-copy-no-demo", slug: "template-copy-no-demo" });
     const organizationId = organizationIdSchema.parse(organization.id);
