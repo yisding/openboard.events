@@ -3212,12 +3212,15 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
    Skip chapter / Finish tour disclosure out of reach on any laptop. Same
    max-height/overflow/overscroll pairing .datetime-popover already uses.
 
-   `inset: auto` and `margin: 0` state the card's own box outright rather than
-   inheriting anything from where it happens to be portaled: while a modal
-   dialog is open the card is rendered *inside* that dialog, which is the only
-   way to escape the inertness a modal imposes on the rest of the page (see
-   `useCardHost` in coach.tsx). The two position classes below restate their
-   own edges, so they still win. */
+   `inset: auto` and `margin: 0` are the initial values written out, and they
+   are written out because this card does not always live in the same parent:
+   while a modal dialog is open it is rendered *inside* that dialog, which is
+   the only way to escape the inertness a modal imposes on the rest of the page
+   (see `useCardHost` in coach.tsx). Neither property inherits, so no host can
+   actually reach in — the declarations are there so a reader who finds the
+   card three levels inside a drawer does not go looking for what positioned
+   it. The two position classes below restate their own edges, so they still
+   win. */
 .tour-coach { position: fixed; inset: auto; z-index: 201; width: 320px; max-width: calc(100vw - 24px); max-height: calc(100vh - 24px); margin: 0; overflow-y: auto; overscroll-behavior: contain; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 13px 15px 14px; animation: modal-in .18s ease; }
 .tour-coach-centred { top: 50%; left: 50%; transform: translate(-50%, -50%); }
 /* No anchor, but an instruction to carry out: the middle of the screen is

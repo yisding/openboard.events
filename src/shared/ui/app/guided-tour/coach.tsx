@@ -5,6 +5,7 @@ import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, ty
 import { createPortal } from "react-dom";
 import { cn } from "@/shared/lib/cn";
 import { Button, Modal, ProgressBar } from "@/shared/ui/ui-kit";
+import { useMeasureEffect } from "./anchor";
 import type { TourProgress } from "./objectives";
 import type { TourStep } from "./types";
 
@@ -188,6 +189,43 @@ function useCardDrag(stepId: string, cardRef: { current: HTMLDivElement | null }
 }
 
 /**
+ * Put `node` inside `host`, keeping the node the browser already has.
+ *
+ * `moveBefore` is the same move without the teardown — the state-preserving
+ * atomic move, which keeps CSS animations running and focus where it is. It is
+ * recent (Chrome 133), it throws rather than degrading, and it cannot help a
+ * node that is already out of the document, which is where this one is every
+ * time a dialog unmounts around it. So `appendChild` stands behind it, and
+ * everything held in the node's own subtree — an expanded quest tray, a scroll
+ * position, React's own state — survives either way, which is the point.
+ */
+function moveInto(host: HTMLElement, node: HTMLElement): void {
+  if (node.parentNode === host) return;
+  const move = (host as HTMLElement & { moveBefore?: (moved: Node, child: Node | null) => void }).moveBefore;
+  if (typeof move === "function" && node.isConnected && node.ownerDocument === host.ownerDocument) {
+    try {
+      move.call(host, node, null);
+      return;
+    } catch {
+      // Not movable in place — fall through and re-insert it.
+    }
+  }
+  host.appendChild(node);
+  // Re-inserting an element replays its CSS animations from zero. Every
+  // animation running on the card a moment after this line is therefore one
+  // this move just restarted — and nothing about the card is new: same node,
+  // same step, same place on screen, so its entrance has no business playing
+  // again. Send them to their end instead. The hint pulse loops forever and has
+  // no end to be sent to; a restart there is a ripple out of phase, which is
+  // nothing anyone sees. (`getAnimations` belongs to a browser with a timeline;
+  // the DOM the tests run in has neither, and nothing to replay either.)
+  if (typeof node.getAnimations !== "function") return;
+  for (const animation of node.getAnimations({ subtree: true })) {
+    if (Number.isFinite(Number(animation.effect?.getComputedTiming().endTime ?? Infinity))) animation.finish();
+  }
+}
+
+/**
  * Where the card has to live to stay usable: **inside** whatever modal
  * `<dialog>` is on top of the page, and `document.body` when none is.
  *
@@ -217,32 +255,75 @@ function useCardDrag(stepId: string, cardRef: { current: HTMLDivElement | null }
  * is not worth it: engines disagree about it, and a card that took a wrong
  * answer would either sit inside a harmless non-modal dialog or be stranded
  * behind a modal one — and only the second failure is one the player feels.
+ *
+ * **The card is moved, never re-created.** A React portal whose container
+ * changes is not moved: the old subtree is deleted and an identical one built
+ * in the new container. The card is this tour's one `aria-live` region, so a
+ * new node is new content — a screen reader re-reads the title, the body, the
+ * progress and every button, on every modal open *and* every modal close —
+ * and an expanded quest tray snaps shut with it. So React portals into one
+ * wrapper element, created here and never replaced, and it is the wrapper that
+ * travels.
+ *
+ * **And it travels imperatively**, from the observer callback rather than
+ * through a piece of state. Dialogs in this app unmount when they close, so
+ * the card leaves the document with its host; a re-render to put it back is
+ * scheduled a task later, which is a frame with no coach card on it. The
+ * microtask a `MutationObserver` already runs in is done before the paint.
  */
 function useCardHost(fallback: HTMLElement | null): HTMLElement | null {
-  const [dialog, setDialog] = useState<HTMLElement | null>(null);
+  // Lazily, so there is nothing to create on the server — where this hook, like
+  // the old one, hands back null and the card does not render at all.
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  if (!wrapperRef.current && typeof document !== "undefined") {
+    wrapperRef.current = document.createElement("div");
+    // No box of its own: every shell the card lands in is a flex column with a
+    // gap, where even an empty child is another gap.
+    wrapperRef.current.style.display = "contents";
+  }
+  const wrapper = wrapperRef.current;
+  /** The open dialogs, oldest first — which is the order they entered the top layer. */
   const openedRef = useRef<HTMLElement[]>([]);
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    const sync = () => {
+
+  // Before paint: the first placement is what puts the card in the page at all,
+  // and after paint it would cost the step its first frame.
+  useMeasureEffect(() => {
+    if (!wrapper) return;
+    const place = (records: MutationRecord[] = []) => {
+      // The records in order, not just the state they left behind. Mutations
+      // coalesce into one callback, so a dialog that closed and reopened in
+      // between is simply open by the time this looks — and it belongs at the
+      // end, because it re-entered the top layer at the end. The record whose
+      // `oldValue` is null is that reopen.
+      for (const record of records) {
+        const target = record.target;
+        if (record.type !== "attributes" || record.oldValue !== null) continue;
+        if (!(target instanceof HTMLElement) || target.tagName !== "DIALOG") continue;
+        openedRef.current = [...openedRef.current.filter((candidate) => candidate !== target), target];
+      }
       const open = [...document.querySelectorAll<HTMLElement>("dialog[open]")];
-      // Ones already known keep their place; the rest have just opened and go
-      // on the end. A dialog that closes and reopens is new again, which is
-      // exactly right — it re-entered the top layer at the end too.
+      // Ones already known keep their place; the rest have just opened, or were
+      // already open when the tour started, and go on the end.
       const known = openedRef.current.filter((candidate) => open.includes(candidate));
       openedRef.current = [...known, ...open.filter((candidate) => !known.includes(candidate))];
-      setDialog(openedRef.current.at(-1) ?? null);
+      // `fallback` last, so a step whose anchor moves to a new container with
+      // no dialog open still lands there.
+      moveInto(openedRef.current.at(-1) ?? fallback ?? document.body, wrapper);
     };
-    sync();
+    place();
     if (typeof MutationObserver !== "function") return;
     // Attributes as well as nodes: `showModal()` sets `open` on a dialog that
     // is already in the tree, which is how every dialog in this app opens.
-    const observer = new MutationObserver(sync);
-    observer.observe(document.documentElement, { subtree: true, childList: true, attributeFilter: ["open"] });
+    const observer = new MutationObserver(place);
+    observer.observe(document.documentElement, { subtree: true, childList: true, attributeFilter: ["open"], attributeOldValue: true });
     return () => observer.disconnect();
-  }, []);
-  // Composed at render rather than held in the state, so a step whose anchor
-  // moves to a new container with no dialog open lands there the same frame.
-  return dialog ?? fallback;
+  }, [wrapper, fallback]);
+
+  // The wrapper is the tour's, not React's: nothing else takes it back out of
+  // the page when the tour ends.
+  useEffect(() => () => wrapper?.remove(), [wrapper]);
+
+  return wrapper;
 }
 
 function continueLabel(step: TourStep, mode: TourCoachMode): string {
@@ -450,6 +531,8 @@ export function TourCoach(props: TourCoachProps) {
       <TourCoachBody {...props} titleId={titleId} bodyId={bodyId} drag={mobile ? null : drag} />
     </div>
   );
+  // Always the same element: `useCardHost` moves that into whichever modal owns
+  // the page, rather than handing this a new container to rebuild the card in.
   return createPortal(card, host);
 }
 

@@ -26,7 +26,9 @@
  *
  * Anything raised this way owes the UA's `[popover]` box an undo in CSS —
  * `inset: 0`, `margin: auto`, a border, a padding and an opaque background —
- * see `.toast-stack`, `.egg-rain` and `.tour-coach` in globals.css.
+ * see `.toast-stack` and `.egg-rain` in globals.css. `.tour-coach` is no longer
+ * on that list: the coach card is portaled into the open dialog instead of
+ * being raised over it.
  */
 
 let stack: HTMLElement | null = null;

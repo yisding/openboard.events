@@ -876,13 +876,19 @@ describe("anchoring", () => {
     document.body.insertAdjacentHTML("beforeend", '<nav class="dashboard-tabs">Today</nav>');
     await render(makeBootstrap(makeServer()));
     await tick();
-    expect(coach()?.parentElement).toBe(document.body);
+    expect(coach()?.closest("dialog")).toBe(null);
+    // The card the player is looking at, held onto so every move below can be
+    // checked against it: the card has to *be moved*, not rebuilt somewhere
+    // else. It is an aria-live region, so a new node is new content — a screen
+    // reader would re-read the whole card on every modal open and close.
+    const card = coach();
 
     document.body.insertAdjacentHTML("beforeend", '<dialog class="command-palette-shell"><input aria-label="Search anything" /></dialog>');
     const palette = document.querySelector<HTMLDialogElement>("dialog.command-palette-shell");
     // What `showModal()` does to the DOM, which is what the card watches for.
     await act(async () => { palette?.setAttribute("open", ""); await Promise.resolve(); });
-    expect(coach()?.parentElement).toBe(palette);
+    expect(coach()?.closest("dialog")).toBe(palette);
+    expect(coach()).toBe(card);
     // In the dialog, never of it: same card, same step, and still not a modal
     // itself — it does not trap focus and does not close on Escape.
     expect(coach()?.getAttribute("role")).toBe("dialog");
@@ -895,13 +901,42 @@ describe("anchoring", () => {
     document.body.insertAdjacentHTML("afterbegin", '<dialog class="modal-shell"><p>Are you sure?</p></dialog>');
     const confirm = document.querySelector<HTMLDialogElement>("dialog.modal-shell");
     await act(async () => { confirm?.setAttribute("open", ""); await Promise.resolve(); });
-    expect(coach()?.parentElement).toBe(confirm);
+    expect(coach()?.closest("dialog")).toBe(confirm);
 
     await act(async () => { confirm?.removeAttribute("open"); await Promise.resolve(); });
-    expect(coach()?.parentElement).toBe(palette);
+    expect(coach()?.closest("dialog")).toBe(palette);
 
     await act(async () => { palette?.removeAttribute("open"); await Promise.resolve(); });
-    expect(coach()?.parentElement).toBe(document.body);
+    expect(coach()?.closest("dialog")).toBe(null);
+    expect(document.body.contains(card)).toBe(true);
+    expect(coach()).toBe(card);
+  });
+
+  it("keeps the card itself when the modal it was living in unmounts", async () => {
+    // Dialogs in this app do not merely close, they unmount: `Modal` returns
+    // null and React takes the <dialog> out of the tree with the card inside
+    // it. The card has to be back on the page before the browser paints, and
+    // it has to be the same card — a rebuilt one loses whatever the player had
+    // open on it, and says so out loud through the live region.
+    document.body.insertAdjacentHTML("beforeend", '<nav class="dashboard-tabs">Today</nav>');
+    await render(makeBootstrap(makeServer()));
+    await tick();
+    const card = coach();
+
+    document.body.insertAdjacentHTML("beforeend", '<dialog open class="modal-shell"><p>Reassign the room</p></dialog>');
+    const editor = document.querySelector<HTMLDialogElement>("dialog.modal-shell");
+    await act(async () => { await Promise.resolve(); });
+    expect(coach()?.closest("dialog")).toBe(editor);
+    // What the player left expanded on the card, and the evidence that the
+    // card survives: React never re-renders this open.
+    const tray = card?.querySelector<HTMLDetailsElement>(".tour-coach-more");
+    if (tray) tray.open = true;
+
+    editor?.remove();
+    await act(async () => { await Promise.resolve(); });
+    expect(coach()).toBe(card);
+    expect(document.body.contains(card)).toBe(true);
+    expect(card?.querySelector<HTMLDetailsElement>(".tour-coach-more")?.open).toBe(true);
   });
 
   it("spotlights with a real hole the player can click through", async () => {
@@ -968,7 +1003,7 @@ describe("getting out of the way", () => {
     document.body.insertAdjacentHTML("beforeend", '<dialog class="drawer-shell"><button>Open portal as Victor</button></dialog>');
     const drawer = document.querySelector<HTMLDialogElement>("dialog.drawer-shell");
     await act(async () => { drawer?.setAttribute("open", ""); await Promise.resolve(); });
-    expect(coach()?.parentElement).toBe(drawer);
+    expect(coach()?.closest("dialog")).toBe(drawer);
     sizedCoach();
 
     await drag({ x: 500, y: 320 }, { x: 300, y: 380 });
