@@ -100,6 +100,6 @@ describe("the kitchen-sink tour harness", () => {
 
   it("labels the scroll spacer so the page doesn't read as broken before the tour starts", async () => {
     await renderHarness();
-    expect(document.body.textContent).toContain("scroll spacer for spotlight testing");
+    expect(document.querySelector(".tour-scroll-spacer")?.textContent).toContain("scroll spacer for spotlight testing");
   });
 });

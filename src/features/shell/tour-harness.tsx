@@ -233,6 +233,7 @@ export function TourHarness() {
         {/* Room to scroll, so the spotlight can be watched following its anchor. */}
         <div
           aria-hidden
+          className="tour-scroll-spacer"
           style={{
             height: 520,
             marginTop: 12,
