@@ -19,6 +19,20 @@ const PORTAL_SESSION_SECONDS = 30 * 24 * 60 * 60;
 const CONCURRENT_LOGIN_GRACE_MS = 60 * 1_000;
 
 /**
+ * How long an impersonation link stays usable.
+ *
+ * It used to be five minutes, and the confirm interstitial in front of it spent
+ * them: the verify page deliberately does not sign anyone in on load, so an
+ * organizer who opened the tab and was pulled away for one phone call came back
+ * to "That link is invalid or expired". A short TTL is not what makes this link
+ * safe anyway — it never leaves the organizer's own browser (no email carries
+ * it), and spending it still requires a live organizer session on the event, so
+ * the window is a nuisance to its owner long before it is a defence. Half an
+ * hour covers the interruption; `renewImpersonationSession` covers the rest.
+ */
+const IMPERSONATION_TTL = "PT30M";
+
+/**
  * The one answer the public sign-in form gives, whoever typed into it. It has
  * to be byte-identical on both branches below — an address on file and an
  * address that is not — or the screen itself becomes the account-enumeration
@@ -412,6 +426,58 @@ export async function createImpersonationLink(eventId: EventId, contactId: Conta
   const [contact] = await db.select({ id: contacts.id }).from(contacts)
     .where(and(eq(contacts.id, contactId), eq(contacts.eventId, eventId))).limit(1);
   if (!contact) throw new AppError("NOT_FOUND", "Contact not found");
-  const issued = await issuePortalToken(db, { contactId, eventId, purpose: "impersonation", ttl: "PT5M" });
+  const issued = await issuePortalToken(db, { contactId, eventId, purpose: "impersonation", ttl: IMPERSONATION_TTL });
   return `/portal/${event.slug}/verify?token=${encodeURIComponent(issued.raw)}&impersonate=1`;
+}
+
+/**
+ * Which speaker an impersonation link was minted for — answered from a spent or
+ * long-expired token as readily as from a live one.
+ *
+ * Deliberately *not* a credential check: the token is read here only to
+ * remember which contact the organizer picked in the admin tab. What authorizes
+ * the renewal is the caller's live organizer session, the same guard
+ * `createImpersonationLink` runs before minting the first link. The join to
+ * `contacts` keeps a link to an erased speaker from resurrecting them.
+ */
+async function impersonationLinkContactIn(dbOrTx: DbOrTx, eventId: EventId, raw: string): Promise<ContactId | null> {
+  const [token] = await dbOrTx.select({ contactId: contacts.id })
+    .from(portalTokens)
+    .innerJoin(contacts, and(eq(contacts.id, portalTokens.contactId), eq(contacts.eventId, portalTokens.eventId)))
+    .where(and(
+      eq(portalTokens.eventId, eventId),
+      eq(portalTokens.purpose, "impersonation"),
+      eq(portalTokens.tokenHash, await sha256(raw)),
+    ))
+    .limit(1);
+  return (token?.contactId as ContactId | undefined) ?? null;
+}
+
+/**
+ * The way back from an impersonation link that expired behind its own confirm
+ * interstitial. The organizer is looking at the verify page holding a link that
+ * no longer verifies, and the only re-issue path used to be a different tab —
+ * one they may well have closed.
+ *
+ * This mints a replacement for the same speaker and spends it in the same
+ * transaction, so the organizer's one click lands them in the portal instead of
+ * at a second interstitial they have already read. That skips no check the
+ * first click passes: it is a same-origin POST from a page the organizer asked
+ * for, carrying the link itself, and it re-runs the organizer guard against the
+ * event. The token table still records both the issue and the use.
+ */
+export async function renewImpersonationSession(args: { eventSlug: string; token: string }): Promise<PortalSession> {
+  const admin = await getAdminSession();
+  if (!admin) throw new AppError("UNAUTHORIZED", "Admin sign-in required");
+  const event = await resolveEvent(db, args.eventSlug);
+  await requireAdmin(event.id, "organizer");
+  const contactId = await impersonationLinkContactIn(db, event.id, args.token);
+  if (!contactId) throw new AppError("NOT_FOUND", "That impersonation link no longer matches a speaker on this event");
+  const result = await withTx(async (tx) => {
+    const issued = await issuePortalToken(tx, { contactId, eventId: event.id, purpose: "impersonation", ttl: IMPERSONATION_TTL });
+    return verifyPortalLoginIn(tx, { eventId: event.id, purpose: "impersonation", raw: issued.raw, impersonatedByUserId: admin.userId });
+  });
+  if (!result.verified) throw new AppError("INTERNAL", "Unable to reopen the speaker portal");
+  await setPortalCookie(event.id, result.raw);
+  return { contactId: result.contactId, eventId: event.id, email: result.email, impersonatedByUserId: admin.userId };
 }

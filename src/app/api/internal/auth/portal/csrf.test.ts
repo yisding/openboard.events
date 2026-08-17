@@ -1,14 +1,18 @@
 import { NextRequest } from "next/server";
 import { describe, expect, it } from "vitest";
 import { POST as impersonatePost } from "./impersonate/route";
+import { POST as impersonateRenewPost } from "./impersonate/renew/route";
 import { POST as logoutPost } from "./logout/route";
 import { POST as requestPost } from "./request/route";
 import { POST as verifyPost } from "./verify/route";
 
 /**
- * These four routes predate `defineHandler` and call `assertSameOrigin`
- * (`@/shared/server/csrf`) by hand (PLAN P3-SEC) rather than being rebuilt
- * onto it. The check runs before any body parsing or DB access, so a
+ * These five routes call `assertSameOrigin` (`@/shared/server/csrf`) by hand
+ * (PLAN P3-SEC) rather than being rebuilt onto `defineHandler`, which the four
+ * original ones predate and which the impersonation renewal joins to keep the
+ * pair of impersonation routes shaped alike.
+ *
+ * The check runs before any body parsing or DB access, so a
  * mismatched Origin 403s without needing a database — see
  * `src/shared/server/csrf.test.ts` for the check's own unit coverage and
  * `src/shared/server/handler.test.ts` for the `defineHandler`-route
@@ -37,6 +41,15 @@ describe("portal auth routes reject cross-site Origin (PLAN P3-SEC)", () => {
 
   it("POST /api/internal/auth/portal/impersonate", async () => {
     const response = await impersonatePost(new NextRequest("https://example.test/api/internal/auth/portal/impersonate", {
+      method: "POST",
+      headers: evil,
+      body: "{}",
+    }));
+    expect(response.status).toBe(403);
+  });
+
+  it("POST /api/internal/auth/portal/impersonate/renew", async () => {
+    const response = await impersonateRenewPost(new NextRequest("https://example.test/api/internal/auth/portal/impersonate/renew", {
       method: "POST",
       headers: evil,
       body: "{}",

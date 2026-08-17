@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import type { db as RepositoryDb } from "@/db/client";
+import type { db as RepositoryDb, TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
 import { contactIdSchema, eventIdSchema, userIdSchema } from "@/shared/contracts";
 
@@ -33,8 +33,12 @@ const identity = { userId: organizerUser, email: "organizer@example.com", name: 
 let signedIn = true;
 let testDb: ReturnType<typeof drizzle>;
 
+/** The portal cookie the renewal sets, so the test can see it being handed out. */
+const cookieJar = { set: vi.fn(), get: () => undefined, delete: vi.fn() };
+
 vi.mock("next/headers", () => ({
   headers: async () => new Headers(),
+  cookies: async () => cookieJar,
 }));
 
 vi.mock("@/features/auth/server/better-auth", () => ({
@@ -52,12 +56,18 @@ vi.mock("@/db/client", async (importOriginal) => {
     get db() {
       return testDb as unknown as typeof RepositoryDb;
     },
+    // `withTx` opens a WebSocket Pool against Neon; the renewal's mint-and-spend
+    // belongs in one transaction, so run it as one against PGlite.
+    withTx: async (work: (handle: TxDb) => Promise<unknown>) => testDb.transaction(
+      (handle) => work(handle as unknown as TxDb),
+    ),
   };
 });
 
 describe("createImpersonationLink authorization order", () => {
   let pglite: PGlite;
   let createImpersonationLink: typeof import("@/features/auth/server/portal")["createImpersonationLink"];
+  let renewImpersonationSession: typeof import("@/features/auth/server/portal")["renewImpersonationSession"];
 
   beforeAll(async () => {
     pglite = new PGlite();
@@ -71,7 +81,7 @@ describe("createImpersonationLink authorization order", () => {
     await pglite.query("INSERT INTO contacts(id,event_id,email) VALUES($1,$2,'speaker@example.com')", [speaker, memberEvent]);
     testDb = drizzle(pglite, { schema });
 
-    ({ createImpersonationLink } = await import("@/features/auth/server/portal"));
+    ({ createImpersonationLink, renewImpersonationSession } = await import("@/features/auth/server/portal"));
   }, 60_000);
 
   afterAll(async () => {
@@ -111,5 +121,60 @@ describe("createImpersonationLink authorization order", () => {
       "SELECT purpose,contact_id,event_id FROM portal_tokens",
     );
     expect(issued.rows).toEqual([{ purpose: "impersonation", contact_id: speaker, event_id: memberEvent }]);
+  });
+
+  /**
+   * The recovery for a link that died behind its own confirm interstitial
+   * (issue #673). It hands out a portal session, so it has to be as hard to
+   * reach as the minting above: possession of the stale link proves only which
+   * speaker the organizer picked, never that the caller may become them.
+   */
+  describe("renewImpersonationSession", () => {
+    /** An impersonation link, aged past the point where confirming still works. */
+    async function expiredLink(): Promise<string> {
+      const link = await createImpersonationLink(memberEvent, speaker);
+      await pglite.query("UPDATE portal_tokens SET expires_at = now() - interval '1 hour' WHERE consumed_at IS NULL");
+      return new URL(link, "https://openboard.test").searchParams.get("token") ?? "";
+    }
+
+    it("reopens the portal as the same speaker, attributed to the organizer", async () => {
+      const token = await expiredLink();
+      cookieJar.set.mockClear();
+
+      const session = await renewImpersonationSession({ eventSlug: "member-event", token });
+
+      expect(session).toMatchObject({ contactId: speaker, eventId: memberEvent, email: "speaker@example.com", impersonatedByUserId: organizerUser });
+      // The organizer is on the portal now — one click, not a second interstitial.
+      expect(cookieJar.set).toHaveBeenCalledWith(`ob_portal_${memberEvent}`, expect.any(String), expect.objectContaining({ httpOnly: true }));
+      const live = await pglite.query<{ contact_id: string; impersonated_by_user_id: string }>(
+        "SELECT contact_id,impersonated_by_user_id FROM portal_sessions",
+      );
+      expect(live.rows).toEqual([{ contact_id: speaker, impersonated_by_user_id: organizerUser }]);
+      // The replacement was spent on the way, so the renewal leaves no live
+      // link lying around for whoever opens this URL next.
+      const reusable = await pglite.query<{ n: number }>(
+        "SELECT count(*)::int AS n FROM portal_tokens WHERE consumed_at IS NULL AND expires_at > now()",
+      );
+      expect(reusable.rows[0]?.n).toBe(0);
+    });
+
+    it("refuses a caller with no admin session, and one who is not an organizer here", async () => {
+      const token = await expiredLink();
+
+      signedIn = false;
+      try {
+        await expect(renewImpersonationSession({ eventSlug: "member-event", token })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+      } finally {
+        signedIn = true;
+      }
+      // A link is scoped to the event that minted it: replaying this one at an
+      // event the organizer has no membership in must not renew anything.
+      await expect(renewImpersonationSession({ eventSlug: "other-event", token })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+
+    it("refuses a token that never was an impersonation link for this event", async () => {
+      await expect(renewImpersonationSession({ eventSlug: "member-event", token: "not-a-token" }))
+        .rejects.toMatchObject({ code: "NOT_FOUND" });
+    });
   });
 });
