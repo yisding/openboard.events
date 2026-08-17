@@ -844,7 +844,7 @@ exercise the spotlight, the coach card, the missing-anchor degradation and the d
 |---|---|---|
 | 16 | Compare each kitchen-sink primitive to its in-app usage | Identical rendering. A drift means a surface has re-implemented a primitive |
 | 17 | List the primitives the kitchen sink does **not** show | Each absence is a gap in the design system; `Select` is present and matches in-app use (DD-1 regression) |
-| 18 | Run `/kitchen-sink/tour` end to end | All four objective kinds complete; the spotlight hole tracks its anchor on scroll instead of closing; a step whose anchor never mounts degrades to a centred card with **Take me there**; the coach portals into an open dialog with no scrim behind it |
+| 18 | Run `/kitchen-sink/tour` end to end | All four objective kinds complete; the spotlight hole tracks its anchor on scroll instead of closing; a step whose anchor never mounts degrades to a card docked in the bottom-right corner with **Take me there** (a `beat` with nothing to point at keeps the centre); the coach portals into an open dialog with no scrim behind it |
 
 ### Exit criteria
 
@@ -1572,6 +1572,7 @@ tutorial, and write down every place you hesitated.
 | 17 | Resolve the conflict | The badge moves back down and the celebration is the biggest one in the tour. The grid, the badge and the Conflicts list quote the same verdict |
 | 18 | Finish | The curtain call counts what you actually did, from the live database — not from a hardcoded string. Verify each number against the screens |
 | 19 | Note the ambient beacons throughout | `FirstRunHints` is silent for the whole tour, and marked seen afterwards. No milestone banner, no activation guide, on the demo's own dashboard |
+| 19a | On any step, drag the card by its header, then advance | It moves with the pointer, stops a margin short of every viewport edge, and the next step's card is back beside its own control. No step ever leaves the card sitting on the control it is asking you to use |
 
 ### §3 Mobile, reduced motion, and a screen reader
 
@@ -1581,7 +1582,7 @@ tutorial, and write down every place you hesitated.
 | 21 | Reach a `desktopOnly` chapter on the phone | It is skipped **with copy that says so and why** — a silently missing chapter reads as a bug |
 | 22 | Enable `prefers-reduced-motion` and run the tour again | No emoji rain, no pulsing beacon, no animated spotlight transition — and nothing becomes harder to understand for their absence. The spotlight still frames the right control |
 | 23 | Run three chapters with a screen reader (VoiceOver or NVDA) | The coach announces its title on open; each new objective is announced through the card's live region; the progress bar reads its label; **Pause the tour** and **Resume the tour** are reachable and named |
-| 24 | Tab through a spotlit step without a mouse | The real control is reachable through the hole, focus is visible, and the coach does not trap focus away from the page |
+| 24 | Tab through a spotlit step without a mouse | The real control is reachable through the hole, focus is visible, and the coach does not trap focus away from the page. **Move the tour card** is in the tab order and the arrow keys move the card while it holds focus |
 | 25 | Zoom to 200 % | The card stays on screen and clamps to the viewport rather than hanging off the edge |
 
 ### §4 The safety audit — pass/fail, no judgement
