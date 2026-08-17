@@ -4,7 +4,7 @@ import { DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors, type 
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { AlertTriangle, GripVertical, Plus, Trash2 } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { z, type ZodType } from "zod";
 import {
@@ -24,9 +24,15 @@ import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
 import { isAppError, isDefinitiveWriteFailure } from "@/shared/lib/errors";
-import type { VocabKind } from "../schemas";
+import { roomDeletionImpactSchema, type VocabKind } from "../schemas";
 import { KeyedSerialQueue } from "./keyed-serial-queue";
-import { canDeleteVocabItem, restoreFailedVocabDeletion, restoreVocabOrder } from "./vocab-state";
+import {
+  canDeleteVocabItem,
+  restoreFailedVocabDeletion,
+  restoreVocabOrder,
+  roomDeletionImpactCopy,
+  type RoomDeletionImpactState,
+} from "./vocab-state";
 import { DEFAULT_BRAND_COLOR } from "@/shared/lib/brand-color";
 
 type VocabItem = TrackDTO | RoomDTO | SessionFormatDTO | TagDTO;
@@ -55,13 +61,14 @@ function dtoSchemaFor(kind: VocabKind): ZodType<VocabItem> {
  * this is a map: they are never referenced by submissions or routing rules the
  * way tracks and formats are, so the "becomes uncategorized / routing rule
  * soft-disabled" line is simply false for them. What a room delete really does
- * is strand the sessions placed in it, which the agenda's own save is what
- * finally tells their speakers about.
+ * is take its published sessions off the map and mail every speaker on them —
+ * the only vocabulary deletion that reaches outside the organizer's own screen,
+ * and the reason it is the only one the dialog also counts (`roomImpact`).
  */
 const DELETE_CONSEQUENCE: Record<VocabKind, string> = {
   tracks: "Submissions using it will become uncategorized. Any routing rule that named it stays but is soft-disabled — deleting it here does not touch routing rules.",
   formats: "Submissions using it will become uncategorized. Any routing rule that named it stays but is soft-disabled — deleting it here does not touch routing rules.",
-  rooms: "Sessions in this room lose their room assignment. A published, timed session also advances its schedule revision, and its speakers are notified the next time that session is saved. Rooms are never used by submissions or routing rules.",
+  rooms: "Sessions in this room lose their room assignment. A published, timed session also advances its schedule revision, and its speakers are emailed that the schedule changed. Rooms are never used by submissions or routing rules.",
   tags: "Submissions tagged with it will lose the tag.",
 };
 
@@ -222,6 +229,7 @@ export function VocabTab({ eventId, kind, initialItems }: { eventId: EventId; ki
   const [newName, setNewName] = useState("");
   const [adding, setAdding] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<VocabItem | null>(null);
+  const [roomImpact, setRoomImpact] = useState<RoomDeletionImpactState>({ status: "loading" });
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteRecovery, setDeleteRecovery] = useState<DeleteRecovery | null>(null);
   const [reordering, setReordering] = useState(false);
@@ -240,6 +248,22 @@ export function VocabTab({ eventId, kind, initialItems }: { eventId: EventId; ki
     persistedItems.current = new Map(authoritative.map((item) => [item.id, item]));
     setItems(authoritative);
   }, []);
+
+  // Asked when the dialog opens, not when the tab loads: a settings tab left
+  // open while somebody schedules the afternoon in another window would
+  // otherwise promise the organizer a count that stopped being true hours ago.
+  const pendingRoomId = kind === "rooms" ? pendingDelete?.id ?? null : null;
+  useEffect(() => {
+    if (pendingRoomId === null) return;
+    let live = true;
+    setRoomImpact({ status: "loading" });
+    void api(`events/${eventId}/vocab/rooms/${pendingRoomId}/impact`, roomDeletionImpactSchema)
+      .then((impact) => { if (live) setRoomImpact({ status: "ready", impact }); })
+      .catch(() => { if (live) setRoomImpact({ status: "unavailable" }); });
+    // Cancelling on the way out is what keeps a slow answer for the room the
+    // organizer backed out of from becoming the count shown for the next one.
+    return () => { live = false; };
+  }, [eventId, pendingRoomId]);
 
   async function requestAuthoritativeItems(): Promise<VocabItem[]> {
     return api(`events/${eventId}/vocab/${kind}`, z.array(dtoSchemaFor(kind)));
@@ -436,7 +460,14 @@ export function VocabTab({ eventId, kind, initialItems }: { eventId: EventId; ki
       <ConfirmDialog
         open={pendingDelete !== null && deleteRecovery === null}
         title={`Delete ${pendingDelete?.name ?? "this item"}?`}
-        body={DELETE_CONSEQUENCE[kind]}
+        body={kind === "rooms" ? (
+          <>
+            <p>{DELETE_CONSEQUENCE.rooms}</p>
+            {/* A live region, so the count is announced when it arrives rather
+                than silently replacing the "checking…" line under a reader. */}
+            <p role="status"><b>{roomDeletionImpactCopy(roomImpact)}</b></p>
+          </>
+        ) : DELETE_CONSEQUENCE[kind]}
         confirmLabel="Delete"
         onConfirm={() => void confirmDelete()}
         onCancel={() => { if (!mutationLocked) setPendingDelete(null); }}

@@ -1,5 +1,5 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
-import { db, withTx, type DbOrTx } from "@/db/client";
+import { db, type DbOrTx } from "@/db/client";
 import { isConstraintViolation } from "@/db/errors";
 import { embeds, rooms, sessionFormats, sessions, tags, tracks } from "@/db/schema";
 import {
@@ -403,12 +403,15 @@ export async function deleteVocabItemIn(dbOrTx: DbOrTx, eventId: EventId, kind: 
     // sessions advance exactly once because LOCATION changed; drafts retain
     // the existing no-public-revision behavior.
     //
-    // MTP-16 §17/§17a: the deletion mails nobody, but a published, timed session
-    // now owes its continuing speakers one "schedule changed" notice. Record
-    // that debt explicitly on the same rows whose revision advanced, so the next
-    // resave delivers it. The flag — not revision arithmetic — is what
-    // distinguishes this loss from a title/description bump that also advances
-    // the revision and deliberately mails nobody.
+    // MTP-16 §17: a published, timed session now owes its speakers one "schedule
+    // changed" notice, and this statement cannot send it — the notifier lives in
+    // the agenda feature, and importing it here would close the import cycle
+    // `events <- forms <- portal <- agenda`. So the debt is recorded on the same
+    // rows whose revision advanced and `dischargeStrandedScheduleNoticesIn`
+    // settles it, inside this transaction, from the deleting route. The flag —
+    // not revision arithmetic — is what identifies those rows afterwards: a
+    // title/description bump advances the same revision and deliberately mails
+    // nobody.
     await dbOrTx.execute(sql`
       WITH target AS MATERIALIZED (
         SELECT id FROM ${rooms}
@@ -436,7 +439,12 @@ export async function deleteVocabItemIn(dbOrTx: DbOrTx, eventId: EventId, kind: 
     await dbOrTx.delete(table).where(and(eq(table.id, id), eq(table.eventId, eventId)));
   }
 }
-export const deleteVocabItem = (eventId: EventId, kind: VocabKind, id: string) => withTx((tx) => deleteVocabItemIn(tx, eventId, kind, id));
+// No `deleteVocabItem(eventId, …)` convenience wrapper, unlike every other
+// mutation here. Deleting a room owes its stranded speakers a notice that this
+// feature cannot enqueue (see the rooms branch above), so the transaction is
+// opened by the DELETE route, which can reach both halves. A wrapper that
+// opened its own would be the shorter call every future caller reaches for, and
+// every one of them would silently skip the notices.
 
 /**
  * Renumbers the whole list 0..n-1 in one statement — no fractional ranks, no

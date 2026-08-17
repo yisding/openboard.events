@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { TxDb } from "@/db/client";
+import type { DbOrTx, TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
 import {
   contactIdSchema,
@@ -79,10 +79,13 @@ vi.mock("@/db/client", async (importOriginal) => {
 const {
   bulkPromoteSubmissions, bulkSetPublished, deleteSession, detectConflicts, getMySessions, getSchedulableSessions,
   listAgendaVocabulary, listSessionContentRevisions, listSessions, moveSession, promoteSubmission,
-  restoreSessionContent, saveSession,
+  restoreSessionContent, saveSession, dischargeStrandedScheduleNoticesIn,
 } = await import("@/features/agenda");
 // The promotion picker is M18's read; the tray consumes it unchanged.
 const { getAcceptedForScheduling } = await import("@/features/submissions");
+// The room-deletion cascade itself, imported from the module rather than the
+// events barrel so this fixture does not pull the auth guards in with it.
+const { deleteVocabItemIn } = await import("@/features/events/server/vocab");
 
 async function count(table: string, where = "TRUE"): Promise<number> {
   const result = await pglite.query<{ n: number }>(`SELECT count(*)::int AS n FROM ${table} WHERE ${where}`);
@@ -454,18 +457,65 @@ describe("agenda sessions", () => {
     ]);
   });
 
-  it("ships the stranded revision to speakers when a session is resaved after its room was deleted", async () => {
+  it("mails the speakers a room deletion strands, without waiting for anyone to resave", async () => {
+    // #622: the deletion advanced `schedule_revision` and enqueued nothing, so
+    // a speaker held a calendar item naming a deleted room until an organizer
+    // happened to open that session again. This runs the two halves the DELETE
+    // route composes — the events-owned cascade and the agenda-owned notifier —
+    // in one transaction, exactly as the route does.
+    const annex = roomIdSchema.parse("a8000000-0000-4000-8000-000000000022");
+    await pglite.query("INSERT INTO rooms(id,event_id,name,capacity,sort_order) VALUES($1,$2,'Annex',80,2)", [annex, eventId]);
+    const published = await createSession({
+      title: "Room-bound panel", roomId: annex, speakerContactIds: [ada, grace], status: "published",
+      startsAt: at("2026-09-15T17:00:00Z"), endsAt: at("2026-09-15T17:30:00Z"),
+    });
+    // Same room, but never announced: nobody holds a calendar item for it, so
+    // the deletion owes this speaker nothing.
+    const draft = await createSession({ title: "Sketch", roomId: annex, speakerContactIds: [alan], status: "draft" });
+    await pglite.exec("TRUNCATE communication_logs CASCADE");
+
+    await testDb.transaction(async (tx) => {
+      const handle = tx as unknown as DbOrTx;
+      await deleteVocabItemIn(handle, eventId, "rooms", annex);
+      await dischargeStrandedScheduleNoticesIn(handle, eventId);
+    });
+
+    const mailed = await pglite.query<{ template_key: string; contact_id: string; idempotency_key: string }>(
+      "SELECT template_key, contact_id, idempotency_key FROM communication_logs ORDER BY contact_id",
+    );
+    expect(mailed.rows).toEqual([
+      { template_key: "schedule_changed", contact_id: ada, idempotency_key: idem.scheduled(eventId, published.id, ada, 2) },
+      { template_key: "schedule_changed", contact_id: grace, idempotency_key: idem.scheduled(eventId, published.id, grace, 2) },
+    ]);
+    expect(await count("sessions", "schedule_notice_owed")).toBe(0);
+    expect(await count("rooms", `id = '${annex}'`)).toBe(0);
+
+    // The resave that used to be the only delivery must now be silent: the debt
+    // is settled, and a second "schedule changed" for a schedule that has not
+    // moved since is a duplicate invite, not a correction.
+    await saveSession(eventId, {
+      id: published.id, expectedVersion: published.rowVersion, title: "Room-bound panel",
+      descriptionHtml: published.descriptionHtml, formatId: null, trackId: null, roomId: null,
+      startsAt: at("2026-09-15T17:00:00Z"), endsAt: at("2026-09-15T17:30:00Z"),
+      speakerContactIds: [ada, grace], status: "published",
+    });
+    expect(await count("communication_logs")).toBe(2);
+    expect(await count("sessions", `id = '${draft.id}' AND room_id IS NULL`)).toBe(1);
+  });
+
+  it("ships a stranded revision on resave when the deletion's own notice never went out", async () => {
     const created = await createSession({
       title: "Room-bound panel", roomId: studio, speakerContactIds: [ada, grace], status: "published",
       startsAt: at("2026-09-15T17:00:00Z"), endsAt: at("2026-09-15T17:30:00Z"),
     });
     expect(created.scheduleRevision).toBe(1);
 
-    // The room-deletion cascade (events/server/vocab.ts) nulls the session's
-    // room, advances its schedule revision exactly once for a published, timed
-    // session, and records the owed notice on the row — but enqueues nothing.
-    // Replay that statement's effect, then drain the assignment mail so only
-    // what the resave produces is left.
+    // The backstop path, not the normal one: since #622 the deleting route
+    // settles the debt in the deletion's own transaction. What is replayed here
+    // is a row left owing — by a deploy older than that fix, or by a transaction
+    // that died between the cascade and the enqueue — because that speaker is
+    // still holding an invite naming a room that no longer exists. Drain the
+    // assignment mail so only what the resave produces is left.
     await pglite.query(
       `UPDATE sessions
          SET room_id = NULL,

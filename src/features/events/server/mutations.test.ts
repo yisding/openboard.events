@@ -9,7 +9,7 @@ import { DEFAULT_ORGANIZATION_ID, organizationIdSchema, userIdSchema, type Event
 import { isAppError } from "@/shared/lib/errors";
 import { saveSessionIn } from "@/features/agenda/server/mutations";
 import { createEventIn, updateEventIn } from "./mutations";
-import { getEventIn, listVocabIn } from "./queries";
+import { getEventIn, getRoomDeletionImpactIn, listVocabIn } from "./queries";
 import { createVocabItemIn, deleteVocabItemIn, patchVocabItemIn, reorderVocabIn, saveVocabItemIn } from "./vocab";
 
 const migration0 = readFileSync(new URL("../../../../drizzle/0000_init.sql", import.meta.url), "utf8");
@@ -507,6 +507,42 @@ describe("database-backed event mutations", () => {
 
     // A second delete of the same id is a silent no-op, not an error.
     await expect(deleteVocabItemIn(database, event.id, "tracks", second.id)).resolves.toBeUndefined();
+  });
+
+  it("counts what deleting a room will cost before the organizer confirms it", async () => {
+    // #622's confirm dialog. "Sessions in this room lose their room assignment"
+    // is equally true of an empty room and a full one, and the difference
+    // between them is whether real speakers get mail the moment Delete is
+    // pressed — so the dialog counts rather than hedges.
+    const event = await createEventIn(database, actorUserId, baseInput({ name: "Impact Conf", slug: "impact-conf" }));
+    const room = await saveVocabItemIn(database, event.id, "rooms", { name: "Annex" });
+    const ada = crypto.randomUUID();
+    const grace = crypto.randomUUID();
+    const alan = crypto.randomUUID();
+    for (const [contactId, name] of [[ada, "Ada"], [grace, "Grace"], [alan, "Alan"]] as const) {
+      await pglite.query(
+        "INSERT INTO contacts(id,event_id,email,first_name) VALUES($1,$2,$3,$4)",
+        [contactId, event.id, `${name.toLowerCase()}@example.com`, name],
+      );
+    }
+    const placed = (overrides: Record<string, unknown>) => saveSessionIn(database, event.id, {
+      title: "Placed", descriptionHtml: "", formatId: null, trackId: null, roomId: room.id,
+      startsAt: "2026-09-15T17:00:00.000Z", endsAt: "2026-09-15T18:00:00.000Z",
+      speakerContactIds: [], status: "draft", ...overrides,
+    });
+    await placed({ title: "Panel", status: "published", speakerContactIds: [ada, grace] });
+    // Shares a speaker with the panel: two messages go out, but one person hears
+    // about it, and "2 speakers" is the sentence an organizer can check.
+    await placed({ title: "Keynote", status: "published", speakerContactIds: [grace] });
+    // Never announced, so it loses the room without anybody being told.
+    await placed({ title: "Sketch", startsAt: null, endsAt: null, speakerContactIds: [alan] });
+
+    expect(await getRoomDeletionImpactIn(database, event.id, room.id))
+      .toEqual({ sessions: 3, publishedSessions: 2, speakers: 2 });
+
+    const spare = await saveVocabItemIn(database, event.id, "rooms", { name: "Spare" });
+    expect(await getRoomDeletionImpactIn(database, event.id, spare.id))
+      .toEqual({ sessions: 0, publishedSessions: 0, speakers: 0 });
   });
 
   it("replays a correlated vocabulary create without duplicating or overwriting it", async () => {

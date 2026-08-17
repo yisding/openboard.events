@@ -135,6 +135,22 @@ export const reorderVocabBodySchema = z.object({
   orderedIds: z.array(z.uuid()).min(1),
 });
 
+/**
+ * The room-delete confirm's payload. It lives beside the input schemas rather
+ * than in `shared/contracts` because nothing outside the settings dialog reads
+ * it: these are three counts computed for one decision, not a shape any other
+ * surface renders.
+ */
+export const roomDeletionImpactSchema = z.object({
+  /** Placed in the room, whatever their status — all of them lose the room. */
+  sessions: z.int().nonnegative(),
+  /** The published, timed subset: the ones whose speakers hold a calendar item naming it. */
+  publishedSessions: z.int().nonnegative(),
+  /** Distinct people on that subset, each of whom this deletion emails. */
+  speakers: z.int().nonnegative(),
+});
+export type RoomDeletionImpact = z.infer<typeof roomDeletionImpactSchema>;
+
 export function vocabInputSchemaFor(kind: VocabKind) {
   switch (kind) {
     case "tracks": return trackInputSchema;

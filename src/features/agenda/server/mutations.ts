@@ -380,6 +380,77 @@ export async function notifySchedule(
 }
 
 /**
+ * Pay off every "schedule changed" notice the room-deletion cascade recorded but
+ * could not send itself (#622).
+ *
+ * `deleteVocabItemIn` nulls `room_id`, advances `schedule_revision` and sets
+ * `schedule_notice_owed` on the published, timed sessions it strands — all in
+ * one statement — but it lives in the events feature and cannot call this
+ * notifier: `events -> agenda` would close the import cycle
+ * `events <- forms <- portal <- agenda`. So the flag is the hand-off, and the
+ * deleting route runs both halves inside the deletion's own transaction. Before
+ * that, the debt was paid only by whoever next resaved the session — which for a
+ * schedule nobody touches again is never.
+ *
+ * Recipients are read here rather than handed in for the one reason
+ * `notifySchedule`'s contract allows it: there is no before/after speaker set to
+ * choose between. The room vanished from under whoever is on the session now,
+ * and that is exactly the set the deletion's revision bump was for.
+ *
+ * Scoped to the whole event, not to the sessions one deletion touched, so the
+ * flag drains rather than accumulates: a row left owing by a deploy that
+ * predates this function, or by a transaction that died between the cascade and
+ * this call, is settled by the next deletion instead of waiting for a resave.
+ * Re-sending is not a risk — the revision keys the idempotency, and every
+ * flagged row's revision was advanced by the same statement that flagged it.
+ */
+export async function dischargeStrandedScheduleNoticesIn(
+  dbOrTx: DbOrTx,
+  eventId: EventId,
+): Promise<{ sessions: number; emailsQueued: number }> {
+  const owed = await dbOrTx.execute<{
+    id: string; status: SessionStatus; starts_at: string | Date | null;
+    schedule_revision: number; speaker_ids: string[] | null;
+  }>(sql`
+    SELECT s.id, s.status, s.starts_at, s.schedule_revision,
+      (
+        SELECT coalesce(array_agg(ss.contact_id ORDER BY ss.sort_order, ss.contact_id), '{}')
+        FROM session_speakers ss
+        WHERE ss.session_id = s.id AND ss.event_id = s.event_id
+      ) AS speaker_ids
+    FROM sessions s
+    WHERE s.event_id = ${eventId} AND s.schedule_notice_owed
+    ORDER BY s.id
+  `);
+  const rows = owed.rows ?? [];
+  if (rows.length === 0) return { sessions: 0, emailsQueued: 0 };
+
+  let emailsQueued = 0;
+  for (const row of rows) {
+    const revision = Number(row.schedule_revision);
+    emailsQueued += await notifySchedule(
+      dbOrTx, eventId, row.id as SessionId,
+      // The cascade already nulled `room_id`, so a truthful before/after pair is
+      // unavailable by the time anyone can read the row. Pinning the prior
+      // revision one below the current is what makes this an ordinary
+      // "schedule changed" for the revision the deletion minted, rather than a
+      // second notice keyed to a revision nobody bumped.
+      { status: row.status, startsAt: iso(row.starts_at), scheduleRevision: revision - 1 },
+      { status: row.status, startsAt: iso(row.starts_at), scheduleRevision: revision },
+      (row.speaker_ids ?? []) as ContactId[],
+    );
+  }
+  // Cleared for every flagged row, including the drafts and untimed sessions
+  // `notifySchedule` declines to mail: their debt is moot, and leaving the flag
+  // set would make the next resave re-evaluate a decision already made here.
+  await dbOrTx.execute(sql`
+    UPDATE sessions SET schedule_notice_owed = false
+    WHERE event_id = ${eventId} AND id = ANY(${uuidArraySql(rows.map((row) => row.id))})
+  `);
+  return { sessions: rows.length, emailsQueued };
+}
+
+/**
  * The other half of "who needs telling": speakers this save *added* to a session
  * that is already published and already timed.
  *
@@ -882,18 +953,18 @@ export async function saveSessionIn(
       continuing,
     );
   } else if (nextScheduled && prior.schedule_notice_owed) {
-    // A room deleted out from under a published, timed session advances its
-    // `schedule_revision` but enqueues nothing: the deletion path (MTP-16 §17)
-    // does not run through this notifier. The cascade instead records the debt
-    // on the row (`schedule_notice_owed`), because the loss is otherwise
-    // invisible here — the cascade already nulled `room_id`, so both sides read
-    // null — and revision arithmetic cannot tell this loss from a title/
-    // description bump that the speaker policy deliberately skips yet advances
-    // the same revision. Gating on the flag delivers exactly the stranded notice
-    // (MTP-16 §17a) and nothing else: the flag is set only by the room cascade,
-    // is cleared by this save, and the revision keys the send so a later resave
-    // (flag now false) cannot repeat it. Prior revision is pinned one below the
-    // current so `notifySchedule` always ships this one owed message.
+    // The backstop for a room deletion whose own notice never shipped. The
+    // deleting route now settles the debt inside the deletion's transaction
+    // (`dischargeStrandedScheduleNoticesIn`), so a flag that survives to here is
+    // either older than that fix or left by a transaction that died mid-flight —
+    // and in both cases a speaker is still holding an invite naming a room that
+    // no longer exists. The flag, not revision arithmetic, is what identifies
+    // them: the cascade already nulled `room_id`, so both sides of this save read
+    // null, and the same revision bump is what a title/description edit produces
+    // while the speaker policy deliberately mails nobody. Prior revision is
+    // pinned one below the current so `notifySchedule` always ships this one owed
+    // message; the revision keys the send, so a discharge that already used it is
+    // swallowed rather than duplicated.
     await notifySchedule(
       dbOrTx, eventId, sessionId,
       { status: prior.status, startsAt: iso(prior.starts_at), scheduleRevision: currentRevision - 1 },

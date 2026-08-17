@@ -5,6 +5,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { eventIdSchema, roomDtoSchema, trackDtoSchema } from "@/shared/contracts";
+import { api } from "@/shared/lib/api-client";
 import { UnsavedWorkGuardProvider } from "@/shared/ui/app/unsaved-work-guard";
 import { VocabTab } from "./vocab-tab";
 
@@ -36,6 +37,7 @@ let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
+  vi.mocked(api).mockReset();
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -65,12 +67,13 @@ async function openDeleteConfirm(kind: "rooms" | "tracks", item: { id: string; n
 
 describe("vocabulary delete confirmation copy", () => {
   it("describes what a room delete actually costs, not the track/format boilerplate", async () => {
+    vi.mocked(api).mockResolvedValue({ sessions: 0, publishedSessions: 0, speakers: 0 });
     await openDeleteConfirm("rooms", room, [room]);
     const body = document.querySelector(".long-copy")?.textContent ?? "";
 
     expect(body).toContain("lose their room assignment");
     expect(body).toContain("schedule revision");
-    expect(body).toContain("notified the next time");
+    expect(body).toContain("emailed that the schedule changed");
     // The room copy may name routing rules — but only to say a room is never
     // one, the opposite of the shared boilerplate. What must be gone is the
     // false claim that a submission goes uncategorized or a rule soft-disables.
@@ -79,12 +82,35 @@ describe("vocabulary delete confirmation copy", () => {
     expect(body).not.toContain("soft-disabled");
   });
 
-  it("still uses the submissions/routing copy for a track", async () => {
+  it("names the sessions and speakers this particular room delete will reach", async () => {
+    // #622: the organizer is deciding whether to send mail to real speakers.
+    // A generic warning cannot answer that; the count read at open time can.
+    vi.mocked(api).mockResolvedValue({ sessions: 3, publishedSessions: 2, speakers: 4 });
+    await openDeleteConfirm("rooms", room, [room]);
+
+    expect(vi.mocked(api).mock.calls[0]?.[0]).toBe(`events/${eventId}/vocab/rooms/${room.id}/impact`);
+    const body = document.querySelector(".long-copy")?.textContent ?? "";
+    expect(body).toContain("3 sessions lose their room");
+    expect(body).toContain("2 of them are published");
+    expect(body).toContain("4 speakers will be emailed");
+  });
+
+  it("says the count could not be read rather than implying there is nothing to lose", async () => {
+    vi.mocked(api).mockRejectedValue(new Error("offline"));
+    await openDeleteConfirm("rooms", room, [room]);
+    const body = document.querySelector(".long-copy")?.textContent ?? "";
+
+    expect(body).toContain("could not be checked");
+    expect(body).not.toContain("Nothing is scheduled");
+  });
+
+  it("still uses the submissions/routing copy for a track, and asks for no count", async () => {
     await openDeleteConfirm("tracks", track, [track]);
     const body = document.querySelector(".long-copy")?.textContent ?? "";
 
     expect(body).toContain("uncategorized");
     expect(body).toContain("routing rule");
     expect(body).not.toContain("lose their room assignment");
+    expect(api).not.toHaveBeenCalled();
   });
 });

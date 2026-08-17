@@ -87,6 +87,7 @@ const agenda = vi.hoisted(() => ({
   restoreSessionContent: vi.fn(),
   bulkSetPublished: vi.fn(),
   applyPlacements: vi.fn(),
+  dischargeStrandedScheduleNoticesIn: vi.fn(),
 }));
 
 vi.doMock("@/features/agenda", () => ({
@@ -100,8 +101,17 @@ vi.doMock("@/features/agenda", () => ({
 
 const events = vi.hoisted(() => ({
   patchVocabItem: vi.fn(),
-  deleteVocabItem: vi.fn(),
+  deleteVocabItemIn: vi.fn(),
   updateEvent: vi.fn(),
+}));
+
+// The vocab DELETE opens the deletion's transaction itself so the room cascade
+// and the stranded-speaker notices commit together (#622). This suite is about
+// which routes invalidate the public cache, not about the database, so the
+// transaction is a pass-through.
+vi.doMock("@/db/client", () => ({
+  db: {},
+  withTx: (work: (tx: unknown) => Promise<unknown>) => work({}),
 }));
 
 vi.doMock("@/features/events", () => ({
