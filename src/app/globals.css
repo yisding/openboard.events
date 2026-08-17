@@ -837,6 +837,78 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
   .organization-members-section td.organization-member-actions{grid-column:2;grid-row:2;height:auto;min-height:54px;padding-block:4px 6px}
 }
 
+/* Issue #665 — every `DataTable` shares this one `.table-scroll`, so the fix
+   lands once here instead of once per surface. The org-members grid above and
+   the speakers-col-* ladder below both re-cut a table's *columns* for one
+   surface at a time; this instead gives the shared scroll container itself an
+   affordance, so every caller gets it for free — including the ones the audit
+   named (audit log, sessions, resources, evaluation, files, speakers,
+   dashboard, CRM) without touching any of their column definitions.
+   The edge-fade trick below (note 2) paints an opaque cover the exact color of
+   the table's own backdrop, so that backdrop has to be a real, known color —
+   not "whatever the page behind happens to be". `.data-panel` (the wrapper
+   `DataTable` itself renders, see data-table.tsx) never declared one; most
+   callers happen to sit inside a `.panel`, which already paints `--surface`,
+   but a bare `<div className="page">` caller (abstracts, evaluation) left it
+   showing the page's `--canvas` through — a near-white-on-near-white seam that
+   was invisible on its own but would have shown as a mismatched patch behind
+   the cover gradient. Giving the wrapper its own `--surface` background
+   matches the rest of the app's card language (modals, dashboard widgets)
+   for every caller, panelled or not, and makes note 2 correct everywhere. */
+.data-panel{background:var(--surface)}
+
+/* Two problems, one container:
+   1. "No scroll affordance" — `overflow:auto` scrolls, but an overlay
+      scrollbar (macOS trackpad default, every mobile browser) paints nothing
+      until a drag is already in progress, so a reader has no way to *notice*
+      there is more table before they stumble into it. `::-webkit-scrollbar`
+      forces the classic, always-rendered bar Chromium ships everywhere except
+      macOS/iOS' overlay style; `scrollbar-width/scrollbar-color` is the
+      standards path Firefox reads the same declaration from.
+   2. Even a visible scrollbar sits below the fold on a table tall enough to
+      need `.table-footer` pagination — nothing above it hints that a row is
+      cut off mid-column. The four-layer gradient below is the standard
+      "scroll shadow" trick: two opaque covers painted with
+      `background-attachment:local` (so they scroll *with* the table, staying
+      pinned over whichever edge is flush with the container) sit on top of
+      two soft shadows painted with `background-attachment:scroll` (so they
+      stay pinned to the container's own edges, ignoring the scroll offset).
+      At rest, both covers sit exactly over both shadows and hide them; the
+      moment either edge scrolls out of flush, its cover slides away with the
+      content and its shadow shows through — a shadow that reads "more this
+      way" and vanishes on its own once that edge is reached, no JS involved. */
+.table-scroll{
+  scrollbar-width:thin;
+  scrollbar-color:var(--line-strong) transparent;
+  background:
+    linear-gradient(to right,var(--surface) 50%,rgba(0,0,0,0)) left center,
+    linear-gradient(to left,var(--surface) 50%,rgba(0,0,0,0)) right center,
+    radial-gradient(farthest-side at 0 50%,rgba(0,0,0,.12),rgba(0,0,0,0)) left center,
+    radial-gradient(farthest-side at 100% 50%,rgba(0,0,0,.12),rgba(0,0,0,0)) right center;
+  background-repeat:no-repeat;
+  background-color:var(--surface);
+  background-size:24px 100%,24px 100%,10px 100%,10px 100%;
+  background-attachment:local,local,scroll,scroll;
+}
+.table-scroll::-webkit-scrollbar{height:8px}
+.table-scroll::-webkit-scrollbar-track{background:transparent}
+.table-scroll::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:4px}
+.table-scroll::-webkit-scrollbar-thumb:hover{background:var(--muted)}
+/* `.row-actions` is shared with card-style lists (file requests, the review
+   queue) where wrapping onto a second line is the point — those cards do not
+   scroll, so a narrow viewport is the only width the buttons will ever get.
+   Inside a `.data-table` cell that logic backfires: the column can always be
+   reached by the scroll affordance above, but the wrap-capable flex row gives
+   the browser's table-layout algorithm a much smaller minimum width to work
+   with than a `white-space:nowrap` text cell would, so the algorithm starves
+   this column first — the resources and evaluation "Edit/Delete"/"Assign
+   Remind Edit Delete" stacks were wrapping three and four buttons deep,
+   inflating the whole row to ~400px behind the very edge this column got
+   squeezed toward, mostly empty save for an off-screen stack. `nowrap` here
+   makes the column's minimum width match its actual content again, exactly
+   as every other `.data-table` column, and it scrolls into view instead. */
+.data-table .row-actions{flex-wrap:nowrap}
+
 /* M37 — comms admin UI (server-backed template editor, reminder ladder, log) */
 .comms-templates{display:grid;grid-template-columns:220px minmax(0,1fr);gap:24px}
 .template-editor-grid{display:grid;gap:28px;grid-template-columns:minmax(0,1fr) 340px}
