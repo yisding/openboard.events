@@ -10,6 +10,7 @@ import {
   dispatchAdminAuthEmailOutboxIn,
   getAdminAuthFallbackLinkIn,
   openPlatformAdminLinkPayload,
+  listFailedAdminAuthEmailsIn,
   recordAdminAuthEmailSuppressionIn,
   requeueFailedAdminAuthEmailsIn,
   sendAdminAuthEmailIn,
@@ -487,6 +488,31 @@ describe("requeueing terminal admin auth mail", () => {
 
     const [row] = await tx.select().from(adminAuthEmailOutbox).where(eq(adminAuthEmailOutbox.id, messageId));
     expect(row?.status).toBe("failed");
+  });
+
+  // The CLI's `--id <uuid>` flow is the surgical case: one named row out of a
+  // pile, when a blanket requeue would re-mail people who no longer need it.
+  it("narrows to named ids, leaving every other failed row terminal", async () => {
+    const wanted = await queueThenFail("ada@example.com");
+    const other = await queueThenFail("grace@example.com");
+
+    const result = await requeueFailedAdminAuthEmailsIn(tx, { ids: [wanted] });
+    expect(result.requeued.map((row) => row.id)).toEqual([wanted]);
+
+    const [untouched] = await tx.select().from(adminAuthEmailOutbox).where(eq(adminAuthEmailOutbox.id, other));
+    expect(untouched?.status).toBe("failed");
+  });
+
+  // The command reports before it writes, so the two must select the same set
+  // — a preview that disagrees with the action it previews is worse than none.
+  it("previews exactly the rows the requeue would act on", async () => {
+    const mine = await queueThenFail("ada@example.com");
+    await queueThenFail("grace@example.com");
+
+    const previewed = await listFailedAdminAuthEmailsIn(tx, { emails: ["ADA@Example.com"] });
+    expect(previewed.map((row) => row.id)).toEqual([mine]);
+    const result = await requeueFailedAdminAuthEmailsIn(tx, { emails: ["ADA@Example.com"] });
+    expect(result.requeued.map((row) => row.id)).toEqual(previewed.map((row) => row.id));
   });
 
   it("leaves queued and sent rows alone", async () => {

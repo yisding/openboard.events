@@ -502,37 +502,63 @@ export type AuthOutboxRequeueResult = {
  * anything — worse than not sending it, because the recipient stops waiting.
  * Those people need a fresh reset/verification request, not a redelivery.
  */
-export async function requeueFailedAdminAuthEmailsIn(
-  dbOrTx: DbOrTx,
-  filter: { ids?: string[]; emails?: string[] } = {},
-): Promise<AuthOutboxRequeueResult> {
+export type AuthOutboxFilter = { ids?: string[]; emails?: string[] };
+
+function failedScope(filter: AuthOutboxFilter) {
   const emails = filter.emails?.map((email) => email.trim().toLowerCase()).filter(Boolean) ?? [];
-  const scope = and(
+  return and(
     eq(adminAuthEmailOutbox.status, "failed"),
     ...(filter.ids?.length ? [inArray(adminAuthEmailOutbox.id, filter.ids)] : []),
     ...(emails.length ? [inArray(sql`lower(${adminAuthEmailOutbox.recipientEmail})`, emails)] : []),
   );
+}
 
-  // Reported before the update rewrites `attempts` and `error`, so the summary
-  // still shows what the row actually died of.
-  const summarize = (row: typeof adminAuthEmailOutbox.$inferSelect): AuthOutboxRequeueRow => ({
+function summarizeOutboxRow(row: typeof adminAuthEmailOutbox.$inferSelect): AuthOutboxRequeueRow {
+  return {
     id: row.id,
     recipientEmail: row.recipientEmail,
     templateKey: row.templateKey,
     attempts: row.attempts,
     error: row.error,
     createdAt: row.createdAt,
-  });
+  };
+}
+
+/**
+ * The read half, so the operator command can show a blast radius before it
+ * changes anything. It shares `failedScope` with the requeue rather than
+ * rebuilding the predicate: a report that selects a different set from the
+ * command it is previewing is worse than no report.
+ */
+export async function listFailedAdminAuthEmailsIn(
+  dbOrTx: DbOrTx,
+  filter: AuthOutboxFilter = {},
+): Promise<AuthOutboxRequeueRow[]> {
+  const rows = await dbOrTx.select().from(adminAuthEmailOutbox)
+    .where(failedScope(filter))
+    .orderBy(asc(adminAuthEmailOutbox.createdAt), asc(adminAuthEmailOutbox.id));
+  return rows.map(summarizeOutboxRow);
+}
+
+export async function requeueFailedAdminAuthEmailsIn(
+  dbOrTx: DbOrTx,
+  filter: AuthOutboxFilter = {},
+): Promise<AuthOutboxRequeueResult> {
+  const scope = failedScope(filter);
 
   const unrecoverable = await dbOrTx.select().from(adminAuthEmailOutbox)
     .where(and(scope, isNull(adminAuthEmailOutbox.secretPayloadCiphertext)));
 
-  const doomed = await dbOrTx.select().from(adminAuthEmailOutbox)
+  // Read before the UPDATE rewrites `attempts` and `error`, so the summary can
+  // still say what each row actually died of — which is what tells the
+  // operator whether they have fixed the cause.
+  const candidates = await dbOrTx.select().from(adminAuthEmailOutbox)
     .where(and(scope, isNotNull(adminAuthEmailOutbox.secretPayloadCiphertext)));
 
-  // The status re-check is inside the UPDATE, not read-then-write: the drain
-  // runs every minute, and a row it has just claimed must not be reopened out
-  // from under it.
+  // `status = 'failed'` is inside the UPDATE's own WHERE, so the set that is
+  // written is decided at write time rather than from the read above. The
+  // drain runs every minute; a row it claims in between is simply not matched,
+  // and the intersection below keeps it out of the report too.
   const reopened = await dbOrTx.update(adminAuthEmailOutbox).set({
     status: "queued",
     attempts: 0,
@@ -541,7 +567,7 @@ export async function requeueFailedAdminAuthEmailsIn(
     nextAttemptAt: sql`now()`,
   }).where(and(scope, isNotNull(adminAuthEmailOutbox.secretPayloadCiphertext))).returning();
   const reopenedIds = new Set(reopened.map((row) => row.id));
-  const requeued = doomed.filter((row) => reopenedIds.has(row.id)).map(summarize);
+  const requeued = candidates.filter((row) => reopenedIds.has(row.id)).map(summarizeOutboxRow);
 
   log({
     level: "info",
@@ -550,9 +576,9 @@ export async function requeueFailedAdminAuthEmailsIn(
     feature: "auth",
     stats: { requeued: requeued.length, unrecoverable: unrecoverable.length },
   });
-  return { requeued, unrecoverable: unrecoverable.map(summarize) };
+  return { requeued, unrecoverable: unrecoverable.map(summarizeOutboxRow) };
 }
 
-export function requeueFailedAdminAuthEmails(filter?: { ids?: string[]; emails?: string[] }): Promise<AuthOutboxRequeueResult> {
+export function requeueFailedAdminAuthEmails(filter?: AuthOutboxFilter): Promise<AuthOutboxRequeueResult> {
   return requeueFailedAdminAuthEmailsIn(db, filter);
 }

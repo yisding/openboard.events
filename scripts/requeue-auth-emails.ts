@@ -1,7 +1,9 @@
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
-import { withTx, type TxDb } from "@/db/client";
-import { adminAuthEmailOutbox } from "@/db/schema";
-import { requeueFailedAdminAuthEmailsIn, type AuthOutboxRequeueRow } from "@/features/auth";
+import { withTx } from "@/db/client";
+import {
+  listFailedAdminAuthEmailsIn,
+  requeueFailedAdminAuthEmailsIn,
+  type AuthOutboxRequeueRow,
+} from "@/features/auth";
 
 /**
  * Operator remedy for `admin_auth_email_outbox` rows that exhausted the shared
@@ -47,24 +49,6 @@ function required(value: string | undefined, flag: string): string {
   return trimmed;
 }
 
-async function failedRows(tx: TxDb, options: Options): Promise<AuthOutboxRequeueRow[]> {
-  const rows = await tx.select().from(adminAuthEmailOutbox).where(and(
-    eq(adminAuthEmailOutbox.status, "failed"),
-    ...(options.ids.length ? [inArray(adminAuthEmailOutbox.id, options.ids)] : []),
-    ...(options.emails.length
-      ? [inArray(sql`lower(${adminAuthEmailOutbox.recipientEmail})`, options.emails.map((email) => email.toLowerCase()))]
-      : []),
-  )).orderBy(asc(adminAuthEmailOutbox.createdAt));
-  return rows.map((row) => ({
-    id: row.id,
-    recipientEmail: row.recipientEmail,
-    templateKey: row.templateKey,
-    attempts: row.attempts,
-    error: row.error,
-    createdAt: row.createdAt,
-  }));
-}
-
 function describe(row: AuthOutboxRequeueRow): string {
   const age = Math.round((Date.now() - row.createdAt.getTime()) / 60_000);
   return `  ${row.id}  ${row.templateKey.padEnd(26)} ${row.recipientEmail.padEnd(32)} ${age}m old, ${row.attempts} attempts — ${row.error ?? "no recorded error"}`;
@@ -77,7 +61,10 @@ async function main(): Promise<void> {
 
   await withTx(async (tx) => {
     if (!options.apply) {
-      const rows = await failedRows(tx, options);
+      // The same selection the requeue would act on, not a lookalike — a
+      // preview that shows a different set than the command it previews is
+      // worse than no preview.
+      const rows = await listFailedAdminAuthEmailsIn(tx, { ids: options.ids, emails: options.emails });
       if (rows.length === 0) {
         console.log("No failed admin auth emails match that filter.");
         return;
