@@ -205,7 +205,9 @@ export async function runAirtableSyncForEventIn(
     // Read once per run rather than once per candidate query: it is the origin
     // a speaker's `Headshot` attachment URL is built from, and a projection
     // that asked for it again per page could hash two different answers into
-    // one table during a config reload.
+    // one table during a config reload. No trailing-slash normalization: the
+    // env schema already rejects an `APP_BASE_URL` that is not a bare origin,
+    // so `${it}/f/` is the only spelling that ever reaches the projection.
     const projection: ProjectionOptions = { ...connection.options, appBaseUrl: getEnv().APP_BASE_URL };
 
     const canManageSchema = connection.scopes.includes("schema.bases:write");

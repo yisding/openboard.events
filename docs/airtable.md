@@ -60,6 +60,7 @@ their own Airtable tables — they show up as the `multipleRecordLinks` fields a
   is `NOT NULL` with no organization-scoped sibling column; there is no correct way to anchor an
   organization's CRM data to one "home" event the moment that organization runs a second event.
   Syncing CRM data would need its own migration and its own design, not a toggle here.
+
 ### Speaker headshots need no signed-URL machinery
 
 This column was deferred on a premise that turned out to be false, so the reasoning is written
@@ -93,8 +94,8 @@ already relies on holds unchanged:
 
 Private file kinds (slides, submission-answer uploads, file-request uploads) are a different
 question and remain out of scope: those genuinely do need a presigned, expiring GET, and pushing
-them would put files an organizer restricted behind Openboard's access rules into a base with its
-own sharing model.
+them would put files that an organizer has restricted behind Openboard's access rules into a base
+with its own sharing model.
 
 ### The "What we sync" drawer
 
