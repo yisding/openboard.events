@@ -107,7 +107,7 @@ function headshotAttachment(appBaseUrl: string): SQL {
   return sql`coalesce((
     SELECT jsonb_build_array(jsonb_build_object(
       -- Cast the bound origin explicitly: an untyped parameter on the left of
-      -- `||` is one of the few places Postgres will refuse to infer a type.
+      -- a concatenation is one of the few places Postgres refuses to infer a type.
       'url', ${`${appBaseUrl}/f/`}::text || fa.id::text,
       'filename', fa.filename
     ))
