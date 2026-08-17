@@ -1617,6 +1617,8 @@ main.cfp-container{max-width:760px;margin:0 auto;padding:48px 24px}
 .cfp-logo{height:40px;width:auto;object-fit:contain;margin-bottom:16px}
 .cfp-closed{max-width:620px;margin:96px auto;padding:0 24px;text-align:center}
 .cfp-closed h1{font-size:24px;letter-spacing:-.7px}
+.cfp-closed a{color:var(--accent-dark);font-weight:var(--weight-control);text-decoration:underline;text-underline-offset:2px}
+.cfp-closed a:hover{color:var(--accent-hover)}
 .cfp-step{border:1px solid var(--line);border-radius:12px;padding:24px;background:var(--surface)}
 .cfp-step.cfp-step--compact{min-height:0}
 ol.cfp-progress{list-style:none;display:flex;gap:16px;margin:0 0 16px;padding:0;font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
@@ -1961,6 +1963,8 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .org-picker-card small{display:block;color:var(--muted);font-size:var(--text-xs);margin-top:2px}
 .onboarding-wizard{max-width:720px}
 .onboarding-wizard>.cfp-step{min-height:0;border:0;border-radius:0;padding:8px 0 0;background:transparent}
+.onboarding-skip-link{color:var(--accent-dark);font-weight:var(--weight-control);text-decoration:underline;text-underline-offset:2px}
+.onboarding-skip-link:hover{color:var(--accent-hover)}
 .onboarding-progress{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr));gap:0!important;margin-bottom:20px!important}
 .onboarding-progress li{position:relative;display:grid;justify-items:center;gap:6px;text-align:center;color:var(--muted)}
 .onboarding-progress li:not(:last-child)::after{content:"";position:absolute;top:12px;left:calc(50% + 16px);width:calc(100% - 32px);border-top:1px solid var(--line-strong)}

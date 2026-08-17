@@ -93,7 +93,7 @@ export function StartFork({ organizationId, demo = null }: {
         {/* No trailing arrow. Both doors above carry one on a button, and a
             third on a plain sentence read as a stray glyph rather than as a
             direction — this is an escape hatch, not a step forward. */}
-        <Link href={`/organizations/${organizationId}?skip=1`}>Skip both — take me to my organization</Link>
+        <Link className="onboarding-skip-link" href={`/organizations/${organizationId}?skip=1`}>Skip both — take me to my organization</Link>
       </p>
     </div>
   );
