@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { AlertTriangle } from "lucide-react";
 import { notFound } from "next/navigation";
 import { z } from "zod";
 import { getMySubmission, requirePortalContext } from "@/features/portal";
@@ -43,7 +44,12 @@ export default async function Page({
   return (
     <div className="portal-container portal-page">
       <FocusRefresh />
-      {notice && <p className="portal-note" role="status">{notice}</p>}
+      {notice && (
+        <p className="portal-bounce-notice" role="status">
+          <AlertTriangle size={14} aria-hidden />
+          <span>{notice}</span>
+        </p>
+      )}
       <SubmissionDetail
         submission={submission}
         eventId={event.id}

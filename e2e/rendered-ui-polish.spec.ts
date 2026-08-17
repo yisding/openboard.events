@@ -368,6 +368,46 @@ test.describe("speaker portal sign-in rhythm", () => {
   });
 });
 
+test.describe("login form panel error color", () => {
+  test("keeps a rejected sign-in red instead of the subtitle's muted grey", async ({ page }) => {
+    const styles = await readFile(resolve(process.cwd(), "src/app/globals.css"), "utf8");
+    await page.setContent(`<!doctype html><html><head><style>${styles}</style></head><body>
+      <section class="login-form-panel"><div><form>
+        <h1>Welcome back</h1>
+        <p>Sign in to your Openboard workspace.</p>
+        <label class="field"><span>Email address</span><input type="email"></label>
+        <label class="field"><span>Password</span><input type="password"></label>
+        <p class="field-error" role="alert">Invalid email or password</p>
+        <button class="button button-primary" type="submit">Sign in</button>
+      </form></div></section>
+    </body></html>`);
+
+    const colors = await page.evaluate(() => {
+      const subtitle = document.querySelector(".login-form-panel form>p:not(.field-error)");
+      const error = document.querySelector(".login-form-panel .field-error");
+      if (!subtitle || !error) throw new Error("Login form fixture is incomplete");
+      // Resolve the --red token through a probe instead of hardcoding its
+      // current value, so retuning the palette doesn't read as a regression.
+      const probe = document.createElement("span");
+      probe.style.color = "var(--red)";
+      document.body.appendChild(probe);
+      return {
+        subtitle: getComputedStyle(subtitle).color,
+        error: getComputedStyle(error).color,
+        red: getComputedStyle(probe).color,
+        errorMarginBottom: getComputedStyle(error).marginBottom,
+      };
+    });
+
+    expect(colors.error).not.toBe(colors.subtitle);
+    expect(colors.error).toBe(colors.red);
+    // The error is still a paragraph in the panel's grid: the gap owns the
+    // spacing, so a UA default margin sneaking back would shift the submit
+    // button down on every rejected sign-in.
+    expect(colors.errorMarginBottom).toBe("0px");
+  });
+});
+
 test.describe("portal email-preferences rhythm", () => {
   test("keeps the preference state compact instead of inheriting dashboard empty-state height", async ({ page }) => {
     const styles = await readFile(resolve(process.cwd(), "src/app/globals.css"), "utf8");

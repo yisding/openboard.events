@@ -50,9 +50,9 @@ export function CommsAdminPage({
   timezone: string;
   initialTab: CommsTab;
   querySeeds: readonly QuerySeed[];
-  /** First Fair (design §5.1) — every demo send is rendered, logged and then
-   * skipped (`SkipEmail`, `src/features/comms/server/context.ts`); this only
-   * changes what the header says about that, never what the tabs do. */
+  /** First Fair (design §5.1) — every demo send is logged and then skipped
+   * (`SkipEmail`, `src/features/comms/server/context.ts`); this only changes
+   * what the header says about that, never what the tabs do. */
   isDemo?: boolean;
 }) {
   const router = useRouter();
@@ -82,7 +82,12 @@ export function CommsAdminPage({
           eyebrow="ENGAGE"
           title="Communications"
           description={isDemo
-            ? "Demo event. Every send is rendered, logged and then skipped — no mail leaves Openboard."
+            // Not "rendered, logged and then skipped": the demo barrier stops a
+            // send *before* it renders, so the log has a reason to show where a
+            // subject would be, never a subject. Promising a render the product
+            // deliberately never performs is what made that column read as a
+            // bug (issue #679).
+            ? "Demo event. Every send is logged and then skipped — no mail leaves Openboard."
             : "Design messages, automate reminders, and understand what reached your audience."}
         />
         <div className="communications-tabs" role="tablist" aria-label="Communications sections">

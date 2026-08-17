@@ -76,7 +76,10 @@ describe("authenticated control names", () => {
     // keyboard or screen-reader user who wants out has to be able to find
     // them by name.
     const coach = parse("../shared/ui/app/guided-tour/coach.tsx");
-    for (const label of ['"Pause the tour"', '"Resume the tour"', '"Hide the tour pill"']) {
+    // "Move the tour card" belongs on that list for the same reason: it is the
+    // grab handle's only name, and the arrow keys it answers are the sole way
+    // a player without a pointer can get the card off the control underneath.
+    for (const label of ['"Pause the tour"', '"Resume the tour"', '"Hide the tour pill"', '"Move the tour card"']) {
       expect(openings(coach, "button").some((node) => attribute(coach, node, "aria-label") === label), label).toBe(true);
     }
 

@@ -21,10 +21,12 @@ describe("popover placement", () => {
     const cramped = { width: 320, height: 480 };
     const style = popoverPosition("bottom", { top: 440, right: 316, bottom: 470, left: 300 }, cramped);
     const left = Number(style.left);
-    const top = Number(style.top);
     expect(left).toBeGreaterThanOrEqual(12);
     expect(left + POPOVER_WIDTH).toBeLessThanOrEqual(cramped.width);
-    expect(top).toBeLessThanOrEqual(cramped.height - POPOVER_CLEARANCE);
+    // Ten pixels of viewport left below the anchor, so the panel goes above it
+    // rather than being clamped down onto the control it points at.
+    expect(style.top).toBeUndefined();
+    expect(Number(style.bottom)).toBe(cramped.height - 440 + 10);
   });
 
   it("opens a left-placed panel clear of the anchor's leading edge", () => {
@@ -40,9 +42,12 @@ describe("popover placement", () => {
     expect(style).toEqual({ left: 400, bottom: viewport.height - 640 + 10 });
   });
 
-  it("clamps a left-placed panel rather than pushing it off the leading edge", () => {
+  it("opens a left-placed panel to the right when its own side has no room", () => {
+    // Clamping to the leading margin used to park the panel on top of the
+    // anchor — which for the tour is the control the player is being asked to
+    // click next.
     const style = popoverPosition("left", { top: 120, right: 120, bottom: 150, left: 40 }, viewport);
-    expect(style.left).toBe(12);
+    expect(style).toEqual({ left: 130, top: 112 });
   });
 
   it("opens a top-placed panel below its anchor when there is no room above it", () => {
@@ -50,6 +55,18 @@ describe("popover placement", () => {
     // control it points at, from the other side.
     const style = popoverPosition("top", { top: 60, right: 500, bottom: 92, left: 400 }, viewport);
     expect(style).toEqual({ left: 400, top: 102 });
+  });
+
+  it("opens a bottom-placed panel above its anchor when there is no room below it", () => {
+    const style = popoverPosition("bottom", { top: 600, right: 500, bottom: 700, left: 400 }, viewport);
+    expect(style).toEqual({ left: 400, bottom: viewport.height - 600 + 10 });
+  });
+
+  it("stays inside the viewport when neither side of the anchor has room", () => {
+    // A tall anchor in a short window: there is nowhere good, so the old
+    // clamp is still the answer — the panel scrolls, and it is on screen.
+    const style = popoverPosition("bottom", { top: 190, right: 500, bottom: 620, left: 400 }, viewport);
+    expect(style).toEqual({ left: 400, top: viewport.height - POPOVER_CLEARANCE });
   });
 });
 
@@ -62,8 +79,10 @@ describe("wider panels", () => {
     expect(style.left).toBe(1280 - 320 - 12);
   });
 
-  it("clamps to the panel's own clearance", () => {
+  it("measures the room below against the panel's own clearance", () => {
+    // 40px of window under the anchor and a 300px card: the coach card goes
+    // above the control rather than being clamped down over it.
     const style = popoverPosition("bottom", { top: 700, right: 500, bottom: 760, left: 400 }, viewport, { clearance: 300 });
-    expect(style.top).toBe(800 - 300);
+    expect(style).toEqual({ left: 400, bottom: 800 - 700 + 10 });
   });
 });
