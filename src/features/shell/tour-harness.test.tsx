@@ -97,4 +97,9 @@ describe("the kitchen-sink tour harness", () => {
     await click("Start the tour");
     expect(document.querySelector(".tour-coach")?.textContent).toContain("This is the coach card.");
   });
+
+  it("labels the scroll spacer so the page doesn't read as broken before the tour starts", async () => {
+    await renderHarness();
+    expect(document.querySelector(".tour-scroll-spacer")?.textContent).toContain("scroll spacer for spotlight testing");
+  });
 });
