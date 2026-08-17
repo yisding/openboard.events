@@ -1,6 +1,6 @@
 "use client";
 
-import { Camera, CheckCircle2, Linkedin, LinkIcon, Twitter } from "lucide-react";
+import { Camera, Linkedin, LinkIcon, Twitter } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { SpeakerProfileDTO } from "@/features/portal";
@@ -266,7 +266,11 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
                 <input maxLength={LIMITS.JOB_TITLE} value={company} onChange={(event) => setCompany(event.target.value)} aria-invalid={Boolean(fieldErrors.company) || undefined} aria-describedby={fieldErrors.company ? "profile-company-error" : "profile-company-hint"} placeholder="Analytical Engines" />
               </Field>
             </div>
-            <Field label="Biography" hint={`${bioLength} / ${LIMITS.BIO} characters`} hintId="profile-bio-hint" error={bioError} errorId="profile-bio-error">
+            {/* No `hint`: RichTextEditor already renders its own "used / max"
+                counter (with `aria-live="polite"`), so a character-count hint
+                here would just repeat it right below — the field only adds an
+                error message when the bio is over the limit. */}
+            <Field label="Biography" error={bioError} errorId="profile-bio-error">
               <RichTextEditor
                 value={bioHtml}
                 onChange={setBioHtml}
@@ -274,7 +278,7 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
                 placeholder="Tell attendees about yourself…"
                 ariaLabel="Biography"
                 ariaInvalid={Boolean(bioError)}
-                ariaDescribedBy={bioError ? "profile-bio-error" : "profile-bio-hint"}
+                {...(bioError ? { ariaDescribedBy: "profile-bio-error" } : {})}
               />
             </Field>
 
@@ -293,13 +297,9 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
           </form>
         </main>
         <aside>
-          <section className="portal-panel profile-readiness">
-            <span className="metric-icon green"><CheckCircle2 size={20} /></span>
-            <h3>Public preview</h3>
-            <p>This is roughly how your profile appears on the public speaker gallery.</p>
-          </section>
           <section className="portal-panel public-preview">
             <span className="public-preview-label">PUBLIC PREVIEW</span>
+            <p className="public-preview-hint">This is roughly how your profile appears on the public speaker gallery.</p>
             <Avatar initials={initials} size="xl" {...(headshotUrl ? { imageUrl: headshotUrl } : {})} />
             <h3>{firstName} {lastName}</h3>
             {(jobTitle || company) && <p>{[jobTitle, company].filter(Boolean).join(" · ")}</p>}

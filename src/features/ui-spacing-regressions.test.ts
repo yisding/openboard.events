@@ -422,6 +422,55 @@ describe("shared UI spacing regressions", () => {
     );
   });
 
+  it("vertically centers the footer's link and plain-text sibling on the same baseline", () => {
+    // `.portal-site-footer div div a` carries a 32px touch-target floor that
+    // `<span>Powered by Openboard</span>` never gets, so without align-items
+    // on their shared flex row the two texts sat ~10px apart: the anchor
+    // centered inside its own taller box, the span stretched to match it and
+    // kept its text pinned to the top.
+    expect(css).toMatch(/\.portal-site-footer div div\s*\{[^}]*align-items:\s*center/u);
+  });
+
+  it("gives the portal's bounced edit-unavailable notice the same weight as other page-level alerts", () => {
+    const page = read("../app/portal/[eventSlug]/submissions/[submissionId]/page.tsx");
+
+    // A speaker who follows a stale /edit link and bounces back used to see
+    // this as plain `.portal-note` text — the same muted style used for dozens
+    // of low-stakes hints, easy to miss as feedback for a real navigation.
+    expect(page).toContain('className="portal-bounce-notice"');
+    expect(page).not.toContain('className="portal-note" role="status">{notice}');
+    expect(css).toContain(".portal-bounce-notice{display:flex;align-items:center;gap:8px;margin-bottom:16px;padding:12px 16px;border:1px solid var(--amber-border);border-radius:9px;background:var(--amber-soft);color:var(--amber)");
+  });
+
+  it("shows the speaker profile's bio character count exactly once", () => {
+    const profile = read("./portal/profile/components/profile-form.tsx");
+
+    // RichTextEditor already renders its own "used / max" counter for any
+    // `maxChars` editor (`rich-text-editor.tsx`'s `.rich-text-editor__count`).
+    // The Biography field's Field wrapper duplicated it as a `hint`, so the
+    // count appeared twice: once inside the editor's own corner, once again
+    // as the field hint directly below it.
+    expect(profile).toContain('<Field label="Biography" error={bioError} errorId="profile-bio-error">');
+    expect(profile).not.toContain("characters`}");
+  });
+
+  it("keeps a single 'Public preview' card on the profile sidebar", () => {
+    const profile = read("./portal/profile/components/profile-form.tsx");
+
+    // A whole second card — icon, "Public preview" heading, explainer
+    // paragraph — used to sit directly above the actual preview card, which
+    // has its own "PUBLIC PREVIEW" eyebrow label. The explainer now lives as
+    // a caption inside the one card that does the previewing.
+    expect(profile).not.toContain("profile-readiness");
+    // Case-sensitive: "PUBLIC PREVIEW" (the surviving card's eyebrow label)
+    // must stay, only the duplicated "Public preview" heading is gone.
+    expect(profile).not.toContain("Public preview");
+    expect(profile).toContain("PUBLIC PREVIEW");
+    expect(profile).toContain('className="public-preview-hint"');
+    expect(css).toContain(".public-preview-hint{");
+    expect(css).not.toMatch(/\.profile-readiness\b/u);
+  });
+
   it("gives discrete public session and gallery actions full pointer targets", () => {
     expect(css).toContain(
       ".public-session-main h3 button{width:100%;min-height:32px;",
