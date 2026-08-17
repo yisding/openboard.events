@@ -519,9 +519,11 @@ export function PipelineBoard({
         </DndContext>
       )}
 
-      <p className="long-copy" style={{ marginTop: 16 }}>
-        Cards link back to <Link href={`/organizations/${organizationId}/crm`}>the directory</Link> for full history.
-      </p>
+      {entries.length > 0 && (
+        <p className="long-copy" style={{ marginTop: 16 }}>
+          Cards link back to <Link href={`/organizations/${organizationId}/crm`}>the directory</Link> for full history.
+        </p>
+      )}
 
       <AddProspectDialog
         organizationId={organizationId}
