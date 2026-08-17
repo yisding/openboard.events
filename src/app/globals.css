@@ -3016,6 +3016,18 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
    max-height/overflow/overscroll pairing .datetime-popover already uses. */
 .tour-coach { position: fixed; z-index: 201; width: 320px; max-width: calc(100vw - 24px); max-height: calc(100vh - 24px); overflow-y: auto; overscroll-behavior: contain; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 13px 15px 14px; animation: modal-in .18s ease; }
 .tour-coach-centred { top: 50%; left: 50%; transform: translate(-50%, -50%); }
+/* No anchor, but an instruction to carry out: the middle of the screen is
+   where the work is, so the card takes the corner the paused pill uses instead
+   of sitting on top of the grid it is talking about. */
+.tour-coach-docked { top: auto; left: auto; right: 16px; bottom: 16px; }
+/* The card is the player's to move — see coach.tsx. `touch-action: none` so a
+   drag on a touchpad or a pen moves the card instead of scrolling the page
+   under it; the rest of the card scrolls normally. */
+.tour-coach-grab { cursor: grab; touch-action: none; }
+.tour-coach-dragging { animation: none; user-select: none; }
+.tour-coach-dragging .tour-coach-grab, .tour-coach-dragging .tour-coach-grip { cursor: grabbing; }
+.tour-coach-grip { display: grid; place-items: center; width: 22px; height: 22px; margin: -4px 0 -4px -5px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: grab; }
+.tour-coach-grip:hover { background: var(--fill); color: var(--ink); }
 /* Held back for an anchor that has not mounted yet — up to ANCHOR_SETTLE_MS.
    Hidden rather than unmounted, so the card keeps its place in the tree; the
    entrance animation is suppressed here and plays when the class comes off,
@@ -3033,9 +3045,11 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
 .tour-coach-won { border-color: var(--accent-border); }
 .tour-coach-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 9px; }
 .tour-coach-chapter { color: var(--accent-dark); font-size: var(--text-xs); font-weight: var(--weight-emphasis); letter-spacing: 1.1px; text-transform: uppercase; }
-.tour-coach-close { display: grid; place-items: center; width: 24px; height: 24px; margin: -4px -6px -4px 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
+/* `margin-left: auto` rather than the header's `space-between`: with a grab
+   handle in front of it the chapter label would otherwise float to the middle. */
+.tour-coach-close { display: grid; place-items: center; width: 24px; height: 24px; margin: -4px -6px -4px auto; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
 .tour-coach-close:hover { background: var(--fill); color: var(--ink); }
-.tour-coach-close:focus-visible, .tour-coach-quiet:focus-visible, .tour-coach-tray summary:focus-visible, .tour-coach-more summary:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.tour-coach-close:focus-visible, .tour-coach-grip:focus-visible, .tour-coach-quiet:focus-visible, .tour-coach-tray summary:focus-visible, .tour-coach-more summary:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .tour-coach .progress-track { margin: 0 0 11px; }
 .tour-coach-title { display: block; font-size: var(--text-table); }
 .tour-coach-body { margin: 4px 0 0; color: var(--muted); font-size: var(--text-xs); line-height: 1.55; }
