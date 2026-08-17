@@ -419,6 +419,7 @@ export function ReviewQueueView({
                   index={activeIndex}
                   total={rows.length}
                   itemLabel={active.title}
+                  itemNoun="submission"
                   onPrev={activeIndex > 0 ? () => requestOpen(rows[activeIndex - 1]?.submissionId ?? active.submissionId) : undefined}
                   onNext={activeIndex >= 0 && activeIndex < rows.length - 1 ? () => requestOpen(rows[activeIndex + 1]?.submissionId ?? active.submissionId) : undefined}
                 />

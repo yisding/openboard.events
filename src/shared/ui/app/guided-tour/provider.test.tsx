@@ -166,6 +166,34 @@ function stubMatchMedia() {
 /** The root of the most recent `render`, so a test can re-render it in place. */
 let lastRender: (() => Promise<void>) | null = null;
 
+/**
+ * A stand-in for the popover API — how the card joins the top layer over an
+ * open dialog. Kept local to the one test that needs it so nothing else in
+ * this file starts depending on the environment having it.
+ */
+function stubPopoverApi(): { calls: string[]; restore: () => void } {
+  const calls: string[] = [];
+  const prototype = HTMLElement.prototype as unknown as Record<string, unknown>;
+  const before = { show: prototype.showPopover, hide: prototype.hidePopover };
+  prototype.showPopover = function showPopover(this: HTMLElement) {
+    if (this.hasAttribute("data-open")) throw new Error("InvalidStateError");
+    calls.push("show");
+    this.setAttribute("data-open", "");
+  };
+  prototype.hidePopover = function hidePopover(this: HTMLElement) {
+    if (!this.hasAttribute("data-open")) throw new Error("InvalidStateError");
+    calls.push("hide");
+    this.removeAttribute("data-open");
+  };
+  return {
+    calls,
+    restore: () => {
+      if (before.show === undefined) delete prototype.showPopover; else prototype.showPopover = before.show;
+      if (before.hide === undefined) delete prototype.hidePopover; else prototype.hidePopover = before.hide;
+    },
+  };
+}
+
 async function render(bootstrap: TourBootstrap | null, children?: React.ReactNode) {
   const container = document.createElement("div");
   document.body.append(container);
@@ -309,6 +337,29 @@ describe("objective verification", () => {
     await tick(10_000);
     expect(server.records.filter((entry) => entry.stepId === "grid.resolve")).toHaveLength(1);
     expect(server.state.stepId).toBe("live.publish");
+  });
+
+  it("drops the stale imperative and hint once the step is celebrating", async () => {
+    document.body.insertAdjacentHTML("beforeend", '<nav class="dashboard-tabs">Today</nav>');
+    const server = makeServer({ chapter: "grid", stepId: "grid.resolve" });
+    await render(makeBootstrap(server));
+    await tick();
+
+    await act(async () => control("Show me how").click());
+    await tick();
+    expect(coach()?.textContent).toContain("Open the conflict row and change the room.");
+
+    server.state = { ...server.state, world: { conflictCount: 2, publishedSessions: 0 } };
+    await tick(2_100);
+    expect(coach()?.textContent).toContain("Two rooms, one time, zero apologies to write.");
+    // The imperative and the hint both describe the state the player just
+    // left — the card is celebrating now, and neither belongs beside the
+    // reward and the Next button.
+    expect(coach()?.querySelector(".tour-coach-hint")).toBe(null);
+    expect(coach()?.textContent).not.toContain("Open the conflict row and change the room.");
+    // The title stays in the DOM — it is still `aria-labelledby`'s target —
+    // just no longer read as an instruction.
+    expect(coach()?.querySelector(".tour-coach-title-done")?.textContent).toBe("Fix it.");
   });
 
   it("polls only while an act step is armed", async () => {
@@ -822,6 +873,48 @@ describe("anchoring", () => {
     expect(document.querySelector(".tour-scrim")).toBe(null);
   });
 
+  // The step that says "press ⌘K" was the step that lost its own card the
+  // moment the player did as they were told: the palette is a modal <dialog>,
+  // so it opens in the top layer, blurs everything it does not contain behind
+  // its ::backdrop and makes it inert. The card joins the top layer after it —
+  // insertion order is what decides — and leaves again when the palette closes.
+  it("rises above a dialog that opens over it, and settles back when it closes", async () => {
+    document.body.insertAdjacentHTML("beforeend", '<nav class="dashboard-tabs">Today</nav>');
+    const popover = stubPopoverApi();
+    try {
+      await render(makeBootstrap(makeServer()));
+      await tick();
+      const card = coach();
+      expect(card?.hasAttribute("popover")).toBe(false);
+
+      document.body.insertAdjacentHTML("beforeend", '<dialog class="command-palette-shell"><input aria-label="Search anything" /></dialog>');
+      const palette = document.querySelector<HTMLDialogElement>("dialog.command-palette-shell");
+      // What `showModal()` does to the DOM, which is what the card watches for.
+      await act(async () => { palette?.setAttribute("open", ""); await Promise.resolve(); });
+      expect(card?.getAttribute("popover")).toBe("manual");
+      // Manual, never auto: this card has never trapped focus or closed on
+      // Escape, and both auto popovers and dialogs would take that away.
+      expect(card?.getAttribute("role")).toBe("dialog");
+      expect(popover.calls).toEqual(["show"]);
+
+      // Raising is a hide-and-re-show, and hiding a popover that holds focus
+      // hands focus back to whatever had it before. The palette rewrites its
+      // result list on every keystroke, so a card that re-raised on every
+      // mutation would throw a keyboard player out of "Skip this" mid-press.
+      await act(async () => {
+        palette?.append(document.createElement("li"));
+        document.body.append(document.createElement("span"));
+        await Promise.resolve();
+      });
+      expect(popover.calls).toEqual(["show"]);
+
+      await act(async () => { palette?.removeAttribute("open"); await Promise.resolve(); });
+      expect(card?.hasAttribute("popover")).toBe(false);
+    } finally {
+      popover.restore();
+    }
+  });
+
   it("spotlights with a real hole the player can click through", async () => {
     document.body.insertAdjacentHTML("beforeend", '<nav class="dashboard-tabs">Today</nav>');
     const tabs = document.querySelector<HTMLElement>(".dashboard-tabs");
@@ -1068,6 +1161,30 @@ describe("resuming", () => {
     expect(coach()).not.toBe(null);
   });
 
+  it("labels a side quest as a detour instead of the chapter it borrows", async () => {
+    document.body.insertAdjacentHTML("beforeend", '<nav class="dashboard-tabs">Today</nav>');
+    const server = makeServer();
+    await render(makeBootstrap(server, { steps: [...STEPS, QUEST_STEP] }));
+    await tick();
+
+    // On the arc the eyebrow is the chapter and the bar is the arc's percent.
+    expect(coach()?.querySelector(".tour-coach-chapter")?.textContent).toContain("Chapter 1 of 3");
+    expect(coach()?.querySelector("[role=progressbar]")?.getAttribute("aria-label")).toBe("Tour progress");
+
+    await act(async () => control("Read the mail you did not send.").click());
+    await tick();
+    // `quest.outbox` borrows chapter `grid` so the progress math has a home,
+    // but the card must say "detour", not claim the player is mid-chapter.
+    // Asserted on the eyebrow itself: the tray below reads "Side quests · 0 of
+    // 1" whatever the header says, so a `textContent` match proves nothing.
+    expect(coach()?.querySelector(".tour-coach-chapter")).toBe(null);
+    expect(coach()?.querySelector(".tour-coach-quest")?.textContent).toBe("Side quest · The grid");
+    // …and the bar under it stops measuring an arc the player has stepped off.
+    const bar = coach()?.querySelector("[role=progressbar]");
+    expect(bar?.getAttribute("aria-label")).toBe("Side quests done");
+    expect(bar?.getAttribute("aria-valuenow")).toBe("0");
+  });
+
   it("renders nothing at all once the tour is complete", async () => {
     const server = makeServer({ status: "complete" });
     await render(makeBootstrap(server), <main id="page">Dashboard</main>);
@@ -1209,6 +1326,28 @@ describe("the curtain call", () => {
     // own `:token` context, not a literal colon in the address bar.
     await act(async () => control("Create my real event").click());
     expect(harness.push).toHaveBeenCalledWith("/organizations/org-1/onboarding?mode=create");
+  });
+
+  // The confetti used to fire from `advance` — the press that dismisses the
+  // finale — so the payoff screen never saw a single drop and the burst landed
+  // over the dashboard behind it, celebrating the moment after the moment.
+  // A modal step's reward line is already on screen the frame it opens; the
+  // burst belongs on the same beat as the sentence it illustrates.
+  it("rains its confetti over the modal, not over the dashboard behind it", async () => {
+    harness.pathname = "/events/evt-1/dashboard";
+    const server = makeServer({ chapter: "live", stepId: "curtain.done", status: "active" });
+    await render(makeBootstrap(server, { steps: [...STEPS, CURTAIN_STEP], context: FINALE_CONTEXT }));
+    await tick();
+
+    expect(document.querySelector("dialog[open]")).not.toBe(null);
+    expect(harness.rain).toHaveBeenCalledWith(["🎉"], 6);
+
+    // And not a second time on the way out: one celebration, paid once.
+    harness.rain.mockClear();
+    await act(async () => control("Keep playing in the demo").click());
+    await tick();
+    expect(harness.rain).not.toHaveBeenCalled();
+    expect(server.state.status).toBe("complete");
   });
 
   it("comes back when the host restarts the tour from outside the engine", async () => {

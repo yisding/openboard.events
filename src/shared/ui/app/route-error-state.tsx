@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { AlertTriangle, ArrowLeft, RotateCw } from "lucide-react";
 import { useId, useTransition } from "react";
+import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/ui-kit";
 
 export function RouteErrorState({
@@ -12,6 +13,7 @@ export function RouteErrorState({
   backHref,
   backLabel = "Back to events",
   backTarget,
+  inline = false,
 }: {
   title: string;
   description: string;
@@ -19,11 +21,19 @@ export function RouteErrorState({
   backHref: string;
   backLabel?: string;
   backTarget?: React.HTMLAttributeAnchorTarget;
+  /**
+   * Set by the boundaries that render underneath a layout which already owns
+   * the page's `<main>` and its branded header. They get a `<section>` sized to
+   * the content area instead — a second landmark, or a second full viewport of
+   * height, would both be wrong there.
+   */
+  inline?: boolean;
 }) {
   const [retrying, startRetry] = useTransition();
   const titleId = useId();
+  const Wrapper = inline ? "section" : "main";
   return (
-    <main className="route-error-state" role="alert" aria-labelledby={titleId}>
+    <Wrapper className={cn("route-error-state", inline && "route-error-state--inline")} role="alert" aria-labelledby={titleId}>
       <span className="route-error-state__icon"><AlertTriangle size={24} aria-hidden /></span>
       <div>
         <p className="page-eyebrow">Temporary problem</p>
@@ -38,6 +48,6 @@ export function RouteErrorState({
           <ArrowLeft size={15} aria-hidden /> {backLabel}
         </Link>
       </div>
-    </main>
+    </Wrapper>
   );
 }

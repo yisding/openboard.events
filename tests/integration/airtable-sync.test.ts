@@ -42,6 +42,7 @@ import { runAirtableSyncForEventIn, runDueAirtableSyncsIn } from "@/features/air
 
 const SECRET = "airtable-integration-test-secret-at-least-32-bytes";
 const FAKE_PAT = "patFAKE0000000000000000INTEGRATIONTEST";
+const APP_BASE_URL = "https://events.example.com";
 
 /*
  * The whole ordered chain, not `0000_init` plus this feature's own migration.
@@ -288,7 +289,7 @@ async function connectEvent(eventId: EventId, options: {
     syncEnabled: options.syncEnabled ?? true,
     options: {
       includeEmail: true, includeBio: true, includePronouns: false, includeGender: false,
-      pruneRemoved: options.pruneRemoved ?? false,
+      includeHeadshots: true, pruneRemoved: options.pruneRemoved ?? false,
     },
     ...(options.schema ? { schemaSnapshot: options.schema.snapshot, schemaFingerprint: options.schema.fingerprint } : {}),
     ...(options.lastSyncedAt !== undefined ? { lastSyncedAt: options.lastSyncedAt } : {}),
@@ -322,6 +323,10 @@ beforeAll(async () => {
   }
   db = drizzle(pglite, { schema }) as unknown as DbOrTx;
   vi.stubEnv("SESSION_SECRET", SECRET);
+  // The origin a speaker's `Headshot` attachment URL is built from. Pinned so
+  // the assertion is about what the projection does with it, not about whatever
+  // the machine running the suite happens to export.
+  vi.stubEnv("APP_BASE_URL", APP_BASE_URL);
 }, 60_000);
 
 afterAll(async () => {
@@ -502,6 +507,52 @@ describe("PII gates end to end", () => {
     expect(second.stats.updated).toBe(1);
     const updated = [...people.records.values()].find((fields) => fields["Openboard ID"] === contactId);
     expect(updated?.Email).toBeNull();
+  });
+
+  /**
+   * Headshots (issue #643). The deferral said an Airtable attachment needs a
+   * signed R2 URL refreshed before it expires; it does not. Airtable fetches
+   * the bytes once and keeps its own copy, and `headshot` is a public file kind
+   * served at a permanent `/f/{fileId}`. What the engine therefore has to get
+   * right is exactly what a gated column always had to: land it, don't re-push
+   * it every run, and clear it when the organizer says stop.
+   */
+  it("pushes a speaker's headshot as an attachment, stays quiet on the next run, and clears it when the gate goes off", async () => {
+    const eventId = eventIdSchema.parse(nextId());
+    const contactId = nextId();
+    const sessionId = nextId();
+    const fileId = nextId();
+    await seedEvent(eventId);
+    await seedContact(contactId, eventId, { firstName: "Ines", lastName: "Okafor" });
+    await seedSession(sessionId, eventId);
+    await seedSpeaker(sessionId, eventId, contactId);
+    await pglite.query(
+      "INSERT INTO file_assets(id,event_id,kind,r2_key,filename,mime) VALUES($1,$2,'headshot',$3,'ines.jpg','image/jpeg')",
+      [fileId, eventId, `evt_${eventId}/headshot/${fileId}/ines.jpg`],
+    );
+    await pglite.query("UPDATE contacts SET headshot_file_id = $1 WHERE id = $2", [fileId, contactId]);
+
+    const store = createFakeStore();
+    await connectEvent(eventId);
+    expect((await runAirtableSyncForEventIn(db, eventId, { trigger: "manual", makeClient: () => createFakeAirtableClient(store) })).status).toBe("success");
+
+    const people = tableByName(store, "People");
+    expect(people.fields.find((field) => field.name === "Headshot")?.type).toBe("multipleAttachments");
+    const speaker = [...people.records.values()].find((fields) => fields["Openboard ID"] === contactId);
+    expect(speaker?.Headshot).toEqual([{ url: `${APP_BASE_URL}/f/${fileId}`, filename: "ines.jpg" }]);
+
+    // Every push of this record makes Airtable re-download the photo, so a
+    // steady state that keeps writing it is a real cost, not just noise.
+    const second = await runAirtableSyncForEventIn(db, eventId, { trigger: "manual", makeClient: () => createFakeAirtableClient(store) });
+    expect(second.stats.updated).toBe(0);
+
+    await pglite.query(
+      "UPDATE airtable_connections SET options = jsonb_set(options, '{includeHeadshots}', 'false'), next_sync_after = now() WHERE event_id = $1",
+      [eventId],
+    );
+    const third = await runAirtableSyncForEventIn(db, eventId, { trigger: "manual", makeClient: () => createFakeAirtableClient(store) });
+    expect(third.stats.updated).toBe(1);
+    expect([...people.records.values()].find((fields) => fields["Openboard ID"] === contactId)?.Headshot).toEqual([]);
   });
 });
 

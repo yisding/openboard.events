@@ -44,10 +44,10 @@ export async function checkRateLimit(
   dbOrTx: DbOrTx,
   /**
    * `message` replaces the generic refusal for callers whose 429 is read by a
-   * person mid-flow. The portal sign-in form says "Check your inbox, or try
-   * again in a few minutes" — the same sentence its per-contact throttle
-   * already used, so which of the two fired is not something the screen
-   * reports.
+   * person mid-flow. The portal sign-in form passes
+   * `PORTAL_LOGIN_THROTTLE_MESSAGE` — the same sentence its per-contact
+   * throttle already used, so which of the two fired is not something the
+   * screen reports.
    */
   args: { key: string; limit: number; windowMs: number; message?: string },
 ): Promise<void> {

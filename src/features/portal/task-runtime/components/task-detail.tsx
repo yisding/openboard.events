@@ -170,22 +170,34 @@ export function TaskDetailView({
         {task.submissionCode !== null && <p>{formatCode(task.submissionCode)} · {task.submissionTitle}</p>}
       </header>
 
-      {task.descriptionHtml && <div className="portal-panel"><RichTextView html={task.descriptionHtml} /></div>}
-
       {task.completionMode === "manual" && (
         <div className="portal-panel">
+          {task.descriptionHtml && <RichTextView html={task.descriptionHtml} />}
           {completed ? (
             <p className="portal-note">
               Marked complete <TzTime instant={task.completedAt ?? ""} tz={timezone} style="long" />.
             </p>
           ) : (
-            <Button disabled={busy} onClick={() => complete()}>{busy ? "Saving…" : "Mark as complete"}</Button>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              <Button disabled={busy} onClick={() => complete()}>{busy ? "Saving…" : "Mark as complete"}</Button>
+              {/* Some manual tasks — the speaker bio, notably — ask for work
+                  that lives on another portal page, not on this one (#719).
+                  `relatedTaskLink` only appears when the server recognizes
+                  this exact task, so unrelated manual tasks render just the
+                  button as before. */}
+              {task.relatedTaskLink && (
+                <Link className="button button-secondary" href={`/portal/${encodeURIComponent(eventSlug)}/${task.relatedTaskLink.path}`}>
+                  {task.relatedTaskLink.label}
+                </Link>
+              )}
+            </div>
           )}
         </div>
       )}
 
       {task.completionMode === "file_request" && task.fileRequest && (
         <div className="portal-panel">
+          {task.descriptionHtml && <RichTextView html={task.descriptionHtml} />}
           {task.fileRequest.instructionsHtml && <RichTextView html={task.fileRequest.instructionsHtml} />}
           <p className="portal-note">
             {task.fileRequest.acceptedExtensions.join(", ")} · up to {task.fileRequest.maxSizeMb} MB
@@ -247,6 +259,7 @@ export function TaskDetailView({
 
       {task.completionMode === "form" && !form && (
         <div className="portal-panel">
+          {task.descriptionHtml && <RichTextView html={task.descriptionHtml} />}
           <p className="portal-note" role="alert">
             This task&rsquo;s form is not ready yet. Nothing is needed from you until the organizers publish it.
           </p>
@@ -255,6 +268,7 @@ export function TaskDetailView({
 
       {task.completionMode === "form" && form && (
         <div ref={formPanelRef} className="portal-panel">
+          {task.descriptionHtml && <RichTextView html={task.descriptionHtml} />}
           {/* A file question inside the renderer reads its event scope from this
               provider; without it the field renders "File uploads are
               unavailable here" and a required upload makes the task impossible
