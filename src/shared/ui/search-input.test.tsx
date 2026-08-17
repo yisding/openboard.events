@@ -31,6 +31,18 @@ function Filter({ initial = "" }: { initial?: string }) {
   return <SearchInput label="Search forms" placeholder="Search forms" value={value} onChange={setValue} />;
 }
 
+/**
+ * Types through the prototype's setter, not the instance's. React installs a
+ * value tracker over each controlled input, so `field.value = "keynote"`
+ * updates what React believes the value already is and the `input` event that
+ * follows is discarded as a no-op change — the field stays empty and the clear
+ * control never appears. Every other typing test in this repo goes the same way.
+ */
+function type(field: HTMLInputElement, value: string): void {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(field, value);
+  field.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
 const clearButton = (container: HTMLElement) => container.querySelector<HTMLButtonElement>('button[aria-label="Clear search"]');
 const input = (container: HTMLElement) => container.querySelector<HTMLInputElement>('input[aria-label="Search forms"]');
 
@@ -42,10 +54,7 @@ describe("SearchInput", () => {
 
     expect(clearButton(container)).toBeNull();
 
-    await act(async () => {
-      field.value = "keynote";
-      field.dispatchEvent(new Event("input", { bubbles: true }));
-    });
+    await act(async () => type(field, "keynote"));
     const clear = clearButton(container);
     if (!clear) throw new Error("a non-empty search field must offer a clear control");
 
