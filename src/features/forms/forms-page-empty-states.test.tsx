@@ -65,11 +65,17 @@ async function render(forms: FormListRow[]): Promise<HTMLDivElement> {
   return container;
 }
 
+/**
+ * Types through the prototype's setter, not the instance's. React installs a
+ * value tracker over each controlled input, so `field.value = term` updates
+ * what React believes the value already is and the `input` event that follows
+ * is discarded as a no-op — the search never narrows anything.
+ */
 async function search(container: HTMLElement, term: string): Promise<void> {
   const field = container.querySelector<HTMLInputElement>('input[aria-label="Search forms"]');
   if (!field) throw new Error("the form search field did not render");
   await act(async () => {
-    field.value = term;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(field, term);
     field.dispatchEvent(new Event("input", { bubbles: true }));
   });
 }
