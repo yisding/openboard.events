@@ -755,9 +755,9 @@ function GuidedTourLayer({ bootstrap, onComplete, onStatusChange }: {
     worldRef.current = world;
   }, [world]);
 
-  // The two latency shortcuts. They shave a poll interval off the two most
-  // pressed objectives and are never the authority: delete every emit and the
-  // tour still completes, one beat later.
+  // The latency shortcuts. They shave a poll interval off the objectives a
+  // save finishes in place, and are never the authority: delete every emit and
+  // the tour still completes, one beat later.
   const refetchState = stateQuery.refetch;
   useEffect(() => {
     if (!armed) return;
@@ -823,13 +823,21 @@ function GuidedTourLayer({ bootstrap, onComplete, onStatusChange }: {
    * the player deserves to be told about — see `NOTICE_AFTER_MS`. Keyed on the
    * step for the same reason, so a step whose anchor arrives late does not
    * inherit the previous step's verdict.
+   *
+   * **And on the pathname**, so the grace is spent on the page the player ends
+   * up on rather than the one they are leaving. The tour navigates on step
+   * entry and `router.push` leaves `usePathname` on the old route until the new
+   * one commits, which on a cold route is comfortably longer than a second and
+   * a half. Without this the clock ran out during the tour's own trip and the
+   * destination's anchor — half of them behind a query boundary — arrived to a
+   * card that had already given up on it.
    */
   const [noticeDue, setNoticeDue] = useState(false);
   useMeasureEffect(() => {
     setNoticeDue(false);
     const timer = window.setTimeout(() => setNoticeDue(true), NOTICE_AFTER_MS);
     return () => window.clearTimeout(timer);
-  }, [step?.id]);
+  }, [pathname, step?.id]);
 
   /* --- advance on satisfaction ------------------------------------------ */
 
@@ -993,6 +1001,12 @@ function GuidedTourLayer({ bootstrap, onComplete, onStatusChange }: {
         ? "waiting"
         : "ready";
 
+  const takeMeThereHref = stepRoute ? tourHref(stepRoute, bootstrap.context) : null;
+  // Offered only when it is actually a trip. The tour navigates to `step.route`
+  // on entry, so by the time the card gives up on the anchor the player is
+  // almost always already there — and `navigate` returns without pushing for
+  // the URL the browser is on, which made the button render and do nothing.
+  const elsewhere = takeMeThereHref !== null && !isCurrentLocation(takeMeThereHref, location);
   /**
    * "This step wanted something to point at and has not got it."
    *
@@ -1014,19 +1028,23 @@ function GuidedTourLayer({ bootstrap, onComplete, onStatusChange }: {
    * A step authored `anchor: { kind: "none" }` is *deliberately* anchorless
    * and gets nothing: there is no failure to explain. Modal presentations are
    * excluded because their anchor is never resolved in the first place.
+   *
+   * The short fuse is for the player who is **already on the step's screen**,
+   * which is the case the notice was written for: the control genuinely does
+   * not exist yet because making it exist is the first half of the instruction.
+   * A player who is somewhere else keeps the old, much longer `missing` wait —
+   * "the control for this step is on another screen" is a claim about where
+   * they are, and a second and a half is not long enough to make it. The tour's
+   * own navigation is the reason: it pushes on step entry and the router stays
+   * on the old page until the new route commits, so a short fuse there offered
+   * "Take me there" for a trip already under way and then withdrew it.
    */
   const anchorless = step.anchor !== undefined
     && step.anchor.kind !== "none"
     && step.presentation !== "modal"
     && step.presentation !== "modal-wide"
     && anchor.status !== "found"
-    && (noticeDue || anchor.status === "missing");
-  const takeMeThereHref = stepRoute ? tourHref(stepRoute, bootstrap.context) : null;
-  // Offered only when it is actually a trip. The tour navigates to `step.route`
-  // on entry, so by the time the card gives up on the anchor the player is
-  // almost always already there — and `navigate` returns without pushing for
-  // the URL the browser is on, which made the button render and do nothing.
-  const elsewhere = takeMeThereHref !== null && !isCurrentLocation(takeMeThereHref, location);
+    && (anchor.status === "missing" || (noticeDue && !elsewhere));
   /**
    * What the card says when it has nothing to point at.
    *

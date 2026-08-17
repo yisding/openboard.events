@@ -139,6 +139,13 @@ export const ANCHOR_SETTLE_MS = 250;
  * to being found. A second and a half is past every anchor that is merely late
  * and well short of the timeout, so the notice reads as an explanation rather
  * than a blink.
+ *
+ * It is measured from the moment the player lands on the step's own page, and
+ * only spends itself on the "no spotlight yet" wording. Telling somebody the
+ * control is on *another* screen is a claim about where they are standing, and
+ * a second and a half is not long enough to make it while the tour's own
+ * `router.push` is still in flight — that one still waits for
+ * `ANCHOR_TIMEOUT_MS`. See `anchorless` in `provider.tsx`.
  */
 export const NOTICE_AFTER_MS = 1_500;
 

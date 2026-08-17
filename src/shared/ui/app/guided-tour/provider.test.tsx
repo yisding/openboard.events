@@ -163,16 +163,35 @@ function stubMatchMedia() {
   });
 }
 
+/** The root of the most recent `render`, so a test can re-render it in place. */
+let lastRender: (() => Promise<void>) | null = null;
+
 async function render(bootstrap: TourBootstrap | null, children?: React.ReactNode) {
   const container = document.createElement("div");
   document.body.append(container);
   const root = createRoot(container);
-  await act(async () => root.render(<GuidedTourMount bootstrap={bootstrap}>{children}</GuidedTourMount>));
+  const draw = async () => {
+    await act(async () => root.render(<GuidedTourMount bootstrap={bootstrap}>{children}</GuidedTourMount>));
+  };
+  await draw();
+  lastRender = draw;
   cleanup.push(async () => {
+    lastRender = null;
     await act(async () => root.unmount());
     container.remove();
   });
   return container;
+}
+
+/**
+ * A soft navigation: the router's pathname changes and the tree re-renders
+ * around the same mounted engine, exactly as an App Router `push` does once the
+ * new route commits. `usePathname` is a mock reading a plain variable, so a
+ * re-render is what makes the new value visible.
+ */
+async function navigateTo(pathname: string) {
+  harness.pathname = pathname;
+  await lastRender?.();
 }
 
 /**
@@ -599,6 +618,30 @@ describe("anchoring", () => {
     expect(coach()).not.toBe(null);
     expect(coach()?.textContent).not.toContain("No spotlight yet");
 
+    await tick(1_300);
+    expect(coach()?.textContent).toContain("No spotlight yet");
+  });
+
+  it("spends the grace on the page it arrives at, not the one it is leaving", async () => {
+    // The tour pushes on step entry, and the router stays on the old page until
+    // the new route commits — comfortably longer than the notice's fuse on a
+    // cold route. Speaking during that window offered "Take me there" for a
+    // trip already under way, then withdrew it on arrival; starting the clock
+    // again when the player lands is what gives the destination's own anchor,
+    // half of which sit behind a query boundary, the same grace as every other.
+    const server = makeServer();
+    await render(makeBootstrap(server, {
+      steps: [{ ...STEPS[0], anchor: MISSING_ANCHOR, route: { path: "/events/:eventId/agenda" } } as TourStep, ...STEPS.slice(1)],
+    }));
+
+    await tick(2_000);
+    expect(coach()).not.toBe(null);
+    expect(coach()?.textContent).not.toContain("another screen");
+    expect(coach()?.textContent).not.toContain("Take me there");
+
+    await navigateTo("/events/evt-1/agenda");
+    await tick(400);
+    expect(coach()?.textContent).not.toContain("No spotlight yet");
     await tick(1_300);
     expect(coach()?.textContent).toContain("No spotlight yet");
   });
