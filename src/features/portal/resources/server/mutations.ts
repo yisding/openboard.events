@@ -1,8 +1,8 @@
 import { sql } from "drizzle-orm";
-import { parseTag } from "xss";
 import { z } from "zod";
 import { db, type DbOrTx } from "@/db/client";
 import { isConstraintViolation } from "@/db/errors";
+import { stripHtml } from "@/features/comms/index.render";
 import type { EventId } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
 import { sanitize } from "@/shared/lib/sanitize";
@@ -27,20 +27,48 @@ function assertValidSlug(slug: string): void {
   }
 }
 
+/** A heading element taken whole, so `excerptFromHtml` can lift it out of the body. */
+const HEADING_BLOCK = /<h[1-6]\b[^>]*>[\s\S]*?<\/h[1-6]\s*>/giu;
+/** A block that already closed its own sentence reads fine with a plain space after it. */
+const SENTENCE_END = /[.!?…:;]$/u;
+/** Whatever the cut left dangling: whitespace, a half-sentence's punctuation, a separator. */
+const TRAILING_JOINERS = /[\s.,;:·—–-]+$/u;
+
+/** The plain text of each block-level element, in order, blank ones dropped. */
+function textBlocks(html: string): string[] {
+  return stripHtml(html).split("\n").map((block) => block.trim()).filter(Boolean);
+}
+
 /**
- * The plaintext excerpt the admin list and the portal cards show — same
- * `parseTag` idiom the frozen `plainTextLength` contract helper uses, just
- * collecting the text instead of counting it. Computed once here, at save
- * time, off the **sanitized** HTML, so a stripped `<script>` never leaks its
- * text content into the excerpt either.
+ * The plaintext excerpt the admin list and the portal cards show. Computed
+ * here, at save time, off the **sanitized** HTML, so a stripped `<script>`
+ * never leaks its text content into the excerpt either.
  *
- * A space precedes every `<` first: `parseTag` concatenates text nodes with
- * nothing between them, so "<h2>Welcome</h2><p>Check in…" would otherwise
- * collapse into "WelcomeCheck in…" with no word boundary at all.
+ * `stripHtml` (the same converter the email dispatcher builds its text/plain
+ * alternative with) does the tag work, because an excerpt has exactly the
+ * problem a text/plain alternative has: block boundaries are meaning. Stripping
+ * tags and collapsing whitespace turned "<h2>Welcome</h2><p>Check in…" into
+ * "Welcome Check in…" — a heading fused into the sentence after it, which is
+ * not a sentence anyone wrote.
+ *
+ * So headings come out first: a heading is a label for the prose beneath it,
+ * and the card already shows the page title above the excerpt, so repeating the
+ * first heading there buys nothing. What is left is joined block by block —
+ * with a space where the previous block ended its own sentence, and a "·"
+ * where it did not, so a run of list items stays a list of items instead of
+ * one run-on line. A body that is *only* headings still gets them, rather than
+ * an empty card.
  */
 export function excerptFromHtml(html: string, max = 140): string {
-  const text = (parseTag(html.replace(/</g, " <"), () => "", (value) => value) as string).replace(/\s+/g, " ").trim();
-  return text.length > max ? `${text.slice(0, max).trimEnd()}…` : text;
+  const prose = textBlocks(html.replace(HEADING_BLOCK, "\n"));
+  const blocks = prose.length > 0 ? prose : textBlocks(html);
+  const text = blocks.reduce((acc, block) => (acc ? `${acc}${SENTENCE_END.test(acc) ? " " : " · "}${block}` : block), "");
+  if (text.length <= max) return text;
+  // Cut on a word boundary — "presenting a…" is a nicer stop than "presenting
+  // a li…" — unless the first `max` characters hold no boundary at all.
+  const clipped = text.slice(0, max);
+  const lastSpace = clipped.lastIndexOf(" ");
+  return `${(lastSpace > max / 2 ? clipped.slice(0, lastSpace) : clipped).replace(TRAILING_JOINERS, "")}…`;
 }
 
 export const saveResourcePageInputSchema = z.object({

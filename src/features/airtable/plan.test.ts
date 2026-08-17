@@ -106,7 +106,7 @@ describe("literal names — a rename here orphans a customer's synced base", () 
   it("uses these exact field names for People", () => {
     expect(TABLE_PLANS.people.fields.map((field) => field.name)).toEqual([
       "Name", "Openboard ID", "First name", "Last name", "Email", "Job title", "Company",
-      "Bio", "Pronouns", "Gender", "Confirmation status", "LinkedIn", "Website",
+      "Bio", "Headshot", "Pronouns", "Gender", "Confirmation status", "LinkedIn", "Website",
     ]);
   });
 
@@ -136,5 +136,13 @@ describe("manualSchemaInstructions", () => {
     expect(sessions?.fields.map((field) => field.name)).toContain("Openboard ID");
     const track = sessions?.fields.find((field) => field.name === "Track");
     expect(track?.type).toBe("Link to Tracks");
+  });
+
+  it("names the attachment column by the label Airtable's own field picker uses", () => {
+    // An organizer without `schema.bases:write` builds these columns by hand.
+    // "multipleAttachments" is the API's name for the type and appears nowhere
+    // in the menu they are reading.
+    const people = manualSchemaInstructions().find((entry) => entry.table === "People");
+    expect(people?.fields.find((field) => field.name === "Headshot")?.type).toBe("Attachment");
   });
 });

@@ -20,8 +20,11 @@ describe("authentication transition focus", () => {
       eventSlug: "test-event",
       email: "speaker@example.com",
       fallback: null,
+      origin: "sent" as const,
       headingRef: React.createRef<HTMLHeadingElement>(),
       onUseDifferentEmail: vi.fn(),
+      onRequestNewCode: vi.fn(),
+      requesting: false,
     }));
     expect(html).toContain('<h1 tabindex="-1">Check your inbox</h1>');
 

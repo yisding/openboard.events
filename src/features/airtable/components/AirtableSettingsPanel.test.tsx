@@ -52,7 +52,7 @@ function connectionFixture(overrides: Partial<AirtableConnectionSummary> = {}): 
     baseId: "appABCD12345678",
     baseName: "SH-5 2026 Program",
     syncEnabled: true,
-    options: { includeEmail: true, includeBio: true, includePronouns: false, includeGender: false, pruneRemoved: false },
+    options: { includeEmail: true, includeBio: true, includePronouns: false, includeGender: false, includeHeadshots: true, pruneRemoved: false },
     schemaReady: true,
     nextSyncAfter: new Date(Date.now() + 660_000).toISOString(),
     lastSyncedAt: new Date(Date.now() - 240_000).toISOString(),

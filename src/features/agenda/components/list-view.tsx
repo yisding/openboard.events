@@ -53,6 +53,14 @@ export function ListView({
       id: "title",
       header: "Title",
       accessorKey: "title",
+      // `.data-table` is `table-layout:auto` and Date/Start–End/Room/Track/
+      // Speakers/Status are all `white-space:nowrap`, so auto layout satisfies
+      // them first and hands the whole width deficit to this, the only column
+      // that wraps — collapsing it to roughly its longest word (#666: six
+      // lines, one to three words each, at 1440px). The class is the seam
+      // `globals.css` needs to give it a floor, same shape as the abstracts
+      // table's `abstracts-title-column`.
+      meta: { className: "agenda-title-column" },
       cell: ({ row }) => {
         const overlaps = conflictsForSession(conflicts, row.original.id);
         return (

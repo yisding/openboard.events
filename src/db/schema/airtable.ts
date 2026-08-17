@@ -10,6 +10,8 @@ export type AirtableConnectionOptions = {
   includeBio: boolean;
   includePronouns: boolean;
   includeGender: boolean;
+  /** Speaker headshots, pushed into the People table's `Headshot` attachment column. */
+  includeHeadshots: boolean;
   pruneRemoved: boolean;
 };
 
@@ -45,7 +47,8 @@ export const airtableConnections = pgTable("airtable_connections", {
   baseName: text("base_name"),
   syncEnabled: boolean("sync_enabled").notNull().default(true),
   options: jsonb("options").$type<AirtableConnectionOptions>().notNull().default({
-    includeEmail: true, includeBio: true, includePronouns: false, includeGender: false, pruneRemoved: false,
+    includeEmail: true, includeBio: true, includePronouns: false, includeGender: false,
+    includeHeadshots: true, pruneRemoved: false,
   }),
   schemaSnapshot: jsonb("schema_snapshot").$type<AirtableSchemaSnapshot>(),
   schemaFingerprint: text("schema_fingerprint"),
