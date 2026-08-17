@@ -59,7 +59,7 @@ function connectionFixture(overrides: Partial<AirtableConnectionSummary> = {}): 
     baseId: null,
     baseName: null,
     syncEnabled: true,
-    options: { includeEmail: true, includeBio: true, includePronouns: false, includeGender: false, pruneRemoved: false },
+    options: { includeEmail: true, includeBio: true, includePronouns: false, includeGender: false, includeHeadshots: true, pruneRemoved: false },
     schemaReady: false,
     nextSyncAfter: new Date().toISOString(),
     lastSyncedAt: null,
