@@ -968,12 +968,22 @@ describe("resuming", () => {
     await render(makeBootstrap(server, { steps: [...STEPS, QUEST_STEP] }));
     await tick();
 
+    // On the arc the eyebrow is the chapter and the bar is the arc's percent.
+    expect(coach()?.querySelector(".tour-coach-chapter")?.textContent).toContain("Chapter 1 of 3");
+    expect(coach()?.querySelector("[role=progressbar]")?.getAttribute("aria-label")).toBe("Tour progress");
+
     await act(async () => control("Read the mail you did not send.").click());
     await tick();
     // `quest.outbox` borrows chapter `grid` so the progress math has a home,
     // but the card must say "detour", not claim the player is mid-chapter.
-    expect(coach()?.textContent).toContain("Side quest");
-    expect(coach()?.textContent).not.toContain("Chapter");
+    // Asserted on the eyebrow itself: the tray below reads "Side quests · 0 of
+    // 1" whatever the header says, so a `textContent` match proves nothing.
+    expect(coach()?.querySelector(".tour-coach-chapter")).toBe(null);
+    expect(coach()?.querySelector(".tour-coach-quest")?.textContent).toBe("Side quest · The grid");
+    // …and the bar under it stops measuring an arc the player has stepped off.
+    const bar = coach()?.querySelector("[role=progressbar]");
+    expect(bar?.getAttribute("aria-label")).toBe("Side quests done");
+    expect(bar?.getAttribute("aria-valuenow")).toBe("0");
   });
 
   it("renders nothing at all once the tour is complete", async () => {

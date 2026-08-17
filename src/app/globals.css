@@ -3212,7 +3212,11 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
    celebrating, the title steps back to a struck-through, checked-off line so
    the reward below it — not the instruction above it — reads as the news. */
 .tour-coach-title-done { color: var(--muted); font-weight: var(--weight-control); text-decoration: line-through; text-decoration-color: var(--line); }
-.tour-coach-title-done::before { content: "\2713  "; text-decoration: none; color: var(--green); }
+/* `inline-block`, not `text-decoration: none`: a decoration specified on an
+   ancestor propagates and cannot be cancelled by a descendant, so the plain
+   version of this rule drew the line straight through the tick. An atomic
+   inline-level box is the one thing propagation skips. */
+.tour-coach-title-done::before { content: "\2713"; display: inline-block; margin-right: 6px; color: var(--green); }
 .tour-coach-body { margin: 4px 0 0; color: var(--muted); font-size: var(--text-xs); line-height: 1.55; }
 .tour-coach-notice { margin: 8px 0 0; padding: 7px 9px; border-radius: 8px; background: var(--amber-soft); color: var(--amber); font-size: var(--text-xs); line-height: 1.5; }
 .tour-coach-hint { margin: 8px 0 0; padding: 7px 9px; border-left: 2px solid var(--accent-border); background: var(--accent-faint); color: var(--ink); font-size: var(--text-xs); line-height: 1.5; }
