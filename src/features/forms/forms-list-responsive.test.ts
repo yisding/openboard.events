@@ -14,8 +14,8 @@ describe("form list mobile toolbars", () => {
 
     expect(submissions).toContain('className="list-toolbar form-list-toolbar"');
     expect(portal).toContain('className="list-toolbar form-list-toolbar"');
-    expect(submissions).toContain('aria-label="Search forms"');
-    expect(portal).toContain('aria-label="Search forms"');
+    expect(submissions).toContain('<SearchInput label="Search forms"');
+    expect(portal).toContain('<SearchInput label="Search forms"');
   });
 
   it("scrolls filter tabs and gives search a full-width mobile row", () => {
@@ -24,6 +24,6 @@ describe("form list mobile toolbars", () => {
 
     expect(mobile).toContain(".form-list-toolbar>.tabs{width:100%;overflow-x:auto;");
     expect(mobile).toContain(".form-list-toolbar>.tabs button{min-height:44px;flex:0 0 auto}");
-    expect(mobile).toContain(".form-list-toolbar>input{width:100%;min-width:0;min-height:44px;flex:1 0 100%}");
+    expect(mobile).toContain(".form-list-toolbar>.table-search{width:100%;min-width:0;flex:1 0 100%}");
   });
 });

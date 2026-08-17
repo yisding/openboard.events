@@ -14,7 +14,7 @@ import {
 import type { TaskTarget } from "@/shared/contracts";
 import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
-import { Button, EmptyState, Field, Modal, PageHeader } from "@/shared/ui/ui-kit";
+import { Button, EmptyState, Field, Modal, PageHeader, SearchInput } from "@/shared/ui/ui-kit";
 import { formatInZone } from "@/shared/lib/time";
 import { useToast } from "@/shared/ui/toast";
 
@@ -166,7 +166,7 @@ export function PortalFormsPage({ event, initialForms }: { event: BuilderEvent; 
     />
     <section className="panel list-panel">
       <div className="list-toolbar form-list-toolbar">
-        <input aria-label="Search forms" placeholder="Search forms" value={search} onChange={(current) => setSearch(current.target.value)} />
+        <SearchInput label="Search forms" placeholder="Search forms" value={search} onChange={setSearch} />
       </div>
       {visible.length === 0 ? (
         <EmptyState

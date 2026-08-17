@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, GitMerge, Plus, Search, Send, StickyNote } from "lucide-react";
+import { ArrowLeft, GitMerge, Plus, Send, StickyNote } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
@@ -22,7 +22,7 @@ import {
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { moveRovingTab } from "@/shared/ui/app/roving-tabs";
 import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
-import { Avatar, Button, Field, Modal, PageHeader, Select, StatusBadge } from "@/shared/ui/ui-kit";
+import { Avatar, Button, Field, Modal, PageHeader, SearchInput, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
@@ -117,10 +117,15 @@ function MergeSearchDialog({
   return (
     <Modal open={open} onClose={onClose} title="Find the duplicate to merge with" description="Search by name, email, or company.">
       <div className="form-stack">
-        <form className="table-search" style={{ width: "100%" }} onSubmit={(event) => { event.preventDefault(); void run(); }}>
-          <Search size={16} />
-          <input aria-label="Search the directory" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search the directory" autoFocus />
-        </form>
+        <SearchInput
+          className="table-search--fill"
+          label="Search the directory"
+          placeholder="Search the directory"
+          value={query}
+          onChange={setQuery}
+          onSubmit={() => void run()}
+          autoFocus
+        />
         {busy && <p className="long-copy">Searching…</p>}
         {/* The `!error` guard below is load-bearing: a failed lookup must not
             claim the directory holds no duplicate. */}
@@ -339,8 +344,8 @@ export function ContactDetailView({
         <header className="panel-header crm-detail-hero">
           <Avatar initials={initialsFor(contact)} size="lg" />
           <div>
-            <h1 style={{ margin: "0 0 4px" }}>{nameOf(contact)}</h1>
-            <p style={{ margin: 0, color: "var(--muted)", fontSize: 12.5 }}>{contact.email}{contact.jobTitle ? ` · ${contact.jobTitle}` : ""}{contact.company ? ` at ${contact.company}` : ""}</p>
+            <h1>{nameOf(contact)}</h1>
+            <p>{contact.email}{contact.jobTitle ? ` · ${contact.jobTitle}` : ""}{contact.company ? ` at ${contact.company}` : ""}</p>
           </div>
           <StatusBadge value={contact.source} />
           <Button variant="secondary" size="sm" onClick={() => setMergeSearchOpen(true)}><GitMerge size={14} /> Merge with…</Button>

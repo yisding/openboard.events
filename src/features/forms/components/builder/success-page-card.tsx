@@ -4,8 +4,6 @@ import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
 import { Field, Switch } from "@/shared/ui/ui-kit";
 import type { BuilderForm, FormPatch } from "../../builder-types";
 
-const captionStyle = { color: "var(--muted)", fontSize: "var(--text-xs)", margin: "-12px 0 16px" } as const;
-
 /**
  * "After submission" — what submitters see on the confirmation page. The
  * organizer's own annotation on this card is "make sure this works": it is a
@@ -20,7 +18,7 @@ export function SuccessPageCard({ form, onChange }: {
   return (
     <div className="builder-card form-stack">
       <h3>After submission</h3>
-      <p style={captionStyle}>What submitters see on the confirmation page after they complete the form.</p>
+      <p className="builder-caption">What submitters see on the confirmation page after they complete the form.</p>
       <div className="inline-setting">
         <div>
           <b>Auto-redirect to speaker portal</b>

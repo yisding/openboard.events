@@ -52,6 +52,23 @@ describe("AST source invariants", () => {
     expect(result.status, result.stderr).toBe(0);
   });
 
+  // #638 — a size written into a `style` prop is invisible to every `@media`
+  // block in globals.css, so a surface written that way can never reflow. The
+  // one exception is the screen that renders without the stylesheet at all.
+  it("rejects hard-coded inline type outside the stylesheet-free error screen", () => {
+    const root = fixture({
+      "src/features/billing/panel.tsx": 'export const Plan = () => <span style={{ fontSize: 12.5 }}>Free</span>;',
+      "src/app/global-error.tsx": 'export default () => <html><body style={{ fontSize: 20 }}>Broken</body></html>;',
+      "src/features/billing/scaled.tsx": 'export const Note = () => <span style={{ fontSize: "var(--text-sm)" }}>Free</span>;',
+    });
+
+    const result = check(root);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("src/features/billing/panel.tsx");
+    expect(result.stderr).toContain("[inline-type-scale]");
+    expect(result.stderr.match(/\[inline-type-scale\]/gu)).toHaveLength(1);
+  });
+
   it("rejects restricted modules, environment access, edge runtime, and R2 access", () => {
     const root = fixture({
       "src/features/example/server.ts": `

@@ -159,7 +159,7 @@ test.describe("admin-setup", () => {
 
         await page.goto(`/events/${EVENTS.empty.id}/forms`);
         await expect(page.getByRole("heading", { name: "Submission forms", exact: true })).toBeVisible();
-        await expect(page.getByText("No forms here")).toBeVisible();
+        await expect(page.getByText("No forms yet")).toBeVisible();
       });
       assertClean();
     });

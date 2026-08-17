@@ -13,7 +13,7 @@ import { FirstRunHints, Hint, resetHints } from "@/shared/ui/app/first-run-hints
 import { moveRovingTab } from "@/shared/ui/app/roving-tabs";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { useToast } from "@/shared/ui/toast";
-import { Avatar, Button, Drawer, EmptyState, Field, Modal, PageHeader, StatusBadge, Switch } from "@/shared/ui/ui-kit";
+import { Avatar, Button, Drawer, EmptyState, Field, Modal, PageHeader, SearchInput, StatusBadge, Switch } from "@/shared/ui/ui-kit";
 import { CommandPalette } from "./components/command-palette";
 
 const TIMEZONE = "America/Los_Angeles";
@@ -293,14 +293,7 @@ export function KitchenSink() {
           columnVisibilityKey="kitchen-sink"
           pageSize={10}
           toolbar={
-            <div className="table-search">
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search fixtures"
-                aria-label="Search fixtures"
-              />
-            </div>
+            <SearchInput label="Search fixtures" placeholder="Search fixtures" value={search} onChange={setSearch} />
           }
           empty={
             <EmptyState

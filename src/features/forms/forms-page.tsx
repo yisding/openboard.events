@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CalendarClock, Copy, ExternalLink, Eye, FileEdit, FileText, Plus, Send, Users } from "lucide-react";
+import { CalendarClock, Copy, ExternalLink, Eye, FileEdit, FileText, Plus, Search, Send, Users } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import type { BuilderEvent, BuilderForm, FormListRow } from "./builder-types";
 import { duplicateFormAsDraft, formDuplicateOutcomeUnknown } from "./duplicate-form";
 import { formAvailability, type FormAvailability } from "./lib/form-open";
-import { Button, EmptyState, Field, Modal, PageHeader, StatusBadge, Switch } from "@/shared/ui/ui-kit";
+import { Button, EmptyState, Field, Modal, PageHeader, SearchInput, StatusBadge, Switch } from "@/shared/ui/ui-kit";
 import { formatInZone } from "@/shared/lib/time";
 import { createStableCreateRequestId } from "@/shared/lib/stable-create-request-id";
 import { copyText } from "@/shared/ui/app/copy-text";
@@ -122,6 +122,30 @@ export function FormsPage({ event, initialForms }: { event: BuilderEvent; initia
 
   const totalSubmissions = forms.reduce((total, form) => total + form.submissionCount, 0);
   const totalDrafts = forms.reduce((total, form) => total + form.draftCount, 0);
+  // "No forms here" meant three unrelated things, and the one that reads as an
+  // accusation is telling an organizer with 30 forms to create one. Each
+  // emptiness now names what emptied the list and offers the way back.
+  const searchActive = search.trim() !== "";
+  const emptyState = forms.length === 0
+    ? <EmptyState
+      icon={<FileText />}
+      title="No forms yet"
+      description="Create a form to start collecting abstracts, sessions, or participant details."
+      action={<Button onClick={openCreate}><Plus size={16} /> Create form</Button>}
+    />
+    : searchActive
+      ? <EmptyState
+        icon={<Search />}
+        title="No forms match that search"
+        description={`Clear the search to see ${forms.length === 1 ? "the one form" : `all ${forms.length} forms`} on this event.`}
+        action={<Button variant="secondary" onClick={() => setSearch("")}>Clear search</Button>}
+      />
+      : <EmptyState
+        icon={<FileText />}
+        title={`No ${formTabs.find((candidate) => candidate.value === tab)?.label.toLowerCase() ?? ""} forms`}
+        description="Nothing on this event is in that state right now."
+        action={<Button variant="secondary" onClick={() => setTab("all")}>Show all forms</Button>}
+      />;
   return <>
     <PageHeader
       eyebrow="PROGRAM"
@@ -138,9 +162,9 @@ export function FormsPage({ event, initialForms }: { event: BuilderEvent; initia
     <section className="panel list-panel">
       <div className="list-toolbar form-list-toolbar">
         <div className="tabs" role="group" aria-label="Form filters">{formTabs.map(({ value, label }) => <button type="button" key={value} aria-pressed={tab === value} className={tab === value ? "active" : ""} onClick={() => setTab(value)}>{label}<span>{value === "all" ? forms.length : forms.filter((form) => form.availability === value).length}</span></button>)}</div>
-        <input aria-label="Search forms" placeholder="Search forms" value={search} onChange={(current) => setSearch(current.target.value)} />
+        <SearchInput label="Search forms" placeholder="Search forms" value={search} onChange={setSearch} />
       </div>
-      {visible.length === 0 ? <EmptyState icon={<FileText />} title="No forms here" description="Create a form or clear the current filters." /> : <div className="form-cards">{visible.map((form) => <article className="form-list-card" key={form.id}>
+      {visible.length === 0 ? emptyState : <div className="form-cards">{visible.map((form) => <article className="form-list-card" key={form.id}>
         <div className="form-list-icon"><FileEdit size={22} /></div>
         <div className="form-list-main"><div><h2><Link className="form-list-title-link" href={`/events/${event.id}/forms/${form.id}`}>{form.internalName}</Link></h2><StatusBadge value={form.availability} /></div><p>{form.externalTitle || "Untitled public form"}</p><div className="form-list-meta">
           <span><Users size={14} /> {form.submissionCount} submissions</span>

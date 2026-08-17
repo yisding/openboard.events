@@ -235,8 +235,8 @@ export function ApiKeysPanel({ eventId, initialKeys, timezone }: { eventId: Even
         {justCreated && (
           <div className="field">
             <span>Plaintext key</span>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <code style={{ wordBreak: "break-all", flex: 1 }}>{justCreated.plaintext}</code>
+            <div className="plaintext-key">
+              <code>{justCreated.plaintext}</code>
               <Button variant="secondary" size="sm" onClick={() => void copyPlaintext(justCreated.plaintext)}><Copy size={14} /> Copy</Button>
             </div>
             <small>This is the only time this key is shown. Store it in your script’s environment, not in source control.</small>

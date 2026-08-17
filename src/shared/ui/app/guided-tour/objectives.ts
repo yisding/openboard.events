@@ -117,12 +117,37 @@ export const ANCHOR_TIMEOUT_MS = 6_000;
  * the double-take that reads as flicker. An anchor already on the page
  * resolves before the first paint and this never runs; one that arrives with a
  * navigation, a drawer or a query boundary is worth a quarter of a second of
- * patience. Past that the card appears centred with its notice, because a
- * tutorial that shows nothing is worse than one that shows something in the
- * wrong place. Well short of `ANCHOR_TIMEOUT_MS`, which is the much longer
- * wait before an anchor is declared missing outright.
+ * patience. Past that the card appears anyway, because a tutorial that shows
+ * nothing is worse than one that shows something in the wrong place — it just
+ * does not yet say *why* there is no spotlight, which is `NOTICE_AFTER_MS`
+ * below. Well short of `ANCHOR_TIMEOUT_MS`, the much longer wait before an
+ * anchor is declared missing outright.
  */
 export const ANCHOR_SETTLE_MS = 250;
+/**
+ * How long an unresolved anchor stays unexplained before the card says so.
+ *
+ * `ANCHOR_TIMEOUT_MS` is when an anchor is declared *missing*, and hanging the
+ * notice off that alone left the two steps whose control genuinely does not
+ * exist yet — the workshop question before Format is Workshop, the visibility
+ * inspector before a question with a rule is selected — sitting for six seconds
+ * with a card docked in the corner, no spotlight, and not a word about why. The
+ * player has no way to tell that from a broken tutorial.
+ *
+ * `ANCHOR_SETTLE_MS` is too twitchy to reuse: at a quarter of a second an
+ * anchor that arrives with a query boundary would flash the notice on its way
+ * to being found. A second and a half is past every anchor that is merely late
+ * and well short of the timeout, so the notice reads as an explanation rather
+ * than a blink.
+ *
+ * It is measured from the moment the player lands on the step's own page, and
+ * only spends itself on the "no spotlight yet" wording. Telling somebody the
+ * control is on *another* screen is a claim about where they are standing, and
+ * a second and a half is not long enough to make it while the tour's own
+ * `router.push` is still in flight — that one still waits for
+ * `ANCHOR_TIMEOUT_MS`. See `anchorless` in `provider.tsx`.
+ */
+export const NOTICE_AFTER_MS = 1_500;
 
 /**
  * 2 s while anything is happening; once a step has been open for half a

@@ -12,7 +12,7 @@ import { DataTable, nullsLast, type DataTableProps } from "@/shared/ui/app/data-
 import { Dash } from "@/shared/ui/app/dash";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { statusBadgeLabel } from "@/shared/ui/status-badge";
-import { Button, EmptyState, StatusBadge } from "@/shared/ui/ui-kit";
+import { Button, EmptyState, SearchInput, StatusBadge } from "@/shared/ui/ui-kit";
 
 /**
  * The Abstracts table over database rows. Counts arrive from the server
@@ -326,21 +326,18 @@ export function AbstractsTable({
           onChange: (state) => onSortChange(submissionSortFromTable(state)),
         }}
         toolbar={
-          <form
-            className="table-search"
-            onSubmit={(event) => { event.preventDefault(); onFilter({ search: draftSearch }); }}
-          >
-            <input
-              // The one field on this screen inside a real `<form>`: without a
-              // name it is the unidentifiable control browser form tooling
-              // complains about, even though `aria-label` names it for people.
-              name="search"
-              value={draftSearch}
-              onChange={(event) => setDraftSearch(event.target.value)}
-              placeholder="Search code, title or speaker"
-              aria-label="Search submissions"
-            />
-          </form>
+          <SearchInput
+            label="Search submissions"
+            placeholder="Search code, title or speaker"
+            // The one field on this screen inside a real `<form>`: without a
+            // name it is the unidentifiable control browser form tooling
+            // complains about, even though `aria-label` names it for people.
+            name="search"
+            value={draftSearch}
+            onChange={setDraftSearch}
+            onClear={() => { setDraftSearch(""); onFilter({ search: "" }); }}
+            onSubmit={() => onFilter({ search: draftSearch })}
+          />
         }
         empty={<EmptyState icon={<Inbox size={20} />} {...emptyState} />}
       />

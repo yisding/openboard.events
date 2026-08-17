@@ -6,9 +6,6 @@ import { Button, Field, Switch } from "@/shared/ui/ui-kit";
 import type { BuilderForm, FormPatch } from "../../builder-types";
 import { sanitizeTemplateBody } from "@/shared/lib/template-body";
 
-const captionStyle = { color: "var(--muted)", fontSize: "var(--text-xs)", margin: "-12px 0 16px" } as const;
-const fallbackNote = { color: "var(--muted)", fontSize: "var(--text-xs)", lineHeight: 1.5, margin: "6px 0 16px" } as const;
-
 /**
  * "Notifications" — the Submission Confirmation email.
  *
@@ -40,7 +37,7 @@ export function NotificationsStep({ form, onChange }: {
       </header>
       <div className="builder-card">
         <h3>Submitter notifications</h3>
-        <p style={captionStyle}>1 template</p>
+        <p className="builder-caption">1 template</p>
         <div className="inline-setting">
           <div>
             <b>Submission Confirmation</b>
@@ -59,7 +56,7 @@ export function NotificationsStep({ form, onChange }: {
         >{expanded ? "Hide customization" : "Customize"}</Button>
         {expanded && (
           <div className="form-stack" style={{ marginTop: 16 }}>
-            <p style={fallbackNote}>Leave blank to use the event’s default template.</p>
+            <p className="builder-help builder-help--inline">Leave blank to use the event’s default template.</p>
             <Field label="Subject">
               <input
                 maxLength={255}
