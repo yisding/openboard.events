@@ -12,7 +12,7 @@ export default function AccountError({ reset }: { error: Error & { digest?: stri
   return (
     <RouteErrorState
       inline
-      title="We couldn't load your account"
+      title="We couldn’t load your account"
       description="A temporary read failed before this page was ready. You are still signed in — retry here, or head back to your events."
       reset={reset}
       backHref="/events"

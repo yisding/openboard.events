@@ -56,7 +56,7 @@ const MAX_AUTHORITY_READS = 4;
  * mutation — say both, so nobody hunts for a gesture they do not need.
  */
 const SCREEN_READER_INSTRUCTIONS: ScreenReaderInstructions = {
-  draggable: "Press space or enter on a prospect's drag handle to pick it up. The left and right arrow keys move it between stages, space or enter drops it, escape cancels. Every card also carries a stage menu that makes the same move without a drag.",
+  draggable: "Press space or enter on a prospect’s drag handle to pick it up. The left and right arrow keys move it between stages, space or enter drops it, escape cancels. Every card also carries a stage menu that makes the same move without a drag.",
 };
 
 /**

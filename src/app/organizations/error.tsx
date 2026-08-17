@@ -14,7 +14,7 @@ export default function OrganizationsError({ reset }: { error: Error & { digest?
   const atChooser = usePathname() === "/organizations";
   return (
     <RouteErrorState
-      title={atChooser ? "We couldn't load your organizations" : "We couldn't open this organization"}
+      title={atChooser ? "We couldn’t load your organizations" : "We couldn’t open this organization"}
       description="A temporary read failed before this page was ready. Retry when you are ready; every member, invitation and event in this workspace is untouched."
       reset={reset}
       backHref="/events"
