@@ -48,6 +48,16 @@ const IDENTITY_TABLE_NAMES = new Set(["contacts", "organizationContacts", "users
  */
 const VIEWER_LOCAL_TIME_METHODS = new Set(["toLocaleDateString", "toLocaleTimeString"]);
 
+/**
+ * #638 — the one surface that genuinely cannot reach `globals.css`.
+ * `global-error.tsx` replaces the root layout (it renders its own `<html>` and
+ * `<body>`), which is exactly the failure it exists to survive: the stylesheet
+ * may be the thing that did not load. Everywhere else, a number in a `style`
+ * prop is a size no `@media` block and no CSS audit can see — `--text-*` in
+ * `globals.css` is where type is spelled.
+ */
+const STYLESHEET_FREE_FILES = new Set(["src/app/global-error.tsx"]);
+
 type Violation = {
   line: number;
   message: string;
@@ -672,6 +682,8 @@ function inspectFile(absolutePath: string): Violation[] {
       const value = numericValue(node.initializer);
       if (value !== null && value < 12) {
         report(node, "inline-type-floor", "inline fontSize values must be at least 12");
+      } else if (value !== null && !STYLESHEET_FREE_FILES.has(path)) {
+        report(node, "inline-type-scale", "spell type as a --text-* token in globals.css, not a number in a style prop");
       }
     }
 

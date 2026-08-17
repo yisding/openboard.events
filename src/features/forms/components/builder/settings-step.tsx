@@ -5,9 +5,6 @@ import type { BuilderEvent, BuilderForm, FormPatch } from "../../builder-types";
 import { CloseDateCard } from "./close-date-card";
 import { SuccessPageCard } from "./success-page-card";
 
-const captionStyle = { color: "var(--muted)", fontSize: "var(--text-xs)", margin: "-12px 0 16px" } as const;
-const helpStyle = { color: "var(--muted)", fontSize: "var(--text-xs)", lineHeight: 1.5, margin: "12px 0 0" } as const;
-
 /**
  * "Settings" step — Deadlines, Submission capacity, After submission.
  *
@@ -36,7 +33,7 @@ export function SettingsStep({ event, form, onChange }: {
       <CloseDateCard event={event} form={form} onChange={onChange} />
       <div className="builder-card form-stack">
         <h3>Submission capacity</h3>
-        <p style={captionStyle}>How many sessions each submitter may have for this form.</p>
+        <p className="builder-caption">How many sessions each submitter may have for this form.</p>
         <div className="inline-setting">
           <div>
             <b>Set submission limit</b>
@@ -62,12 +59,12 @@ export function SettingsStep({ event, form, onChange }: {
             />
           </Field>
         )}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
+        <div className="builder-chip-row">
           <span className="chip" title="Applies when no form-level limit is set.">
             Event max: {event.submissionCapPerUser}
           </span>
         </div>
-        <p style={helpStyle}>Counts submitted sessions only — saved drafts don&apos;t use up the limit.</p>
+        <p className="builder-help">Counts submitted sessions only — saved drafts don&apos;t use up the limit.</p>
       </div>
       <SuccessPageCard form={form} onChange={onChange} />
     </section>

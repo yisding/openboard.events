@@ -66,15 +66,15 @@ export function BillingPanel({
         <h2><CreditCard size={16} /> Current plan</h2>
         <p>What this organization is subscribed to and how it&apos;s billed.</p>
       </header>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-        <strong style={{ fontSize: 20 }}>{plan.name}</strong>
-        <span style={{ color: "var(--muted)", fontSize: 12.5 }}>{formatPrice(plan.priceCents)}</span>
+      <div className="billing-plan-headline">
+        <strong>{plan.name}</strong>
+        <span>{formatPrice(plan.priceCents)}</span>
         <StatusBadge value={subscription.status} />
-        <span style={{ color: "var(--muted)", fontSize: 12.5 }}>via {subscription.provider}</span>
+        <span>via {subscription.provider}</span>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, color: "var(--muted)", fontSize: 12.5 }}>
-        <Info size={13} /> No live payment provider is connected in this environment — this is a billing scaffold. Choosing a plan below attempts a real checkout through the provider seam and will explain why it isn&apos;t available yet.
-      </div>
+      <p className="billing-scaffold-note">
+        <Info size={13} aria-hidden /> No live payment provider is connected in this environment — this is a billing scaffold. Choosing a plan below attempts a real checkout through the provider seam and will explain why it isn&apos;t available yet.
+      </p>
     </section>
 
     <section className="panel settings-section">
@@ -83,16 +83,16 @@ export function BillingPanel({
         <p>Metered against this organization&apos;s plan.</p>
       </header>
       <div>
-        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "var(--muted)", marginBottom: 6 }}>
+        <div className="billing-usage-legend">
           <span>Events</span>
           <span>{usage.events.used} of {usage.events.limit ?? "∞"} used</span>
         </div>
         <ProgressBar label="Event usage" value={usage.events.limit === null ? 0 : usagePercent} tone={usageTone} />
-        {usage.demoEvents > 0 && <p style={{ margin: "8px 0 0", color: "var(--muted)", fontSize: 12.5 }}>
+        {usage.demoEvents > 0 && <p className="billing-usage-footnote">
           {usage.demoEvents === 1 ? "1 demo event" : `${usage.demoEvents} demo events`} (not counted toward your plan).
         </p>}
       </div>
-      {counters.length > 0 && <ul style={{ marginTop: 16, display: "grid", gap: 4, fontSize: 12.5, color: "var(--muted)" }}>
+      {counters.length > 0 && <ul className="billing-counters">
         {counters.map((counter) => <li key={counter.metric}>{counter.metric}: {counter.count}</li>)}
       </ul>}
     </section>
@@ -102,12 +102,12 @@ export function BillingPanel({
         <h2>Plans</h2>
         <p>{canManage ? "Change this organization's plan." : "Only an owner can change the plan."}</p>
       </header>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+      <div className="billing-plans">
         {plans.map((candidate) => {
           const isCurrent = candidate.id === plan.id;
-          return <div key={candidate.id} style={{ border: `1px solid ${isCurrent ? "var(--accent-border)" : "var(--line)"}`, borderRadius: 11, padding: 16, background: isCurrent ? "var(--accent-faint)" : "var(--surface)" }}>
+          return <div key={candidate.id} className={isCurrent ? "billing-plan-card is-current" : "billing-plan-card"}>
             <strong>{candidate.name}</strong>
-            <p style={{ margin: "4px 0 12px", color: "var(--muted)", fontSize: 12.5 }}>{formatPrice(candidate.priceCents)} · {candidate.maxEvents === null ? "Unlimited" : candidate.maxEvents} events</p>
+            <p>{formatPrice(candidate.priceCents)} · {candidate.maxEvents === null ? "Unlimited" : candidate.maxEvents} events</p>
             {isCurrent
               ? <StatusBadge value="current_plan" />
               : canManage

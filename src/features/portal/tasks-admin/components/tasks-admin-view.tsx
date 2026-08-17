@@ -9,7 +9,7 @@ import { TzTime } from "@/shared/ui/app/tz-time";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { popoverPosition } from "@/shared/ui/app/popover-position";
 import { useFlowKeyboardNav } from "@/shared/ui/app/use-flow-keyboard-nav";
-import { Button, EmptyState, PageHeader, ProgressBar, Segmented } from "@/shared/ui/ui-kit";
+import { Button, EmptyState, PageHeader, ProgressBar, SearchInput, Segmented } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import type { EventId, TaskDTO } from "@/shared/contracts";
 import type { AdminTaskDTO, FileRequestDTO, FormOption, TaskTabCounts } from "../server/queries";
@@ -205,22 +205,35 @@ export function TasksAdminView({
 
           <section className="panel data-panel">
             <div className="data-toolbar">
-              <label className="table-search">
-                <Search size={16} />
-                <input aria-label="Search tasks" placeholder="Search tasks" value={search} onChange={(event) => setSearch(event.target.value)} />
-              </label>
+              <SearchInput label="Search tasks" placeholder="Search tasks" value={search} onChange={setSearch} />
               <span className="row-count">{filtered.length} of {tasks.length}</span>
             </div>
 
+            {/* Three different nothings, and only one of them is "you have no
+                tasks". A search that matched nothing offers the way back out
+                of it; the first-run empty offers the way in. */}
             {filtered.length === 0 && (
-              <EmptyState
-                icon={<CheckCircle2 size={20} />}
-                title={tab === "group" ? "Group tasks are not available" : tasks.length === 0 ? "No tasks yet" : "No tasks match this search"}
-                description={tab === "group"
-                  ? "The speaker portal only assigns tasks to speakers and submissions."
-                  : "Create a task to collect information, files, or confirmations from your speakers."}
-                action={tab !== "group" ? <Button onClick={() => setCreating(true)}>Add task</Button> : undefined}
-              />
+              tab === "group" ? (
+                <EmptyState
+                  icon={<CheckCircle2 size={20} />}
+                  title="Group tasks are not available"
+                  description="The speaker portal only assigns tasks to speakers and submissions."
+                />
+              ) : search.trim() !== "" ? (
+                <EmptyState
+                  icon={<Search size={20} />}
+                  title="No tasks match that search"
+                  description="Try another name, or clear the search to see every task on this tab."
+                  action={<Button variant="secondary" onClick={() => setSearch("")}>Clear search</Button>}
+                />
+              ) : (
+                <EmptyState
+                  icon={<CheckCircle2 size={20} />}
+                  title="No tasks yet"
+                  description="Create a task to collect information, files, or confirmations from your speakers."
+                  action={<Button onClick={() => setCreating(true)}>Add task</Button>}
+                />
+              )
             )}
 
             {filtered.map((task) => {

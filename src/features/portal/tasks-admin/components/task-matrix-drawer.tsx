@@ -165,7 +165,7 @@ export function TaskMatrixDrawer({
           {rows !== null && rows.map((row) => {
             const key = assignmentKey(row);
             return (
-              <div key={key} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderBottom: "1px solid var(--line)" }}>
+              <div key={key} className="task-assignment-row">
                 {/* `.checkbox-hit` carries the 44x44 touch target the bare
                     native control cannot — padding does not grow a checkbox.
                     The label toggles it with no extra handler. */}
@@ -180,10 +180,10 @@ export function TaskMatrixDrawer({
                     />
                   </label>
                 )}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <b style={{ display: "block", fontSize: "var(--text-xs)" }}>{row.contactName}</b>
-                  {row.submissionCode !== null && <small style={{ display: "block", color: "var(--muted)", fontSize: "var(--text-xs)" }}>#{row.submissionCode} {row.submissionTitle}</small>}
-                  <small style={{ display: "block", color: "var(--muted)", fontSize: "var(--text-xs)", marginTop: 2 }}>
+                <div>
+                  <b>{row.contactName}</b>
+                  {row.submissionCode !== null && <small>#{row.submissionCode} {row.submissionTitle}</small>}
+                  <small>
                     {row.completed
                       ? <>{VIA_LABEL[row.completedVia ?? ""] ?? "Complete"} · <TzTime instant={row.completedAt} tz={timezone} style="date" /></>
                       : row.overdue ? "Overdue" : row.dueAt ? <>Due <TzTime instant={row.dueAt} tz={timezone} style="date" /></> : "No due date"}

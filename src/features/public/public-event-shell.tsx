@@ -120,7 +120,7 @@ export function PublicEventShell({
   // search index", and a ribbon a visitor can actually see is part of that
   // story, not decoration on top of it.
   const demoRibbon = event.isDemo && (
-    <div role="note" style={{ textAlign: "center", padding: "6px 12px", fontSize: "var(--text-xs)", fontWeight: 550, color: "var(--accent-dark, var(--muted))", background: "var(--fill)", borderBottom: "1px solid var(--line)" }}>
+    <div role="note" className="public-demo-ribbon">
       Sample event · built with Openboard
     </div>
   );
@@ -133,18 +133,18 @@ export function PublicEventShell({
         {/* An embed is its own document inside the host's iframe, so it needs
          * its own <h1> or a screen reader lands in a page with no outline —
          * the content's <h2> is hidden by `.embed-shell>.embed-content>header`
-         * and the shell used to name the event with a plain <b>. The heading
-         * carries the compact heading typography inline (`font: inherit` plus
-         * the shared emphasis weight, margins zeroed) so `.embed-header` keeps
-         * its small flex/baseline row, and drops back to a
-         * visually-hidden heading when the organizer turns the header off. */}
+         * and the shell used to name the event with a plain <b>. `.embed-header
+         * h1` keeps the compact heading typography (`font: inherit` plus the
+         * shared emphasis weight, margins zeroed) so `.embed-header` keeps its
+         * small flex/baseline row, and the header-off variant is the shared
+         * `.sr-only` rather than another hand-rolled visually-hidden recipe. */}
         {embedOptions.header ? (
           <header className="embed-header">
-            <h1 style={{ font: "inherit", fontWeight: 600, margin: 0 }}>{event.name}</h1>
+            <h1>{event.name}</h1>
             {range && <span>{range}</span>}
           </header>
         ) : (
-          <h1 style={{ position: "absolute", width: 1, height: 1, margin: 0, overflow: "hidden", clipPath: "inset(50%)", whiteSpace: "nowrap" }}>{event.name}</h1>
+          <h1 className="sr-only">{event.name}</h1>
         )}
         {children}
         <footer>Powered by <b>openboard</b></footer>
