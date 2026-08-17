@@ -1054,7 +1054,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .portal-home-section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
 .portal-home-section-header .section-title{margin:0}
 .portal-my-sessions li{align-items:flex-start;flex-direction:column;gap:6px}
-.portal-my-sessions li>div{display:flex;flex-direction:column;gap:4px;width:100%}
+.portal-session-info{display:flex;flex-direction:column;gap:4px;width:100%}
 .portal-session-when{display:flex;align-items:center;gap:6px;flex-wrap:wrap;color:var(--muted);font-size:var(--text-xs)}
 .portal-session-cal-links{display:flex;gap:12px}
 .portal-session-cal-links a{color:var(--accent-dark);font-size:var(--text-xs);font-weight:var(--weight-control)}
@@ -1583,8 +1583,8 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .portal-stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:24px}
 .portal-home-section{margin-bottom:24px}
 .portal-home-list{list-style:none;margin:0;padding:0;display:grid;gap:8px}
-.portal-home-list li{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:12px 12px;border:1px solid var(--line);border-radius:9px;font-size:var(--text-xs)}
-.portal-home-list li time{margin-left:auto;color:var(--muted);font-size:var(--text-xs)}
+.portal-home-list>li{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:12px 12px;border:1px solid var(--line);border-radius:9px;font-size:var(--text-xs)}
+.portal-home-list>li>time{margin-left:auto;color:var(--muted);font-size:var(--text-xs)}
 
 /* M15 public CFP wizard. */
 main.cfp-container{max-width:760px;margin:0 auto;padding:48px 24px}

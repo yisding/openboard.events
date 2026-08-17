@@ -77,7 +77,7 @@ export function PortalHomeWidgets({
               const links = sessionCalendarLinks(session, eventName, `${portalRoot}/submissions`);
               return (
                 <li key={session.sessionId}>
-                  <div>
+                  <div className="portal-session-info">
                     <b>{session.title}</b>
                     {session.startsAt && (
                       <span className="portal-session-when">
