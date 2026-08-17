@@ -47,6 +47,30 @@ export function compileFormSnapshot(rows: FormAuthoringRows): FormSnapshot {
         const sourcePosition = position.get(condition.sourceFieldId);
         const currentPosition = position.get(field.id);
         if (sourcePosition === undefined || currentPosition === undefined || sourcePosition >= currentPosition) invalid(field.id, `visibility source ${condition.sourceFieldId} must be an earlier field`);
+        // The condition's *value*, not just its source. On an option-bearing
+        // source the value is an option id, and until this check a value that
+        // named nothing compiled happily into the snapshot the public form
+        // renders from: `eq` stopped matching for every speaker, so the
+        // dependent question was unreachable forever — or, with `neq`, shown
+        // unconditionally. Two writers produced such values (the builder's
+        // `draft-N` placeholders and the demo scaffold's option re-iding), and
+        // nothing downstream could tell a dead id from a live one, because
+        // both are just strings by the time a rule is evaluated.
+        //
+        // This is the backstop, not the friendly refusal: `guards.ts` catches
+        // the two authoring shapes at the request that creates them and names
+        // the questions involved. Reaching here means a writer outside the
+        // builder produced a rule the builder would have rejected, and failing
+        // the publish is how that stops being silent. Free-text sources are
+        // exempt — `eq "90 minutes"` against a text question is prose an
+        // organizer typed, not an id to resolve.
+        const source = sourcePosition === undefined ? undefined : fields[sourcePosition];
+        if (source && (source.fieldType === "dropdown" || source.fieldType === "multiselect") && condition.value !== undefined) {
+          const live = new Set(source.options.map((option) => option.id));
+          const values = Array.isArray(condition.value) ? condition.value : [condition.value];
+          const dangling = values.find((value) => !live.has(value));
+          if (dangling !== undefined) invalid(field.id, `visibility value ${dangling} is not an option of ${source.label}`);
+        }
       }
     }
     const optionIds = new Set<string>();

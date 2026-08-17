@@ -802,8 +802,9 @@ export async function updateFieldIn(dbOrTx: DbOrTx, eventId: EventId, formId: Fo
     ...form,
     sections: form.sections.map((section) => ({ ...section, fields: section.fields.map((candidate) => candidate.id === field.id ? updated : candidate) })),
   };
-  // Only when the patch supplies a rule, so a form already carrying a dangling
-  // one stays editable rather than having every unrelated edit blocked.
+  // Only when the patch supplies a rule: this is the friendly message for the
+  // organizer who just authored it. `nextSnapshot` below refuses the same thing
+  // for every other writer, whatever the patch touched.
   if (patch.visibility !== undefined) {
     assertVisibilityValuesResolve(allFields(hypothetical), updated);
   }

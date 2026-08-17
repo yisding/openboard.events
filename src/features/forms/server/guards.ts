@@ -87,9 +87,11 @@ export function assertMapsToMatchesTarget(targetType: TaskTarget | null, mapsTo:
  * edit and names the dependent question instead of silently rewriting form
  * logic underneath the organizer.
  *
- * Only *newly* orphaned conditions count. A form that already carries a
- * dangling condition from before this guard existed stays editable, rather than
- * having every option edit on that field blocked by damage done earlier.
+ * Only *newly* orphaned conditions count, because a removed option is all this
+ * guard can compare against. A rule that was already dangling belongs to
+ * `compileFormSnapshot`, which refuses to publish one from any writer;
+ * drizzle/0054 repaired the forms that were carrying them when that check
+ * arrived.
  */
 export function assertNoNewlyOrphanedVisibility(
   fields: readonly BuilderField[],
@@ -134,8 +136,11 @@ export function assertNoNewlyOrphanedVisibility(
  * form — or, with `is not`, always does — and after a reload the rule summary
  * reads "Shown when Format is draft-2" with a blank value select.
  *
- * Only checked when a patch actually supplies `visibility`, so a form already
- * carrying a dangling rule stays editable.
+ * Checked on the patch that supplies the rule, which is the only moment both
+ * questions can be named in the message. The invariant itself belongs to
+ * `compileFormSnapshot`, which re-derives it on every publish from every
+ * writer; this guard exists so the organizer who just made the mistake reads a
+ * sentence instead of a field id.
  */
 export function assertVisibilityValuesResolve(
   fields: readonly BuilderField[],
