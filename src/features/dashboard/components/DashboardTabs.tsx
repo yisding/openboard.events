@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { RefreshCw } from "lucide-react";
 import type { EventId } from "@/shared/contracts";
+import { LoadFailure } from "@/shared/ui/app/load-failure";
 import { QueryBoundary } from "@/shared/ui/app/query-boundary";
-import { Button } from "@/shared/ui/ui-kit";
 import type { DashboardOverview } from "../index";
 import { dashboardKeys, useDashboardOverview } from "../hooks/use-dashboard-overview";
 import { computeEventPhase } from "../lib/phase";
@@ -65,7 +65,7 @@ export function DashboardTabs({ serverOverview, ...props }: DashboardTabsProps) 
 
 function DashboardTabsInner({ eventId, initialTab, firstName, live = true, tour }: Omit<DashboardTabsProps, "serverOverview">) {
   const query = useDashboardOverview(eventId, live);
-  if (!query.data) return <DashboardLoadError />;
+  if (!query.data) return <DashboardLoadError onRetry={() => void query.refetch()} />;
   return <DashboardTabsView
     eventId={eventId}
     firstName={firstName}
@@ -93,7 +93,7 @@ export function DashboardTabsView({ eventId, firstName, initialTab, isError = fa
   const phase = computeEventPhase(overview);
   return <div className="dashboard-page dashboard-live">
     <header className="dashboard-live-header"><div><span>Dashboard</span><h1>{overview.event.name}</h1><p>Live event health from one event-scoped overview.</p></div><div className="dashboard-live-state"><i aria-hidden="true" className={isFetching ? "polling" : ""} />{isFetching ? "Refreshing" : live ? "Updates every 30 seconds" : "Local fixture preview"}</div></header>
-    {isError && <div className="dashboard-stale-banner" role="status">The latest refresh failed. Showing the last good overview.<button type="button" onClick={onRetry}><RefreshCw size={14} /> Retry</button></div>}
+    {isError && <div className="dashboard-stale-banner" role="status">The latest refresh failed. Showing the last good overview.<button type="button" onClick={onRetry}><RefreshCw size={14} /> Try again</button></div>}
     {/* M56 — the dashboard leads with this, above the tabs, so it is the
         answer regardless of which tab is open. Below it, the two tabs stay
         the same detail views they always were. */}
@@ -117,6 +117,18 @@ export function DashboardTabsView({ eventId, firstName, initialTab, isError = fa
   </div>;
 }
 
-export function DashboardLoadError() {
-  return <div className="dashboard-page dashboard-load-error"><div><RefreshCw size={22} /><b>Dashboard data couldn’t be loaded.</b><span>Check the connection and try again.</span></div><Button onClick={() => window.location.reload()}>Retry</Button></div>;
+/**
+ * `onRetry` is absent only where there is nothing on the client to re-run —
+ * the server route renders this after its own read failed, and reloading the
+ * page is the honest recovery there. Inside the live view the query can simply
+ * be asked again, which keeps the tab, its scroll, and the tour cursor.
+ */
+export function DashboardLoadError({ onRetry }: { onRetry?: () => void }) {
+  return <div className="dashboard-page">
+    <LoadFailure
+      className="load-failure--surface"
+      message="Dashboard data couldn’t be loaded. Check the connection and try again."
+      onRetry={onRetry ?? (() => window.location.reload())}
+    />
+  </div>;
 }

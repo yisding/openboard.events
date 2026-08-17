@@ -5,6 +5,8 @@ import { RotateCcw } from "lucide-react";
 import type { BulkReminderRecoveryController } from "@/features/comms/index.client";
 import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
 import { FlowNavControls } from "@/shared/ui/app/flow-nav-controls";
+import { LoadFailure } from "@/shared/ui/app/load-failure";
+import { SkeletonText } from "@/shared/ui/app/skeleton";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { Button, Drawer, StatusBadge } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
@@ -87,7 +89,17 @@ export function TaskMatrixDrawer({
       if (!response.ok || !payload?.data) throw new Error("assignment refresh failed");
       setRows(payload.data.assignments);
     } catch {
-      if (current()) setLoadError(true);
+      if (!current()) return;
+      // A *refresh* that fails must take the previous list down with it. This
+      // path is reached after `reopen()` too, where the rows on screen are the
+      // ones that call just changed: leaving them up means the panel says
+      // "assignments could not be loaded" while still offering Reopen and a
+      // reminder checkbox on every row of the list it just disowned. The
+      // selection goes for the same reason — it names rows nobody can vouch
+      // for. Cleared first, so the failure is the only thing left to answer.
+      setRows(null);
+      setSelected(new Set());
+      setLoadError(true);
     }
   }
 
@@ -146,7 +158,10 @@ export function TaskMatrixDrawer({
       <div className="drawer-content">
         <section>
           <h3>Progress</h3>
-          <p className="long-copy">{completed} of {total} complete</p>
+          {/* No count until there is a list to count. "0 of 0 complete" while
+              the assignments are still loading — or after a refresh that
+              failed — is a number, and a wrong one. */}
+          {rows !== null && <p className="long-copy">{completed} of {total} complete</p>}
         </section>
         <section>
           <h3>Assignees</h3>
@@ -159,8 +174,8 @@ export function TaskMatrixDrawer({
               </Button>
             }
           />
-          {rows === null && !loadError && <p className="portal-note">Loading…</p>}
-          {loadError && <p className="portal-note" role="alert">Assignments could not be loaded. <button type="button" className="text-button" onClick={() => void load()}>Try again</button></p>}
+          {rows === null && !loadError && <SkeletonText lines={3} label="Loading assignees…" />}
+          {loadError && <LoadFailure message="Assignments could not be loaded." onRetry={() => void load()} />}
           {!loadError && rows !== null && rows.length === 0 && <p className="portal-note">Nobody is assigned to this task yet.</p>}
           {rows !== null && rows.map((row) => {
             const key = assignmentKey(row);

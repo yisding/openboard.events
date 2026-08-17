@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { SkeletonText } from "@/shared/ui/app/skeleton";
 import { redirect } from "next/navigation";
 import { LoginForm } from "@/features/auth/components/login-form";
 import { AuthBrandPanel } from "@/features/auth/components/auth-brand-panel";
@@ -21,6 +22,6 @@ export default async function LoginPage({
   const googleEnabled = Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);
   return <main className="login-page">
     <AuthBrandPanel />
-    <section className="login-form-panel"><div><Suspense fallback={<p>Loading sign-in…</p>}><LoginForm googleEnabled={googleEnabled} /></Suspense></div></section>
+    <section className="login-form-panel"><div><Suspense fallback={<SkeletonText lines={4} label="Loading the sign-in form…" />}><LoginForm googleEnabled={googleEnabled} /></Suspense></div></section>
   </main>;
 }

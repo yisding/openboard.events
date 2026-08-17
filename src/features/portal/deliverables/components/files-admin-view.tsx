@@ -12,7 +12,9 @@ import { DELIVERABLE_BULK_LIMIT } from "@/features/portal/deliverables/bulk-limi
 import { DataTable } from "@/shared/ui/app/data-table";
 import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
 import { Dash } from "@/shared/ui/app/dash";
+import { LoadFailure } from "@/shared/ui/app/load-failure";
 import { PrivateFileLink } from "@/shared/ui/app/private-file-link";
+import { SkeletonText } from "@/shared/ui/app/skeleton";
 import { Button, Drawer, EmptyState, PageHeader, SearchInput, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { useToast } from "@/shared/ui/toast";
@@ -716,11 +718,10 @@ function DeliverableDrawer({
     <Drawer open={row !== null} onClose={requestClose} title={row ? `${row.contactName} — ${row.fileRequestTitle}` : "Deliverable"}>
       {row && (
         <div className="drawer-content">
-          {currentDetail.status === "loading" && <p className="portal-note" role="status">Loading versions and comments…</p>}
-          {currentDetail.status === "error" && <div className="portal-note" role="alert">
-            <p>{currentDetail.error}</p>
-            <Button size="sm" variant="secondary" onClick={() => setLoadAttempt((attempt) => attempt + 1)}>Retry</Button>
-          </div>}
+          {currentDetail.status === "loading" && <SkeletonText lines={4} label="Loading versions and comments…" />}
+          {currentDetail.status === "error" && (
+            <LoadFailure message={currentDetail.error} onRetry={() => setLoadAttempt((attempt) => attempt + 1)} />
+          )}
           {currentDetail.status === "ready" && <><section>
             <h3>Versions</h3>
             {currentDetail.versions.length === 0 && <p className="portal-note">No file has been uploaded for this deliverable yet.</p>}

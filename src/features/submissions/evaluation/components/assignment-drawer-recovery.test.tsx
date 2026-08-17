@@ -242,14 +242,14 @@ describe("evaluation assignment drawer loading recovery", () => {
 
     expect(container.textContent).toContain("Check your connection and try again");
     expect(reviewerCheckbox("Round A reviewer")?.disabled).toBe(true);
-    expect(buttonNamed("Retry loading submissions")).toBeDefined();
+    expect(buttonNamed("Try again")).toBeDefined();
 
     let resolveRetry!: (response: Response) => void;
     fetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => { resolveRetry = resolve; }));
-    await act(async () => buttonNamed("Retry loading submissions")?.click());
+    await act(async () => buttonNamed("Try again")?.click());
 
     expect(container.textContent).toContain("Retrying this round’s submissions…");
-    expect(buttonNamed("Retry loading submissions")).toBeUndefined();
+    expect(buttonNamed("Try again")).toBeUndefined();
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
     resolveRetry(Response.json({ data: { submissions: [SUBMISSION_A] } }));
@@ -271,7 +271,7 @@ describe("evaluation assignment drawer loading recovery", () => {
 
     expect(container.textContent).toContain(message);
     expect(container.textContent).not.toContain("Check your connection");
-    expect(buttonNamed("Retry loading submissions")).toBeUndefined();
+    expect(buttonNamed("Try again")).toBeUndefined();
     expect(reviewerCheckbox("Round A reviewer")?.disabled).toBe(true);
   });
 
@@ -281,7 +281,7 @@ describe("evaluation assignment drawer loading recovery", () => {
 
     expect(container.textContent).toContain("Unexpected server error");
     expect(container.textContent).not.toContain("Check your connection");
-    expect(buttonNamed("Retry loading submissions")).toBeDefined();
+    expect(buttonNamed("Try again")).toBeDefined();
   });
 
   it("drops a late response after the drawer moves to another round", async () => {

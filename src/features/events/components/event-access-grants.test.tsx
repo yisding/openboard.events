@@ -201,7 +201,9 @@ describe("Event Settings access grants", () => {
     await renderAccess();
 
     expect(container.textContent).toContain("Connection lost");
-    await act(async () => buttonNamed("Retry")?.click());
+    // "Try again" is `LoadFailure`'s wording — this panel's failed-to-load
+    // state is the shared one now, not a hand-rolled Retry button.
+    await act(async () => buttonNamed("Try again")?.click());
 
     expect(buttonNamed("Grant access")).toBeDefined();
     expect(apiMock).toHaveBeenCalledTimes(2);
@@ -508,7 +510,7 @@ describe("Event Settings access grants", () => {
     expect(container.textContent).toContain("You no longer organize this event. The access change can’t be confirmed from this account.");
     expect(buttonNamed("Grant access")).toBeUndefined();
     expect(container.querySelector(".event-access-roster")).toBeNull();
-    expect(buttonNamed("Retry")).toBeDefined();
+    expect(buttonNamed("Try again")).toBeDefined();
 
     await act(async () => buttonNamed("Switch settings tab")?.click());
     await settle();

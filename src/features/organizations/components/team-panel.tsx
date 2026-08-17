@@ -21,6 +21,8 @@ import {
   type UserId,
 } from "@/shared/contracts";
 import { DataTable } from "@/shared/ui/app/data-table";
+import { LoadFailure } from "@/shared/ui/app/load-failure";
+import { SkeletonText } from "@/shared/ui/app/skeleton";
 import { Button, EmptyState, Field, Modal, Select, StatusBadge } from "@/shared/ui/ui-kit";
 // The same authored labels the role badge two rows over renders, so the select
 // and the badge can never disagree on what a role is called.
@@ -514,8 +516,10 @@ export function TeamPanel({
       wide
       footer={<Button variant="secondary" disabled={Boolean(eventAccessBusy)} onClick={closeEventAccess}>Done</Button>}
     >
-      {eventAccessLoading && <p className="loading-note" role="status">Loading manageable events…</p>}
-      {eventAccessError && <p className="field-error" role="alert">{eventAccessError}</p>}
+      {eventAccessLoading && <SkeletonText lines={3} label="Loading manageable events…" />}
+      {eventAccessError && accessMember && (
+        <LoadFailure message={eventAccessError} onRetry={() => void openEventAccess(accessMember)} />
+      )}
       {!eventAccessLoading && !eventAccessError && eventAccess.length === 0 && (
         <EmptyState
           icon={<KeyRound size={20} />}

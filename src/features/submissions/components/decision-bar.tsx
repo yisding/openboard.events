@@ -8,6 +8,7 @@ import type { NotifyPreview } from "@/features/submissions";
 import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { emitTourSignal } from "@/shared/ui/app/guided-tour/signals";
+import { LoadFailure } from "@/shared/ui/app/load-failure";
 import { STATUS_BADGES, type StatusBadgeValue } from "@/shared/ui/status-badge";
 import { Button } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
@@ -394,7 +395,7 @@ export function DecisionEmailPreflight({
   onRetry: () => void;
 }) {
   if (loading) return <p role="status">Preparing the exact queue counts and sample messages…</p>;
-  if (error) return <div className="form-stack" role="alert"><p>{error}</p><Button variant="secondary" onClick={onRetry}>Retry preview</Button></div>;
+  if (error) return <LoadFailure message={error} onRetry={onRetry} />;
   if (!preview) return <p role="status">A fresh preview is required before these emails can be queued.</p>;
   const total = preview.accepted + preview.declined;
   return <div className="form-stack decision-email-preflight">

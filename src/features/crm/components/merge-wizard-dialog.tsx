@@ -12,6 +12,8 @@ import {
   type OrganizationContactId,
   type OrganizationId,
 } from "@/shared/contracts";
+import { LoadFailure } from "@/shared/ui/app/load-failure";
+import { SkeletonText } from "@/shared/ui/app/skeleton";
 import { Button, Modal } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
@@ -55,6 +57,11 @@ export function MergeWizardDialog({
   const [resolutions, setResolutions] = useState<Record<string, Resolution>>({});
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  // The preview *read* failing and the merge *write* failing are different
+  // conditions with different ways out, so they no longer share one slot: the
+  // read gets the shared retry surface, the write keeps the field error.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [previewToken, setPreviewToken] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const [mergeId, setMergeId] = useState<CrmMergeId | null>(null);
@@ -69,6 +76,7 @@ export function MergeWizardDialog({
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setLoadError(null);
     setPreview(null);
     setResolutions({});
     api(`organizations/${organizationId}/crm/merge/preview`, crmMergePreviewDtoSchema, {
@@ -76,13 +84,13 @@ export function MergeWizardDialog({
       body: { primaryContactId: primary.id, mergedContactId: merged.id },
     })
       .then((result) => { if (!cancelled) setPreview(result); })
-      .catch((caught) => { if (!cancelled) setError(isAppError(caught) ? caught.message : "Could not preview this merge"); })
+      .catch((caught) => { if (!cancelled) setLoadError(isAppError(caught) ? caught.message : "Could not preview this merge"); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [open, organizationId, primary.id, merged.id]);
+  }, [open, organizationId, primary.id, merged.id, previewToken]);
 
   function reset() {
-    setSwapped(false); setPreview(null); setResolutions({}); setError(null); setDone(false);
+    setSwapped(false); setPreview(null); setResolutions({}); setError(null); setLoadError(null); setDone(false);
     setMergeId(null); setRecovering(false); setRecovered(false);
   }
 
@@ -159,7 +167,8 @@ export function MergeWizardDialog({
             <div style={{ textAlign: "center" }}><b>{merged.label}</b><small style={{ display: "block", color: "var(--muted)" }}>{merged.email}</small><span className="chip" style={{ marginTop: 6, display: "inline-block" }}>Merged — tombstoned</span></div>
           </div>
 
-          {loading && <p className="long-copy">Loading preview…</p>}
+          {loading && <SkeletonText lines={3} label="Loading merge preview…" />}
+          {loadError && <LoadFailure message={loadError} retrying={loading} onRetry={() => setPreviewToken((token) => token + 1)} />}
           {error && <p className="field-error" role="alert">{error}</p>}
 
           {preview && (

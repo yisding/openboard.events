@@ -309,7 +309,7 @@ export function PaletteDialog({ eventId, base, role, actions = [], onClose }: { 
           aria-live={currentSearchState.status === "error" ? "assertive" : "polite"}
         >
           <span>{feedback.message}</span>
-          {feedback.retry && <button type="button" onClick={() => setRetryEpoch((epoch) => epoch + 1)}>Retry search</button>}
+          {feedback.retry && <button type="button" onClick={() => setRetryEpoch((epoch) => epoch + 1)}>Try again</button>}
         </div>
         <div className="command-palette-results" role="listbox" id={listboxId} aria-busy={currentSearchState.status === "loading"}>
           {items.map((item, index) => {

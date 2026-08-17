@@ -5,6 +5,7 @@ import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { editorDraftChanged, requestGuardedEditorClose } from "@/shared/ui/app/modal-editor-guard";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
+import { StaleWriteNotice, staleWriteConfirm } from "@/shared/ui/app/stale-write";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, Field, Modal, Select, Switch } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
@@ -109,7 +110,6 @@ export function TaskEditor({
   const [expectedUpdatedAt, setExpectedUpdatedAt] = useState<string | null>(task?.updatedAt ?? null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const editorRef = useRef<HTMLDivElement>(null);
-  const staleRef = useRef<HTMLDivElement>(null);
   const createRequestId = useRef(createStableCreateRequestId());
   const { runGuarded } = useGuardedAction();
   const dirty = open && editorDraftChanged(draft, baseline);
@@ -135,11 +135,6 @@ export function TaskEditor({
     if (Object.keys(fieldErrors).length === 0) return;
     editorRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
   }, [fieldErrors]);
-
-  useEffect(() => {
-    if (!stale) return;
-    window.requestAnimationFrame(() => staleRef.current?.focus());
-  }, [stale]);
 
   const availableFileRequests = fileRequests.filter((request) => request.targetType === draft.targetType);
 
@@ -279,15 +274,7 @@ export function TaskEditor({
         </>}
       >
         {stale && (
-          <div ref={staleRef} className="notify-bar" role="alert" tabIndex={-1}>
-            <div>
-              <p><b>This task changed since you opened it.</b></p>
-              <small>Your draft is still here. Load the latest task only when you are ready to replace it.</small>
-            </div>
-            <Button variant="secondary" disabled={saving || loadingLatest} onClick={() => setConfirmingLoadLatest(true)}>
-              {loadingLatest ? "Loading…" : "Load latest"}
-            </Button>
-          </div>
+          <StaleWriteNotice subject="task" busy={saving || loadingLatest} onLoadLatest={() => setConfirmingLoadLatest(true)} />
         )}
         <div ref={editorRef} className="form-stack" inert={saving || loadingLatest || undefined} aria-busy={saving || loadingLatest || undefined}>
         <Field label="Task name" required error={fieldErrors.name} errorId="task-name-error">
@@ -363,10 +350,7 @@ export function TaskEditor({
       </Modal>
       <ConfirmDialog
         open={confirmingLoadLatest}
-        title="Load the latest task?"
-        body="Your unsaved task changes will be replaced by the latest saved version. This cannot be undone."
-        confirmLabel="Load latest"
-        variant="stale"
+        {...staleWriteConfirm("task")}
         onConfirm={loadLatest}
         onCancel={() => setConfirmingLoadLatest(false)}
       />

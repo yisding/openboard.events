@@ -13,10 +13,13 @@ import {
   toPatch,
   type AbstractFieldValues,
 } from "./abstract-fields";
+import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { Dash } from "@/shared/ui/app/dash";
 import { FlowNavControls } from "@/shared/ui/app/flow-nav-controls";
+import { LoadFailure } from "@/shared/ui/app/load-failure";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { SkeletonText } from "@/shared/ui/app/skeleton";
+import { StaleWriteNotice, staleWriteConfirm } from "@/shared/ui/app/stale-write";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, Drawer, StatusBadge } from "@/shared/ui/ui-kit";
@@ -125,6 +128,9 @@ export function SubmissionDrawer({
   const [rowVersion, setRowVersion] = useState<number | null>(null);
   const [saveFeedback, setSaveFeedback] = useState<{ kind: "error" | "status"; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  /** A refused row version, waiting for the organizer to agree to be overwritten. */
+  const [staleWrite, setStaleWrite] = useState(false);
+  const [confirmingLoadLatest, setConfirmingLoadLatest] = useState(false);
   /** Bumped to re-run the loader for the *same* submission — `router.refresh()`
    * re-renders the server tree but cannot reach this client-side fetch, so a
    * stale-write conflict needs its own reload signal. */
@@ -154,6 +160,8 @@ export function SubmissionDrawer({
     setOriginal(null);
     setRowVersion(null);
     setBusy(false);
+    setStaleWrite(false);
+    setConfirmingLoadLatest(false);
   }, [eventId, submissionId]);
 
   useEffect(() => {
@@ -212,8 +220,13 @@ export function SubmissionDrawer({
   // never makes the rejected row version writable again. Navigation itself is
   // blocked only while a request is active; once a retry fails, the ordinary
   // unsaved-work guard can safely handle Close/next/previous.
-  const staleRecoveryRequired = loadState.purpose === "stale" && loadState.status !== "ready";
-  const fieldsLocked = busy || staleRecoveryRequired;
+  const staleReloadPending = loadState.purpose === "stale" && loadState.status !== "ready";
+  const staleRecoveryRequired = staleWrite || staleReloadPending;
+  // While the notice is only *offering* to load the latest version the fields
+  // stay editable — that draft is the organizer's last copy of what they wrote,
+  // and freezing it takes away their chance to lift it out before it is
+  // replaced. Saving is what stops; the row version is what is refused.
+  const fieldsLocked = busy || staleReloadPending;
   const interactionLocked = busy || (loadState.status === "loading" && loadState.purpose === "stale");
   useUnsavedWorkGuard(dirty);
 
@@ -222,6 +235,20 @@ export function SubmissionDrawer({
   }, [interactionLocked, onBusyChange]);
 
   useEffect(() => () => onBusyChange?.(false), [onBusyChange]);
+
+  /** The confirmed half of the stale-write pattern: replace the draft with what is saved. */
+  function loadLatest() {
+    setStaleWrite(false);
+    setConfirmingLoadLatest(false);
+    setSaveFeedback({ kind: "status", message: "Loading the latest version…" });
+    loadPurpose.current = "stale";
+    setLoadState({ status: "loading", purpose: "stale" });
+    setReloadToken((token) => token + 1);
+    // The reload has to be explicit — `router.refresh()` alone leaves this
+    // drawer holding the same fields and the same row version, so every retry
+    // would keep conflicting until it was closed and reopened.
+    router.refresh();
+  }
 
   function retryLoad() {
     if (loadState.status !== "failed" || !loadState.failure.retryable) return;
@@ -234,7 +261,7 @@ export function SubmissionDrawer({
   }
 
   async function save() {
-    if (!values || !original || rowVersion === null) return;
+    if (!values || !original || rowVersion === null || staleRecoveryRequired) return;
     const request = { eventId, submissionId };
     setBusy(true);
     setSaveFeedback(null);
@@ -255,15 +282,13 @@ export function SubmissionDrawer({
       if (active.current.eventId !== request.eventId || active.current.submissionId !== request.submissionId) return;
       if (response.status === 409 || payload?.error?.code === "STALE_WRITE") {
         // Not an error the organizer caused, and not one they can fix by
-        // pressing Save again: their copy is behind, so say so and reload it.
-        // The reload has to be explicit — `router.refresh()` alone leaves this
-        // drawer holding the same fields and the same row version, so every
-        // retry would keep conflicting until it was closed and reopened.
-        setSaveFeedback({ kind: "status", message: "This submission changed since you opened it. Loading the latest version…" });
-        loadPurpose.current = "stale";
-        setLoadState({ status: "loading", purpose: "stale" });
-        setReloadToken((token) => token + 1);
-        router.refresh();
+        // pressing Save again: their copy is behind. This used to reload the
+        // latest version on the spot, which overwrote everything they had
+        // typed and then asked them to type it again from memory. It now
+        // raises the shared stale-write notice instead: the draft stays on
+        // screen, and the replacement happens only once they say so.
+        setSaveFeedback(null);
+        setStaleWrite(true);
         return;
       }
       if (!response.ok || !payload?.data) {
@@ -294,6 +319,7 @@ export function SubmissionDrawer({
   }
 
   return (
+    <>
     <Drawer
       open
       onClose={onClose}
@@ -301,15 +327,12 @@ export function SubmissionDrawer({
       {...(nav ? { headerExtra: <FlowNavControls index={nav.index} total={nav.total} itemLabel={nav.itemLabel} itemNoun="submission" onPrev={nav.onPrev} onNext={nav.onNext} /> } : {})}
     >
       {loadState.status === "failed" && (
-        <div className="portal-note" role="alert">
-          <p>{loadState.failure.message}</p>
-          {loadState.failure.retryable && (
-            <Button size="sm" variant="secondary" onClick={retryLoad}>
-              {loadState.purpose === "stale" ? "Retry loading latest" : "Retry"}
-            </Button>
-          )}
-        </div>
+        <LoadFailure
+          message={loadState.failure.message}
+          {...(loadState.failure.retryable ? { onRetry: retryLoad } : {})}
+        />
       )}
+      {staleWrite && <StaleWriteNotice subject="submission" busy={busy} onLoadLatest={() => setConfirmingLoadLatest(true)} />}
       {!detail && loadState.status === "loading" && (
         <SkeletonText lines={6} label={loadState.purpose === "stale" ? "Loading the latest version…" : "Loading submission…"} />
       )}
@@ -351,7 +374,7 @@ export function SubmissionDrawer({
                   disabled={fieldsLocked}
                 />
                 <div className="drawer-actions">
-                  <Button disabled={fieldsLocked || !dirty} onClick={save}>
+                  <Button disabled={fieldsLocked || staleRecoveryRequired || !dirty} onClick={save}>
                     {busy ? "Saving…" : staleRecoveryRequired ? "Latest version required" : "Save changes"}
                   </Button>
                 </div>
@@ -380,5 +403,12 @@ export function SubmissionDrawer({
         </div>
       )}
     </Drawer>
+    <ConfirmDialog
+      open={confirmingLoadLatest}
+      {...staleWriteConfirm("submission")}
+      onConfirm={loadLatest}
+      onCancel={() => setConfirmingLoadLatest(false)}
+    />
+    </>
   );
 }

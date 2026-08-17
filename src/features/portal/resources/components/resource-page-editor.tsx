@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
+import { StaleWriteNotice, staleWriteConfirm } from "@/shared/ui/app/stale-write";
 import { editorDraftChanged, requestGuardedEditorClose } from "@/shared/ui/app/modal-editor-guard";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { moveRovingTab } from "@/shared/ui/app/roving-tabs";
@@ -87,17 +89,12 @@ export function ResourcePageEditor({
    * latest"; this now does the same.
    */
   const [stale, setStale] = useState(false);
-  const staleRef = useRef<HTMLDivElement>(null);
+  const [confirmingLoadLatest, setConfirmingLoadLatest] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const createRequestId = useRef(createStableCreateRequestId());
   const { runGuarded } = useGuardedAction();
   const dirty = open && editorDraftChanged(draft, baseline);
   useUnsavedWorkGuard(dirty);
-
-  useEffect(() => {
-    if (!stale) return;
-    window.requestAnimationFrame(() => staleRef.current?.focus());
-  }, [stale]);
 
   useEffect(() => {
     if (!open) {
@@ -196,6 +193,7 @@ export function ResourcePageEditor({
   }
 
   return (
+    <>
     <Modal
       open={open}
       onClose={closeEditor}
@@ -207,23 +205,7 @@ export function ResourcePageEditor({
         <Button disabled={!draft.title.trim() || saving || stale} onClick={save}>{saving ? "Saving…" : draft.id ? "Save changes" : "Create page"}</Button>
       </>}
     >
-      {stale && (
-        <div ref={staleRef} className="notify-bar" role="alert" tabIndex={-1}>
-          <div>
-            <p><b>This page changed since you opened it.</b></p>
-            <small>Your draft is still here. Load the latest page only when you are ready to replace it.</small>
-          </div>
-          <Button
-            variant="secondary"
-            disabled={saving}
-            onClick={() => void recoverStaleResourcePage(onSaved, () => {
-              toast("The latest page could not be reloaded. Refresh the browser before editing it again.", { kind: "error" });
-            })}
-          >
-            Load latest
-          </Button>
-        </div>
-      )}
+      {stale && <StaleWriteNotice subject="page" busy={saving} onLoadLatest={() => setConfirmingLoadLatest(true)} />}
       <div ref={formRef} className="form-stack" inert={saving || undefined} aria-busy={saving || undefined}>
         <Field label="Title" required error={fieldErrors.title} errorId="resource-title-error">
           <input required aria-invalid={Boolean(fieldErrors.title) || undefined} aria-describedby={fieldErrors.title ? "resource-title-error" : undefined} value={draft.title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Speaker Guide" />
@@ -275,5 +257,17 @@ export function ResourcePageEditor({
         )}
       </div>
     </Modal>
+    <ConfirmDialog
+      open={confirmingLoadLatest}
+      {...staleWriteConfirm("page")}
+      onConfirm={async () => {
+        await recoverStaleResourcePage(onSaved, () => {
+          toast("The latest page could not be reloaded. Refresh the browser before editing it again.", { kind: "error" });
+        });
+        setConfirmingLoadLatest(false);
+      }}
+      onCancel={() => setConfirmingLoadLatest(false)}
+    />
+    </>
   );
 }

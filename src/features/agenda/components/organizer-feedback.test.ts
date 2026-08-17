@@ -17,10 +17,11 @@ describe("agenda organizer feedback", () => {
     const source = readFileSync(new URL("./session-form-dialog.tsx", import.meta.url), "utf8");
 
     expect(source).toContain('query.isError && (');
-    expect(source).toContain('className="portal-note" role="alert"');
-    expect(source).toContain('Could not load content history.');
-    expect(source).toContain('disabled={query.isFetching} onClick={() => { void query.refetch(); }}');
-    expect(source).toContain('{query.isFetching ? "Retrying…" : "Retry"}');
+    // The failed-to-load state is `LoadFailure`, which owns the alert role, the
+    // retry control and its "Retrying…" wording. What this file still has to
+    // get right is which of the three states it is in, and that the retry it
+    // hands over actually refetches.
+    expect(source).toContain('<LoadFailure message="Could not load content history." retrying={query.isFetching} onRetry={() => { void query.refetch(); }} />');
     expect(source).toContain('!query.isLoading && !query.isError && revisions.length === 0');
   });
 });

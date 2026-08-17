@@ -6,6 +6,8 @@ import type { OpenAssignmentRow } from "@/features/comms";
 import { isAppError, isDefinitiveWriteFailure } from "@/shared/lib/errors";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { Dash } from "@/shared/ui/app/dash";
+import { LoadFailure } from "@/shared/ui/app/load-failure";
+import { SkeletonText } from "@/shared/ui/app/skeleton";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { Button, Modal } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
@@ -139,8 +141,14 @@ export function SendReminderDialog({
   return (
     <>
       <Modal open onClose={onClose} title={`Send reminder — ${contactName}`} description="Only this speaker’s currently open assignments are listed.">
-        {assignments.isLoading && <p className="long-copy">Loading open assignments…</p>}
-        {assignments.isError && <p className="long-copy">Could not load this speaker’s open assignments.</p>}
+        {assignments.isLoading && <SkeletonText lines={3} label="Loading open assignments…" />}
+        {assignments.isError && (
+          <LoadFailure
+            message="Could not load this speaker’s open assignments."
+            retrying={assignments.isFetching}
+            onRetry={() => void assignments.refetch()}
+          />
+        )}
         {assignments.data && assignments.data.length === 0 && <p className="long-copy">No open assignments — this speaker is caught up.</p>}
         {assignments.data && assignments.data.length > 0 && (
           <ul className="send-reminder-list">

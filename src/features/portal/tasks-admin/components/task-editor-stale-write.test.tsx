@@ -135,7 +135,7 @@ describe("TaskEditor stale-write recovery", () => {
 
     await act(async () => buttonNamed("Load latest")?.click());
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(container.textContent).toContain("Your unsaved task changes will be replaced");
+    expect(container.textContent).toContain("Your unsaved changes will be replaced");
 
     const loadButtons = [...container.querySelectorAll<HTMLButtonElement>("button")]
       .filter((button) => button.textContent?.trim() === "Load latest");

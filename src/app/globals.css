@@ -223,7 +223,7 @@ button { color: inherit; }
    Declared *here*, at the top, on purpose: everything below can still override
    it at equal specificity, which is how `.airtable-note--amber` keeps its own
    colour. */
-.muted-note,.portal-note,.loading-note,.field-note,.airtable-note,.announce-bundle-note,.timezone-note { color: var(--muted); font-size:var(--text-xs); line-height: 1.5; }
+.muted-note,.portal-note,.field-note,.airtable-note,.announce-bundle-note,.timezone-note { color: var(--muted); font-size:var(--text-xs); line-height: 1.5; }
 .muted-note { margin: 0; }
 
 /* Brand */
@@ -471,6 +471,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .event-switcher small { color: var(--on-dark-faint); font-size:var(--text-xs); margin-top: 4px; }
 .event-switcher svg { color: var(--on-dark-faint); }
 .event-switcher-option.is-past:not([aria-current="page"]){opacity:.68}
+.event-switcher-skeleton{margin:6px 12px}
 .sidebar-nav { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 0 12px 12px; scrollbar-width: none; }
 .nav-group { display: grid; gap: 4px; margin-top: 16px; }
 .nav-group > span { padding: 0 12px 6px; color: var(--on-dark-faint); font-size:var(--text-xs); font-weight: var(--weight-control); letter-spacing: 1px; text-transform: uppercase; }
@@ -971,7 +972,6 @@ body:has(.tour-coach) .toast-stack{bottom:300px}
 .template-vars button{background:var(--surface);border:1px solid var(--line-strong);border-radius:999px;color:var(--ink);cursor:pointer;font-size:var(--text-sm);padding:4px 12px}
 .template-vars button:hover{border-color:var(--accent)}
 .unknown-token-warning{background:var(--red-soft);border-radius:8px;color:var(--red);font-size:var(--text-sm);padding:12px 12px}
-.stale-write-banner{align-items:center;background:var(--amber-soft);border-radius:8px;color:var(--amber);display:flex;font-size:var(--text-sm);gap:12px;justify-content:space-between;padding:12px 12px}
 .preview-fallback-badge{align-items:center;background:var(--amber-soft);border-radius:999px;color:var(--amber);display:inline-flex;font-size:var(--text-sm);font-weight: var(--weight-control);gap:6px;padding:4px 12px}
 .comm-detail-status{align-items:center;display:flex;gap:12px;margin-bottom:16px}
 /* The message detail's field list had no rule at all, so it rendered as the
@@ -1479,7 +1479,7 @@ body:has(.tour-coach) .toast-stack{bottom:300px}
 .dashboard-live-state i{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px var(--green-soft)}
 .dashboard-live-state i.polling{background:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);animation:dashboard-pulse 1s infinite alternate}
 @keyframes dashboard-pulse{to{opacity:.35}}
-.dashboard-stale-banner,.dashboard-load-error{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border:1px solid var(--amber-border);border-radius:9px;background:var(--amber-soft);color:var(--amber);font-size:var(--text-sm)}
+.dashboard-stale-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border:1px solid var(--amber-border);border-radius:9px;background:var(--amber-soft);color:var(--amber);font-size:var(--text-sm)}
 .dashboard-stale-banner button{display:inline-flex;align-items:center;gap:6px;border:0;background:transparent;color:var(--accent-dark);font-weight: var(--weight-control);cursor:pointer}
 .dashboard-activation{position:relative;display:grid;grid-template-columns:38px minmax(0,1fr);gap:14px;padding:18px;border:1px solid var(--accent-border);border-radius:11px;background:linear-gradient(135deg,var(--surface),var(--accent-faint));box-shadow:var(--shadow-sm);overflow:hidden}
 .dashboard-activation::after{content:"";position:absolute;right:-56px;top:-68px;width:170px;height:170px;border-radius:50%;background:var(--accent-soft);opacity:.55;pointer-events:none}
@@ -1555,7 +1555,6 @@ body:has(.tour-coach) .toast-stack{bottom:300px}
    `.sr-only` — the whole row is the affordance, and a visible second line
    would not fit the single-line cell. */
 .dashboard-title-cell{max-width:260px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.dashboard-title-cell a{display:block;overflow:hidden;text-overflow:ellipsis;color:inherit;text-decoration:none}.dashboard-title-cell a:hover b,.dashboard-title-cell a:focus-visible b{color:var(--accent-dark)}
-.dashboard-load-error{min-height:90px;background:var(--surface)}.dashboard-load-error>div{display:grid;grid-template-columns:30px 1fr;align-items:center}.dashboard-load-error svg{grid-row:1/3;color:var(--amber)}.dashboard-load-error b,.dashboard-load-error span{display:block}.dashboard-load-error span{color:var(--muted);font-size:var(--text-xs)}
 /* T5 ≤1280 — progressive column disclosure for the one dense table that had
    none. `.dashboard-recent table` used to keep its 900px min-width inside a
    bare `overflow:auto`, hiding 182-202px of Tags/Submitted behind a scrollbar
@@ -1609,6 +1608,15 @@ body:has(.tour-coach) .toast-stack{bottom:300px}
 .skeleton-text{display:grid;gap:9px;margin:12px 0}
 .skeleton-text__line{height:12px}
 .skeleton-text__line:last-child{width:62%}
+/* `LoadFailure` — the one shape a failed read takes. Amber rather than red:
+   nothing was lost and nothing the reader did was wrong, the data just is not
+   here yet. The retry sits on the same line as the sentence so the way out is
+   never below the fold of a drawer. */
+.load-failure{display:grid;grid-template-columns:16px 1fr auto;align-items:center;gap:10px;margin:12px 0;padding:12px;border:1px solid var(--amber-border);border-radius:9px;background:var(--amber-soft);color:var(--amber);font-size:var(--text-sm)}
+.load-failure__icon{display:grid;place-items:center}
+.load-failure p{margin:0;line-height:1.45}
+.load-failure--surface{min-height:90px;justify-content:center;background:var(--surface);border-color:var(--line);color:var(--ink)}
+@media (max-width:640px){.load-failure{grid-template-columns:16px 1fr;row-gap:8px}.load-failure>button{grid-column:2}}
 .route-loading-title>div{display:block}
 .route-workspace-loading{display:grid;gap:24px;max-width:1180px;min-height:420px}
 .route-workspace-loading>header{display:flex;align-items:flex-end;justify-content:space-between;gap:24px}
@@ -1894,7 +1902,6 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
    question per row, exactly as `.organizer-form-preview__section` already
    unstacks the same renderer for its full-width preview. */
 .builder-live-preview__body .form-grid{grid-template-columns:minmax(0,1fr)}
-.loading-note{padding:24px 0}
 @media(max-width:768px){.condition-row__controls{grid-template-columns:1fr}.routing-rule-card__row{grid-template-columns:auto auto 1fr auto}.routing-rule-card__row>.button{grid-column:1/5}}
 
 /* M30 day-grid drag & drop — `dv-` prefix keeps this scoped away from the
@@ -3558,8 +3565,6 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
 .airtable-choice__card small,.airtable-base small{margin-top:2px;color:var(--muted);font-size:var(--text-xs)}
 .airtable-choice__card:has(input:disabled){cursor:default;opacity:.65}
 .airtable-base-list{display:grid;gap:8px;max-height:260px;overflow-y:auto}
-.airtable-base-error{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-.airtable-base-error .field-error{margin:0}
 
 .airtable-checklist{margin:0;padding:0;list-style:none;display:grid;gap:7px}
 .airtable-checklist li{position:relative;padding-left:22px;color:var(--muted);font-size:var(--text-xs)}

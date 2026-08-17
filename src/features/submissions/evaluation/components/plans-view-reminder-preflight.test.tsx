@@ -236,11 +236,11 @@ describe("evaluation reminder exact-recipient preflight", () => {
     await settle();
 
     expect(container.textContent).toContain("Could not reach the server to preview these reminders");
-    expect(buttonNamed("Retry preview")).toBeDefined();
+    expect(buttonNamed("Try again")).toBeDefined();
     expect(buttonNamed("Send reminders")?.disabled).toBe(true);
 
     fetchMock.mockResolvedValueOnce(Response.json({ data: { reviewers: [] } }));
-    await act(async () => buttonNamed("Retry preview")?.click());
+    await act(async () => buttonNamed("Try again")?.click());
     await settle();
 
     expect(container.textContent).toContain("Nobody on this round has outstanding work.");

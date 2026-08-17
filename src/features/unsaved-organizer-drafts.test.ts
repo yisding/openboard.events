@@ -43,7 +43,13 @@ describe("unsaved organizer draft coverage", () => {
     const shell = source("./comms/components/comms-admin-page.tsx");
     expect(templates).toContain("useUnsavedWorkGuard(dirty)");
     expect(templates).toContain("runGuarded(() => selectKey(row.key))");
-    expect(templates).toContain("runGuarded(() => { void reload(); })");
+    // Reloading a template that changed under you is now guarded by the
+    // confirmation itself rather than by `runGuarded`: the notice asks, and the
+    // reload only runs from the dialog's confirm.
+    expect(templates).toContain('<StaleWriteNotice subject="template" onLoadLatest={() => setConfirmingLoadLatest(true)} />');
+    // And the dialog only closes on a reload that landed — a refetch that
+    // brought nothing back leaves the draft dirty, guarded and explained.
+    expect(templates).toContain("onConfirm={async () => { if (await reload()) setConfirmingLoadLatest(false); }}");
     expect(templates).toContain("setDirty(false)");
     expect(shell).toContain("runGuarded(() => allowNextNavigation(() => {");
     expect(shell).toContain("router.replace(destination, { scroll: false })");

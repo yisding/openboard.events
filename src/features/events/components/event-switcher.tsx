@@ -8,6 +8,8 @@ import { eventAccessDtoSchema, type EventAccessDTO, type EventId, type MemberRol
 import { eventManagementHref } from "@/features/events/access";
 import { eventLifecycle, orderEventsByLifecycle } from "@/features/events/event-lifecycle";
 import { api } from "@/shared/lib/api-client";
+import { LoadFailure } from "@/shared/ui/app/load-failure";
+import { SkeletonText } from "@/shared/ui/app/skeleton";
 import { StatusBadge } from "@/shared/ui/ui-kit";
 import { formatDateRangeInZone, formatInZone } from "@/shared/lib/time";
 
@@ -127,15 +129,15 @@ export function EventSwitcher({
       </button>
       {open && (
         <div id={menuId} className="event-switcher-menu">
-          {orderedEvents === null && !loadError && <div className="event-switcher-status">Loading…</div>}
+          {orderedEvents === null && !loadError && <SkeletonText lines={3} label="Loading your events…" className="event-switcher-skeleton" />}
           {orderedEvents === null && loadError && (
-            <div role="alert" className="event-switcher-status">
-              <span>{loadError}</span>
-              <button type="button" className="text-button" onClick={() => {
+            <LoadFailure
+              message={loadError}
+              onRetry={() => {
                 setLoadError("");
                 setLoadAttempt((attempt) => attempt + 1);
-              }}>Retry</button>
-            </div>
+              }}
+            />
           )}
           {orderedEvents?.length === 0 && <div className="event-switcher-status">No events yet</div>}
           {orderedEvents?.map((event) => (

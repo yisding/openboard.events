@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatCode } from "@/features/submissions/index.client";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
+import { LoadFailure } from "@/shared/ui/app/load-failure";
 import { requestGuardedEditorClose } from "@/shared/ui/app/modal-editor-guard";
+import { SkeletonText } from "@/shared/ui/app/skeleton";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { Button, Drawer, Field, Select } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
@@ -375,17 +377,14 @@ export function AssignmentDrawer({
         <section>
           <h3>Submissions</h3>
           {loadFailure && (
-            <div className="portal-note" role="alert">
-              <p>{loadFailure.message}</p>
-              {loadFailure.retryable && (
-                <Button size="sm" variant="secondary" onClick={retryLoad}>Retry loading submissions</Button>
-              )}
-            </div>
+            <LoadFailure
+              message={loadFailure.message}
+              retrying={retrying}
+              {...(loadFailure.retryable ? { onRetry: retryLoad } : {})}
+            />
           )}
           {!submissions && !loadFailure && (
-            <p className="portal-note" role="status">
-              {retrying ? "Retrying this round’s submissions…" : "Loading this round’s submissions…"}
-            </p>
+            <SkeletonText lines={4} label={retrying ? "Retrying this round’s submissions…" : "Loading this round’s submissions…"} />
           )}
           {submissions && visible.length === 0 && <p className="portal-note">No submissions match this filter.</p>}
           <span className="row-actions">

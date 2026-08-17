@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Field, Select } from "@/shared/ui/ui-kit";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
+import { StaleWriteNotice, staleWriteConfirm } from "@/shared/ui/app/stale-write";
 import { TimeZoneSelect } from "@/shared/ui/app/time-zone-select";
 import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { useToast } from "@/shared/ui/toast";
@@ -105,20 +106,10 @@ export function focusDetailsError(
   schedule(() => (container?.querySelector('[aria-invalid="true"]') ?? summary.current)?.focus());
 }
 
-export const STALE_NOTICE_A11Y = { role: "alert", tabIndex: -1 } as const;
-
-export function focusDetailsNotice(
-  notice: { current: { focus: () => void } | null },
-  schedule: (callback: () => void) => unknown = (callback) => window.requestAnimationFrame(callback),
-) {
-  schedule(() => notice.current?.focus());
-}
-
 export function DetailsTab({ event, onSaved }: { event: EventDTO; onSaved: (event: EventDTO) => void }) {
   const { toast } = useToast();
   const sectionRef = useRef<HTMLElement>(null);
   const errorRef = useRef<HTMLParagraphElement>(null);
-  const staleRef = useRef<HTMLDivElement>(null);
 
   const [sourceEvent, setSourceEvent] = useState(event);
   const [draft, setDraft] = useState<EventDetailsDraft>(() => eventDetailsDraftFrom(event));
@@ -233,8 +224,8 @@ export function DetailsTab({ event, onSaved }: { event: EventDTO; onSaved: (even
       toast("Event details saved");
     } catch (caught) {
       if (isAppError(caught) && caught.code === "STALE_WRITE") {
+        // The notice announces and focuses itself once it mounts.
         setStale(true);
-        focusDetailsNotice(staleRef);
       } else {
         setError(caught instanceof Error ? caught.message : "That event did not save");
         focusDetailsError(null, errorRef);
@@ -251,15 +242,7 @@ export function DetailsTab({ event, onSaved }: { event: EventDTO; onSaved: (even
         <p>Core information shown across admin and public pages.</p>
       </header>
       {stale && (
-        <div ref={staleRef} className="notify-bar" {...STALE_NOTICE_A11Y}>
-          <div>
-            <p><b>This event changed since you loaded it.</b></p>
-            <small>Your draft is still here. Load the latest version when you are ready to replace it.</small>
-          </div>
-          <Button variant="secondary" disabled={loadingLatest || saving} onClick={requestLoadLatest}>
-            {loadingLatest ? "Loading…" : "Load latest"}
-          </Button>
-        </div>
+        <StaleWriteNotice subject="event" busy={loadingLatest || saving} onLoadLatest={requestLoadLatest} />
       )}
       <div className="form-stack">
         <Field label="Event name" required error={fieldErrors.name} errorId="event-name-error">
@@ -308,10 +291,7 @@ export function DetailsTab({ event, onSaved }: { event: EventDTO; onSaved: (even
       <BrandingPanel event={event} onSaved={onSaved} />
       <ConfirmDialog
         open={confirmingLoadLatest}
-        title="Load the latest event details?"
-        body="Your unsaved details will be replaced by the latest saved version. This cannot be undone."
-        confirmLabel="Load latest"
-        variant="stale"
+        {...staleWriteConfirm("event")}
         onConfirm={loadLatest}
         onCancel={() => setConfirmingLoadLatest(false)}
       />

@@ -25,6 +25,8 @@ import {
 } from "@/shared/contracts";
 import { Button, EmptyState, Select, Switch } from "@/shared/ui/ui-kit";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
+import { LoadFailure } from "@/shared/ui/app/load-failure";
+import { SkeletonText } from "@/shared/ui/app/skeleton";
 import { editorDraftChanged, requestGuardedEditorClose } from "@/shared/ui/app/modal-editor-guard";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { useToast } from "@/shared/ui/toast";
@@ -182,11 +184,14 @@ export function RoutingRulesPanel({ eventId, formId, onDraftStateChange }: { eve
   }, [eventId, formId]);
 
   if (context !== "cfp") return null;
-  if (status === "loading") return <section className="panel routing-rules-panel"><p className="loading-note">Loading routing rules…</p></section>;
+  if (status === "loading") return <section className="panel routing-rules-panel"><SkeletonText lines={3} label="Loading routing rules…" /></section>;
   if (status === "error") {
+    // Not an empty state: nothing here is empty, the read failed. An
+    // `EmptyState` announced nothing and sent the organizer off to reload the
+    // whole builder, losing every other unsaved panel with it.
     return (
       <section className="panel routing-rules-panel">
-        <EmptyState icon={<RouteIcon size={20} />} title="Routing rules did not load" description="Reload the page to try again." />
+        <LoadFailure message="Routing rules could not be loaded." onRetry={() => void load()} />
       </section>
     );
   }

@@ -50,12 +50,13 @@ describe("stale-write handling shape", () => {
     // programmatic close. The task editor beside this one has always kept its
     // draft and offered "Load latest".
     expect(source).toContain("setStale(true)");
-    expect(source).toContain("Your draft is still here");
+    // One 409 surface for the whole product: the shared notice keeps the draft
+    // and the shared confirm asks before replacing it.
+    expect(source).toContain('<StaleWriteNotice subject="page"');
+    expect(source).toContain('{...staleWriteConfirm("page")}');
     // The 409 branch must not close the editor.
     const staleBranch = source.slice(source.indexOf('payload?.error?.code === "STALE_WRITE"'), source.indexOf("if (!response.ok)"));
     expect(staleBranch).not.toContain("onSaved");
     expect(staleBranch).not.toContain("closeEditor");
-    // Loading the latest is an explicit, separate gesture.
-    expect(source).toContain("Load latest");
   });
 });
