@@ -857,5 +857,23 @@ describe("M44 user management", () => {
       await revokeAdminSessionByIdIn(db, ownerId, "e4400000-0000-4000-8000-000000000301");
       expect((await listAdminSessionsIn(db, ownerId)).map((s) => s.id)).toEqual(["e4400000-0000-4000-8000-000000000302"]);
     });
+
+    it("normalizes Better Auth's empty-string ip_address to null instead of a blank IP column", async () => {
+      // Better Auth writes this row directly, and when it can't determine the
+      // client's address it writes '' rather than NULL. `AdminSessionSummary`
+      // promises `ipAddress: string | null`, so a leaked '' would slip past
+      // the display layer's `ipAddress ?? "—"` and render a blank cell.
+      await pglite.query(
+        "INSERT INTO admin_sessions(id,user_id,token,expires_at,ip_address) VALUES($1,$2,'tok-blank-ip','2027-01-01T00:00:00Z','')",
+        ["e4400000-0000-4000-8000-000000000304", ownerId],
+      );
+      try {
+        const sessions = await listAdminSessionsIn(db, ownerId);
+        const session = sessions.find((s) => s.id === "e4400000-0000-4000-8000-000000000304");
+        expect(session).toMatchObject({ ipAddress: null });
+      } finally {
+        await revokeAdminSessionByIdIn(db, ownerId, "e4400000-0000-4000-8000-000000000304");
+      }
+    });
   });
 });
