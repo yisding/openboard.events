@@ -210,7 +210,17 @@ function moveInto(host: HTMLElement, node: HTMLElement): void {
       // Not movable in place — fall through and re-insert it.
     }
   }
+  // A removal takes the focus with it, and `appendChild` is a removal and an
+  // insertion. If the player was on the grab handle — arrow-keying the card off
+  // the control they are being asked to use — this move has to hand it back.
+  const focused = node.contains(node.ownerDocument.activeElement) ? node.ownerDocument.activeElement : null;
   host.appendChild(node);
+  // Only if nothing else has claimed it in the meantime. The usual reason the
+  // card moves at all is a modal opening, and `showModal()` has already put the
+  // focus where that dialog wants it.
+  if (focused instanceof HTMLElement && node.ownerDocument.activeElement === node.ownerDocument.body) {
+    focused.focus({ preventScroll: true });
+  }
   // Re-inserting an element replays its CSS animations from zero. Every
   // animation running on the card a moment after this line is therefore one
   // this move just restarted — and nothing about the card is new: same node,

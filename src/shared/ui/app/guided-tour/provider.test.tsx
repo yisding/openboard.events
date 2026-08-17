@@ -939,6 +939,48 @@ describe("anchoring", () => {
     expect(card?.querySelector<HTMLDetailsElement>(".tour-coach-more")?.open).toBe(true);
   });
 
+  it("keeps the focus on the card while it is being moved", async () => {
+    // The player who most needs the card out of the way may have no pointer at
+    // all: they are on the grab handle, nudging with the arrow keys. Where the
+    // move is a re-insertion rather than an atomic one, that focus is dropped
+    // by the move itself, and the next arrow key goes to the page instead.
+    document.body.insertAdjacentHTML("beforeend", '<nav class="dashboard-tabs">Today</nav>');
+    await render(makeBootstrap(makeServer()));
+    await tick();
+    const grip = document.querySelector<HTMLElement>(".tour-coach-grip");
+    grip?.focus();
+    expect(document.activeElement).toBe(grip);
+
+    document.body.insertAdjacentHTML("beforeend", '<dialog class="drawer-shell"><button>Open portal as Victor</button></dialog>');
+    const drawer = document.querySelector<HTMLDialogElement>("dialog.drawer-shell");
+    await act(async () => { drawer?.setAttribute("open", ""); await Promise.resolve(); });
+    expect(coach()?.closest("dialog")).toBe(drawer);
+    expect(document.activeElement).toBe(grip);
+  });
+
+  it("takes its wrapper back out of the dialog when the tour goes away", async () => {
+    // The wrapper the card is portalled into is the tour's own element, not
+    // React's, so nothing in the tree removes it. A finished tour that left one
+    // behind would leave it inside somebody else's dialog, for good.
+    document.body.insertAdjacentHTML("beforeend", '<nav class="dashboard-tabs">Today</nav>');
+    await render(makeBootstrap(makeServer()));
+    await tick();
+    document.body.insertAdjacentHTML("beforeend", '<dialog open class="modal-shell"><p>Reassign the room</p></dialog>');
+    const editor = document.querySelector<HTMLDialogElement>("dialog.modal-shell");
+    await act(async () => { await Promise.resolve(); });
+    expect(coach()?.closest("dialog")).toBe(editor);
+    const wrapper = coach()?.parentElement;
+
+    const unmount = cleanup.pop();
+    if (!unmount) throw new Error("nothing was rendered to unmount");
+    await unmount();
+
+    expect(coach()).toBe(null);
+    expect(wrapper?.isConnected).toBe(false);
+    // The dialog's own paragraph, and nothing else.
+    expect(editor?.childElementCount).toBe(1);
+  });
+
   it("spotlights with a real hole the player can click through", async () => {
     document.body.insertAdjacentHTML("beforeend", '<nav class="dashboard-tabs">Today</nav>');
     const tabs = document.querySelector<HTMLElement>(".dashboard-tabs");

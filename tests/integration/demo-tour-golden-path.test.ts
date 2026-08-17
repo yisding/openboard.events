@@ -253,8 +253,16 @@ const DRIVERS: Record<string, Driver> = {
    * It also isolates the assertion: a room move cannot create or clear a
    * speaker or track collision, so a decrease here is unambiguously the room
    * clash being resolved.
+   *
+   * Bound to the talk the previous step placed, by name. The slot it landed on
+   * already held two sessions of its own, so "the first room clash on the day"
+   * is three rows, two of which the card is not talking about — and moving
+   * either of those drops the conflict count just as well, which would leave
+   * this driver passing for an action no organizer was ever told to take.
    */
   "grid.resolve": async ({ eventId, actor }) => {
+    const setPiece = SESSIONS.find((session) => session.key === SET_PIECE_TRAY_SESSION_KEY);
+    if (!setPiece) throw new Error(`the dataset has no session keyed ${SET_PIECE_TRAY_SESSION_KEY}`);
     const clash = await firstRow<{
       id: string; row_version: number; title: string; starts_at: Date; ends_at: Date; free_room_id: string;
     }>(
@@ -269,9 +277,9 @@ const DRIVERS: Record<string, Driver> = {
          FROM sessions a JOIN sessions b
            ON b.event_id = a.event_id AND b.id <> a.id AND b.room_id = a.room_id
           AND a.starts_at < b.ends_at AND b.starts_at < a.ends_at
-        WHERE a.event_id = $1 AND a.room_id IS NOT NULL
-        ORDER BY a.starts_at, a.id LIMIT 1`,
-      [eventId],
+        WHERE a.event_id = $1 AND a.room_id IS NOT NULL AND a.title = $2
+        LIMIT 1`,
+      [eventId, setPiece.title],
     );
     await saveSessionIn(database, eventId, {
       id: clash.id,
