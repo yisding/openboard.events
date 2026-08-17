@@ -228,7 +228,7 @@ export function Modal({ open, onClose, title, description, children, footer, wid
   return <ModalDialog onClose={onClose} title={title} className={cn("modal", wide && "modal-wide")} initialFocusRef={initialFocusRef} dismissible={dismissible}><header><div><h2>{title}</h2>{description && <p>{description}</p>}</div>{dismissible && <button type="button" className="icon-button" aria-label="Close" onClick={onClose}><X size={18} /></button>}</header>{hasBody && <div className="modal-body">{children}</div>}{footer && <footer>{footer}</footer>}</ModalDialog>;
 }
 
-function DrawerDialog({ onClose, title, children }: { onClose: () => void; title: string; children: ReactNode }) {
+function DrawerDialog({ onClose, title, children, initialFocusRef }: { onClose: () => void; title: string; children: ReactNode; initialFocusRef: RefObject<HTMLElement | null> }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = ref.current;
@@ -239,11 +239,12 @@ function DrawerDialog({ onClose, title, children }: { onClose: () => void; title
     const returnFocusAncestors = openerAncestors(returnFocus);
     dialog.showModal();
     raiseTopLayerStack();
+    initialFocusRef.current?.focus();
     return () => {
       if (dialog.open) dialog.close();
       focusAfterClose(returnFocus, returnFocusAncestors);
     };
-  }, []);
+  }, [initialFocusRef]);
   return (
     <dialog
       ref={ref}
@@ -262,10 +263,21 @@ function DrawerDialog({ onClose, title, children }: { onClose: () => void; title
  * flow-through drawers' `<FlowNavControls>` "3 of 24" + prev/next live here,
  * so the keyboard shortcut has a visible, clickable equivalent without every
  * caller reimplementing the title row.
+ *
+ * Focus starts on the drawer's own heading rather than wherever `showModal()`
+ * would put it. The browser picks the first focusable descendant, which in a
+ * flow-through drawer is `headerExtra`'s "Previous" — so opening a submission
+ * parked focus on the one control that navigates *away* from what was just
+ * opened, and a screen reader read "Previous" instead of the record's name.
+ * The heading takes `tabIndex={-1}`: reachable programmatically, never a tab
+ * stop, and it announces what opened before Tab walks into the body. A caller
+ * with somewhere better to land (a search box, a first input) passes
+ * `initialFocusRef`, exactly as `Modal` already allows.
  */
-export function Drawer({ open, onClose, children, title, headerExtra, compact = false }: { open: boolean; onClose: () => void; children: ReactNode; title: string; headerExtra?: ReactNode; compact?: boolean }) {
+export function Drawer({ open, onClose, children, title, headerExtra, compact = false, initialFocusRef }: { open: boolean; onClose: () => void; children: ReactNode; title: string; headerExtra?: ReactNode; compact?: boolean; initialFocusRef?: RefObject<HTMLElement | null> | undefined }) {
+  const headingRef = useRef<HTMLHeadingElement>(null);
   if (!open) return null;
-  return <DrawerDialog onClose={onClose} title={title}><aside className={cn("drawer", compact && "drawer-compact")}><div className="drawer-title"><h2>{title}</h2>{headerExtra}<button type="button" className="icon-button" aria-label="Close" onClick={onClose}><X size={19} /></button></div>{children}</aside></DrawerDialog>;
+  return <DrawerDialog onClose={onClose} title={title} initialFocusRef={initialFocusRef ?? headingRef}><aside className={cn("drawer", compact && "drawer-compact")}><div className="drawer-title"><h2 ref={headingRef} tabIndex={-1}>{title}</h2>{headerExtra}<button type="button" className="icon-button" aria-label="Close" onClick={onClose}><X size={19} /></button></div>{children}</aside></DrawerDialog>;
 }
 
 export function EmptyState({ icon, title, description, action }: { icon: ReactNode; title: string; description: string; action?: ReactNode }) {

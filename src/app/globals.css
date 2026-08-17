@@ -699,6 +699,10 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .drawer-compact { width: min(480px, 95vw); }
 .drawer-title { position: sticky; z-index: 3; top: 0; height: 66px; background: var(--surface); border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; padding: 0 24px; }
 .drawer-title h2 { margin: 0; font-size: 16px; }
+/* The heading is where an opening drawer puts focus (see `Drawer`), so it needs
+   the app's ring rather than the UA's — `:focus-visible` keeps it to the
+   keyboard opens, where seeing the landing spot is the point. */
+.drawer-title h2:focus-visible { outline: 2px solid var(--accent-dark); outline-offset: 4px; border-radius: 4px; }
 .drawer-title h2 + .flow-nav-controls { margin-left: auto; margin-right: 16px; }
 .drawer-body { padding: 24px; }
 .drawer-form { display: grid; gap: 24px; }
@@ -718,6 +722,13 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
    `display: grid` also outranks the UA's `display: none`, so a browser without
    popover support still paints the stack in normal flow. */
 .toast-stack{position:fixed;z-index:200;inset:auto auto 24px 50%;transform:translateX(-50%);width:min(440px,calc(100vw - 32px));height:auto;margin:0;border:0;padding:0;overflow:visible;background:transparent;color:inherit;display:grid;gap:8px;pointer-events:none}
+/* A guided-tour coach card (`.tour-coach`, coach.tsx) can dock as low as
+   COACH_CLEARANCE (260px, provider.tsx) off the bottom edge — the same
+   fixed bottom-centre strip this stack occupies. A save toast landing there
+   covers the card's own Done/Next row (#716). The lift only applies while a
+   card is actually mounted, so every other toast keeps its usual resting
+   place. */
+body:has(.tour-coach) .toast-stack{bottom:300px}
 .toast { position: relative; width:100%; min-width: 0; background: var(--sidebar); color: var(--on-fill); border: 1px solid rgba(255,255,255,.12); box-shadow: 0 15px 45px rgba(10,30,27,.25); border-radius: 10px; padding: 12px 12px 12px 16px; display: flex; align-items: center; gap: 12px; font-size:var(--text-sm); animation: toast-item-in .22s ease; pointer-events:auto; }
 .toast > svg { color: var(--accent-on-dark); }.toast[role="alert"] > svg { color: var(--red-bright); }.toast span { flex: 1; }.toast button { border: 0; background: transparent; color: var(--on-dark-muted); display: grid; place-items: center; min-width: 32px; min-height: 32px; cursor: pointer; }.toast .toast-action{color:var(--accent-on-dark);font:inherit;font-weight: var(--weight-emphasis);padding:0 8px}.toast .toast-action:hover,.toast .toast-action:focus-visible{text-decoration:underline}.toast .toast-action:focus-visible,.toast .toast-dismiss:focus-visible{outline:2px solid currentColor;outline-offset:2px}
 .rich-text { color: var(--ink); line-height: 1.65; }
@@ -737,8 +748,8 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .summary-row strong, .summary-row small { display: block; }.summary-row strong { font-size: 16px; letter-spacing: -.3px; }.summary-row small { color: var(--muted); margin-top: 4px; font-size:var(--text-xs); }
 .list-panel { overflow: hidden; }.list-toolbar { height: 57px; padding: 0 16px; border-bottom: 1px solid var(--line); display: flex; align-items: center; }
 .tabs { height: 100%; display: flex; align-items: center; gap: 24px; }.tabs button { align-self: stretch; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); font-weight: var(--weight-control); font-size:var(--text-sm); display: flex; align-items: center; gap: 8px; cursor: pointer; }.tabs button span { padding: 2px 6px; border-radius: 9px; background: var(--fill); color: var(--muted); font-size:var(--text-xs); }.tabs button.active { color: var(--accent-dark); border-color: var(--accent); }.tabs button.active span { background: var(--accent-soft); color: var(--accent-dark); }
-.form-cards { padding: 4px 16px; }.form-list-card { min-height: 116px; display: grid; grid-template-columns: 48px minmax(0,1fr) auto; align-items: center; gap: 16px; border-bottom: 1px solid var(--fill-strong); }.form-list-card:last-child { border-bottom: 0; }
-.form-list-icon { width: 46px; height: 46px; border-radius: 10px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent-dark); }.form-list-main > div:first-child { display: flex; align-items: center; gap: 8px; }.form-list-main h2 { margin: 0; font-size:var(--text-sm); }.form-list-main > p { color: var(--muted); margin: 6px 0 8px; font-size:var(--text-xs); }.form-list-meta { display: flex; gap: 16px; color: var(--muted); font-size:var(--text-xs); }.form-list-meta span { display: flex; align-items: center; gap: 6px; }.form-list-actions { display: flex; align-items: center; gap: 6px; }.choice-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }.choice-cards button { min-height: 120px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 16px; text-align: left; display: grid; grid-template-columns: 1fr 18px; cursor: pointer; }.choice-cards button > svg:first-child { color: var(--accent-dark); margin-bottom: 12px; }.choice-cards button b, .choice-cards button small { grid-column: 1 / 3; display: block; }.choice-cards button b { font-size:var(--text-sm); margin-bottom: 4px; }.choice-cards button small { color: var(--muted); font-size:var(--text-xs); line-height: 1.4; }.choice-cards button.active { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(0,168,120,.12); background: var(--surface-raised); }.choice-cards button.active > svg:last-child { color: var(--accent-dark); }
+.form-cards { padding: 4px 16px; }.form-list-card { position: relative; min-height: 116px; display: grid; grid-template-columns: 48px minmax(0,1fr) auto; align-items: center; gap: 16px; border-bottom: 1px solid var(--fill-strong); }.form-list-card:last-child { border-bottom: 0; }.form-list-card:has(.form-list-title-link):hover { background: var(--surface-subtle); }.form-list-title-link { color: inherit; text-decoration: none; }.form-list-title-link::after { content: ""; position: absolute; inset: 0; }.form-list-title-link:hover { text-decoration: underline; }.form-list-title-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.form-list-icon { width: 46px; height: 46px; border-radius: 10px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent-dark); }.form-list-main > div:first-child { display: flex; align-items: center; gap: 8px; }.form-list-main h2 { margin: 0; font-size:var(--text-sm); }.form-list-main > p { color: var(--muted); margin: 6px 0 8px; font-size:var(--text-xs); }.form-list-meta { display: flex; gap: 16px; color: var(--muted); font-size:var(--text-xs); }.form-list-meta span { display: flex; align-items: center; gap: 6px; }.form-list-actions { position: relative; z-index: 1; display: flex; align-items: center; gap: 6px; }.choice-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }.choice-cards button { min-height: 120px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 16px; text-align: left; display: grid; grid-template-columns: 1fr 18px; cursor: pointer; }.choice-cards button > svg:first-child { color: var(--accent-dark); margin-bottom: 12px; }.choice-cards button b, .choice-cards button small { grid-column: 1 / 3; display: block; }.choice-cards button b { font-size:var(--text-sm); margin-bottom: 4px; }.choice-cards button small { color: var(--muted); font-size:var(--text-xs); line-height: 1.4; }.choice-cards button.active { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(0,168,120,.12); background: var(--surface-raised); }.choice-cards button.active > svg:last-child { color: var(--accent-dark); }
 
 /* Form builder */
 .builder-wrap { margin: -32px; min-height: calc(100vh - 65px); background: var(--canvas); }.builder-header { height: 73px; padding: 0 24px; background: var(--surface); border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; position: sticky; top: 65px; z-index: 15; }.builder-title { display: flex; align-items: center; gap: 8px; }.builder-title > div > div { display: flex; align-items: center; gap: 8px; }.builder-title h1 { font-size:var(--text-base); margin: 0; }.builder-title > div > span { color: var(--muted); font-size:var(--text-xs); display: block; margin-top: 4px; }.builder-title i { font-style: normal; }.builder-title i.saved { color: var(--green); }.builder-title i.saving { color: var(--amber); }.builder-actions,.builder-edit-actions,.builder-lifecycle-actions { display: flex; align-items:center; gap: 8px; }.builder-lifecycle-actions{padding-left:12px;margin-left:4px;border-left:1px solid var(--line)}.builder-lifecycle-actions>span{font-size:var(--text-xs);font-weight:var(--weight-control);color:var(--muted)}
@@ -1178,9 +1189,9 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .portal-home-section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
 .portal-home-section-header .section-title{margin:0}
 .portal-my-sessions li{align-items:flex-start;flex-direction:column;gap:6px}
-.portal-my-sessions li>div{display:flex;flex-direction:column;gap:4px;width:100%}
+.portal-session-info{display:flex;flex-direction:column;gap:4px;width:100%}
 .portal-session-when{display:flex;align-items:center;gap:6px;flex-wrap:wrap;color:var(--muted);font-size:var(--text-xs)}
-.portal-session-cal-links{display:flex;gap:12px}
+.portal-session-cal-links{display:flex;gap:12px;width:100%}
 .portal-session-cal-links a{color:var(--accent-dark);font-size:var(--text-xs);font-weight:var(--weight-control)}
 .submission-timeline{list-style:none;display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0;padding:0;font-size:var(--text-xs);color:var(--muted)}
 .submission-timeline li{display:flex;align-items:center;gap:4px}
@@ -1605,6 +1616,10 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .route-skeleton--panel{height:190px;border:1px solid var(--line)}
 .route-skeleton--panel-wide{grid-column:1/3;height:240px}
 .route-error-state{width:min(620px,calc(100% - 32px));min-height:100vh;margin:0 auto;display:grid;place-content:center;justify-items:center;gap:18px;padding:48px 0;text-align:center}
+/* The same recovery state rendered inside a layout that already fills the
+   viewport (the organization and account shells): it centres in the content
+   area it was handed instead of claiming a second screenful of scroll. */
+.route-error-state--inline{min-height:min(58vh,420px);padding:16px 0 40px}
 .route-error-state__icon{width:48px;height:48px;border-radius:14px;display:grid;place-items:center;background:var(--amber-soft);color:var(--amber)}
 .route-error-state h1{font-size:30px;letter-spacing:-.8px;margin:10px 0 8px}
 .route-error-state>div>p:last-child{max-width:520px;margin:0;color:var(--muted);line-height:1.6}
@@ -1762,8 +1777,8 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .portal-stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:24px}
 .portal-home-section{margin-bottom:24px}
 .portal-home-list{list-style:none;margin:0;padding:0;display:grid;gap:8px}
-.portal-home-list li{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:12px 12px;border:1px solid var(--line);border-radius:9px;font-size:var(--text-xs)}
-.portal-home-list li time{margin-left:auto;color:var(--muted);font-size:var(--text-xs)}
+.portal-home-list>li{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:12px 12px;border:1px solid var(--line);border-radius:9px;font-size:var(--text-xs)}
+.portal-home-list>li>time{margin-left:auto;color:var(--muted);font-size:var(--text-xs)}
 
 /* M15 public CFP wizard. */
 main.cfp-container{max-width:760px;margin:0 auto;padding:48px 24px}
@@ -2272,6 +2287,13 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .crm-board-cards{padding:12px;display:grid;gap:8px;flex:1}
 .crm-board-card{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:12px 12px;cursor:grab;touch-action:none}
 .crm-board-card--dragging{opacity:.5}
+.crm-board-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.crm-board-card-head>div{flex:1;min-width:0}
+/* The keyboard drag activator. It is the only tab stop the card adds, so it
+   keeps the shared 36px icon-button box; the negative margins pull that box
+   back onto the card's padding instead of widening the row. */
+.crm-board-card-grip{flex:none;margin:-6px -6px 0 0;color:var(--muted);cursor:grab}
+.crm-board-card-grip:active:not(:disabled){cursor:grabbing}
 .crm-board-card b{display:block;font-size:var(--text-xs)}
 .crm-board-card span{display:block;color:var(--muted);font-size:var(--text-xs);margin-top:2px}
 .crm-board-card-actions{display:flex;gap:6px;margin-top:8px}
@@ -3177,8 +3199,16 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
    scrolling the page — and expanding "Side quests" adds a tray of eight to a
    card that starts around 300px tall, which put the tail of the list and the
    Skip chapter / Finish tour disclosure out of reach on any laptop. Same
-   max-height/overflow/overscroll pairing .datetime-popover already uses. */
-.tour-coach { position: fixed; z-index: 201; width: 320px; max-width: calc(100vw - 24px); max-height: calc(100vh - 24px); overflow-y: auto; overscroll-behavior: contain; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 13px 15px 14px; animation: modal-in .18s ease; }
+   max-height/overflow/overscroll pairing .datetime-popover already uses.
+
+   `inset: auto` and `margin: 0` are the UA's `[popover]` box being undone in
+   advance: the card is raised into the top layer as a manual popover whenever a
+   dialog it is not inside is open (see coach.tsx), and the UA's `inset: 0` plus
+   `margin: auto` would otherwise drag it to the middle of the screen and
+   stretch it to the viewport's height. Everything else the UA sets — border,
+   padding, background, colour — this rule already states outright. The two
+   position classes below restate their own edges, so they still win. */
+.tour-coach { position: fixed; inset: auto; z-index: 201; width: 320px; max-width: calc(100vw - 24px); max-height: calc(100vh - 24px); margin: 0; overflow-y: auto; overscroll-behavior: contain; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 13px 15px 14px; animation: modal-in .18s ease; }
 .tour-coach-centred { top: 50%; left: 50%; transform: translate(-50%, -50%); }
 /* No anchor, but an instruction to carry out: the middle of the screen is
    where the work is, so the card takes the corner the paused pill uses instead
@@ -3209,6 +3239,9 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
 .tour-coach-won { border-color: var(--accent-border); }
 .tour-coach-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 9px; }
 .tour-coach-chapter { color: var(--accent-dark); font-size: var(--text-xs); font-weight: var(--weight-emphasis); letter-spacing: 1.1px; text-transform: uppercase; }
+/* A quest borrows its chapter for the progress math, not for how it reads: a
+   distinct tint from the arc's jade eyebrow says "detour" at a glance. */
+.tour-coach-quest { color: var(--blue); font-size: var(--text-xs); font-weight: var(--weight-emphasis); letter-spacing: 1.1px; text-transform: uppercase; }
 /* `margin-left: auto` rather than the header's `space-between`: with a grab
    handle in front of it the chapter label would otherwise float to the middle. */
 .tour-coach-close { display: grid; place-items: center; width: 24px; height: 24px; margin: -4px -6px -4px auto; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
@@ -3216,6 +3249,15 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
 .tour-coach-close:focus-visible, .tour-coach-grip:focus-visible, .tour-coach-quiet:focus-visible, .tour-coach-tray summary:focus-visible, .tour-coach-more summary:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .tour-coach .progress-track { margin: 0 0 11px; }
 .tour-coach-title { display: block; font-size: var(--text-table); }
+/* The imperative belongs to the state the player just left: once the card is
+   celebrating, the title steps back to a struck-through, checked-off line so
+   the reward below it — not the instruction above it — reads as the news. */
+.tour-coach-title-done { color: var(--muted); font-weight: var(--weight-control); text-decoration: line-through; text-decoration-color: var(--line); }
+/* `inline-block`, not `text-decoration: none`: a decoration specified on an
+   ancestor propagates and cannot be cancelled by a descendant, so the plain
+   version of this rule drew the line straight through the tick. An atomic
+   inline-level box is the one thing propagation skips. */
+.tour-coach-title-done::before { content: "\2713"; display: inline-block; margin-right: 6px; color: var(--green); }
 .tour-coach-body { margin: 4px 0 0; color: var(--muted); font-size: var(--text-xs); line-height: 1.55; }
 .tour-coach-notice { margin: 8px 0 0; padding: 7px 9px; border-radius: 8px; background: var(--amber-soft); color: var(--amber); font-size: var(--text-xs); line-height: 1.5; }
 .tour-coach-hint { margin: 8px 0 0; padding: 7px 9px; border-left: 2px solid var(--accent-border); background: var(--accent-faint); color: var(--ink); font-size: var(--text-xs); line-height: 1.5; }
@@ -3254,8 +3296,15 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
 /* ---------------------------------------------------------------------------
    Easter eggs — the emoji-rain overlay (the palette's secret menu, Konami
    code) and the 404 compass. The overlay is fixed, pointer-events:none and self-removing,
-   so nothing here can affect layout or interaction on the page beneath it. */
-.egg-rain{position:fixed;inset:0;z-index:300;pointer-events:none;overflow:hidden}
+   so nothing here can affect layout or interaction on the page beneath it.
+
+   `emojiRain` shows the overlay as a manual popover so a burst fired while a
+   modal `<dialog>` is open — the tour's curtain call — rains over it rather
+   than behind it. That means undoing the UA's `[popover]` box the way
+   `.toast-stack` does: full-bleed instead of `fit-content` centred by
+   `margin: auto`, and no border, padding or Canvas background. `display` is
+   left alone so a closed popover really is hidden. */
+.egg-rain{position:fixed;inset:0;z-index:300;width:100%;height:100%;margin:0;border:0;padding:0;background:transparent;color:inherit;pointer-events:none;overflow:hidden}
 .egg-rain span{position:absolute;top:-48px;animation:egg-fall 3s linear forwards}
 @keyframes egg-fall{to{transform:translateY(115vh) rotate(360deg)}}
 .lost-compass{border:0;padding:0;cursor:pointer;font:inherit}

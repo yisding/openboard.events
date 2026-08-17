@@ -141,7 +141,7 @@ export function TaskMatrixDrawer({
       open
       onClose={() => { if (!reminderRecovery.blocked) onClose(); }}
       title={task.name}
-      {...(nav ? { headerExtra: <FlowNavControls index={nav.index} total={nav.total} itemLabel={task.name} onPrev={nav.onPrev} onNext={nav.onNext} /> } : {})}
+      {...(nav ? { headerExtra: <FlowNavControls index={nav.index} total={nav.total} itemLabel={task.name} itemNoun="task" onPrev={nav.onPrev} onNext={nav.onNext} /> } : {})}
     >
       <div className="drawer-content">
         <section>
