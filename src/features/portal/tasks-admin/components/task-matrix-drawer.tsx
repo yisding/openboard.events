@@ -89,7 +89,17 @@ export function TaskMatrixDrawer({
       if (!response.ok || !payload?.data) throw new Error("assignment refresh failed");
       setRows(payload.data.assignments);
     } catch {
-      if (current()) setLoadError(true);
+      if (!current()) return;
+      // A *refresh* that fails must take the previous list down with it. This
+      // path is reached after `reopen()` too, where the rows on screen are the
+      // ones that call just changed: leaving them up means the panel says
+      // "assignments could not be loaded" while still offering Reopen and a
+      // reminder checkbox on every row of the list it just disowned. The
+      // selection goes for the same reason — it names rows nobody can vouch
+      // for. Cleared first, so the failure is the only thing left to answer.
+      setRows(null);
+      setSelected(new Set());
+      setLoadError(true);
     }
   }
 
@@ -148,7 +158,10 @@ export function TaskMatrixDrawer({
       <div className="drawer-content">
         <section>
           <h3>Progress</h3>
-          <p className="long-copy">{completed} of {total} complete</p>
+          {/* No count until there is a list to count. "0 of 0 complete" while
+              the assignments are still loading — or after a refresh that
+              failed — is a number, and a wrong one. */}
+          {rows !== null && <p className="long-copy">{completed} of {total} complete</p>}
         </section>
         <section>
           <h3>Assignees</h3>

@@ -126,16 +126,32 @@ export function TemplatesTab({ eventId }: { eventId: EventId }) {
     }
   }
 
-  async function reload() {
+  /**
+   * Answers whether the editor is now showing the server's copy.
+   *
+   * Nothing is cleared unless a fresh row actually arrived. Clearing `dirty`
+   * and `staleConflict` on a refetch that brought nothing back would disarm the
+   * unsaved-work guard over a draft still on screen, and take down the notice
+   * explaining why the last save was refused — leaving a conflict that is just
+   * as unresolved and no longer says so.
+   *
+   * `fresh.isError` is checked rather than only `fresh.data`, because a failed
+   * refetch resolves with the *previous* list: trusting the data alone would
+   * adopt the row this editor already had as though it were the latest.
+   */
+  async function reload(): Promise<boolean> {
     const fresh = await query.refetch();
-    const row = fresh.data?.find((item) => item.key === selectedKey);
-    if (row) {
-      setSubject(row.subject);
-      setBodyHtml(templateBodyForMode(row.bodyHtml, bodyMode));
-      setEnabled(row.enabled);
+    const row = fresh.isError ? undefined : fresh.data?.find((item) => item.key === selectedKey);
+    if (!row) {
+      toast("Could not load the latest template", { kind: "error" });
+      return false;
     }
+    setSubject(row.subject);
+    setBodyHtml(templateBodyForMode(row.bodyHtml, bodyMode));
+    setEnabled(row.enabled);
     setDirty(false);
     setStaleConflict(false);
+    return true;
   }
 
   if (!selected) return <p className="long-copy">This event has no templates yet.</p>;
@@ -231,7 +247,7 @@ export function TemplatesTab({ eventId }: { eventId: EventId }) {
     <ConfirmDialog
       open={confirmingLoadLatest}
       {...staleWriteConfirm("template")}
-      onConfirm={async () => { await reload(); setConfirmingLoadLatest(false); }}
+      onConfirm={async () => { if (await reload()) setConfirmingLoadLatest(false); }}
       onCancel={() => setConfirmingLoadLatest(false)}
     />
     </>
