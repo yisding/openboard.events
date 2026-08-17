@@ -208,9 +208,11 @@ describe("re-measuring after a mutation that leaves the anchor itself untouched"
     // nothing with it because the anchored element hasn't changed. Without a
     // way to reach the measurer, the spotlight stayed at the button's
     // pre-banner coordinates.
-    const frames: Array<() => void> = [];
+    const frames: FrameRequestCallback[] = [];
     const realRaf = window.requestAnimationFrame;
-    window.requestAnimationFrame = ((callback: () => void) => frames.push(callback)) as never;
+    // `push` doubles as the handle: it returns the queue length, which is the
+    // `number` the real signature promises, so no `never` cast is needed.
+    window.requestAnimationFrame = ((callback: FrameRequestCallback) => frames.push(callback)) as typeof window.requestAnimationFrame;
 
     const host = mount('<div class="page"><button data-tour="agenda.publish">Publish selected</button></div>');
     const page = host.querySelector<HTMLElement>(".page");
@@ -243,8 +245,10 @@ describe("re-measuring after a mutation that leaves the anchor itself untouched"
         await new Promise((resolve) => setTimeout(resolve, 0));
       });
       expect(state.element).toBe(button);
-      // Still the stale rect until the frame the mutation scheduled runs.
-      for (const frame of frames.splice(0)) frame();
+      // Still the stale rect until the frame the mutation scheduled runs — a
+      // synchronous remeasure would already read 300 here.
+      expect(state.rect?.top).toBe(200);
+      for (const frame of frames.splice(0)) frame(0);
       await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
 
       expect(state.rect?.top).toBe(300);
