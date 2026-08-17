@@ -2230,7 +2230,16 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
    `<p>Loading…</p>` fallbacks all stay out of it. */
 .login-form-panel>div>:is(form,div){display:grid;gap:16px}
 .login-form-panel>div>:is(form,div) h1{margin:6px 0 0;font-size:40px;letter-spacing:-1.4px}
+/* This selector is 0-1-3 and beats the bare `.field-error` rule (0-1-0),
+   which used to repaint "Invalid email or password" in the same muted grey as
+   the subtitle above it. Out-specify the *color* only, rather than excluding
+   the error from the whole block with `:not(.field-error)`: the error is still
+   a paragraph in this grid and needs the same `margin:0` (grid gap owns the
+   spacing; margins don't collapse in grid) and `overflow-wrap` as its
+   siblings — losing them shifts the submit button and lets long provider
+   errors overflow the panel. */
 .login-form-panel>div>:is(form,div)>p{margin:0;color:var(--muted);font-size:var(--text-base);line-height:1.45;overflow-wrap:anywhere}
+.login-form-panel>div>:is(form,div)>p.field-error{color:var(--red)}
 .login-form-panel>div>:is(form,div)>p a{color:var(--accent-dark);font-weight:var(--weight-control)}
 .auth-email-address{color:var(--ink);font-weight:var(--weight-emphasis)}
 .google-signin{width:100%}
