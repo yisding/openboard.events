@@ -156,10 +156,11 @@ temporary databases; never point it at a shared or production server. Each run t
 it creates with a run id and drops that set when the run ends, so two commands may share one
 server without reclaiming each other's databases.
 
-The 14 specs in [`e2e/`](../e2e) (`abstracts-decide`, `admin-setup`, `agenda-schedule`,
-`cfp-submit`, `demo-tour`, `portal-tasks`, `public-embeds`, `public-widgets-parity`,
-`rendered-ui-polish`, `responsive-action-groups`, `review-operations`, `self-service-onboarding`,
-`speaker-content-ops`, `typography-hierarchy`) are written to run against
+The 17 specs in [`e2e/`](../e2e) (`abstracts-decide`, `admin-setup`, `agenda-schedule`,
+`cfp-submit`, `comms-outbox`, `crm-sync`, `demo-tour`, `portal-resources`, `portal-tasks`,
+`public-embeds`, `public-widgets-parity`, `rendered-ui-polish`, `responsive-action-groups`,
+`review-operations`, `self-service-onboarding`, `speaker-content-ops`,
+`typography-hierarchy`) are written to run against
 a deployed target plus the `sb-test` Neon branch, not against `localhost` fixtures — set
 `E2E_BASE_URL`, `NEON_TEST_URL`, `E2E_ADMIN_PASSWORD`, and `E2E_REVIEWER_PASSWORD` first. The
 Playwright global setup wipes and seeds the test database, then recreates the seeded Better Auth
