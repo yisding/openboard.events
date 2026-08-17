@@ -1,12 +1,16 @@
 import { readFileSync, readdirSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
+const FEATURES_ROOT = resolve(fileURLToPath(import.meta.url), "..");
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 
-function sourceFiles(directory: URL): URL[] {
+function componentFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    if (entry.isDirectory()) return sourceFiles(new URL(`${entry.name}/`, directory));
-    return entry.name.endsWith(".tsx") && !entry.name.includes(".test.") ? [new URL(entry.name, directory)] : [];
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) return componentFiles(path);
+    return entry.name.endsWith(".tsx") && !entry.name.includes(".test.") ? [path] : [];
   });
 }
 
@@ -23,15 +27,12 @@ function sourceFiles(directory: URL): URL[] {
  */
 describe("search fields", () => {
   it("are never rebuilt by hand around an input", () => {
-    const rebuilt = sourceFiles(new URL("./", import.meta.url))
-      .filter((path) => {
-        const source = readFileSync(path, "utf8");
-        // The class on an element that also contains a text input: a search box
-        // written out longhand. `task-list.tsx` reuses the same box around a
-        // <Select>, which is a filter, not a search, and stays legitimate.
-        return /className=\{?"table-search[^"]*"[\s\S]{0,600}?<input/u.test(source);
-      })
-      .map((path) => path.pathname);
+    const rebuilt = componentFiles(FEATURES_ROOT)
+      // The box's class on an element that also contains a text input: a search
+      // field written out longhand. `task-list.tsx` reuses the same box around a
+      // <Select>, which is a filter rather than a search, and stays legitimate.
+      .filter((path) => /className=\{?"table-search[^"]*"[\s\S]{0,600}?<input/u.test(readFileSync(path, "utf8")))
+      .map((path) => relative(FEATURES_ROOT, path));
 
     expect(rebuilt).toEqual([]);
   });

@@ -33,7 +33,7 @@ const liveForm = {
   id: "10000000-0000-4000-8000-000000000101",
   internalName: "Main call for speakers",
   externalTitle: "Submit a talk",
-  status: "published",
+  status: "open",
   availability: "live",
   kind: "abstract",
   targetType: "contact",
