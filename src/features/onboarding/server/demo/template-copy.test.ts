@@ -146,6 +146,48 @@ describe("copying a demo's scaffold onto a real event", () => {
     ]);
   }, 180_000);
 
+  /**
+   * An organizer at free play can add a rule the dataset never contains: "show
+   * Approach when Topics is one of Evals or Safety". Its value is an *array* of
+   * option ids, and the copy re-ids every option underneath it — so a remap
+   * that only handled a single string value carried the demo's ids onto the
+   * organizer's brand-new form, where the question they were promised never
+   * appeared and nothing said why.
+   */
+  it("re-points a multi-option rule an organizer added during free play", async () => {
+    const { eventId: demoId } = await organizationWithProvisionedDemo("template-copy-multi-option-rule");
+    const organizationId = organizationIdSchema.parse(
+      (await database.select({ organizationId: schema.events.organizationId }).from(schema.events).where(eq(schema.events.id, demoId)).limit(1))[0]?.organizationId,
+    );
+    const realEventId = await createRealEvent(organizationId, "template-copy-multi-option-real");
+
+    const demoCfpFormId = demoFormId(demoId, "cfp");
+    const demoFields = await database.select().from(schema.formFields).where(eq(schema.formFields.formId, demoCfpFormId));
+    const topics = demoFields.find((field) => field.key === "topics");
+    const approach = demoFields.find((field) => field.key === "approach");
+    const topicOptions = (topics?.options as Array<{ id: string; label: string }> | null) ?? [];
+    expect(topicOptions.length).toBeGreaterThan(1);
+    const chosen = topicOptions.slice(0, 2);
+
+    await database.update(schema.formFields)
+      .set({ visibility: { match: "all", conditions: [{ sourceFieldId: topics?.id, op: "in", value: chosen.map((option) => option.id) }] } })
+      .where(eq(schema.formFields.id, approach?.id ?? ""));
+
+    await copyDemoScaffoldIn(database, demoId, realEventId);
+
+    const realFields = await database.select().from(schema.formFields).where(eq(schema.formFields.eventId, realEventId));
+    const copiedTopics = realFields.find((field) => field.key === "topics");
+    const copiedTopicOptions = (copiedTopics?.options as Array<{ id: string; label: string }> | null) ?? [];
+    const expected = chosen.map((option) => copiedTopicOptions.find((candidate) => candidate.label === option.label)?.id);
+    expect(expected.every((id) => typeof id === "string")).toBe(true);
+
+    const copiedApproach = realFields.find((field) => field.key === "approach");
+    expect(copiedApproach?.visibility).toEqual({
+      match: "all",
+      conditions: [{ sourceFieldId: copiedTopics?.id, op: "in", value: expected }],
+    });
+  }, 180_000);
+
   it("is a no-op when the organization's demo was never provisioned", async () => {
     const organization = await createOrganizationIn(database, ownerUserId, { name: "template-copy-no-demo", slug: "template-copy-no-demo" });
     const organizationId = organizationIdSchema.parse(organization.id);

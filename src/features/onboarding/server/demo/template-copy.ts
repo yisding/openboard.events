@@ -16,6 +16,7 @@ import {
   type Condition,
   type EventId,
   type FieldId,
+  type FieldType,
   type FormatId,
   type OrganizationId,
   type TagId,
@@ -150,6 +151,7 @@ function remapOptions(options: readonly FormOption[], newFormId: string, remap: 
 
 type SourceField = {
   key: string;
+  fieldType: FieldType;
   options: readonly FormOption[];
 };
 
@@ -158,6 +160,21 @@ type SourceField = {
  * `demoFieldId`/the option's own `stableUuid(newFormId, …)` scheme are pure
  * functions of the field/option **key**, so the new condition can be computed
  * without caring whether the field it points at has been written yet.
+ *
+ * Every id in the rule has to be remapped or the condition dropped; there is
+ * no middle option. A value left pointing at the *demo's* option id is a rule
+ * that can never match on the copy, and the failure is silent — the dependent
+ * question simply never appears on the organizer's brand-new form. Two shapes
+ * used to slip through: an `in`/`not_in` array (the old code only remapped a
+ * string value, so multi-option rules copied over verbatim), and a value whose
+ * option `remapOptions` had dropped for want of surviving vocabulary. Both are
+ * dropped now, the same way `remapOptions` drops an option it cannot re-point,
+ * and an emptied rule leaves the question unconditional — visible, and
+ * therefore fixable, rather than missing.
+ *
+ * Only an option-bearing source is remapped: `eq "yes"` against a text
+ * question is the organizer's own words, and remapping or dropping it would
+ * throw away a rule that copies across perfectly well.
  */
 function remapVisibility(
   visibility: VisibilityRule | null,
@@ -168,11 +185,22 @@ function remapVisibility(
   const conditions: Condition[] = visibility.conditions.flatMap((condition): Condition[] => {
     const source = fieldKeyById.get(condition.sourceFieldId);
     if (!source) return [];
-    const newSourceFieldId = fieldIdSchema.parse(stableUuid(newFormId, `field:${source.key}`));
-    if (typeof condition.value !== "string") return [{ ...condition, sourceFieldId: newSourceFieldId }];
-    const option = source.options.find((candidate) => candidate.id === condition.value);
-    const value = option ? stableUuid(newFormId, `option:${option.label}`) : condition.value;
-    return [{ ...condition, sourceFieldId: newSourceFieldId, value }];
+    const sourceFieldId = fieldIdSchema.parse(stableUuid(newFormId, `field:${source.key}`));
+    const optionSource = source.fieldType === "dropdown" || source.fieldType === "multiselect";
+    if (!optionSource || condition.value === undefined) return [{ ...condition, sourceFieldId }];
+
+    const copiedOptionId = (value: string): string | null => {
+      const option = source.options.find((candidate) => candidate.id === value);
+      return option ? stableUuid(newFormId, `option:${option.label}`) : null;
+    };
+    if (!Array.isArray(condition.value)) {
+      const value = copiedOptionId(condition.value);
+      return value === null ? [] : [{ ...condition, sourceFieldId, value }];
+    }
+    // All or nothing: an `in` rule that kept only the options that survived
+    // would quietly narrow what the organizer asked for.
+    const value = condition.value.flatMap((entry) => copiedOptionId(entry) ?? []);
+    return value.length === condition.value.length ? [{ ...condition, sourceFieldId, value }] : [];
   });
   return conditions.length > 0 ? { match: visibility.match, conditions } : null;
 }
@@ -249,7 +277,7 @@ async function copyPrimaryFormIn(dbOrTx: DbOrTx, sourceEventId: EventId, targetE
     mapsTo: mapsToTargetSchema.nullable().parse(row.mapsTo),
     reviewVisibility: reviewVisibilitySchema.parse(row.reviewVisibility),
   }));
-  const fieldByKey = new Map(parsedFields.map((field) => [field.id, { key: field.key, options: field.options } satisfies SourceField]));
+  const fieldByKey = new Map(parsedFields.map((field) => [field.id, { key: field.key, fieldType: field.fieldType, options: field.options } satisfies SourceField]));
 
   const newFormId = formIdSchema.parse(stableUuid(targetEventId, "scaffold:cfp"));
   await createFormIn(dbOrTx, targetEventId, {
