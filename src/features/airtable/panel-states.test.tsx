@@ -257,7 +257,7 @@ describe("Airtable connect dialog", () => {
     });
     expect(markup).toContain("Use an existing base");
     expect(markup).toContain("Create a new base for me");
-    expect(markup).toContain("This token can&#x27;t create bases");
+    expect(markup).toContain("This token can’t create bases");
     expect(markup).toMatch(/<input type="radio" disabled=""[^>]*name="airtable-base-choice"/u);
   });
 });
