@@ -2186,7 +2186,12 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
    `<p>Loading…</p>` fallbacks all stay out of it. */
 .login-form-panel>div>:is(form,div){display:grid;gap:16px}
 .login-form-panel>div>:is(form,div) h1{margin:6px 0 0;font-size:40px;letter-spacing:-1.4px}
-.login-form-panel>div>:is(form,div)>p{margin:0;color:var(--muted);font-size:var(--text-base);line-height:1.45;overflow-wrap:anywhere}
+/* :not(.field-error) — this selector is 0-1-3 and would otherwise beat the
+   bare `.field-error` rule (0-1-0), repainting "Invalid email or password"
+   in the same muted grey as the subtitle above it. Same failure mode as
+   `.field > small` vs `.field > small.field-error`, and the same fix the
+   `.portal-login-card` panel already uses. */
+.login-form-panel>div>:is(form,div)>p:not(.field-error){margin:0;color:var(--muted);font-size:var(--text-base);line-height:1.45;overflow-wrap:anywhere}
 .login-form-panel>div>:is(form,div)>p a{color:var(--accent-dark);font-weight:var(--weight-control)}
 .auth-email-address{color:var(--ink);font-weight:var(--weight-emphasis)}
 .google-signin{width:100%}
