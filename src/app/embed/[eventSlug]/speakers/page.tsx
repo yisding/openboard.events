@@ -25,7 +25,7 @@ export default async function Page({ params }: { params: Promise<{ eventSlug: st
   return renderEmbedSurface({
     eventSlug,
     active: "speakers",
-    disabledLabel: "speakers list",
+    disabledLabel: "speaker list",
     getConfig: (eventId) => getPublicEmbedConfig(eventId, "speaker_list"),
     // The schedule comes along only so the empty state knows whether pointing
     // at the agenda is a live destination — see `public-speakers-list.tsx`.

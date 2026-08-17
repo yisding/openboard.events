@@ -218,6 +218,45 @@ test.describe("embedded itinerary phone spacing", () => {
   });
 });
 
+test.describe("embed disabled notice", () => {
+  test("pins the footer to the viewport bottom and centers the notice between header and footer", async ({ page }) => {
+    const styles = await readFile(resolve(process.cwd(), "src/app/globals.css"), "utf8");
+    await page.setContent(`<!doctype html><html><head><style>${styles}</style></head><body>
+      <div class="embed-shell">
+        <header class="embed-header"><h1>AI Engineer Sandbox</h1><span>Oct 14–15</span></header>
+        <div class="embed-disabled-notice"><p>This session list is not currently available.</p></div>
+        <footer>Powered by <b>openboard</b></footer>
+      </div>
+    </body></html>`);
+
+    await page.setViewportSize({ width: 800, height: 900 });
+    const layout = await page.evaluate(() => {
+      const rect = (selector: string) => {
+        const element = document.querySelector(selector);
+        if (!element) throw new Error(`Embed fixture is missing ${selector}`);
+        return element.getBoundingClientRect();
+      };
+      const header = rect(".embed-header");
+      const notice = rect(".embed-disabled-notice p");
+      const footer = rect(".embed-shell > footer");
+      return {
+        footerBottom: footer.bottom,
+        viewportHeight: window.innerHeight,
+        noticeCenter: notice.top + notice.height / 2,
+        midpoint: header.bottom + (footer.top - header.bottom) / 2,
+      };
+    });
+
+    // Regression guard for #676: the footer used to stop right after the
+    // short notice, leaving a dead band of blank space below it instead of
+    // sitting at the bottom of the (possibly tall, iframed) viewport.
+    expect(layout.footerBottom).toBeCloseTo(layout.viewportHeight, 0);
+    // The notice centers in the space it actually has, not just the top of
+    // a shell that is mostly empty beneath it.
+    expect(Math.abs(layout.noticeCenter - layout.midpoint)).toBeLessThan(5);
+  });
+});
+
 test.describe("public event phone navigation", () => {
   test("keeps the event identity and every destination readable without a clipped tab row", async ({ page }) => {
     const styles = await readFile(resolve(process.cwd(), "src/app/globals.css"), "utf8");

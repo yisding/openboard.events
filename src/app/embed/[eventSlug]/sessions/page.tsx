@@ -25,7 +25,7 @@ export default async function Page({ params }: { params: Promise<{ eventSlug: st
   return renderEmbedSurface({
     eventSlug,
     active: "sessions",
-    disabledLabel: "sessions list",
+    disabledLabel: "session list",
     getConfig: (eventId) => getPublicEmbedConfig(eventId, "session_list"),
     getContent: getPublishedSchedule,
     renderContent: (schedule, context) => <PublicSessions {...context} schedule={schedule} embed />,
