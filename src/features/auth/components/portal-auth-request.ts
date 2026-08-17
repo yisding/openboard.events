@@ -14,7 +14,11 @@ export type PortalAuthRequestResult =
  * the wire message; the header is what lets the screen say *how many*.
  */
 function retryAfterSeconds(response: Response): number | undefined {
-  const header = response.headers.get("retry-after");
+  // Optional detail, read defensively: this helper exists to make a refusal
+  // more precise, and nothing about it may turn a refusal the caller can
+  // already handle into a thrown one. `?.` because a `fetch` stubbed with a
+  // response-shaped object — several suites do — has no `headers` at all.
+  const header = response.headers?.get("retry-after");
   if (!header) return undefined;
   const seconds = Number(header);
   return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : undefined;
