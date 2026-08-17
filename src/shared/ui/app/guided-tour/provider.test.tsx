@@ -318,6 +318,29 @@ describe("objective verification", () => {
     expect(server.state.stepId).toBe("live.publish");
   });
 
+  it("drops the stale imperative and hint once the step is celebrating", async () => {
+    document.body.insertAdjacentHTML("beforeend", '<nav class="dashboard-tabs">Today</nav>');
+    const server = makeServer({ chapter: "grid", stepId: "grid.resolve" });
+    await render(makeBootstrap(server));
+    await tick();
+
+    await act(async () => control("Show me how").click());
+    await tick();
+    expect(coach()?.textContent).toContain("Open the conflict row and change the room.");
+
+    server.state = { ...server.state, world: { conflictCount: 2, publishedSessions: 0 } };
+    await tick(2_100);
+    expect(coach()?.textContent).toContain("Two rooms, one time, zero apologies to write.");
+    // The imperative and the hint both describe the state the player just
+    // left — the card is celebrating now, and neither belongs beside the
+    // reward and the Next button.
+    expect(coach()?.querySelector(".tour-coach-hint")).toBe(null);
+    expect(coach()?.textContent).not.toContain("Open the conflict row and change the room.");
+    // The title stays in the DOM — it is still `aria-labelledby`'s target —
+    // just no longer read as an instruction.
+    expect(coach()?.querySelector(".tour-coach-title-done")?.textContent).toBe("Fix it.");
+  });
+
   it("polls only while an act step is armed", async () => {
     document.body.insertAdjacentHTML("beforeend", '<nav class="dashboard-tabs">Today</nav>');
     const server = makeServer();
@@ -1007,6 +1030,30 @@ describe("resuming", () => {
     expect(server.records.filter((entry) => entry.outcome === "skipped").map((entry) => entry.stepId))
       .toEqual(["quest.outbox"]);
     expect(coach()).not.toBe(null);
+  });
+
+  it("labels a side quest as a detour instead of the chapter it borrows", async () => {
+    document.body.insertAdjacentHTML("beforeend", '<nav class="dashboard-tabs">Today</nav>');
+    const server = makeServer();
+    await render(makeBootstrap(server, { steps: [...STEPS, QUEST_STEP] }));
+    await tick();
+
+    // On the arc the eyebrow is the chapter and the bar is the arc's percent.
+    expect(coach()?.querySelector(".tour-coach-chapter")?.textContent).toContain("Chapter 1 of 3");
+    expect(coach()?.querySelector("[role=progressbar]")?.getAttribute("aria-label")).toBe("Tour progress");
+
+    await act(async () => control("Read the mail you did not send.").click());
+    await tick();
+    // `quest.outbox` borrows chapter `grid` so the progress math has a home,
+    // but the card must say "detour", not claim the player is mid-chapter.
+    // Asserted on the eyebrow itself: the tray below reads "Side quests · 0 of
+    // 1" whatever the header says, so a `textContent` match proves nothing.
+    expect(coach()?.querySelector(".tour-coach-chapter")).toBe(null);
+    expect(coach()?.querySelector(".tour-coach-quest")?.textContent).toBe("Side quest · The grid");
+    // …and the bar under it stops measuring an arc the player has stepped off.
+    const bar = coach()?.querySelector("[role=progressbar]");
+    expect(bar?.getAttribute("aria-label")).toBe("Side quests done");
+    expect(bar?.getAttribute("aria-valuenow")).toBe("0");
   });
 
   it("renders nothing at all once the tour is complete", async () => {

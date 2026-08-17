@@ -3210,6 +3210,9 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
 .tour-coach-won { border-color: var(--accent-border); }
 .tour-coach-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 9px; }
 .tour-coach-chapter { color: var(--accent-dark); font-size: var(--text-xs); font-weight: var(--weight-emphasis); letter-spacing: 1.1px; text-transform: uppercase; }
+/* A quest borrows its chapter for the progress math, not for how it reads: a
+   distinct tint from the arc's jade eyebrow says "detour" at a glance. */
+.tour-coach-quest { color: var(--blue); font-size: var(--text-xs); font-weight: var(--weight-emphasis); letter-spacing: 1.1px; text-transform: uppercase; }
 /* `margin-left: auto` rather than the header's `space-between`: with a grab
    handle in front of it the chapter label would otherwise float to the middle. */
 .tour-coach-close { display: grid; place-items: center; width: 24px; height: 24px; margin: -4px -6px -4px auto; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
@@ -3217,6 +3220,15 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
 .tour-coach-close:focus-visible, .tour-coach-grip:focus-visible, .tour-coach-quiet:focus-visible, .tour-coach-tray summary:focus-visible, .tour-coach-more summary:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .tour-coach .progress-track { margin: 0 0 11px; }
 .tour-coach-title { display: block; font-size: var(--text-table); }
+/* The imperative belongs to the state the player just left: once the card is
+   celebrating, the title steps back to a struck-through, checked-off line so
+   the reward below it — not the instruction above it — reads as the news. */
+.tour-coach-title-done { color: var(--muted); font-weight: var(--weight-control); text-decoration: line-through; text-decoration-color: var(--line); }
+/* `inline-block`, not `text-decoration: none`: a decoration specified on an
+   ancestor propagates and cannot be cancelled by a descendant, so the plain
+   version of this rule drew the line straight through the tick. An atomic
+   inline-level box is the one thing propagation skips. */
+.tour-coach-title-done::before { content: "\2713"; display: inline-block; margin-right: 6px; color: var(--green); }
 .tour-coach-body { margin: 4px 0 0; color: var(--muted); font-size: var(--text-xs); line-height: 1.55; }
 .tour-coach-notice { margin: 8px 0 0; padding: 7px 9px; border-radius: 8px; background: var(--amber-soft); color: var(--amber); font-size: var(--text-xs); line-height: 1.5; }
 .tour-coach-hint { margin: 8px 0 0; padding: 7px 9px; border-left: 2px solid var(--accent-border); background: var(--accent-faint); color: var(--ink); font-size: var(--text-xs); line-height: 1.5; }

@@ -267,6 +267,12 @@ function TourCoachBody({ step, progress, mode, notice, hintVisible, sideQuests, 
   // used to leave "Take a look…" on screen with no way past it but Skip.
   const showAdvance = step.kind !== "act" || mode !== "waiting";
   const questsComplete = sideQuests.length > 0 && sideQuests.every((quest) => questsDone.includes(quest.id));
+  // A side quest borrows its chapter from wherever it thematically belongs, so
+  // the arc's "Chapter N of M" and the arc's own percent both describe a
+  // position the player has stepped out of — the eyebrow and the bar below it
+  // switch to the one honest measure of a detour: quests done vs. quests total.
+  const isSideQuest = step.optional === true;
+  const questPercent = sideQuests.length === 0 ? 0 : Math.round((questsDone.length / sideQuests.length) * 100);
   return <>
     <header className={cn("tour-coach-head", drag && "tour-coach-grab")} onPointerDown={drag?.onPointerDown}>
       {drag && (
@@ -280,20 +286,29 @@ function TourCoachBody({ step, progress, mode, notice, hintVisible, sideQuests, 
           <GripVertical size={14} aria-hidden />
         </button>
       )}
-      <span className="tour-coach-chapter">
-        {progress.chapterCount > 0 && progress.chapterIndex > 0
-          ? `Chapter ${progress.chapterIndex} of ${progress.chapterCount}${progress.chapter ? ` — ${progress.chapter.name}` : ""}`
-          : progress.chapter?.name ?? "Side quest"}
-      </span>
+      {isSideQuest ? (
+        <span className="tour-coach-quest">
+          Side quest{progress.chapter ? ` · ${progress.chapter.name}` : ""}
+        </span>
+      ) : (
+        <span className="tour-coach-chapter">
+          {progress.chapterCount > 0 && progress.chapterIndex > 0
+            ? `Chapter ${progress.chapterIndex} of ${progress.chapterCount}${progress.chapter ? ` — ${progress.chapter.name}` : ""}`
+            : progress.chapter?.name ?? "Side quest"}
+        </span>
+      )}
       <button type="button" className="tour-coach-close" aria-label="Pause the tour" onClick={handlers.onPause}>
         <X size={15} aria-hidden />
       </button>
     </header>
-    <ProgressBar value={progress.percent} label="Tour progress" />
-    <b id={titleId} className="tour-coach-title">{step.title}</b>
+    <ProgressBar
+      value={isSideQuest ? questPercent : progress.percent}
+      label={isSideQuest ? "Side quests done" : "Tour progress"}
+    />
+    <b id={titleId} className={cn("tour-coach-title", mode === "celebrating" && "tour-coach-title-done")}>{step.title}</b>
     <p id={bodyId} className="tour-coach-body">{step.body}</p>
     {notice && <p className="tour-coach-notice">{notice}</p>}
-    {hintVisible && step.hint && <p className="tour-coach-hint">{step.hint}</p>}
+    {mode !== "celebrating" && hintVisible && step.hint && <p className="tour-coach-hint">{step.hint}</p>}
     {status && (
       <p className={cn("tour-coach-status", mode === "celebrating" && "tour-coach-status-done")}>
         {mode === "waiting" && <i className="tour-coach-pulse" aria-hidden />}
