@@ -231,7 +231,22 @@ export function TourHarness() {
           </div>
         )}
         {/* Room to scroll, so the spotlight can be watched following its anchor. */}
-        <div style={{ height: 520 }} aria-hidden />
+        <div
+          aria-hidden
+          style={{
+            height: 520,
+            marginTop: 12,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            border: "1px dashed var(--line)",
+            borderRadius: 12,
+            color: "var(--muted)",
+            fontSize: "var(--text-xs)",
+          }}
+        >
+          scroll spacer for spotlight testing
+        </div>
       </section>
 
       <section>
