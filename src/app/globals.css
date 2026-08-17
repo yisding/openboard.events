@@ -1125,6 +1125,18 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 
 .data-table th.abstracts-title-column,.data-table td.abstracts-title-column{width:340px;min-width:280px}
 
+/* #666: the agenda list's Title column is the same shape as the abstracts one
+   above — the only wrapping column in an auto-layout `.data-table` full of
+   nowrap siblings (Date, Start–End, Room, Track, Speakers, Status) — so it
+   collapsed the same way (measured: ~90px, one word per line). Its
+   `.submission-title-cell` div already caps at `max-width:340px`; this floor
+   is what stops the cell shrinking past that down to its longest word. Unlike
+   the abstracts column it carries no description, so it keeps the plain
+   (non-clamped) `.submission-title-cell b` — a title that still runs long
+   wraps to as many lines as it needs rather than being cut, and the row's
+   `height:62px` is a floor, not a cap. */
+.data-table th.agenda-title-column,.data-table td.agenda-title-column{width:340px;min-width:280px}
+
 /* The delivery log's subject: enough width to identify the message, capped so
    a 120-character reminder subject cannot set the width of every other column.
    The full string is on the cell's `title` and in the detail drawer. */
@@ -1143,6 +1155,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
    already applies) and the search returns to the full-width row. */
 @media(max-width:768px){
   .data-table th.abstracts-title-column,.data-table td.abstracts-title-column{width:auto;min-width:0}
+  .data-table th.agenda-title-column,.data-table td.agenda-title-column{width:auto;min-width:0}
   .data-toolbar>.table-search{flex:1 1 100%}
 }
 .announce-speaker-links .announce-copy-row{margin-bottom:0}
