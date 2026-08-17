@@ -1593,6 +1593,10 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .route-skeleton--panel{height:190px;border:1px solid var(--line)}
 .route-skeleton--panel-wide{grid-column:1/3;height:240px}
 .route-error-state{width:min(620px,calc(100% - 32px));min-height:100vh;margin:0 auto;display:grid;place-content:center;justify-items:center;gap:18px;padding:48px 0;text-align:center}
+/* The same recovery state rendered inside a layout that already fills the
+   viewport (the organization and account shells): it centres in the content
+   area it was handed instead of claiming a second screenful of scroll. */
+.route-error-state--inline{min-height:min(58vh,420px);padding:16px 0 40px}
 .route-error-state__icon{width:48px;height:48px;border-radius:14px;display:grid;place-items:center;background:var(--amber-soft);color:var(--amber)}
 .route-error-state h1{font-size:30px;letter-spacing:-.8px;margin:10px 0 8px}
 .route-error-state>div>p:last-child{max-width:520px;margin:0;color:var(--muted);line-height:1.6}
