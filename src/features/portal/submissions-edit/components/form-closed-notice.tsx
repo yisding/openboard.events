@@ -11,7 +11,7 @@ export function FormClosedNotice({ detailHref }: { detailHref: string }) {
   return (
     <article className="portal-submission-edit">
       <Link className="portal-back" href={detailHref}><ArrowLeft size={14} /> Back to submission</Link>
-      <div className="portal-panel">
+      <div className="portal-panel portal-panel--padded">
         <h1>Submissions are closed</h1>
         <p className="portal-note">
           This call for speakers is no longer accepting new or updated submissions, so this submission can&rsquo;t be

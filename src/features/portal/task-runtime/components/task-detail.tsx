@@ -170,109 +170,111 @@ export function TaskDetailView({
         {task.submissionCode !== null && <p>{formatCode(task.submissionCode)} · {task.submissionTitle}</p>}
       </header>
 
-      {task.descriptionHtml && <div className="portal-panel"><RichTextView html={task.descriptionHtml} /></div>}
+      <div className="portal-panel-stack">
+        {task.descriptionHtml && <div className="portal-panel portal-panel--padded"><RichTextView html={task.descriptionHtml} /></div>}
 
-      {task.completionMode === "manual" && (
-        <div className="portal-panel">
-          {completed ? (
+        {task.completionMode === "manual" && (
+          <div className="portal-panel portal-panel--padded">
+            {completed ? (
+              <p className="portal-note">
+                Marked complete <TzTime instant={task.completedAt ?? ""} tz={timezone} style="long" />.
+              </p>
+            ) : (
+              <Button disabled={busy} onClick={() => complete()}>{busy ? "Saving…" : "Mark as complete"}</Button>
+            )}
+          </div>
+        )}
+
+        {task.completionMode === "file_request" && task.fileRequest && (
+          <div className="portal-panel portal-panel--padded">
+            {task.fileRequest.instructionsHtml && <RichTextView html={task.fileRequest.instructionsHtml} />}
             <p className="portal-note">
-              Marked complete <TzTime instant={task.completedAt ?? ""} tz={timezone} style="long" />.
+              {task.fileRequest.acceptedExtensions.join(", ")} · up to {task.fileRequest.maxSizeMb} MB
             </p>
-          ) : (
-            <Button disabled={busy} onClick={() => complete()}>{busy ? "Saving…" : "Mark as complete"}</Button>
-          )}
-        </div>
-      )}
-
-      {task.completionMode === "file_request" && task.fileRequest && (
-        <div className="portal-panel">
-          {task.fileRequest.instructionsHtml && <RichTextView html={task.fileRequest.instructionsHtml} />}
-          <p className="portal-note">
-            {task.fileRequest.acceptedExtensions.join(", ")} · up to {task.fileRequest.maxSizeMb} MB
-          </p>
-          <FileUpload
-            eventId={eventId}
-            kind="upload"
-            fileRequestId={task.fileRequest.id}
-            maxSizeMb={task.fileRequest.maxSizeMb}
-            accept={task.fileRequest.acceptedExtensions.map((extension) => `.${extension}`).join(",")}
-            label={uploads.length > 0 ? "Upload a newer version" : "Choose a file"}
-            associationFinalizes
-            onUploaded={(fileId) => attach(fileId)}
-          />
-          {uploads.length > 0 && (
-            <ul className="portal-uploads" aria-live="polite">
-              {uploads.map((upload) => (
-                <li key={upload.fileUploadId}>
-                  <Paperclip size={15} />
-                  <span>{upload.filename} <small>v{upload.version}</small></span>
-                  <TzTime instant={upload.uploadedAt} tz={timezone} style="date" />
-                  {/* Nothing is deleted; `isLatest` is server-derived (M52). */}
-                  {upload.isLatest && <em>Latest</em>}
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <section className="drawer-content" style={{ padding: "16px 0 0" }}>
-            <h3><MessageSquare size={12} style={{ verticalAlign: "-2px", marginRight: 6 }} />Comments</h3>
-            {task.comments.length === 0
-              ? <p className="portal-note">No comments yet — ask a question about this deliverable here.</p>
-              : task.comments.map((comment) => (
-                <div className="review-comment" key={comment.id}>
-                  <header>
-                    <span>{comment.authorName.slice(0, 2).toUpperCase()}</span>
-                    <b>{comment.authorName}</b>
-                    <em>{comment.authorRole === "organizer" ? "Organizer" : "You"}</em>
-                  </header>
-                  <p>{comment.body}</p>
-                </div>
-              ))}
-            <div className="form-stack" style={{ marginTop: 12 }}>
-              <textarea
-                aria-label="Comment for organizers"
-                rows={2}
-                value={commentDraft}
-                onChange={(event) => setCommentDraft(event.target.value)}
-                placeholder="Add a comment for the organizers…"
-                maxLength={5000}
-              />
-              <Button size="sm" disabled={commentBusy || commentDraft.trim().length === 0} onClick={() => void sendComment()}>
-                {commentBusy ? "Sending…" : "Send"}
-              </Button>
-            </div>
-          </section>
-        </div>
-      )}
-
-      {task.completionMode === "form" && !form && (
-        <div className="portal-panel">
-          <p className="portal-note" role="alert">
-            This task&rsquo;s form is not ready yet. Nothing is needed from you until the organizers publish it.
-          </p>
-        </div>
-      )}
-
-      {task.completionMode === "form" && form && (
-        <div ref={formPanelRef} className="portal-panel">
-          {/* A file question inside the renderer reads its event scope from this
-              provider; without it the field renders "File uploads are
-              unavailable here" and a required upload makes the task impossible
-              to finish from the portal. */}
-          <FormUploadProvider eventId={eventId}>
-            <FormFieldRenderer
-              snapshot={form.snapshot}
-              answers={answers}
-              onChange={changeAnswer}
-              mode="edit"
-              errors={fieldErrors}
+            <FileUpload
+              eventId={eventId}
+              kind="upload"
+              fileRequestId={task.fileRequest.id}
+              maxSizeMb={task.fileRequest.maxSizeMb}
+              accept={task.fileRequest.acceptedExtensions.map((extension) => `.${extension}`).join(",")}
+              label={uploads.length > 0 ? "Upload a newer version" : "Choose a file"}
+              associationFinalizes
+              onUploaded={(fileId) => attach(fileId)}
             />
-          </FormUploadProvider>
-          <Button disabled={busy} onClick={() => complete({ answers, formVersion: form.snapshot.version })}>
-            {busy ? "Saving…" : completed ? "Save changes" : "Submit & complete"}
-          </Button>
-        </div>
-      )}
+            {uploads.length > 0 && (
+              <ul className="portal-uploads" aria-live="polite">
+                {uploads.map((upload) => (
+                  <li key={upload.fileUploadId}>
+                    <Paperclip size={15} />
+                    <span>{upload.filename} <small>v{upload.version}</small></span>
+                    <TzTime instant={upload.uploadedAt} tz={timezone} style="date" />
+                    {/* Nothing is deleted; `isLatest` is server-derived (M52). */}
+                    {upload.isLatest && <em>Latest</em>}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <section className="drawer-content" style={{ padding: "16px 0 0" }}>
+              <h3><MessageSquare size={12} style={{ verticalAlign: "-2px", marginRight: 6 }} />Comments</h3>
+              {task.comments.length === 0
+                ? <p className="portal-note">No comments yet — ask a question about this deliverable here.</p>
+                : task.comments.map((comment) => (
+                  <div className="review-comment" key={comment.id}>
+                    <header>
+                      <span>{comment.authorName.slice(0, 2).toUpperCase()}</span>
+                      <b>{comment.authorName}</b>
+                      <em>{comment.authorRole === "organizer" ? "Organizer" : "You"}</em>
+                    </header>
+                    <p>{comment.body}</p>
+                  </div>
+                ))}
+              <div className="form-stack" style={{ marginTop: 12 }}>
+                <textarea
+                  aria-label="Comment for organizers"
+                  rows={2}
+                  value={commentDraft}
+                  onChange={(event) => setCommentDraft(event.target.value)}
+                  placeholder="Add a comment for the organizers…"
+                  maxLength={5000}
+                />
+                <Button size="sm" disabled={commentBusy || commentDraft.trim().length === 0} onClick={() => void sendComment()}>
+                  {commentBusy ? "Sending…" : "Send"}
+                </Button>
+              </div>
+            </section>
+          </div>
+        )}
+
+        {task.completionMode === "form" && !form && (
+          <div className="portal-panel portal-panel--padded">
+            <p className="portal-note" role="alert">
+              This task&rsquo;s form is not ready yet. Nothing is needed from you until the organizers publish it.
+            </p>
+          </div>
+        )}
+
+        {task.completionMode === "form" && form && (
+          <div ref={formPanelRef} className="portal-panel portal-panel--padded">
+            {/* A file question inside the renderer reads its event scope from this
+                provider; without it the field renders "File uploads are
+                unavailable here" and a required upload makes the task impossible
+                to finish from the portal. */}
+            <FormUploadProvider eventId={eventId}>
+              <FormFieldRenderer
+                snapshot={form.snapshot}
+                answers={answers}
+                onChange={changeAnswer}
+                mode="edit"
+                errors={fieldErrors}
+              />
+            </FormUploadProvider>
+            <Button disabled={busy} onClick={() => complete({ answers, formVersion: form.snapshot.version })}>
+              {busy ? "Saving…" : completed ? "Save changes" : "Submit & complete"}
+            </Button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
