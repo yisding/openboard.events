@@ -484,6 +484,39 @@ describe("shared UI spacing regressions", () => {
     );
   });
 
+  it("keeps portal-home-list rules off the nested rows they were never meant to reach", () => {
+    // .portal-home-list li (a descendant selector) also matched the
+    // .submission-timeline <li>s nested inside a Recent-submissions row, so the
+    // compact inline stepper rendered as three bordered, padded boxes instead.
+    // .portal-home-list li time similarly matched the <time> nested inside
+    // .portal-session-when in My Sessions and margin-left:auto shoved the
+    // date away from its calendar icon, orphaning the icon on its own line.
+    const widgets = read("./portal/components/home/portal-home-widgets.tsx");
+
+    expect(css).toContain(
+      ".portal-home-list>li{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:12px 12px;border:1px solid var(--line);border-radius:9px;font-size:var(--text-xs)}",
+    );
+    expect(css).toContain(".portal-home-list>li>time{margin-left:auto;");
+    expect(css).not.toContain(".portal-home-list li{");
+    expect(css).not.toContain(".portal-home-list li time{");
+
+    // .portal-my-sessions li>div{flex-direction:column} matched both direct-child
+    // divs of the row — the session info block and .portal-session-cal-links —
+    // so the Google/Outlook links stacked vertically instead of sitting side by
+    // side. Scoping the column layout to its own class leaves the calendar
+    // links' own display:flex in charge of its own direction.
+    //
+    // Both children keep width:100%: the row's <li> resolves to a column flex
+    // whose align-items:center comes from the later .portal-home-list>li rule,
+    // so a shrink-to-fit child would render horizontally centered instead of
+    // left-aligned under the title — the old li>div rule masked that by
+    // stretching both divs.
+    expect(widgets).toContain('<div className="portal-session-info">');
+    expect(css).toContain(".portal-session-info{display:flex;flex-direction:column;gap:4px;width:100%}");
+    expect(css).toContain(".portal-session-cal-links{display:flex;gap:12px;width:100%}");
+    expect(css).not.toMatch(/\.portal-my-sessions li\s*>\s*div\b/u);
+  });
+
   it("lays the speaker task filter beside the tabs, not boxed inside a boxed select", () => {
     // `.table-search` draws its own bordered pill for a search-icon + input
     // pairing; wrapping it around an already-bordered `.select-control`
