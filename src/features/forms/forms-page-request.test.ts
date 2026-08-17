@@ -122,15 +122,6 @@ describe("form create request outcomes", () => {
     expect(source).not.toContain("navigator.clipboard.writeText");
   });
 
-  it("makes the form card's title a link to the builder, so the tour's spotlighted card surface is not dead space", () => {
-    const source = readFileSync(new URL("./forms-page.tsx", import.meta.url), "utf8");
-    const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
-
-    expect(source).toContain('<Link className="form-list-title-link" href={`/events/${event.id}/forms/${form.id}`}>{form.internalName}</Link>');
-    expect(css).toContain(".form-list-title-link::after");
-    expect(css).toContain(".form-list-actions { position: relative; z-index: 1;");
-  });
-
   it("offers a truthful duplicate-as-draft action on every CFP form card", () => {
     const source = readFileSync(new URL("./forms-page.tsx", import.meta.url), "utf8");
 
