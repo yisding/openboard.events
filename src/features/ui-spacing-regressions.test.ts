@@ -418,6 +418,24 @@ describe("shared UI spacing regressions", () => {
     expect(css).not.toMatch(/(?<!\.abstracts-title-column )\.submission-title-cell b[,{][^{}]*display:-webkit-box/u);
   });
 
+  it("gives the agenda list's title column the same floor (#666)", () => {
+    const listView = read("./agenda/components/list-view.tsx");
+
+    // Same auto-layout shape as the abstracts table: Date, Start–End, Room,
+    // Track, Speakers and Status are all nowrap, so without a floor of its own
+    // the only wrapping column collapsed to roughly its longest word (#666:
+    // six lines, one to three words each, at 1440px).
+    expect(listView).toContain('meta: { className: "agenda-title-column" }');
+    expect(css).toContain(
+      ".data-table th.agenda-title-column,.data-table td.agenda-title-column{width:340px;min-width:280px}",
+    );
+    // T5: max-width breakpoints only, so the phone shape is a reset back to
+    // auto rather than a min-width band — same as the abstracts column.
+    expect(css).toContain(
+      ".data-table th.agenda-title-column,.data-table td.agenda-title-column{width:auto;min-width:0}",
+    );
+  });
+
   it("gives the evaluation plan row actions a floor, not just a ceiling", () => {
     const plans = read("./submissions/evaluation/components/plans-view.tsx");
 
