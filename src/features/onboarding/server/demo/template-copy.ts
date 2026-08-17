@@ -166,11 +166,18 @@ type SourceField = {
  * that can never match on the copy, and the failure is silent — the dependent
  * question simply never appears on the organizer's brand-new form. Two shapes
  * used to slip through: an `in`/`not_in` array (the old code only remapped a
- * string value, so multi-option rules copied over verbatim), and a value whose
- * option `remapOptions` had dropped for want of surviving vocabulary. Both are
- * dropped now, the same way `remapOptions` drops an option it cannot re-point,
- * and an emptied rule leaves the question unconditional — visible, and
- * therefore fixable, rather than missing.
+ * string value, so multi-option rules copied over verbatim), and a value naming
+ * an option `remapOptions` had dropped for want of surviving vocabulary — an
+ * organizer can delete a demo tag with nothing guarding it, and the option
+ * bound to it does not survive the copy even though the source form still
+ * carries it. Both are dropped now, and an emptied rule leaves the question
+ * unconditional — visible, and therefore fixable, rather than missing.
+ *
+ * Which options survive is asked of `remapOptions` itself rather than restated
+ * here. A second copy of "an option bound to vocabulary that did not survive is
+ * dropped" would be a second answer to the question, and the two would drift —
+ * exactly the drift that put the demo's own option ids on the copy in the first
+ * place.
  *
  * Only an option-bearing source is remapped: `eq "yes"` against a text
  * question is the organizer's own words, and remapping or dropping it would
@@ -180,6 +187,7 @@ function remapVisibility(
   visibility: VisibilityRule | null,
   newFormId: string,
   fieldKeyById: ReadonlyMap<string, SourceField>,
+  remap: VocabRemap,
 ): VisibilityRule | null {
   if (!visibility) return null;
   const conditions: Condition[] = visibility.conditions.flatMap((condition): Condition[] => {
@@ -189,9 +197,12 @@ function remapVisibility(
     const optionSource = source.fieldType === "dropdown" || source.fieldType === "multiselect";
     if (!optionSource || condition.value === undefined) return [{ ...condition, sourceFieldId }];
 
+    const copied = new Set(remapOptions(source.options, newFormId, remap).map((option) => option.id));
     const copiedOptionId = (value: string): string | null => {
       const option = source.options.find((candidate) => candidate.id === value);
-      return option ? stableUuid(newFormId, `option:${option.label}`) : null;
+      if (!option) return null;
+      const id = stableUuid(newFormId, `option:${option.label}`);
+      return copied.has(id) ? id : null;
     };
     if (!Array.isArray(condition.value)) {
       const value = copiedOptionId(condition.value);
@@ -313,7 +324,7 @@ async function copyPrimaryFormIn(dbOrTx: DbOrTx, sourceEventId: EventId, targetE
       maxChars: field.maxChars,
       helpText: field.helpText,
       options: remapOptions(field.options, newFormId, remap),
-      visibility: remapVisibility(field.visibility, newFormId, fieldByKey),
+      visibility: remapVisibility(field.visibility, newFormId, fieldByKey, remap),
       mapsTo: field.mapsTo,
       reviewVisibility: field.reviewVisibility,
       sortOrder: field.sortOrder,
