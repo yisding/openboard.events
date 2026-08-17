@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SpeakerRosterExtras } from "@/features/portal";
 import { SPEAKER_WORKFLOW_STATUSES, type SpeakerWorkflowStatus, type UnavailabilityIntervalInput } from "@/shared/contracts";
+import { timeZoneOptionLabel } from "@/shared/lib/time";
 import { DateTimePicker } from "@/shared/ui/app/datetime-picker";
 import { PrivateFileLink } from "@/shared/ui/app/private-file-link";
 import { TzTime } from "@/shared/ui/app/tz-time";
@@ -558,7 +559,7 @@ function UnavailabilityPanel({ eventId, contactId, timezone, extras, onSaved }: 
   return (
     <section ref={sectionRef} className="panel">
       <header className="panel-header">
-        <div><h2>Unavailability</h2><p>Blackout windows in {timezone}, applied by M54 when placing this speaker on the schedule.</p></div>
+        <div><h2>Unavailability</h2><p>Blackout windows in {timeZoneOptionLabel(timezone)}, applied automatically when placing this speaker on the schedule.</p></div>
         <Button size="sm" variant="secondary" disabled={draft.length >= 50} onClick={() => { setDraft((current) => [...current, { startsAt: null, endsAt: null, reason: "" }]); setFieldErrors((current) => [...current, {}]); }}><Plus size={14} /> Add window</Button>
       </header>
       <div className="drawer-content form-stack">
