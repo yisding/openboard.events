@@ -90,7 +90,7 @@ describe("First Fair — guided tour server state", () => {
       [organizerId, coOrganizerId],
     );
     for (const [eventId, name, slug, isDemo] of [
-      [demoEventId, "AI Engineer World's Fair 2026", "ai-engineer-worlds-fair-demo-f7000000", true],
+      [demoEventId, "AI Engineer World’s Fair 2026", "ai-engineer-worlds-fair-demo-f7000000", true],
       [realEventId, "Northline Summit", "northline-summit", false],
     ] as const) {
       await pglite.query(
@@ -279,7 +279,7 @@ describe("First Fair — guided tour server state", () => {
 
     it("hands the layout the ids and names the script's copy interpolates", async () => {
       const bootstrap = await getDemoTourBootstrapIn(database, demoEventId, organizerId);
-      expect(bootstrap?.context.eventName).toBe("AI Engineer World's Fair 2026");
+      expect(bootstrap?.context.eventName).toBe("AI Engineer World’s Fair 2026");
       expect(bootstrap?.context.eventSlug).toContain("-demo-");
       expect(bootstrap?.context.organizationId).toBe(organizationId);
       expect(bootstrap?.context.cfpFormId).toBe(id("101"));

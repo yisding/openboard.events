@@ -236,7 +236,7 @@ function assertCriteriaWithinScale(input: PlanWrite): void {
       const min = criterion.minValue ?? input.scaleMin;
       const max = criterion.maxValue ?? input.scaleMax;
       if (min < input.scaleMin || max > input.scaleMax) {
-        throw new AppError("VALIDATION", `${label} has bounds outside the round's ${input.scaleMin}–${input.scaleMax} scale`);
+        throw new AppError("VALIDATION", `${label} has bounds outside the round’s ${input.scaleMin}–${input.scaleMax} scale`);
       }
       if (max <= min) throw new AppError("VALIDATION", `${label} needs a maximum above its minimum`);
       if (criterion.options.length > 0) throw new AppError("VALIDATION", `${label} is numeric, so it cannot carry options`);
@@ -248,7 +248,7 @@ function assertCriteriaWithinScale(input: PlanWrite): void {
       for (const option of criterion.options) {
         if (option.score === null) continue;
         if (option.score < input.scaleMin || option.score > input.scaleMax) {
-          throw new AppError("VALIDATION", `${label} scores “${option.label}” outside the round's ${input.scaleMin}–${input.scaleMax} scale`);
+          throw new AppError("VALIDATION", `${label} scores “${option.label}” outside the round’s ${input.scaleMin}–${input.scaleMax} scale`);
         }
       }
     } else if (criterion.options.length > 0) {
@@ -699,7 +699,7 @@ export async function assignSubmissionsIn(
       throw new AppError("VALIDATION", "Every reviewer has to be on this round before work can be assigned to them");
     }
     if (Number(summary?.submissions ?? 0) !== submissionIds.length) {
-      throw new AppError("VALIDATION", "Every submission has to be in this round's scope and open for scoring");
+      throw new AppError("VALIDATION", "Every submission has to be in this round’s scope and open for scoring");
     }
     return { assigned: Number(summary?.assigned ?? 0), removed: Number(summary?.removed ?? 0) };
   });
@@ -840,7 +840,7 @@ export async function submitReviewIn(
       throw new AppError("VALIDATION", spec.kind === "numeric"
         ? `Every numeric criterion has to be between ${spec.minValue ?? scale.min} and ${spec.maxValue ?? scale.max}`
         : spec.kind === "select"
-          ? "That option is not one of this criterion's choices"
+          ? "That option is not one of this criterion’s choices"
           : "That criterion expects written feedback");
     }
   }

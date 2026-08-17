@@ -111,7 +111,7 @@ async function resolveCurrentPipelineContact(
     }
     currentEntry = after;
   }
-  throw new AppError("INTERNAL", "The prospect's contact kept changing while the pipeline was refreshed");
+  throw new AppError("INTERNAL", "The prospect’s contact kept changing while the pipeline was refreshed");
 }
 
 async function loadPipelineAuthority(organizationId: OrganizationId): Promise<PipelineAuthority> {
@@ -299,7 +299,7 @@ function AddProspectDialog({ organizationId, events, open, onClose, onCreated }:
       open={open}
       onClose={requestClose}
       title="Add a prospect"
-      description="Search the directory for who you're sourcing, then optionally name the event you have in mind."
+      description="Search the directory for who you’re sourcing, then optionally name the event you have in mind."
       footer={<>
         <Button variant="secondary" onClick={requestClose} disabled={busy}>{recovery ? "Close and check pipeline" : "Cancel"}</Button>
         {!recovery?.closeOnly && (

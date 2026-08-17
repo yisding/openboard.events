@@ -204,10 +204,10 @@ test.describe("the demo event and its guided tour", () => {
 
     await test.step("Chapter 1 completes on a real click, not on a scripted one", async () => {
       // The cold open owns the screen; taking the tour is one button.
-      const opening = page.getByRole("dialog").filter({ hasText: "AI Engineer World's Fair is 65 days out." });
+      const opening = page.getByRole("dialog").filter({ hasText: "AI Engineer World’s Fair is 65 days out." });
       await expect(opening).toBeVisible();
       await expect(opening).toContainText("nothing in here can email a living person");
-      await opening.getByRole("button", { name: "Let's go" }).click();
+      await opening.getByRole("button", { name: "Let’s go" }).click();
 
       // Two observes, then the chapter's act. Each observe satisfies on dwell.
       for (const title of ["Everything that needs you, ranked.", "Press ⌘K."]) {

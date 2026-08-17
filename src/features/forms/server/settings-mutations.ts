@@ -67,7 +67,7 @@ export async function assertValidConfirmationTemplate(
   if (!validation.ok) {
     throw new AppError(
       "TEMPLATE_VAR_MISSING",
-      `Unknown variable ${validation.unknownTokens.map((token) => `{{${token}}}`).join(", ")} — remove it, or leave the field blank to use the event's default template`,
+      `Unknown variable ${validation.unknownTokens.map((token) => `{{${token}}}`).join(", ")} — remove it, or leave the field blank to use the event’s default template`,
       { unknownTokens: validation.unknownTokens },
     );
   }

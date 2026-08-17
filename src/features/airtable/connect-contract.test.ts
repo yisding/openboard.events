@@ -159,6 +159,6 @@ describe("the copy an organizer actually reads", () => {
   });
 
   it("promises the same token can be topped up rather than retyped", () => {
-    expect(AIRTABLE_COPY.token.scopesFooter).toContain("you don't need to make a new one");
+    expect(AIRTABLE_COPY.token.scopesFooter).toContain("you don’t need to make a new one");
   });
 });

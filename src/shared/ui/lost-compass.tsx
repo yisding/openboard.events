@@ -27,7 +27,7 @@ export function compassStage(spins: number): CompassStage {
 
 const NOTES: Record<Exclude<CompassStage, "wandering">, string> = {
   found: "You found true north. The best hallway tracks start with someone getting a little lost.",
-  legend: "True north, found twice. Cartographers say that's impossible. Hallway tracks are built on it.",
+  legend: "True north, found twice. Cartographers say that’s impossible. Hallway tracks are built on it.",
 };
 
 const STAGE_ICON: Record<CompassStage, typeof Compass> = {

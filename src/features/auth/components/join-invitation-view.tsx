@@ -89,7 +89,7 @@ export function JoinInvitationView() {
   if (status === "accepted") {
     return <div>
       <span className="metric-icon accent"><CheckCircle2 size={20} /></span>
-      <h1>You&apos;re in</h1>
+      <h1>You’re in</h1>
       <p>{eventId ? "The invitation was accepted. Your review queue is ready." : "The invitation was accepted. Continue straight to your new workspace."}</p>
       <a className="button button-primary button-lg" href={eventId ? `/events/${encodeURIComponent(eventId)}/review` : `/organizations/${encodeURIComponent(organizationId)}`}>{eventId ? "Open review queue" : "Continue"} <LogIn size={16} /></a>
     </div>;
@@ -97,7 +97,7 @@ export function JoinInvitationView() {
 
   return <div>
     <span className="metric-icon amber"><CircleAlert size={20} /></span>
-    <h1>This invitation isn&apos;t valid</h1>
+    <h1>This invitation isn’t valid</h1>
     <p>{message || "It may have expired or already been used. Ask whoever invited you to send a new one."}</p>
     <a className="button button-secondary button-lg" href="/login">Go to sign in <LogIn size={16} /></a>
   </div>;

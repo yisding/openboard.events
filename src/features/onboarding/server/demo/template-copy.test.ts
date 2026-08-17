@@ -128,7 +128,7 @@ describe("copying a demo's scaffold onto a real event", () => {
     expect(conditions[0]?.value).toBe(workshopOption?.id);
 
     // The copied form answers to the organizer's event, not to the demo
-    // conference. Carrying `Speak at AI Engineer World's Fair` onto a
+    // conference. Carrying `Speak at AI Engineer World’s Fair` onto a
     // marketing event is how "a bunch of stuff from the AI Engineer events"
     // gets reported: a name they never chose, for a conference they have never
     // heard of, on their own call for speakers.
@@ -231,7 +231,7 @@ describe("copying a demo's scaffold onto a real event", () => {
 
     const realForms = await database.select().from(schema.forms).where(eq(schema.forms.eventId, realEventId));
     // Only the platform's own onboarding defaults exist — nothing copied.
-    expect(realForms.every((form) => form.context !== "cfp" || form.currentVersion < 2 || form.internalName !== "Speak at AI Engineer World's Fair")).toBe(true);
+    expect(realForms.every((form) => form.context !== "cfp" || form.currentVersion < 2 || form.internalName !== "Speak at AI Engineer World’s Fair")).toBe(true);
   }, 60_000);
 
   it("converges on a second copy instead of duplicating", async () => {

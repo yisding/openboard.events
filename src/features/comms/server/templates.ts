@@ -37,7 +37,7 @@ export const DEFAULT_TEMPLATES: Record<TemplateKey, { subject: string; bodyHtml:
     bodyHtml: "<p>Here are your outstanding tasks:</p>{{tasks.outstanding_list}}<p><a href=\"{{portal.magic_link}}\">Open your speaker portal</a>.</p><p><a href=\"{{unsubscribe.url}}\">Unsubscribe from reminders</a>.</p>",
   },
   schedule_assigned: {
-    subject: "You're scheduled: {{session.title}}",
+    subject: "You’re scheduled: {{session.title}}",
     bodyHtml: "<p><strong>{{session.title}}</strong> is scheduled for {{session.start_time_local}}–{{session.end_time_local}} {{session.timezone}} in {{session.room}}.</p>{{calendar.buttons_html}}",
   },
   schedule_changed: {
@@ -51,7 +51,7 @@ export const DEFAULT_TEMPLATES: Record<TemplateKey, { subject: string; bodyHtml:
   // M50. Reviewers work in the admin app, so both of these point at the review
   // queue rather than the speaker portal, and neither carries a credential.
   reviewer_invited: {
-    subject: "You're reviewing for {{event.name}}",
+    subject: "You’re reviewing for {{event.name}}",
     bodyHtml: "<p>Hi {{speaker.first_name}},</p><p>You have been added as a reviewer for <strong>{{event.name}}</strong> on the round “{{review.round}}”.</p><p><a href=\"{{review.queue_url}}\">Open your review queue</a> to sign in and start scoring.</p>",
   },
   review_reminder: {
@@ -83,7 +83,7 @@ export const DEFAULT_TEMPLATES: Record<TemplateKey, { subject: string; bodyHtml:
   // M44 — team invitations. `invite.role` is a plain word ("organizer",
   // "reviewer"), not a badge, so it reads fine inline.
   organization_invited: {
-    subject: "You're invited to join {{invite.organization_name}}",
+    subject: "You’re invited to join {{invite.organization_name}}",
     bodyHtml: "<p>Hi {{speaker.first_name}},</p><p>{{invite.inviter_name}} invited you to join <strong>{{invite.organization_name}}</strong> on Openboard as a {{invite.role}}.</p><p><a href=\"{{invite.action_url}}\">Accept the invitation</a>. The link expires {{invite.expires_at}}.</p><p>If you were not expecting this, you can ignore this email.</p>",
   },
 };

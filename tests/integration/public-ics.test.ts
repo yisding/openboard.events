@@ -120,7 +120,7 @@ describe("buildPublicScheduleIcsIn (M53 anonymous itinerary export, reuses M35's
 
   it("star two, remove one: the exported calendar contains only the remaining session", async () => {
     // Simulates the itinerary's localStorage reconciliation already having
-    // dropped `sessionRemove` (removed from My Schedule) — the caller passes
+    // dropped `sessionRemove` (removed from My schedule) — the caller passes
     // only the ids that are still starred, exactly what the itinerary UI does.
     const { ics } = required(await buildPublicScheduleIcsIn(db, eventSlug, [sessionKeep], env), "expected a calendar");
     expect(ics).toContain("SUMMARY:Keep Me");

@@ -287,10 +287,10 @@ export function DetailsTab({ event, onSaved }: { event: EventDTO; onSaved: (even
           </Field>
         </div>
         <div className="form-grid">
-          <Field label="Starts At" required error={fieldErrors.startsAt} errorId="event-start-error">
+          <Field label="Starts" required error={fieldErrors.startsAt} errorId="event-start-error">
             <DateTimePicker required value={draft.startsAt} onChange={(value) => { setDraft((current) => ({ ...current, startsAt: value })); clearFieldError("startsAt"); }} tz={draft.timezone} clearable={false} invalid={Boolean(fieldErrors.startsAt)} {...(fieldErrors.startsAt ? { ariaDescribedBy: "event-start-error" } : {})} />
           </Field>
-          <Field label="Ends At" required error={fieldErrors.endsAt} errorId="event-end-error">
+          <Field label="Ends" required error={fieldErrors.endsAt} errorId="event-end-error">
             <DateTimePicker required value={draft.endsAt} onChange={(value) => { setDraft((current) => ({ ...current, endsAt: value })); clearFieldError("endsAt"); }} tz={draft.timezone} clearable={false} invalid={Boolean(fieldErrors.endsAt)} {...(fieldErrors.endsAt ? { ariaDescribedBy: "event-end-error" } : {})} />
           </Field>
         </div>

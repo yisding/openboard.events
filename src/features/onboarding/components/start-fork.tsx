@@ -55,8 +55,8 @@ export function StartFork({ organizationId, demo = null }: {
           </h2>
           <p style={{ margin: 0, color: "var(--muted)", fontSize: "var(--text-sm)", lineHeight: 1.55 }}>
             {variant === "demo-exists"
-              ? "AI Engineer World's Fair is still waiting for you — every speaker, every proposal, and the two scheduling conflicts nobody has fixed yet. Pick the tour back up, or just poke around."
-              : "We'll build you AI Engineer World's Fair — 18 speakers, 24 proposals, and an agenda with two scheduling conflicts we planted on purpose. None of it is real, all of it works, and nothing in there can email anybody. Ten minutes?"}
+              ? "AI Engineer World’s Fair is still waiting for you — every speaker, every proposal, and the two scheduling conflicts nobody has fixed yet. Pick the tour back up, or just poke around."
+              : "We’ll build you AI Engineer World’s Fair — 18 speakers, 24 proposals, and an agenda with two scheduling conflicts we planted on purpose. None of it is real, all of it works, and nothing in there can email anybody. Ten minutes?"}
           </p>
           {variant === "demo-exists" && demo
             ? <Link className="button button-primary" href={`/events/${demo.eventId}/dashboard`} style={{ justifySelf: "start" }}>

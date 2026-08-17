@@ -10,7 +10,7 @@ Object.assign(globalThis, { React });
 // `renderToStaticMarkup` — the localStorage read/reconcile/persist logic
 // itself is covered node-side, without a DOM, in `itinerary-storage.test.ts`.
 // This file only proves the server-rendered shell: every session gets a star
-// toggle, the My Schedule filter and export affordances are present, and the
+// toggle, the My schedule filter and export affordances are present, and the
 // export starts disabled with nothing starred yet (pre-hydration state).
 describe("PublicItinerary", () => {
   it("distinguishes no stars from stars hidden by embed filters", () => {
@@ -24,14 +24,14 @@ describe("PublicItinerary", () => {
     });
   });
 
-  it("renders every published session with a star toggle and the My Schedule control", () => {
+  it("renders every published session with a star toggle and the My schedule control", () => {
     const html = renderToStaticMarkup(React.createElement(PublicItinerary, {
       eventSlug: "openboard-summit",
       schedule: PUBLISHED_SCHEDULE_FIXTURE,
     }));
 
     expect(html).toContain("Agents");
-    expect(html).toContain("My Schedule");
+    expect(html).toContain("My schedule");
     expect(html).toContain("itinerary-star");
     expect(html).toContain("9:00–9:30 AM PDT · Main Hall");
     expect(html).not.toContain("9:00 AM PDT – 9:30 AM PDT");

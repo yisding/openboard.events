@@ -195,7 +195,7 @@ function continueLabel(step: TourStep, mode: TourCoachMode): string {
 
 function statusLine(step: TourStep, mode: TourCoachMode): string | null {
   if (mode === "celebrating") return step.reward?.line ?? "Done.";
-  if (mode === "stalled") return "Take your time — press Continue when you're ready.";
+  if (mode === "stalled") return "Take your time — press Continue when you’re ready.";
   if (mode === "waiting") return step.kind === "observe" ? "Take a look…" : "Waiting for you…";
   return null;
 }

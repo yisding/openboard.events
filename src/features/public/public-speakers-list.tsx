@@ -81,8 +81,8 @@ export function PublicSpeakersList({
             icon={Search}
             title="Speakers coming soon"
             description={hasSessions
-              ? "Confirmed speakers will appear here as they're announced — the agenda already has sessions to browse."
-              : "Confirmed speakers will appear here as they're announced."}
+              ? "Confirmed speakers will appear here as they’re announced — the agenda already has sessions to browse."
+              : "Confirmed speakers will appear here as they’re announced."}
             {...(hasSessions ? { linkHref: `/e/${eventSlug}/agenda`, linkLabel: "View the agenda" } : {})}
           />
         ) : (

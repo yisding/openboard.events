@@ -232,7 +232,7 @@ function remapVisibility(
  * anyway, since the form is "Speak at AI Engineer World's Fair" while the
  * event carries a year ("… 2026").
  */
-const DEMO_CFP_FORM_NAME = "Speak at AI Engineer World's Fair";
+const DEMO_CFP_FORM_NAME = "Speak at AI Engineer World’s Fair";
 
 export function scaffoldFormName(sourceName: string, targetEventName?: string): string {
   if (!targetEventName || sourceName !== DEMO_CFP_FORM_NAME) return sourceName;
@@ -441,7 +441,7 @@ export async function copyDemoScaffoldForActorIn(
   if (!source[0]?.isDemo) throw new AppError("NOT_FOUND", "This organization has no demo event to copy from");
   const targetEvent = target[0];
   if (!targetEvent) throw new AppError("NOT_FOUND", "Event not found");
-  if (targetEvent.isDemo) throw new AppError("VALIDATION", "Cannot copy a demo's setup onto another demo event");
+  if (targetEvent.isDemo) throw new AppError("VALIDATION", "Cannot copy a demo’s setup onto another demo event");
   await requireTargetEventOrganizerIn(dbOrTx, actorUserId, targetEventId);
 
   await inTransaction(async (tx) => {

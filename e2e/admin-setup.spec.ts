@@ -74,7 +74,7 @@ test.describe("admin-setup", () => {
           await page.getByLabel("Starts", { exact: true }).fill(localInput(30, "09:00"));
           await page.getByLabel("Ends", { exact: true }).fill(localInput(30, "08:00"));
           await page.getByRole("button", { name: /create event/i }).click();
-          await expect(page.locator(".field-error")).toHaveText(/ends at must be after starts at/i);
+          await expect(page.locator(".field-error")).toHaveText(/the end must be after the start/i);
           await expect(page).toHaveURL(/\/organizations\/[0-9a-f-]{36}\/onboarding/);
         });
 
@@ -158,7 +158,7 @@ test.describe("admin-setup", () => {
         await expect(page.getByText("No tracks yet")).toBeVisible();
 
         await page.goto(`/events/${EVENTS.empty.id}/forms`);
-        await expect(page.getByRole("heading", { name: "Submission Forms", exact: true })).toBeVisible();
+        await expect(page.getByRole("heading", { name: "Submission forms", exact: true })).toBeVisible();
         await expect(page.getByText("No forms here")).toBeVisible();
       });
       assertClean();

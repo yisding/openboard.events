@@ -283,7 +283,7 @@ describe("speaker roster operations (M51)", () => {
       sessionSecret: "invite-test-secret-that-is-at-least-32-bytes",
       fallback: false,
     });
-    expect(result.message).toContain("we've sent a code");
+    expect(result.message).toContain("we’ve sent a code");
     const rows = await pglite.query<{ template_key: string; status: string }>(
       "SELECT template_key, status FROM communication_logs WHERE contact_id=$1", [contactId],
     );

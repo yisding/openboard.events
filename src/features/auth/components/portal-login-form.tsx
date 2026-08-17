@@ -51,8 +51,8 @@ export function PortalLoginForm({ eventSlug, next }: { eventSlug: string; next?:
         setError(result.status === 429
           ? "Check your inbox, or try again in a few minutes"
           : result.status === null
-            ? "We couldn't reach the server — check your connection and try again"
-            : "We couldn't send a code right now");
+            ? "We couldn’t reach the server — check your connection and try again"
+            : "We couldn’t send a code right now");
         return;
       }
       setFallback(result.data.fallback ?? null);

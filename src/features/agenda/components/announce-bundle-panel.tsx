@@ -57,7 +57,7 @@ export function AnnounceBundleTrigger({ bundle }: { bundle: AnnounceBundle | nul
             <CopyRow label="Sessions" value={bundle.publicUrls.sessions} />
             <CopyRow label="Speakers" value={bundle.publicUrls.speakers} />
             <CopyRow label="Gallery" value={bundle.publicUrls.gallery} />
-            <CopyRow label="My Schedule" value={bundle.publicUrls.itinerary} />
+            <CopyRow label="My schedule" value={bundle.publicUrls.itinerary} />
           </section>
           <section>
             <h3>Embed snippet</h3>
@@ -66,7 +66,7 @@ export function AnnounceBundleTrigger({ bundle }: { bundle: AnnounceBundle | nul
           {bundle.speakerLinks.length > 0 && (
             <section>
               <h3><Share2 size={14} /> Per-speaker share cards</h3>
-              <p className="announce-bundle-note">Each speaker&rsquo;s own &ldquo;I&rsquo;m speaking!&rdquo; page — forward these along with the announcement.</p>
+              <p className="announce-bundle-note">Each speaker’s own “I’m speaking!” page — forward these along with the announcement.</p>
               <ul className="announce-speaker-links">
                 {bundle.speakerLinks.map((link) => (
                   <li key={link.contactId}>

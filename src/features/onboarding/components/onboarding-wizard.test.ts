@@ -60,7 +60,7 @@ describe("onboarding organization access", () => {
     const request = wizard.indexOf("const saved = await saveOnboardingEvent(");
     expect(guard).toBeGreaterThan(0);
     expect(guard).toBeLessThan(request);
-    expect(wizard).toContain('fail("The end must be after the start", { endsAt: "Ends must be after starts" })');
+    expect(wizard).toContain('fail("The end must be after the start", { endsAt: "The end must be after the start" })');
   });
 
   it("does not advance while a track mutation is still being saved", () => {

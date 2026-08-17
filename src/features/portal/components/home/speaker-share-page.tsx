@@ -14,14 +14,14 @@ export function SpeakerSharePage({ data }: { data: SpeakerShareDTO }) {
   return (
     <main className="share-page">
       <div className="share-card">
-        <span className="share-eyebrow"><Sparkles size={14} /> I&rsquo;m speaking at {eventName}</span>
+        <span className="share-eyebrow"><Sparkles size={14} /> I’m speaking at {eventName}</span>
         {headshotUrl
           // Our own immutable-cached `/f/[fileId]` route, not a remote host —
           // same `unoptimized` convention as `SpeakerHeadshot`/the profile photo.
           ? <Image className="share-headshot" src={headshotUrl} alt={speakerName} width={128} height={128} unoptimized />
           : <span className="share-headshot share-headshot-fallback" aria-hidden="true">{personInitials(speakerName)}</span>}
         <h1>{speakerName}</h1>
-        <p className="share-talk-title">&ldquo;{submissionTitle}&rdquo;</p>
+        <p className="share-talk-title">“{submissionTitle}”</p>
         {schedule && (
           <div className="share-schedule">
             <span><CalendarDays size={15} /> {formatInZone(schedule.startsAt, eventTimezone, "long")}</span>

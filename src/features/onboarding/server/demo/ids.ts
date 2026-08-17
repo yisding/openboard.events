@@ -69,7 +69,7 @@ export function demoSlug(eventId: EventId): string {
 
 const DEMO_SLUG_PREFIX = "ai-engineer-worlds-fair-demo-";
 if ((RESERVED_SLUGS as readonly string[]).some((reserved) => DEMO_SLUG_PREFIX.startsWith(reserved))) {
-  throw new Error(`demoSlug's fixed prefix "${DEMO_SLUG_PREFIX}" collides with a reserved slug`);
+  throw new Error(`demoSlug’s fixed prefix "${DEMO_SLUG_PREFIX}" collides with a reserved slug`);
 }
 
 /**

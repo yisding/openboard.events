@@ -160,7 +160,7 @@ export function PortalFormsPage({ event, initialForms }: { event: BuilderEvent; 
   return <>
     <PageHeader
       eyebrow="PORTAL"
-      title="Portal Forms"
+      title="Portal forms"
       description="Collect contact and session updates from speakers through a task on their portal — never a public CFP link."
       actions={<Button onClick={openCreate}><Plus size={16} /> Create form</Button>}
     />

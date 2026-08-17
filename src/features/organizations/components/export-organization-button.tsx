@@ -36,7 +36,7 @@ export function ExportOrganizationButton({ organizationId, organizationName }: {
       // a raw SyntaxError — fall back to the same friendly message every failure
       // path uses.
       const json = await response.json().catch(() => null) as { data?: unknown; error?: { message?: string } } | null;
-      if (!response.ok || json?.data === undefined) throw new Error(json?.error?.message ?? "Could not export the organization's data");
+      if (!response.ok || json?.data === undefined) throw new Error(json?.error?.message ?? "Could not export the organization’s data");
       const blob = new Blob([JSON.stringify(json.data, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -46,7 +46,7 @@ export function ExportOrganizationButton({ organizationId, organizationName }: {
       URL.revokeObjectURL(url);
       toast("Organization data exported");
     } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not export the organization's data", { kind: "error" });
+      toast(error instanceof Error ? error.message : "Could not export the organization’s data", { kind: "error" });
     } finally {
       setBusy(false);
     }

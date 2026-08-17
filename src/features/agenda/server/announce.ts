@@ -77,7 +77,7 @@ export async function getAnnounceBundleIn(dbOrTx: AnnounceDb, eventId: EventId, 
   }
 
   const eventDate = formatInZone(event.starts_at, event.timezone, { month: "long", day: "numeric" });
-  const announcementCopy = `The full schedule for ${event.name} is live! Join us ${eventDate} — see who's speaking and build your agenda: ${publicUrls.agenda}`;
+  const announcementCopy = `The full schedule for ${event.name} is live! Join us ${eventDate} — see who’s speaking and build your agenda: ${publicUrls.agenda}`;
 
   return { hasPublishedSchedule, publicUrls, embedSnippet, speakerLinks, announcementCopy };
 }

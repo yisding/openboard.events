@@ -62,7 +62,7 @@ function button(label: string): HTMLButtonElement {
 }
 
 function nameConfirmInput(): HTMLInputElement {
-  const input = document.querySelector<HTMLInputElement>("input[aria-label=\"Confirm erasure by typing the speaker's name\"]");
+  const input = document.querySelector<HTMLInputElement>("input[aria-label=\"Confirm erasure by typing the speaker’s name\"]");
   if (!input) throw new Error("Missing erase confirmation input");
   return input;
 }

@@ -111,7 +111,7 @@ export const TOUR_CHAPTERS: readonly TourChapter[] = [
     id: "field-trip",
     name: "Field trip",
     optional: true,
-    unavailableNote: "The speaker portal's tasks never finished building, so there is nothing waiting over there.",
+    unavailableNote: "The speaker portal’s tasks never finished building, so there is nothing waiting over there.",
   },
   {
     id: "the-grid",
@@ -193,7 +193,7 @@ const COLD_OPEN: readonly TourStep[] = [
     chapter: "cold-open",
     kind: "beat",
     presentation: "modal",
-    title: "AI Engineer World's Fair is 65 days out.",
+    title: "AI Engineer World’s Fair is 65 days out.",
     // "24 proposals waiting on a decision" was false on the screen behind this
     // very modal: the demo is built with four pending, and the dashboard's own
     // attention row — visible the moment this card is dismissed — says so.
@@ -201,8 +201,8 @@ const COLD_OPEN: readonly TourStep[] = [
     // queue, and `script.test.ts` now holds both numbers against the dataset.
     body: "18 speakers. 24 proposals, four of them still waiting on you. Two scheduling conflicts nobody has noticed yet. None of it is real, all of it works, and nothing in here can email a living person.",
     route: at("/dashboard"),
-    continueLabel: "Let's go",
-    declineLabel: "I'll poke around myself",
+    continueLabel: "Let’s go",
+    declineLabel: "I’ll poke around myself",
   },
 ];
 
@@ -252,7 +252,7 @@ const THE_CALL: readonly TourStep[] = [
     id: "call.open-form",
     chapter: "the-call",
     kind: "act",
-    title: "Open Speak at AI Engineer World's Fair.",
+    title: "Open Speak at AI Engineer World’s Fair.",
     body: "Your call for speakers has been open for twenty days and has already collected two dozen proposals. Go and see how it is put together.",
     route: at("/forms"),
     anchor: css(".form-list-card"),
@@ -299,7 +299,7 @@ const THE_CALL: readonly TourStep[] = [
     route: at("/forms/:cfpFormId"),
     anchor: named("button", "Publish the current step as a new immutable form version"),
     objective: world("formVersions", "increased"),
-    reward: { emoji: "📝", line: "A new version, and nobody's draft changed under them." },
+    reward: { emoji: "📝", line: "A new version, and nobody’s draft changed under them." },
   },
 ];
 
@@ -313,7 +313,7 @@ const TRIAGE: readonly TourStep[] = [
     // next step is about prints both numbers side by side, so a card claiming
     // twenty-four here was contradicted by the control it was standing on.
     title: "Four proposals still waiting on you.",
-    body: "Twenty-four arrived and the rest are settled. Open any row on the way past: the drawer pins every answer to the form version that speaker actually filled in, not to today's.",
+    body: "Twenty-four arrived and the rest are settled. Open any row on the way past: the drawer pins every answer to the form version that speaker actually filled in, not to today’s.",
     route: at("/abstracts", { view: "needs_decision" }),
     anchor: tourIdAnchor("abstracts.row"),
     placement: "bottom",
@@ -468,7 +468,7 @@ const THE_DECISION: readonly TourStep[] = [
     // *before* it renders, which is why a live row carries the skip reason
     // where its subject would be. Only the nine backdated rows have subjects —
     // history the demo was built with, not something the dispatcher produced.
-    body: "Every row reads skipped, reason: demo event — mail is never delivered. Nine backdated rows carry subjects the demo was built with; anything queued live stops before it renders, so the reason takes the subject's place.",
+    body: "Every row reads skipped, reason: demo event — mail is never delivered. Nine backdated rows carry subjects the demo was built with; anything queued live stops before it renders, so the reason takes the subject’s place.",
     route: at("/communications", { tab: "log" }),
     anchor: css("#communications-tab-log"),
     placement: "bottom",
@@ -519,7 +519,7 @@ const FIELD_TRIP: readonly TourStep[] = [
     // card went on pulsing "Waiting for you…" at a control the organizer had
     // just used, with nothing to say about why. The objective is a task
     // completed in the other tab; the button is how you get there.
-    title: "Finish one of Victor's portal tasks.",
+    title: "Finish one of Victor’s portal tasks.",
     body: "Real impersonation in a new tab, not a fixture switch. Opening the portal is only the door — this step finishes when a task of his does, and we will see it from here.",
     anchor: tourIdAnchor("speakers.impersonate"),
     placement: "bottom",
@@ -560,7 +560,7 @@ const THE_GRID: readonly TourStep[] = [
     kind: "observe",
     desktopOnly: true,
     title: "Three accepted talks with nowhere to be.",
-    body: "Accepted is not scheduled. The tray holds everything the programme has said yes to and the grid has not found a room for yet.",
+    body: "Accepted is not scheduled. The tray holds everything the program has said yes to and the grid has not found a room for yet.",
     route: at("/agenda", { view: "day" }),
     // Not `.unscheduled-tray`. That class belongs to the *workspace* tray,
     // which the Day view does not render at all — on `?view=day` the only
@@ -593,7 +593,7 @@ const THE_GRID: readonly TourStep[] = [
     kind: "observe",
     desktopOnly: true,
     title: "The Conflicts badge just moved.",
-    body: "Main Stage was already busy at 10:15. Openboard noticed before your speakers did, and long before the programme went to print.",
+    body: "Main Stage was already busy at 10:15. Openboard noticed before your speakers did, and long before the program went to print.",
     route: at("/agenda", { view: "day" }),
     anchor: tourIdAnchor("agenda.conflicts-tab"),
     placement: "bottom",
@@ -666,7 +666,7 @@ const GO_LIVE: readonly TourStep[] = [
     anchor: css(".embed-enable-control"),
     placement: "bottom",
     objective: world("embedEnabled", "changed"),
-    reward: { emoji: "🚀", line: "Your schedule, on somebody else's website." },
+    reward: { emoji: "🚀", line: "Your schedule, on somebody else’s website." },
   },
 ];
 
@@ -782,7 +782,7 @@ const SIDE_QUESTS: readonly TourStep[] = [
     kind: "observe",
     optional: true,
     title: "Look at how blind review is set up.",
-    body: "Round 2 hides the proposal's authors from its reviewers and the reviewers from each other. It is a pair of settings, not a separate product.",
+    body: "Round 2 hides the proposal’s authors from its reviewers and the reviewers from each other. It is a pair of settings, not a separate product.",
     route: at("/evaluation"),
     // No anchor, deliberately. It pointed at `.reviewer-progress` — the
     // Reviewers column, which lists who is assigned and how far along they

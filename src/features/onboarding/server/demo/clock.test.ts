@@ -129,7 +129,7 @@ describe("demoDates — property test over DST boundaries (seed 0x1a5c2e, n=400)
     for (const now of samples) {
       const dates = demoDates(now);
       const year = eventDayKey(dates.event.startsAt, DEMO_TIMEZONE).slice(0, 4);
-      expect(dates.event.name).toBe(`AI Engineer World's Fair ${year}`);
+      expect(dates.event.name).toBe(`AI Engineer World’s Fair ${year}`);
     }
   });
 

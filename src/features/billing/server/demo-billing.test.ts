@@ -88,7 +88,7 @@ describe("demo events are exempt from the plan limit (First Fair rail 7)", () =>
     const demoEvent = await createEventIn(
       db,
       ownerUserId,
-      eventInput("AI Engineer World's Fair", "capped-org-demo"),
+      eventInput("AI Engineer World’s Fair", "capped-org-demo"),
       organizationId,
       { isDemo: true },
     );
@@ -108,7 +108,7 @@ describe("demo events are exempt from the plan limit (First Fair rail 7)", () =>
     await createEventIn(
       db,
       ownerUserId,
-      eventInput("AI Engineer World's Fair", "summary-org-demo"),
+      eventInput("AI Engineer World’s Fair", "summary-org-demo"),
       organizationId,
       { isDemo: true },
     );

@@ -125,7 +125,7 @@ export function FormsPage({ event, initialForms }: { event: BuilderEvent; initia
   return <>
     <PageHeader
       eyebrow="PROGRAM"
-      title="Submission Forms"
+      title="Submission forms"
       description="Collect abstract, session and participant information for your event."
       actions={<Button onClick={openCreate}><Plus size={16} /> Create form</Button>}
     />

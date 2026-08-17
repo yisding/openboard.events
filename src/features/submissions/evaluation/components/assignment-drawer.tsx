@@ -29,7 +29,7 @@ function responseLoadFailure(response: Response, payload: AssignmentLoadPayload 
     || (code !== undefined && TERMINAL_LOAD_CODES.has(code));
   const retryableStatus = response.ok || response.status >= 500 || response.status === 408 || response.status === 429;
   return {
-    message: payload?.error?.message ?? "Could not load this round's submissions",
+    message: payload?.error?.message ?? "Could not load this round’s submissions",
     retryable: !terminal && retryableStatus,
   };
 }
@@ -216,7 +216,7 @@ export function AssignmentDrawer({
         if (!cancelled && currentLoadRef.current === loadTarget) {
           setSubmissions(null);
           setLoadFailure({
-            message: "Could not load this round's submissions. Check your connection and try again.",
+            message: "Could not load this round’s submissions. Check your connection and try again.",
             retryable: true,
           });
         }
@@ -272,7 +272,7 @@ export function AssignmentDrawer({
       return false;
     }
     if (!submissions || loadFailure || loadedTarget !== loadKey) {
-      toast("Wait until this round's submissions load before changing assignments", { kind: "error" });
+      toast("Wait until this round’s submissions load before changing assignments", { kind: "error" });
       return false;
     }
     const saveTarget = targetKey;
@@ -310,7 +310,7 @@ export function AssignmentDrawer({
 
   async function assign() {
     if (!submissions || loadFailure || loadedTarget !== loadKey) {
-      toast("Wait until this round's submissions load before changing assignments", { kind: "error" });
+      toast("Wait until this round’s submissions load before changing assignments", { kind: "error" });
       return;
     }
     if (!canAssign) return;
@@ -413,7 +413,7 @@ export function AssignmentDrawer({
 
         <Field label="Mode">
           <Select disabled={controlsDisabled} value={mode} onChange={(event) => setMode(event.target.value === "replace" ? "replace" : "add")}>
-            <option value="add">Add to the selected reviewers&apos; queues</option>
+            <option value="add">Add to the selected reviewers’ queues</option>
             <option value="replace">Replace their queues with exactly this selection</option>
           </Select>
         </Field>

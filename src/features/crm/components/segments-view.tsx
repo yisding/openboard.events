@@ -369,7 +369,7 @@ export function SegmentsView({
       </div>}
 
       {segments.length === 0 ? (
-        <EmptyState icon={<Layers size={20} />} title="No segments yet" description="Save a filter from the directory's criteria to build a reusable list." />
+        <EmptyState icon={<Layers size={20} />} title="No segments yet" description="Save a filter from the directory’s criteria to build a reusable list." />
       ) : segments.map((segment) => {
         const result = resolved[segment.id];
         const resolving = resolvingIds.has(segment.id);

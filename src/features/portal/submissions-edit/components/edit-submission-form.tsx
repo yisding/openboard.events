@@ -85,7 +85,7 @@ export function EditSubmissionForm({
         toast(payload?.error?.message ?? "That did not go through", { kind: "error" });
         return;
       }
-      toast("Changes saved");
+      toast("Submission saved");
       router.push(detailHref);
       router.refresh();
     } finally {

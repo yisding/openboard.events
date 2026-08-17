@@ -138,9 +138,9 @@ export function SendReminderDialog({
 
   return (
     <>
-      <Modal open onClose={onClose} title={`Send reminder — ${contactName}`} description="Only this speaker's currently open assignments are listed.">
+      <Modal open onClose={onClose} title={`Send reminder — ${contactName}`} description="Only this speaker’s currently open assignments are listed.">
         {assignments.isLoading && <p className="long-copy">Loading open assignments…</p>}
-        {assignments.isError && <p className="long-copy">Could not load this speaker&apos;s open assignments.</p>}
+        {assignments.isError && <p className="long-copy">Could not load this speaker’s open assignments.</p>}
         {assignments.data && assignments.data.length === 0 && <p className="long-copy">No open assignments — this speaker is caught up.</p>}
         {assignments.data && assignments.data.length > 0 && (
           <ul className="send-reminder-list">

@@ -38,7 +38,7 @@ const GUIDANCE: Readonly<Record<AirtableScope, ScopeGuidance>> = {
     scope: "data.records:read",
     required: true,
     title: "Read records",
-    why: "Without it we can't tell an existing row from a new one, so every sync would re-push everything.",
+    why: "Without it we can’t tell an existing row from a new one, so every sync would re-push everything.",
   },
   "data.records:write": {
     scope: "data.records:write",
@@ -50,13 +50,13 @@ const GUIDANCE: Readonly<Record<AirtableScope, ScopeGuidance>> = {
     scope: "schema.bases:read",
     required: true,
     title: "See tables and fields",
-    why: "We need this to find your tables and columns. Add it and we'll re-check.",
+    why: "We need this to find your tables and columns. Add it and we’ll re-check.",
   },
   "schema.bases:write": {
     scope: "schema.bases:write",
     required: false,
     title: "Create tables and fields (optional)",
-    why: "With it we build the seven tables for you. Without it you'll make them by hand — we'll list every field.",
+    why: "With it we build the seven tables for you. Without it you’ll make them by hand — we’ll list every field.",
   },
   "user.email:read": {
     scope: "user.email:read",

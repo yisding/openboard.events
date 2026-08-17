@@ -317,7 +317,7 @@ describe("objective verification", () => {
     await tick(120_000);
     expect(server.reads).toBe(stopped);
     // A tutorial that hangs is worse than one that yields.
-    expect(coach()?.textContent).toContain("Take your time — press Continue when you're ready.");
+    expect(coach()?.textContent).toContain("Take your time — press Continue when you’re ready.");
   });
 });
 

@@ -330,7 +330,7 @@ export function ContactDetailView({
       <PageHeader
         eyebrow="ORGANIZATION"
         title="Speaker CRM"
-        description="One identity's complete cross-event record."
+        description="One identity’s complete cross-event record."
         actions={<Link href={`/organizations/${organizationId}/crm`} className="button button-secondary"><ArrowLeft size={15} /> Directory</Link>}
       />
       <CrmNav organizationId={organizationId} active="contact" />
@@ -434,7 +434,7 @@ export function ContactDetailView({
               </section>
 
               <section className="panel settings-section">
-                <header className="panel-header"><h2>Push to event</h2><p>Reuses this identity&rsquo;s speaker record for another event — never a duplicate.</p></header>
+                <header className="panel-header"><h2>Push to event</h2><p>Reuses this identity’s speaker record for another event — never a duplicate.</p></header>
                 <div style={{ padding: "0 24px 24px" }} className="form-stack">
                   {pushableEvents.length === 0 ? (
                     <p className="long-copy">Already linked to every event in this organization.</p>

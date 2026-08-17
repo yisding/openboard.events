@@ -32,7 +32,7 @@ export function myScheduleEmptyCopy(starredCount: number): {
     }
     : {
       title: "No starred sessions yet",
-      description: "Browse the sessions in this embed and tap a star to add one to My Schedule.",
+      description: "Browse the sessions in this embed and tap a star to add one to My schedule.",
       hiddenByEmbed: false,
     };
 }
@@ -53,9 +53,9 @@ export function FilteredItineraryEmptyState({ eventSlug, starredCount }: { event
 }
 
 /**
- * Schedule Itinerary — the M53 anonymous, no-account "My Schedule": star any
+ * Schedule Itinerary — the M53 anonymous, no-account "My schedule": star any
  * number of sessions, persisted in `localStorage` keyed by event slug
- * (`itinerary-storage.ts`), with an exact "My Schedule" filter and a
+ * (`itinerary-storage.ts`), with an exact "My schedule" filter and a
  * selected-sessions iCal export that goes through the shared `/schedule/ics`
  * route (M35's builder, not a second implementation). Sections are
  * chronological by day (not tabbed) — the whole point of this surface is
@@ -159,7 +159,7 @@ export function PublicItinerary({
           aria-pressed={myScheduleOnly}
         >
           <Star size={14} fill={myScheduleOnly ? "currentColor" : "none"} />
-          My Schedule {hydrated && starred.length > 0 ? `(${starred.length})` : ""}
+          My schedule {hydrated && starred.length > 0 ? `(${starred.length})` : ""}
         </button>
         {exportHref ? (
           <a className="itinerary-export" href={exportHref}>
@@ -198,7 +198,7 @@ export function PublicItinerary({
                     className="itinerary-star"
                     onClick={() => toggleStar(session.id)}
                     aria-pressed={starredSet.has(session.id)}
-                    aria-label={starredSet.has(session.id) ? `Remove ${session.title} from My Schedule` : `Add ${session.title} to My Schedule`}
+                    aria-label={starredSet.has(session.id) ? `Remove ${session.title} from My schedule` : `Add ${session.title} to My schedule`}
                   >
                     <Star size={17} fill={starredSet.has(session.id) ? "currentColor" : "none"} />
                   </button>
@@ -238,7 +238,7 @@ export function PublicItinerary({
             <h2>Star your sessions,<br />export your schedule.</h2>
           </div>
           <p>
-            No account needed — star sessions to build My Schedule on this device, then export it to your calendar.
+            No account needed — star sessions to build My schedule on this device, then export it to your calendar.
             {sessions.length > 0 && <> All times {zoneAbbreviation(event.startsAt, event.timezone)}.</>}
           </p>
         </header>

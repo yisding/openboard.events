@@ -18,9 +18,9 @@ export function OtpForm({ eventSlug, email, next }: { eventSlug: string; email: 
       const result = await portalAuthRequest("/api/internal/auth/portal/verify", { eventSlug, email, code });
       if (!result.ok) {
         setError(result.status === null
-          ? "We couldn't reach the server — check your connection and try again"
+          ? "We couldn’t reach the server — check your connection and try again"
           : result.status >= 500
-            ? "We couldn't verify that code right now — try again"
+            ? "We couldn’t verify that code right now — try again"
             : "That code is invalid or expired");
         return;
       }

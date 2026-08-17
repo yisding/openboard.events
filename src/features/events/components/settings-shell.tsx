@@ -42,7 +42,7 @@ function IntegrationLinks({ eventId }: { eventId: string }) {
     <section className="panel settings-section">
       <header>
         <h2>Connected tools</h2>
-        <p>Each of these lives on its own page — credentials, history, and a manual trigger don&apos;t fit in a tab.</p>
+        <p>Each of these lives on its own page — credentials, history, and a manual trigger don’t fit in a tab.</p>
       </header>
       <div className="settings-link-cards">
         {INTEGRATION_LINKS.map((link) => (

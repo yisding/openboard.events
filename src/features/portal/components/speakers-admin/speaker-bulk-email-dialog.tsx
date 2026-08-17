@@ -460,7 +460,7 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected, initi
                 <RichTextView html={currentPreview.result.bodyHtml} />
               </div>
             ) : (
-              <p className="long-copy" style={{ marginTop: 12 }}>Refresh to see this recipient&rsquo;s resolved message before sending.</p>
+              <p className="long-copy" style={{ marginTop: 12 }}>Refresh to see this recipient’s resolved message before sending.</p>
             )}
           </aside>
         </div>

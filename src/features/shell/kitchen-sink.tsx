@@ -121,7 +121,7 @@ export function KitchenSink() {
       <section style={{ marginBottom: 32 }}>
         <h2 className="section-title">Buttons</h2>
         <p>
-          The product&apos;s most-used control, so its reference rendering lives here: primary for the
+          The product’s most-used control, so its reference rendering lives here: primary for the
           one action a screen exists for, secondary for everything beside it, ghost where chrome would
           crowd a row, danger only on the destructive path. An icon-only control is an{" "}
           <code>.icon-button</code> with an <code>aria-label</code> — never a bare glyph.
@@ -258,7 +258,7 @@ export function KitchenSink() {
         <p>
           Empty values render <Dash />, never the string &quot;undefined&quot;. A time renders as{" "}
           <TzTime instant="2026-09-15T16:00:00Z" tz={TIMEZONE} style="long" /> — always with its zone
-          label, because the reader is rarely in the event&apos;s zone.
+          label, because the reader is rarely in the event’s zone.
         </p>
       </section>
 
@@ -382,7 +382,7 @@ export function KitchenSink() {
       <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)} title="Fixture submission 1">
         <div className="drawer-content">
           <p className="long-copy">
-            The submission drawer&apos;s shell. Everything a feature adds — the decision row, the tab
+            The submission drawer’s shell. Everything a feature adds — the decision row, the tab
             strip, the review comments — sits inside this same panel, which is why the header, the
             close button and the scroll behaviour are worth having in one place.
           </p>

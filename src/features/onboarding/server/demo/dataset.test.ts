@@ -278,8 +278,8 @@ describe("no title anywhere gives the game away", () => {
 
 describe("every content string fits its column limit", () => {
   it("event name budget (the longest possible generated name)", () => {
-    // "AI Engineer World's Fair " + a 4-digit year is always far under 200.
-    expect("AI Engineer World's Fair 2026".length).toBeLessThanOrEqual(LIMITS.EVENT_NAME);
+    // "AI Engineer World’s Fair " + a 4-digit year is always far under 200.
+    expect("AI Engineer World’s Fair 2026".length).toBeLessThanOrEqual(LIMITS.EVENT_NAME);
   });
 
   it("slugs, titles, names", () => {

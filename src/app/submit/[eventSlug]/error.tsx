@@ -7,7 +7,7 @@ export default function SubmitError({ reset }: { error: Error & { digest?: strin
   const eventSlug = usePathname().split("/")[2];
   return (
     <PublicRouteErrorState
-      title="We couldn't open this submission form"
+      title="We couldn’t open this submission form"
       description="The connection may have been interrupted before the form was ready. Try again; no saved draft has been removed."
       reset={reset}
       backHref={eventSlug ? `/e/${encodeURIComponent(eventSlug)}/agenda` : "/"}

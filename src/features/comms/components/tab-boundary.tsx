@@ -35,7 +35,7 @@ export class TabBoundary extends Component<{ children: ReactNode; name: string }
     return (
       <EmptyState
         icon={<AlertTriangle size={20} />}
-        title="This tab couldn't load"
+        title="This tab couldn’t load"
         description="Try switching tabs or reloading the page. The rest of Comms is unaffected."
       />
     );

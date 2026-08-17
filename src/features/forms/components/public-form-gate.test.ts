@@ -96,7 +96,7 @@ describe("PublicFormGate event identity", () => {
 });
 
 describe("PublicFormGate closed state", () => {
-  // The programme link is the only way out of a dead-end page, so it has to
+  // The program link is the only way out of a dead-end page, so it has to
   // land inside .cfp-closed — the one selector in globals.css that gives an
   // inline link accent color and an underline instead of invisible inherited ink.
   it("gives the closed CFP's escape hatch a real link, reachable inside the styled section", () => {
@@ -105,7 +105,7 @@ describe("PublicFormGate closed state", () => {
     const markup = renderToStaticMarkup(createElement(PublicFormGate, { data }));
 
     expect(markup).toContain('<section class="cfp-closed">');
-    expect(markup).toMatch(/<section class="cfp-closed">[\s\S]*<a href="\/e\/openboard-conf\/agenda">See the programme<\/a>[\s\S]*<\/section>/);
+    expect(markup).toMatch(/<section class="cfp-closed">[\s\S]*<a href="\/e\/openboard-conf\/agenda">See the program<\/a>[\s\S]*<\/section>/);
   });
 
   it("gives the not-open-yet CFP the same styled escape hatch", () => {
@@ -114,6 +114,6 @@ describe("PublicFormGate closed state", () => {
     const markup = renderToStaticMarkup(createElement(PublicFormGate, { data }));
 
     expect(markup).toContain('<section class="cfp-closed">');
-    expect(markup).toMatch(/<section class="cfp-closed">[\s\S]*<a href="\/e\/openboard-conf\/agenda">See the programme<\/a>[\s\S]*<\/section>/);
+    expect(markup).toMatch(/<section class="cfp-closed">[\s\S]*<a href="\/e\/openboard-conf\/agenda">See the program<\/a>[\s\S]*<\/section>/);
   });
 });

@@ -466,9 +466,9 @@ export function OnboardingWizard({
       // `refused` for a track the screen never showed. A failure to re-read is
       // not a failed copy: the rows are there, so keep the success toast.
       setTracks(await api(`events/${newEventId}/vocab/tracks`, tracksListSchema).catch(() => tracks));
-      toast("Brought over your demo's tracks, rooms and call for speakers");
+      toast("Brought over your demo’s tracks, rooms and call for speakers");
     } catch {
-      toast("Could not copy your demo's setup — the event was created without it", { kind: "error" });
+      toast("Could not copy your demo’s setup — the event was created without it", { kind: "error" });
     }
   }
 
@@ -488,7 +488,7 @@ export function OnboardingWizard({
     // the create path a definitive failure also clears the retained field set,
     // so the refusal read as the form having simply not gone anywhere.
     if (!(Date.parse(endsAt) > Date.parse(startsAt))) {
-      return fail("The end must be after the start", { endsAt: "Ends must be after starts" });
+      return fail("The end must be after the start", { endsAt: "The end must be after the start" });
     }
     setSaving(true);
     fail("");
@@ -843,7 +843,7 @@ export function OnboardingWizard({
               ? "Correct the event details below, then continue setup where you left off."
               : hasExistingEvents
                 ? `Set up another event for ${organizationName}.`
-                : `Welcome to ${organizationName} — let's set up your first event.`}
+                : `Welcome to ${organizationName} — let’s set up your first event.`}
           </p>
           <Field label="Event name" required error={fieldErrors.name} errorId="onboarding-event-name-error">
             <input id="onboarding-event-name" name="name" required disabled={!hydrated || saving || eventCreateRecoveryRequired} aria-invalid={Boolean(fieldErrors.name) || undefined} aria-describedby={fieldErrors.name ? "onboarding-event-name-error" : undefined} value={name} onChange={(event) => { setName(event.target.value); clearFieldError("name"); }} placeholder="Community AI Summit" />
@@ -877,7 +877,7 @@ export function OnboardingWizard({
           {!event && hasDemoEvent && (
             <label className="onboarding-toggle">
               <input type="checkbox" checked={copyFromDemo} disabled={!hydrated || saving} onChange={(changeEvent) => setCopyFromDemo(changeEvent.target.checked)} />
-              Start from my demo&rsquo;s setup — its tracks, rooms, formats, tags and call for speakers, renamed for this event
+              Start from my demo’s setup — its tracks, rooms, formats, tags and call for speakers, renamed for this event
             </label>
           )}
           <footer className="cfp-actions">
@@ -1037,8 +1037,8 @@ export function OnboardingWizard({
               : formStatus === "open" && formAvailability.reason === "closed_by_date"
                 ? "Your call for speakers has reached its closing date. Update its availability in the form builder if you want to reopen it."
                 : formStatus === "closed"
-              ? "Your call for speakers is currently closed. Reopen it from the form builder when you're ready."
-              : "Your call for speakers is saved as a draft. Review and publish it from the form builder when you're ready."}</p>
+              ? "Your call for speakers is currently closed. Reopen it from the form builder when you’re ready."
+              : "Your call for speakers is saved as a draft. Review and publish it from the form builder when you’re ready."}</p>
           {published && formLink && (
             <div className="onboarding-link-row">
               <label className="sr-only" htmlFor="onboarding-public-form-link">Public submission link</label>

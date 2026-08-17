@@ -591,7 +591,7 @@ export async function chooseAirtableBaseIn(
   let created = false;
   if (input.action === "create") {
     if (!canManageSchema) {
-      throw new AppError("FORBIDDEN", "This token can't create a base. Add the “create tables and fields” permission, or pick a base you already have.");
+      throw new AppError("FORBIDDEN", "This token can’t create a base. Add the “create tables and fields” permission, or pick a base you already have.");
     }
     let result;
     try {
@@ -622,7 +622,7 @@ export async function chooseAirtableBaseIn(
   } else {
     const visible = await client.listBases();
     const match = visible.find((base) => base.id === input.baseId);
-    if (!match) throw new AppError("NOT_FOUND", "That base isn't one this token can see. Pick one from the list.");
+    if (!match) throw new AppError("NOT_FOUND", "That base isn’t one this token can see. Pick one from the list.");
     baseId = match.id;
     baseName = match.name;
   }
