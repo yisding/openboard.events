@@ -9,6 +9,11 @@ import type { ResourcePageDTO } from "../server/queries";
  * mutation already sanitized it on save (belt + braces, per the work order's
  * guardrail). No other prop is available to widen the allowlist further; this
  * is the sole consumer of the `wide` profile outside `sanitize.ts` itself.
+ *
+ * `page.summary` is deliberately not rendered here. It is an excerpt *of* the
+ * body directly below it, so showing it as a lede printed the page's opening
+ * twice, truncated on the first pass. It earns its place on the cards that
+ * link here, where the body is not there to read.
  */
 export function ResourcePageDetailView({ eventSlug, page }: { eventSlug: string; page: ResourcePageDTO }) {
   return (
@@ -17,7 +22,6 @@ export function ResourcePageDetailView({ eventSlug, page }: { eventSlug: string;
       <article>
         <span className="public-eyebrow">SPEAKER RESOURCE</span>
         <h1>{page.title}</h1>
-        {page.summary && <p className="resource-summary">{page.summary}</p>}
         <RichTextView html={page.bodyHtml ?? ""} wide />
         <div className="resource-contact">
           <b>Still have a question?</b>

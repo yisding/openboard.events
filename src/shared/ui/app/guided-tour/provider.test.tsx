@@ -709,6 +709,112 @@ describe("anchoring", () => {
   });
 });
 
+describe("getting out of the way", () => {
+  /** The card as the player sees it: 320 × 260, sitting mid-screen. */
+  function sizedCoach(): HTMLElement {
+    const card = coach();
+    if (!card) throw new Error("no coach card");
+    card.getBoundingClientRect = () => new DOMRect(400, 300, 320, 260);
+    return card;
+  }
+
+  async function drag(from: { x: number; y: number }, to: { x: number; y: number }) {
+    const head = document.querySelector<HTMLElement>(".tour-coach-head");
+    if (!head) throw new Error("no drag handle");
+    await act(async () => {
+      head.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: from.x, clientY: from.y }));
+    });
+    await act(async () => {
+      window.dispatchEvent(new PointerEvent("pointermove", { clientX: to.x, clientY: to.y }));
+      window.dispatchEvent(new PointerEvent("pointerup", {}));
+    });
+  }
+
+  it("lets the player drag the card off whatever it is covering", async () => {
+    // The report this comes from: the card parked over the grid the step was
+    // asking the organizer to drop a session onto. No placement arithmetic can
+    // rule that out for a card of unknown height on a page of unknown layout,
+    // so the card moves.
+    document.body.insertAdjacentHTML("beforeend", '<nav class="dashboard-tabs">Today</nav>');
+    await render(makeBootstrap(makeServer()));
+    await tick();
+    sizedCoach();
+
+    await drag({ x: 500, y: 320 }, { x: 300, y: 380 });
+    expect(coach()?.style.transform).toBe("translate(-200px, 60px)");
+    // And the tour is still the tour: the card it moved is the card it keeps.
+    expect(coach()?.textContent).toContain("Everything that needs you, ranked.");
+  });
+
+  it("will not let a drag throw the card off screen", async () => {
+    document.body.insertAdjacentHTML("beforeend", '<nav class="dashboard-tabs">Today</nav>');
+    await render(makeBootstrap(makeServer()));
+    await tick();
+    sizedCoach();
+
+    // Flung far past the bottom-right corner: it stops with its own edges a
+    // margin inside the window, because a card that cannot be read cannot be
+    // dragged back either.
+    await drag({ x: 500, y: 320 }, { x: 9_000, y: 9_000 });
+    const offset = coach()?.style.transform ?? "";
+    expect(offset).toBe(`translate(${window.innerWidth - 12 - 320 - 400}px, ${window.innerHeight - 12 - 260 - 300}px)`);
+  });
+
+  it("nudges with the arrow keys, for the player with no pointer at all", async () => {
+    document.body.insertAdjacentHTML("beforeend", '<nav class="dashboard-tabs">Today</nav>');
+    await render(makeBootstrap(makeServer()));
+    await tick();
+    sizedCoach();
+    const grip = control("Move the tour card");
+
+    await act(async () => grip.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
+    await act(async () => grip.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true })));
+    expect(coach()?.style.transform).toBe("translate(24px, -24px)");
+  });
+
+  it("hands the next step an undisplaced card", async () => {
+    // The offset was about the control *this* step pointed at. Carrying it
+    // into the next step would move a card away from an anchor it was never
+    // covering — and could park it somewhere the player never chose.
+    document.body.insertAdjacentHTML("beforeend", '<nav class="dashboard-tabs">Today</nav>');
+    await render(makeBootstrap(makeServer()));
+    await tick();
+    sizedCoach();
+    await drag({ x: 500, y: 320 }, { x: 300, y: 380 });
+    expect(coach()?.style.transform).toBe("translate(-200px, 60px)");
+
+    await act(async () => control("Continue").click());
+    await tick();
+    expect(coach()?.style.transform).toBe("");
+  });
+
+  it("docks an anchorless instruction to the corner instead of the middle of the screen", async () => {
+    // With no anchor to sit beside, the centre of the screen is the worst
+    // place a card can be: it is where the work is. A `beat` keeps the centre
+    // — it asks for nothing but a read — and everything with an instruction in
+    // it goes to the corner help lives in.
+    const server = makeServer({ chapter: "grid", stepId: "grid.resolve" });
+    await render(makeBootstrap(server, {
+      steps: STEPS.map((step) => (step.id === "grid.resolve" ? { ...step, anchor: MISSING_ANCHOR } as TourStep : step)),
+    }));
+    await tick(6_500);
+
+    expect(coach()?.className).toContain("tour-coach-docked");
+    expect(coach()?.className).not.toContain("tour-coach-centred");
+  });
+
+  it("leaves the bottom sheet alone on a phone", async () => {
+    // The sheet is already out of the way, docked to an edge, and a drag on it
+    // would fight the page's own scrolling.
+    mobile = true;
+    document.body.insertAdjacentHTML("beforeend", '<nav class="dashboard-tabs">Today</nav>');
+    await render(makeBootstrap(makeServer()));
+    await tick();
+    expect(coach()?.className).toContain("tour-coach-sheet");
+    expect(document.querySelector(".tour-coach-grip")).toBe(null);
+  });
+});
+
 describe("small screens", () => {
   it("becomes a bottom sheet, drops the spotlight, and says which chapter it skipped", async () => {
     mobile = true;

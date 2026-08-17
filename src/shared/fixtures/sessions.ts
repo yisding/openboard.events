@@ -42,6 +42,8 @@ export const PUBLISHED_SPEAKERS_FIXTURE = publishedSpeakersDtoSchema.parse({
   event: {
     name: "OpenBoard Summit",
     timezone: "America/Los_Angeles",
+    startsAt: "2026-09-15T15:00:00.000Z",
+    endsAt: "2026-09-16T01:00:00.000Z",
     accentColor: "#00a878",
     logoUrl: "/f/00000000-0000-4000-8000-000000000701",
     backgroundUrl: "/f/00000000-0000-4000-8000-000000000702",

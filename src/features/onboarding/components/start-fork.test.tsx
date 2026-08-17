@@ -49,6 +49,9 @@ describe("StartFork", () => {
     // A query parameter, not a cookie: App Router cannot set one during a render.
     expect(html).toContain(`href="/organizations/${organizationId}?skip=1"`);
     expect(html).toContain("Skip both");
+    // The escape hatch is a real link, not plain inherited-ink text: it needs
+    // its own accent styling since it sits outside the two button-chrome doors.
+    expect(html).toContain(`<a class="onboarding-skip-link" href="/organizations/${organizationId}?skip=1">Skip both`);
   });
 
   it("sends an organization that already has a finished demo back into it", () => {

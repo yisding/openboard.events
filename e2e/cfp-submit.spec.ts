@@ -270,6 +270,27 @@ test.describe("cfp-submit", () => {
     });
   });
 
+  test.describe("the account step", () => {
+    test("send me a code on an empty email fires the designed field error, not a no-op click", async ({ page }) => {
+      // Issue #677: the button used to be disabled while the email field was
+      // empty, so this click was silently swallowed and the error pipeline
+      // right below it could never fire. It must stay enabled and show the
+      // field error instead.
+      await page.goto(FORM_PATH);
+      const emailInput = page.getByLabel("Email address");
+      const sendButton = page.getByRole("button", { name: /send me a code/i });
+
+      await expect(sendButton).toBeEnabled();
+      await sendButton.click();
+
+      await expect(page.getByText("Enter a valid email address")).toBeVisible();
+      await expect(emailInput).toHaveAttribute("aria-invalid", "true");
+      await expect(emailInput).toBeFocused();
+      // No code step reached: the click must not have gone to the network.
+      await expect(page.getByLabel(/six-digit code/i)).toHaveCount(0);
+    });
+  });
+
   test.describe("the closed form", () => {
     test("the closed form renders the branded closed page", async ({ page }) => {
       const assertClean = expectNoConsoleErrors(page);
