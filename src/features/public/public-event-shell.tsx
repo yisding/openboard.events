@@ -81,7 +81,7 @@ export type PublicSurface = "sessions" | "agenda" | "itinerary" | "speakers" | "
 const NAV_ITEMS: Array<{ key: PublicSurface; label: string }> = [
   { key: "sessions", label: "Sessions" },
   { key: "agenda", label: "Agenda" },
-  { key: "itinerary", label: "My schedule" },
+  { key: "itinerary", label: "Schedule" },
   { key: "speakers", label: "Speakers" },
   { key: "gallery", label: "Gallery" },
 ];
