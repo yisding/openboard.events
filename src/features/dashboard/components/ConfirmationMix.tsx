@@ -23,7 +23,7 @@ export function ConfirmationMix({ mix }: { mix: DashboardOverview["speakerTracki
           offset += percent;
           return circle;
         })}
-        <text x="21" y="20" textAnchor="middle">{total}</text><text className="dashboard-donut-label" x="21" y="25" textAnchor="middle">speakers</text>
+        <text x="21" y="21.5" textAnchor="middle">{total}</text><text className="dashboard-donut-label" x="21" y="25.5" textAnchor="middle">speakers</text>
       </svg>
       <ul>{items.map((item) => <li key={item.key}><i style={{ background: item.color }} /><span>{item.label}</span><b>{mix[item.key]}</b><small>{Math.round((mix[item.key] / total) * 100)}%</small></li>)}</ul>
     </div>
