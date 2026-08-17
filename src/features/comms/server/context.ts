@@ -274,9 +274,13 @@ export async function buildContext(
   //
   // There are NO exceptions on this path — not `portal_login`, not a
   // transactional decision notice. The moment one exists, the label the
-  // product shows the organizer ("every send is rendered, logged and then
-  // skipped") stops being literally true, and a demo event's eighteen
-  // fabricated speakers are one un-audited branch away from real mail.
+  // product shows the organizer ("every send is logged and then skipped")
+  // stops being literally true, and a demo event's eighteen fabricated
+  // speakers are one un-audited branch away from real mail.
+  //
+  // Note that the skip lands *before* the render, which is why this reason —
+  // not a subject — is what the delivery log shows for a demo row, and why the
+  // label no longer claims a render (issue #679).
   //
   // This is not the *only* path, though, and pretending otherwise is how the
   // second one went unguarded: `admin_auth_email_outbox` is drained by

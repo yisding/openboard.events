@@ -30,11 +30,11 @@ const ROW: CommLogRow = {
   taskId: null,
 };
 
-function renderLog(): string {
+function renderLog(rows: readonly CommLogRow[] = [ROW]): string {
   const filters = { contactId, limit: 500 };
   return renderToStaticMarkup(
     <ToastProvider>
-      <QueryBoundary seeds={[{ queryKey: commsKeys.log(eventId, filters), data: [ROW] }]}>
+      <QueryBoundary seeds={[{ queryKey: commsKeys.log(eventId, filters), data: rows }]}>
         <CommsLogTable eventId={eventId} contactId={contactId} timezone="America/Los_Angeles" />
       </QueryBoundary>
     </ToastProvider>,
@@ -74,5 +74,33 @@ describe("CommsLogTable responsive column hooks", () => {
     const html = renderLog();
     expect(html).toContain("Portal sign-in");
     expect(html).not.toContain("portal login");
+  });
+});
+
+// A send the dispatcher stops before `renderTemplateContent` has no subject —
+// on a demo event that is *every* send — and the column was a full screen of
+// identical dashes with the reason hidden one drawer away.
+describe("CommsLogTable rows that never rendered", () => {
+  const skipped: CommLogRow = {
+    ...ROW,
+    templateKey: "schedule_assigned",
+    status: "skipped",
+    subjectRendered: null,
+    providerMessageId: null,
+    sentAt: null,
+    error: "demo event — mail is never delivered",
+  };
+
+  it("shows why a skipped row has no subject instead of a bare dash", () => {
+    const html = renderLog([skipped]);
+
+    expect(html).toContain("demo event — mail is never delivered");
+    expect(html).not.toContain('<td class="comms-log-col-subject"><span class="dash"');
+  });
+
+  it("keeps the dash for a row that simply has nothing to explain", () => {
+    const html = renderLog([{ ...skipped, status: "queued", error: null }]);
+
+    expect(html).toContain('<td class="comms-log-col-subject"><span class="dash"');
   });
 });
