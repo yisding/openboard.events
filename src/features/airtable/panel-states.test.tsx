@@ -165,7 +165,7 @@ describe("Airtable settings panel states", () => {
       // what tells a schema block apart from a rejected-records one: the banner
       // below offers "Rebuild it", which is only the remedy for the first.
       initialConnection: connectionFixture({ lastErrorKey: "schema_drifted" }),
-      initialRuns: [runFixture({ status: "blocked", error: "Some tables or fields in your base don't match what we expect. The list below says exactly which." })],
+      initialRuns: [runFixture({ status: "blocked", error: "Some tables or fields in your base don’t match what we expect. The list below says exactly which." })],
     });
     expect(markup).toContain("Your base needs one change before the next sync");
     expect(markup).toContain("Rebuild it");
@@ -176,7 +176,7 @@ describe("Airtable settings panel states", () => {
   it("I — falls back to a copyable field list when the token cannot change the base", () => {
     const markup = panel({
       initialConnection: connectionFixture({ scopes: ["data.records:read", "data.records:write", "schema.bases:read"], lastErrorKey: "schema_drifted" }),
-      initialRuns: [runFixture({ status: "blocked", error: "Some tables or fields in your base don't match what we expect. The list below says exactly which." })],
+      initialRuns: [runFixture({ status: "blocked", error: "Some tables or fields in your base don’t match what we expect. The list below says exactly which." })],
     });
     expect(markup).toContain("Copy the field list");
     expect(markup).toContain("Openboard ID");
@@ -257,7 +257,7 @@ describe("Airtable connect dialog", () => {
     });
     expect(markup).toContain("Use an existing base");
     expect(markup).toContain("Create a new base for me");
-    expect(markup).toContain("This token can&#x27;t create bases");
+    expect(markup).toContain("This token can’t create bases");
     expect(markup).toMatch(/<input type="radio" disabled=""[^>]*name="airtable-base-choice"/u);
   });
 });

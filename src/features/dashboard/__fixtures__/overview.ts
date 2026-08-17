@@ -16,7 +16,7 @@ export const FIXTURE_OVERVIEW: DashboardOverview = {
   event: {
     id: EVENT_ID,
     slug: "ai-engineer",
-    name: "AI Engineer World's Fair",
+    name: "AI Engineer World’s Fair",
     timezone: "America/Los_Angeles",
     startsAt: "2026-09-15T16:00:00.000Z",
     daysToEvent: 38,

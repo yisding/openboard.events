@@ -71,7 +71,7 @@ export function LogDetailSheet({ eventId, logId, timezone, onClose }: { eventId:
   return (
     <Drawer open={logId !== null} onClose={onClose} title="Message detail">
       {query.isLoading && <p className="long-copy">Loading…</p>}
-      {query.isError && <p className="long-copy">This message couldn&apos;t be loaded.</p>}
+      {query.isError && <p className="long-copy">This message couldn’t be loaded.</p>}
       {detail && (
         <div className="comm-detail">
           <div className="comm-detail-status">

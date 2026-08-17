@@ -273,7 +273,7 @@ export function useBulkReminderRecovery({
       const loaded = loadBulkReminderRecovery(storage, eventId);
       if (loaded.ok) {
         adoptRecovery(loaded.recovery);
-        toast("Finish the saved reminder attempt before starting another.", { kind: "error" });
+        toast("Finish the saved reminder attempt before starting another", { kind: "error" });
         return false;
       }
       if (loaded.reason === "unreadable") {
@@ -356,13 +356,13 @@ export function useBulkReminderRecovery({
   const finishCleanup = useCallback(async () => {
     if (!recovery?.resolution) return;
     const locked = await withBulkReminderRecoveryLock(eventId, bulkReminderRecoveryLockManager(), async () => complete(recovery));
-    if (!locked.ok) toast("Could not acquire safe reminder recovery cleanup.", { kind: "error" });
+    if (!locked.ok) toast("Could not acquire safe reminder recovery cleanup", { kind: "error" });
   }, [complete, eventId, recovery, toast]);
 
   const clearUnreadable = useCallback(() => {
     const storage = bulkReminderRecoveryStorage();
     if (!storage) {
-      toast("Browser recovery storage is unavailable.", { kind: "error" });
+      toast("Browser recovery storage is unavailable", { kind: "error" });
       return;
     }
     try {
@@ -381,7 +381,7 @@ export function useBulkReminderRecovery({
     } catch {
       // Fall through to the truthful error below.
     }
-    toast("Could not clear saved reminder recovery.", { kind: "error" });
+    toast("Could not clear saved reminder recovery", { kind: "error" });
   }, [eventId, toast, updateRecovery]);
 
   return {

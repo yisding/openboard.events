@@ -1,5 +1,5 @@
 /**
- * The Schedule Itinerary surface's anonymous, no-account "My Schedule" —
+ * The Schedule Itinerary surface's anonymous, no-account "My schedule" —
  * per the M53 guardrail: "localStorage itinerary data stores stable session
  * ids only and reconciles removed/unpublished ids." Kept in its own module,
  * with the reconciliation/toggle logic as plain functions with no `window`

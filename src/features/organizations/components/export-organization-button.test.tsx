@@ -122,6 +122,6 @@ describe("exporting organization data", () => {
 
     expect(createUrl).not.toHaveBeenCalled();
     expect(anchorClick).not.toHaveBeenCalled();
-    expect(harness.toast).toHaveBeenCalledWith("Could not export the organization's data", { kind: "error" });
+    expect(harness.toast).toHaveBeenCalledWith("Could not export the organization’s data", { kind: "error" });
   });
 });

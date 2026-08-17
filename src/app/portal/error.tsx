@@ -8,7 +8,7 @@ export default function PortalError({ reset }: { error: Error & { digest?: strin
   const eventSlug = usePathname().split("/")[2];
   return (
     <PublicRouteErrorState
-      title="The speaker portal didn't load"
+      title="The speaker portal didn’t load"
       description="A temporary problem interrupted this page. Try again; your profile, submissions, and completed tasks are still safe."
       reset={reset}
       backHref={eventSlug ? `/e/${encodeURIComponent(eventSlug)}/agenda` : "/"}

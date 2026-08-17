@@ -166,7 +166,7 @@ describe("M44 user management", () => {
 
         await expect(dispatchAdminAuthEmailOutboxIn(db, 10, { env })).resolves.toMatchObject({ sent: 1 });
         const [sent] = await db.select().from(adminAuthEmailOutbox).where(eq(adminAuthEmailOutbox.id, mail.id));
-        expect(sent).toMatchObject({ status: "sent", subjectRendered: "You're invited to review Review Invitation Conf" });
+        expect(sent).toMatchObject({ status: "sent", subjectRendered: "You’re invited to review Review Invitation Conf" });
         expect(sent?.bodyRenderedHtml).toContain("create your own account");
         expect(sent?.bodyRenderedHtml).not.toContain("password");
 
@@ -680,7 +680,7 @@ describe("M44 user management", () => {
         const stats = await dispatchAdminAuthEmailOutboxIn(db, 10, { env });
         expect(stats).toMatchObject({ claimed: 1, sent: 1, skipped: 0 });
         const [sent] = await db.select().from(adminAuthEmailOutbox).where(eq(adminAuthEmailOutbox.id, row.id));
-        expect(sent).toMatchObject({ status: "sent", subjectRendered: "You're invited to join Mail Co" });
+        expect(sent).toMatchObject({ status: "sent", subjectRendered: "You’re invited to join Mail Co" });
         expect(sent?.bodyRenderedHtml).toContain("/join?token=");
         expect(sent?.bodyRenderedHtml).not.toContain("/portal/");
         expect(sent?.bodyRenderedHtml).toContain("owner@example.com");

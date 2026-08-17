@@ -121,14 +121,14 @@ describe("composed presentation primitives", () => {
   it("keeps page heading copy and actions in the shared header structure", () => {
     const html = renderToStaticMarkup(React.createElement(PageHeader, {
       eyebrow: "PORTAL",
-      title: "Portal Forms",
+      title: "Portal forms",
       description: "Collect speaker updates.",
       actions: React.createElement(Button, null, "Create form"),
     }));
 
     expect(html).toContain('<header class="page-header">');
     expect(html).toContain('<div class="page-eyebrow">PORTAL</div>');
-    expect(html).toContain("<h1>Portal Forms</h1>");
+    expect(html).toContain("<h1>Portal forms</h1>");
     expect(html).toContain('<div class="page-actions"><button type="button" class="button button-primary">Create form</button></div>');
   });
 

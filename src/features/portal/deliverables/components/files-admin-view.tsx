@@ -678,7 +678,7 @@ function DeliverableDrawer({
     if (!row || !key || currentDetail.status !== "ready" || !draft.id || !draftBody.trim()) return;
     const pendingDraft = { key, id: draft.id, body: draftBody, attemptedId: draft.id, attemptedBody: draftBody.trim() };
     if (!persistStoredCommentDraft(fileCommentDraftStorageKey(eventId, key), pendingDraft)) {
-      toast("Can't send safely because recovery storage is unavailable — enable site storage or free up space, then try again", { kind: "error" });
+      toast("Can’t send safely because recovery storage is unavailable — enable site storage or free up space, then try again", { kind: "error" });
       return;
     }
     setDraft(pendingDraft);
@@ -694,7 +694,7 @@ function DeliverableDrawer({
       if (!response?.ok || !created) {
         if (!response || response.status >= 500 || response.ok) {
           setLoadAttempt((attempt) => attempt + 1);
-          toast("We couldn't confirm whether that comment was sent — retry it unchanged to recover the result", { kind: "error" });
+          toast("We couldn’t confirm whether that comment was sent — retry it unchanged to recover the result", { kind: "error" });
         } else {
           toast("That comment could not be sent — review it and try again", { kind: "error" });
         }

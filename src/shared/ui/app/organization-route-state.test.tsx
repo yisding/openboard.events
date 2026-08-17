@@ -35,7 +35,7 @@ describe("organization and account route recovery states", () => {
       // the marketing home instead, which is the whole bug.
       expect(html).not.toContain("Openboard home");
     }
-    expect(chooser).toContain("We couldn&#x27;t load your organizations");
+    expect(chooser).toContain("We couldn’t load your organizations");
     expect(account).toContain("still signed in");
   });
 

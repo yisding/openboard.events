@@ -167,7 +167,7 @@ export function ApiKeysPanel({ eventId, initialKeys, timezone }: { eventId: Even
       <header>
         <h2>API keys</h2>
         <p>
-          Bearer keys for <code>/api/v1</code>&apos;s keyed endpoints (submissions, outstanding tasks, stats, comms log),
+          Bearer keys for <code>/api/v1</code>’s keyed endpoints (submissions, outstanding tasks, stats, comms log),
           scoped to this event only. Send the key as <code>Authorization: Bearer &lt;key&gt;</code>.
         </p>
       </header>
@@ -181,7 +181,7 @@ export function ApiKeysPanel({ eventId, initialKeys, timezone }: { eventId: Even
           <EmptyState
             icon={<KeyRound size={20} />}
             title="No API keys yet"
-            description="Create a key to authorize a script or integration to read this event's keyed data."
+            description="Create a key to authorize a script or integration to read this event’s keyed data."
           />
         }
       />
@@ -239,7 +239,7 @@ export function ApiKeysPanel({ eventId, initialKeys, timezone }: { eventId: Even
               <code>{justCreated.plaintext}</code>
               <Button variant="secondary" size="sm" onClick={() => void copyPlaintext(justCreated.plaintext)}><Copy size={14} /> Copy</Button>
             </div>
-            <small>This is the only time this key is shown. Store it in your script&apos;s environment, not in source control.</small>
+            <small>This is the only time this key is shown. Store it in your script’s environment, not in source control.</small>
           </div>
         )}
       </Modal>

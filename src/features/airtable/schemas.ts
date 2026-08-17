@@ -18,9 +18,9 @@ import { ALL_SCOPES } from "./scopes";
  * but the documented guarantee is only the prefix, so the bound is generous at
  * both ends and the real verdict comes from `whoami`.
  */
-export const airtablePatSchema = z.string().trim().regex(/^pat[A-Za-z0-9._-]{10,190}$/u, "That doesn't look like an Airtable token — they start with `pat`.");
+export const airtablePatSchema = z.string().trim().regex(/^pat[A-Za-z0-9._-]{10,190}$/u, "That doesn’t look like an Airtable token — they start with `pat`.");
 export const airtableBaseIdSchema = z.string().trim().regex(/^app[A-Za-z0-9]{8,20}$/u, "An Airtable base id starts with `app`.");
-export const airtableWorkspaceIdSchema = z.string().trim().regex(/^wsp[A-Za-z0-9]{8,20}$/u, "A workspace id starts with `wsp` — it's in your Airtable URL when you're looking at a workspace.");
+export const airtableWorkspaceIdSchema = z.string().trim().regex(/^wsp[A-Za-z0-9]{8,20}$/u, "A workspace id starts with `wsp` — it’s in your Airtable URL when you’re looking at a workspace.");
 
 export const syncTableKeySchema = z.enum(SYNC_TABLE_KEYS);
 export const airtableScopeSchema = z.enum(ALL_SCOPES);

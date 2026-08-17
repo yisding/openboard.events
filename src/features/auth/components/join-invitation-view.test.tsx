@@ -45,7 +45,7 @@ describe("invitation recovery", () => {
   it("offers a safe exit when an invitation link is incomplete", async () => {
     const view = await renderInvitation();
     try {
-      expect(view.container.textContent).toContain("This invitation isn't valid");
+      expect(view.container.textContent).toContain("This invitation isn’t valid");
       expect(view.container.textContent).toContain("This invitation link is incomplete.");
       expect(view.container.querySelector<HTMLAnchorElement>('a[href="/login"]')?.textContent).toContain("Go to sign in");
       expect(apiMock).not.toHaveBeenCalled();

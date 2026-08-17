@@ -30,7 +30,7 @@ export function SuccessPageCard({ form, onChange }: {
           onClick={() => onChange({ autoRedirectToPortal: !form.autoRedirectToPortal })}
         />
       </div>
-      <Field label="Customize the success page message:">
+      <Field label="Success page message">
         <RichTextEditor ariaLabel="Success page message" value={form.successHtml} onChange={(successHtml) => onChange({ successHtml })} maxChars={5000} />
       </Field>
     </div>

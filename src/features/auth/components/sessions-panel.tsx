@@ -148,7 +148,7 @@ export function SessionsPanel({ initialSessions }: { initialSessions: AdminSessi
         await api(`me/sessions/${operation.target.id}`, revokedSchema, { method: "DELETE" });
         setSessions((current) => current.filter((row) => row.id !== operation.target.id));
         setRecovery(null);
-        toast("Session checked — it is no longer active.");
+        toast("Session checked — it is no longer active");
       } else {
         await api("me/sessions/revoke-all", revokedAllSchema, { method: "POST" });
         goToLogin("All sessions are now signed out. Sign in again to continue.");
@@ -178,7 +178,7 @@ export function SessionsPanel({ initialSessions }: { initialSessions: AdminSessi
           toast("That session is currently listed, but the earlier revoke may still be finishing. Retry the exact revoke before leaving.", { kind: "error" });
         } else {
           setRecovery(null);
-          toast("Sessions checked — that session is not active.");
+          toast("Sessions checked — that session is not active");
         }
       } else if (latest.length === 0) {
         goToLogin("All sessions are signed out. Sign in again to continue.");
@@ -238,13 +238,13 @@ export function SessionsPanel({ initialSessions }: { initialSessions: AdminSessi
       data={sessions}
       getRowId={(session) => session.id}
       toolbar={<Button variant="secondary" size="sm" disabled={locked} onClick={() => setSigningOutEverywhere(true)}><LogOut size={15} /> Sign out everywhere</Button>}
-      empty={<EmptyState icon={<MonitorSmartphone size={20} />} title="No active sessions" description="This is unexpected while you're viewing this page." />}
+      empty={<EmptyState icon={<MonitorSmartphone size={20} />} title="No active sessions" description="This is unexpected while you’re viewing this page." />}
     />
     <ConfirmDialog
       open={pendingRevoke !== null && !locked}
       title={pendingRevoke?.isCurrent ? "Sign out this device?" : "Revoke this session?"}
       body={pendingRevoke?.isCurrent
-        ? "This is the device you're using right now. You'll be signed out here and need to sign in again."
+        ? "This is the device you’re using right now. You’ll be signed out here and need to sign in again."
         : `${deviceLabel(pendingRevoke?.userAgent ?? null)} is signed out immediately.`}
       confirmLabel={pendingRevoke?.isCurrent ? "Sign out" : "Revoke"}
       onConfirm={() => void confirmRevoke()}
@@ -253,7 +253,7 @@ export function SessionsPanel({ initialSessions }: { initialSessions: AdminSessi
     <ConfirmDialog
       open={signingOutEverywhere && !locked}
       title="Sign out everywhere?"
-      body="Every device — including this one — is signed out immediately. You'll need to sign in again."
+      body="Every device — including this one — is signed out immediately. You’ll need to sign in again."
       confirmLabel="Sign out everywhere"
       onConfirm={() => void signOutEverywhere()}
       onCancel={() => setSigningOutEverywhere(false)}

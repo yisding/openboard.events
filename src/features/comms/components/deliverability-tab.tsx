@@ -100,8 +100,8 @@ export function DeliverabilityTab({ eventId }: { eventId: EventId }) {
         Rates are computed against sends that reached a definitive outcome (sent, bounced, or complained) — a
         domain that is still mostly queued will not show a misleadingly low rate. A high bounce rate on one
         domain usually means a typo pattern or a full mailbox; a high complaint rate means recipients are
-        marking this event&apos;s mail as spam, which is worth investigating before it affects the whole sending
-        domain&apos;s reputation.
+        marking this event’s mail as spam, which is worth investigating before it affects the whole sending
+        domain’s reputation.
       </p>
     </section>
   );

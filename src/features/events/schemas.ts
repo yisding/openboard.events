@@ -43,12 +43,12 @@ export const createEventInputSchema = z.object({
   websiteUrl: optionalUrl,
   location: optionalText(500),
   timezone: z.string().trim().min(1, "Timezone is required"),
-  startsAt: z.iso.datetime({ message: "Starts At must be a valid date/time" }),
-  endsAt: z.iso.datetime({ message: "Ends At must be a valid date/time" }),
+  startsAt: z.iso.datetime({ message: "Start date and time must be valid" }),
+  endsAt: z.iso.datetime({ message: "End date and time must be valid" }),
   theme: themeText.optional(),
   physicalAddress: optionalText(500),
 }).refine((value) => new Date(value.endsAt).getTime() > new Date(value.startsAt).getTime(), {
-  message: "Ends At must be after Starts At",
+  message: "The end must be after the start",
   path: ["endsAt"],
 });
 export type CreateEventInput = z.infer<typeof createEventInputSchema>;
@@ -65,14 +65,14 @@ export const eventDetailsPatchSchema = z.object({
   websiteUrl: optionalUrl,
   location: optionalText(500),
   timezone: z.string().trim().min(1).optional(),
-  startsAt: z.iso.datetime({ message: "Starts At must be a valid date/time" }).optional(),
-  endsAt: z.iso.datetime({ message: "Ends At must be a valid date/time" }).optional(),
+  startsAt: z.iso.datetime({ message: "Start date and time must be valid" }).optional(),
+  endsAt: z.iso.datetime({ message: "End date and time must be valid" }).optional(),
   theme: themeText.nullable().optional(),
   physicalAddress: optionalText(500),
   logoFileId: z.uuid().nullable().optional(),
   backgroundFileId: z.uuid().nullable().optional(),
 }).refine((value) => !(value.startsAt && value.endsAt) || new Date(value.endsAt).getTime() > new Date(value.startsAt).getTime(), {
-  message: "Ends At must be after Starts At",
+  message: "The end must be after the start",
   path: ["endsAt"],
 });
 export type UpdateEventInput = z.infer<typeof eventDetailsPatchSchema>;

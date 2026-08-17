@@ -29,14 +29,14 @@ export const AIRTABLE_COPY = {
   page: {
     eyebrow: "EVENT",
     title: "Airtable",
-    description: "Keep an Airtable base in step with your programme.",
+    description: "Keep an Airtable base in step with your program.",
   },
 
   /** State A — nothing connected yet. */
   empty: {
     title: "Your program, live in Airtable",
     description:
-      "Connect your own Airtable account and we'll keep a base in step with your sessions, speakers, and proposals. No CSV exports, no stale copies.",
+      "Connect your own Airtable account and we’ll keep a base in step with your sessions, speakers, and proposals. No CSV exports, no stale copies.",
     connect: "Connect Airtable",
     resume: "Finish connecting",
     resumeNote: "Your token is saved. Pick a base and the first sync starts.",
@@ -60,10 +60,10 @@ export const AIRTABLE_COPY = {
     pushedLead: "Seven tables:",
     pushedTables: "Tracks, Rooms, Formats, Tags, People, Sessions, and Proposals.",
     pushedPeople:
-      "For programme people that means names, email addresses, job titles, companies, bios, and headshots.",
+      "For program people that means names, email addresses, job titles, companies, bios, and headshots.",
     notPushedLead: "What never leaves Openboard:",
     notPushedBody:
-      "no attendee data beyond programme people, no form answers, no unsubscribe state, and no pronouns or gender unless you turn them on.",
+      "no attendee data beyond program people, no form answers, no unsubscribe state, and no pronouns or gender unless you turn them on.",
     oneWayLead: "It only goes one way.",
     oneWayBody:
       "Nothing you type in Airtable is ever overwritten by us on an unchanged row, and equally, nothing you type there is ever read back.",
@@ -82,10 +82,10 @@ export const AIRTABLE_COPY = {
     idleHint: "Keep going — Airtable tokens start with “pat” and run about 80 characters.",
     checking: "Checking with Airtable…",
     connectedTo: (account: string) => `Connected to your Airtable account (${account}).`,
-    unauthorized: "Airtable didn't recognise that token. Check you copied the whole thing, including the part after the dot.",
+    unauthorized: "Airtable didn’t recognise that token. Check you copied the whole thing, including the part after the dot.",
     revoked: "That token has been revoked or has expired in Airtable. Create a new one and paste it here.",
-    rateLimited: "Airtable is asking us to slow down. Wait a few seconds and we'll check again.",
-    unreachable: "We couldn't reach Airtable to check that token. Check your connection and try again.",
+    rateLimited: "Airtable is asking us to slow down. Wait a few seconds and we’ll check again.",
+    unreachable: "We couldn’t reach Airtable to check that token. Check your connection and try again.",
     next: "Next",
     scopesHeading: "Permissions on this token",
     // Read aloud in place of the ✓/✗, which is decorative. Phrased as a
@@ -94,7 +94,7 @@ export const AIRTABLE_COPY = {
     scopeGranted: "Granted:",
     scopeMissing: "Missing, and required:",
     scopeMissingOptional: "Missing, and optional:",
-    scopesFooter: "Add the scope on the same token — you don't need to make a new one.",
+    scopesFooter: "Add the scope on the same token — you don’t need to make a new one.",
     recheck: "Re-check the token",
     blockedByScopes: "Add the missing permissions in Airtable, then re-check. Nothing is lost — your token stays saved.",
   },
@@ -105,14 +105,14 @@ export const AIRTABLE_COPY = {
     heading: "Where should it live?",
     lead: "Pick a base this token can already see, or let us make a fresh one.",
     useExisting: "Use an existing base",
-    useExistingHint: "We'll add the seven tables to it and leave everything else alone.",
+    useExistingHint: "We’ll add the seven tables to it and leave everything else alone.",
     createNew: "Create a new base for me",
-    createNewHint: "A clean base with nothing in it but your programme.",
+    createNewHint: "A clean base with nothing in it but your program.",
     createBlocked:
-      "This token can't create bases. Add “Create tables and fields” to it, or pick a base you already have.",
+      "This token can’t create bases. Add “Create tables and fields” to it, or pick a base you already have.",
     loadingBases: "Looking for bases this token can see…",
     noBases:
-      "This token can't see any bases yet. Give it access to one in Airtable, or create a new base below.",
+      "This token can’t see any bases yet. Give it access to one in Airtable, or create a new base below.",
     baseNameLabel: "Base name",
     workspaceLabel: "Workspace id",
     workspacePlaceholder: "wsp…",
@@ -122,7 +122,7 @@ export const AIRTABLE_COPY = {
     back: "Back",
     submit: "Start the first sync",
     submitting: "Setting things up…",
-    listFailed: "We couldn't list your bases. Airtable didn't answer — try again in a moment.",
+    listFailed: "We couldn’t list your bases. Airtable didn’t answer — try again in a moment.",
     retryList: "Try again",
   },
 
@@ -140,8 +140,8 @@ export const AIRTABLE_COPY = {
     open: "Open in Airtable",
     finish: "Finish",
     deferred: (done: number, left: number) =>
-      `That's ${done} records so far — ${left} to go. We'll finish them on the next sync, or hit Sync now.`,
-    failed: "That first sync didn't finish. Nothing was duplicated — hit Sync now to pick it back up.",
+      `That’s ${done} records so far — ${left} to go. We’ll finish them on the next sync, or hit Sync now.`,
+    failed: "That first sync didn’t finish. Nothing was duplicated — hit Sync now to pick it back up.",
   },
 
   /** State E — connected. */
@@ -186,7 +186,7 @@ export const AIRTABLE_COPY = {
     progressLabel: "Sync progress",
     subtitle: (done: number, total: number) => `Syncing now — ${done} of about ${total} records.`,
     starting: "Syncing now — working out what changed.",
-    slow: "This one's taking longer than usual. It's still running in the background — check back in a minute.",
+    slow: "This one’s taking longer than usual. It’s still running in the background — check back in a minute.",
   },
 
   /** State G — deferred remainder. */
@@ -199,7 +199,7 @@ export const AIRTABLE_COPY = {
   /** State H — needs attention. */
   needsAttention: {
     title: "Airtable stopped accepting your token",
-    body: "Someone revoked or expired it in Airtable. Paste a new one and we'll resume from where we stopped — nothing gets duplicated.",
+    body: "Someone revoked or expired it in Airtable. Paste a new one and we’ll resume from where we stopped — nothing gets duplicated.",
     action: "Paste a new token",
   },
 
@@ -208,7 +208,7 @@ export const AIRTABLE_COPY = {
     title: "Your base needs one change before the next sync",
     withScope: "We can make these for you — nothing existing is renamed, retyped, or deleted.",
     withoutScope:
-      "This token can't change your base's structure, so these are yours to make. Every field is listed below, exactly as we'll write to it.",
+      "This token can’t change your base’s structure, so these are yours to make. Every field is listed below, exactly as we’ll write to it.",
     rebuild: "Rebuild it",
     rebuilding: "Rebuilding…",
     copyFields: "Copy the field list",
@@ -227,9 +227,9 @@ export const AIRTABLE_COPY = {
    * move that recovers is choosing a different base, so that is the only button.
    */
   baseMissing: {
-    title: "That base isn't there any more",
+    title: "That base isn’t there any more",
     body:
-      "It was deleted in Airtable, or this token lost access to it. Nothing in Openboard changed — point the sync at another base and we'll fill it from scratch.",
+      "It was deleted in Airtable, or this token lost access to it. Nothing in Openboard changed — point the sync at another base and we’ll fill it from scratch.",
     action: "Pick a different base",
   },
 
@@ -242,7 +242,7 @@ export const AIRTABLE_COPY = {
     action: "Remove them",
     enabled: "Removals are on. The next sync clears anything Openboard no longer has.",
     held: (held: number, total: number, table: string) =>
-      `That would delete ${held} of your ${total} ${table} rows — we've held off. If that's right, confirm and we'll do it on the next sync.`,
+      `That would delete ${held} of your ${total} ${table} rows — we’ve held off. If that’s right, confirm and we’ll do it on the next sync.`,
     confirmTitle: "Let us remove records Airtable still has?",
     confirmBody:
       "From the next sync on, a record you delete in Openboard is deleted in Airtable too. Anything you added in Airtable by hand is untouched — we only remove rows we put there.",
@@ -253,7 +253,7 @@ export const AIRTABLE_COPY = {
   disconnect: {
     title: "Disconnect Airtable?",
     body: (baseName: string) =>
-      `We'll forget your token and stop syncing. The records already in ${baseName} stay exactly as they are — that base is yours.`,
+      `We’ll forget your token and stop syncing. The records already in ${baseName} stay exactly as they are — that base is yours.`,
     confirm: "Disconnect",
     cancel: "Keep it",
     done: "Airtable disconnected. Your base is untouched.",
@@ -266,11 +266,11 @@ export const AIRTABLE_COPY = {
     footer: "Changes apply on the next sync — about fifteen minutes.",
     includeEmail: {
       label: "Speaker email addresses",
-      hint: "The one field a programme team actually needs in the base. Off means the column is cleared on the next sync.",
+      hint: "The one field a program team actually needs in the base. Off means the column is cleared on the next sync.",
     },
     includeBio: {
       label: "Speaker bios",
-      hint: "Public programme copy, pushed as plain text.",
+      hint: "Public program copy, pushed as plain text.",
     },
     includeHeadshots: {
       label: "Speaker headshots",
@@ -278,7 +278,7 @@ export const AIRTABLE_COPY = {
     },
     includePronouns: {
       label: "Pronouns",
-      hint: "Off by default. Turn it on only if your programme publishes them.",
+      hint: "Off by default. Turn it on only if your program publishes them.",
     },
     includeGender: {
       label: "Gender",
@@ -286,7 +286,7 @@ export const AIRTABLE_COPY = {
     },
     pruneRemoved: {
       label: "Remove records deleted in Openboard",
-      hint: "Off by default. On, a session you delete here is deleted there too. We never touch rows we didn't create.",
+      hint: "Off by default. On, a session you delete here is deleted there too. We never touch rows we didn’t create.",
     },
     saved: "Saved. It takes effect on the next sync.",
   },
@@ -296,9 +296,9 @@ export const AIRTABLE_COPY = {
     unknownOutcome: "Your Airtable connection is unconfirmed. Reload this page to see whether it saved.",
     syncUnknownOutcome: "That sync may still be running. Reload this page to see where it got to.",
     conflict: "Airtable is already running a sync for this event. Give it a few seconds.",
-    statusUnavailable: "We couldn't read the sync status. Reload the page to try again.",
-    optionsFailed: "That setting didn't save. Try it again.",
-    disconnectFailed: "That disconnect didn't go through. Try it again.",
+    statusUnavailable: "We couldn’t read the sync status. Reload the page to try again.",
+    optionsFailed: "That setting didn’t save. Try it again.",
+    disconnectFailed: "That disconnect didn’t go through. Try it again.",
     disconnectUnknown: "The disconnect is unconfirmed. Reload this page to see whether it went through.",
   },
 
@@ -312,9 +312,9 @@ export const AIRTABLE_COPY = {
    */
   api: {
     unauthorized:
-      "Airtable didn't accept that token. Check you copied the whole thing — including the part after the dot — or create a new one.",
-    forbidden: "This token doesn't have the permission that step needs. Check the permissions list and add what's missing.",
-    notFound: "Airtable couldn't find that. The base may have been deleted, or the token may have lost access to it.",
+      "Airtable didn’t accept that token. Check you copied the whole thing — including the part after the dot — or create a new one.",
+    forbidden: "This token doesn’t have the permission that step needs. Check the permissions list and add what’s missing.",
+    notFound: "Airtable couldn’t find that. The base may have been deleted, or the token may have lost access to it.",
     rateLimited: "Airtable is asking us to slow down. Wait a few seconds and try again.",
     schema: "Airtable refused the shape of one of those tables. The list below says exactly what we expected.",
   },

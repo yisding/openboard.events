@@ -86,7 +86,7 @@ export function SuppressionsTab({ eventId, timezone }: { eventId: EventId; timez
         open={pending !== null}
         variant="destructive"
         title={pending ? `Reinstate ${pending.name}?` : "Reinstate this address?"}
-        body="Future emails to this address resume — decision, schedule, and every other message this event sends. Only reinstate an address you've confirmed is safe to mail again."
+        body="Future emails to this address resume — decision, schedule, and every other message this event sends. Only reinstate an address you’ve confirmed is safe to mail again."
         confirmLabel="Reinstate"
         onConfirm={async () => { if (pending) await confirmRemove(pending.contactId); setPending(null); }}
         onCancel={() => setPending(null)}

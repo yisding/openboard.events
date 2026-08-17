@@ -173,7 +173,7 @@ async function createCursorIn(
     updatedAt: createdAt,
   }).onConflictDoNothing({ target: eventDemoTour.eventId });
   const cursor = await readCursorIn(dbOrTx, eventId);
-  if (!cursor) throw new AppError("INTERNAL", "The demo event's cursor could not be created");
+  if (!cursor) throw new AppError("INTERNAL", "The demo event’s cursor could not be created");
   return cursor;
 }
 

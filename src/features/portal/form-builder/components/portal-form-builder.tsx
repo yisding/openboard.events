@@ -126,7 +126,7 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
       setInternalName(next.internalName);
       setExternalTitle(next.externalTitle);
       setDirty(false);
-      toast("Saved");
+      toast("Form saved");
       router.refresh();
     } catch (error) {
       toast(error instanceof Error ? error.message : "The form could not be saved", { kind: "error" });
@@ -330,7 +330,7 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
               <div><b>{item.label}</b><small>{committedTypeLabel(item.fieldType)}</small></div>
             </button>
           ))}
-          {library.length === 0 && <p>{librarySearch.trim() ? <>No library fields match &ldquo;{librarySearch}&rdquo;.</> : "All standard fields for this form have already been added."}</p>}
+          {library.length === 0 && <p>{librarySearch.trim() ? <>No library fields match “{librarySearch}”.</> : "All standard fields for this form have already been added."}</p>}
         </div>
       </div>
     </Modal>
@@ -339,7 +339,7 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
       open={customOpen}
       onClose={closeCustomField}
       title="Create a custom field"
-      description="No system mapping — answers land only in this response's own record."
+      description="No system mapping — answers land only in this response’s own record."
       footer={<><Button variant="secondary" onClick={closeCustomField}>Cancel</Button><Button disabled={!customLabel.trim() || busy} onClick={() => void addCustomField()}>Add question</Button></>}
     >
       <div className="form-stack">

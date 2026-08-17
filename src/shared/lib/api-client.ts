@@ -12,8 +12,8 @@ import { AppError } from "./errors";
  *   - `error.data.fieldErrors` — the same map, nested by some handlers.
  *   - `error.data.field` — a *domain* `AppError` naming one input, which is how
  *     every hand-thrown message the /events/new form actually hits arrives
- *     ("That slug is taken", "…is a reserved word…", "Unknown timezone", "Ends
- *     At must be after Starts At"). Its message is the error's own, since that
+ *     ("That slug is taken", "…is a reserved word…", "Unknown timezone", "The
+ *     end must be after the start"). Its message is the error's own, since that
  *     shape carries no per-field text.
  *
  * Readers that handled only one branch dropped the others silently: the

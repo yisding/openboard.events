@@ -38,7 +38,7 @@ const IMPERSONATION_TTL = "PT30M";
  * address that is not — or the screen itself becomes the account-enumeration
  * oracle the neutral wording exists to close.
  */
-export const PORTAL_LOGIN_NEUTRAL_MESSAGE = "If that address is on file, we've sent a code";
+export const PORTAL_LOGIN_NEUTRAL_MESSAGE = "If that address is on file, we’ve sent a code";
 
 /** How long a login request is throttled for, and how many are allowed inside it. */
 export const PORTAL_LOGIN_THROTTLE = { limit: 3, windowMs: 10 * 60 * 1_000 } as const;

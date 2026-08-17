@@ -56,7 +56,7 @@ export default async function HomePage() {
         <div className="hero-art" aria-hidden="true">
           <div className="hero-glow" />
           <div className="preview-window">
-            <div className="preview-chrome"><i /><i /><i /><span>AI Engineer World&apos;s Fair</span></div>
+            <div className="preview-chrome"><i /><i /><i /><span>AI Engineer World’s Fair</span></div>
             <div className="preview-body">
               <aside><Brand compact decorative /><div className="preview-nav-lines">{Array.from({ length: 7 }, (_, i) => <b key={i} />)}</div></aside>
               <div className="preview-main">

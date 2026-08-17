@@ -56,7 +56,7 @@ export function NotificationsStep({ form, onChange }: {
         >{expanded ? "Hide customization" : "Customize"}</Button>
         {expanded && (
           <div className="form-stack" style={{ marginTop: 16 }}>
-            <p className="builder-help builder-help--inline">Leave blank to use the event&rsquo;s default template.</p>
+            <p className="builder-help builder-help--inline">Leave blank to use the event’s default template.</p>
             <Field label="Subject">
               <input
                 maxLength={255}

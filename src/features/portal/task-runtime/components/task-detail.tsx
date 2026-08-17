@@ -261,7 +261,7 @@ export function TaskDetailView({
         <div className="portal-panel">
           {task.descriptionHtml && <RichTextView html={task.descriptionHtml} />}
           <p className="portal-note" role="alert">
-            This task&rsquo;s form is not ready yet. Nothing is needed from you until the organizers publish it.
+            This task’s form is not ready yet. Nothing is needed from you until the organizers publish it.
           </p>
         </div>
       )}

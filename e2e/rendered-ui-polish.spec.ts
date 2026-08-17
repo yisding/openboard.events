@@ -147,7 +147,7 @@ test.describe("agenda workspace geometry", () => {
       });
 
       expect(layout.actionOverlapsHint).toBe(false);
-      // Match the 57px Submission Forms toolbar's label-to-indicator rhythm.
+      // Match the 57px Submission forms toolbar's label-to-indicator rhythm.
       // The agenda header has a border on both edges, leaving a 55px tab row.
       expect(layout.activeTabHeight).toBeGreaterThanOrEqual(55);
       expect(layout.underlineOffset).toBeLessThanOrEqual(0.5);
@@ -164,14 +164,14 @@ test.describe("embedded itinerary phone spacing", () => {
         <header class="embed-header"><h1>AI Engineer Sandbox</h1><span>Oct 14–15</span></header>
         <main class="public-schedule embed-content">
           <div class="itinerary-toolbar">
-            <button class="itinerary-my-schedule">My Schedule</button>
+            <button class="itinerary-my-schedule">My schedule</button>
             <span class="itinerary-export disabled">Star sessions to export</span>
           </div>
           <section class="itinerary-day">
             <h3>Wednesday <span>Oct 14</span></h3>
             <div class="itinerary-sessions">
               <article>
-                <button class="itinerary-star" aria-label="Add session to My Schedule">☆</button>
+                <button class="itinerary-star" aria-label="Add session to My schedule">☆</button>
                 <div>
                   <span class="itinerary-time">9:00 AM PDT – 9:45 AM PDT · Main Stage</span>
                   <h4>Opening keynote: the year agents grew up</h4>

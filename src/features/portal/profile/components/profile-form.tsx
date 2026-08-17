@@ -188,7 +188,7 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
       return;
     }
     setSavedText(submittedText);
-    toast("Saved successfully.");
+    toast("Profile saved");
     router.refresh();
   }
 
@@ -200,7 +200,7 @@ export function ProfileForm({ eventId, profile }: { eventId: string; profile: Sp
     }
     setHeadshotFileId(result.profile.headshotFileId);
     setHeadshotUrl(result.profile.headshotUrl);
-    toast("Photo updated.");
+    toast("Photo updated");
     router.refresh();
     return true;
   }

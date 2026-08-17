@@ -697,7 +697,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
       });
     } catch (error) {
       toast(formDuplicateOutcomeUnknown(error)
-        ? "Couldn’t confirm whether the draft copy was created. Return to Submission Forms and refresh before trying again."
+        ? "Couldn’t confirm whether the draft copy was created. Return to Submission forms and refresh before trying again."
         : error instanceof Error ? error.message : "The form could not be duplicated", { kind: "error" });
     } finally {
       setDuplicating(false);

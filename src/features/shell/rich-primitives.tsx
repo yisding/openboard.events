@@ -99,7 +99,7 @@ export function RichPrimitives() {
       </section>
 
       <section style={{ marginBottom: 32 }}>
-        <h2 className="section-title">Select — the kit&apos;s chevron, not the OS arrow</h2>
+        <h2 className="section-title">Select — the kit’s chevron, not the OS arrow</h2>
         <p>
           A native <code>&lt;select&gt;</code> underneath, so keyboard type-ahead, <kbd>Esc</kbd> and the
           platform picker on touch all still work. What changes is the chrome: no OS arrow, and the same
@@ -114,7 +114,7 @@ export function RichPrimitives() {
               <option value="safety">Safety</option>
             </Select>
           </Field>
-          <Field label="Room" hint="Disabled — the kit's disabled treatment, not the OS one">
+          <Field label="Room" hint="Disabled — the kit’s disabled treatment, not the OS one">
             <Select disabled value="main-stage">
               <option value="main-stage">Main Stage</option>
             </Select>
@@ -176,7 +176,7 @@ export function RichPrimitives() {
         <h2 className="section-title">FileUpload — presign, PUT to R2, finalize</h2>
         <p>
           Needs a signed-in session and a real event id; against the demo id below it should fail at
-          presign with the server&apos;s own message, which is exactly what the error state is for.
+          presign with the server’s own message, which is exactly what the error state is for.
         </p>
         <div style={{ maxWidth: 420 }}>
           <FileUpload

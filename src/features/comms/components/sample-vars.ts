@@ -8,7 +8,7 @@ import { z } from "zod";
  * load.
  */
 const common = {
-  event: { name: "AI Engineer World's Fair", start_date: "September 15, 2026", location: "Fort Mason, San Francisco", timezone: "PDT" },
+  event: { name: "AI Engineer World’s Fair", start_date: "September 15, 2026", location: "Fort Mason, San Francisco", timezone: "PDT" },
   speaker: { first_name: "Nadia", last_name: "Lee", email: "nadia@example.com" },
   portal: { magic_link: "https://openboard.events/portal/ai-engineer/verify?token=sample" },
   unsubscribe: { url: "https://openboard.events/portal/ai-engineer/unsubscribe?token=sample" },

@@ -136,7 +136,7 @@ export function demoDates(now: Date): DemoDates {
     event: {
       startsAt,
       endsAt,
-      name: `AI Engineer World's Fair ${year}`,
+      name: `AI Engineer World’s Fair ${year}`,
       timezone: DEMO_TIMEZONE,
     },
     forms: {

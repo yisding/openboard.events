@@ -218,7 +218,7 @@ export async function ensureBaseSchema(
         // can silently discard the values already in it.
         issues.push(issue(
           "wrongType", plan.displayName, spec.name, describeType(spec), found.type,
-          `“${spec.name}” in “${plan.displayName}” is a ${found.type} field. Change it to ${describeType(spec)}, or rename it and we'll create ours alongside.`,
+          `“${spec.name}” in “${plan.displayName}” is a ${found.type} field. Change it to ${describeType(spec)}, or rename it and we’ll create ours alongside.`,
         ));
       }
     }
@@ -257,7 +257,7 @@ export async function ensureBaseSchema(
           // through it.
           issues.push(issue(
             "wrongType", plan.displayName, spec.name, `Link to ${targetName}`, `Link to a different table`,
-            `“${spec.name}” in “${plan.displayName}” links to another table. Point it at “${targetName}”, or rename it and we'll create ours alongside.`,
+            `“${spec.name}” in “${plan.displayName}” links to another table. Point it at “${targetName}”, or rename it and we’ll create ours alongside.`,
           ));
         }
         continue;

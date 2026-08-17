@@ -309,7 +309,7 @@ export function EmbedsAdminPage({
                             onClick={() => setFilterDraft(config.contentType, { fields: { ...filters.fields, speakerCompany: filters.fields?.speakerCompany === false } })} />
                         </div>
                         <div className="inline-setting">
-                          <div><b>Show bio</b><small>Include the speaker&rsquo;s biography</small></div>
+                          <div><b>Show bio</b><small>Include the speaker’s biography</small></div>
                           <Switch label={`${meta.label}: show bio`} checked={filters.fields?.speakerBio !== false} disabled={busy !== null}
                             onClick={() => setFilterDraft(config.contentType, { fields: { ...filters.fields, speakerBio: filters.fields?.speakerBio === false } })} />
                         </div>

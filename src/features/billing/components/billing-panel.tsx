@@ -64,7 +64,7 @@ export function BillingPanel({
     <section className="panel settings-section">
       <header>
         <h2><CreditCard size={16} /> Current plan</h2>
-        <p>What this organization is subscribed to and how it&apos;s billed.</p>
+        <p>What this organization is subscribed to and how it’s billed.</p>
       </header>
       <div className="billing-plan-headline">
         <strong>{plan.name}</strong>
@@ -73,14 +73,14 @@ export function BillingPanel({
         <span>via {subscription.provider}</span>
       </div>
       <p className="billing-scaffold-note">
-        <Info size={13} aria-hidden /> No live payment provider is connected in this environment — this is a billing scaffold. Choosing a plan below attempts a real checkout through the provider seam and will explain why it isn&apos;t available yet.
+        <Info size={13} aria-hidden /> No live payment provider is connected in this environment — this is a billing scaffold. Choosing a plan below attempts a real checkout through the provider seam and will explain why it isn’t available yet.
       </p>
     </section>
 
     <section className="panel settings-section">
       <header>
         <h2><Gauge size={16} /> Usage</h2>
-        <p>Metered against this organization&apos;s plan.</p>
+        <p>Metered against this organization’s plan.</p>
       </header>
       <div>
         <div className="billing-usage-legend">
@@ -100,7 +100,7 @@ export function BillingPanel({
     <section className="panel settings-section">
       <header>
         <h2>Plans</h2>
-        <p>{canManage ? "Change this organization's plan." : "Only an owner can change the plan."}</p>
+        <p>{canManage ? "Change this organization’s plan." : "Only an owner can change the plan."}</p>
       </header>
       <div className="billing-plans">
         {plans.map((candidate) => {

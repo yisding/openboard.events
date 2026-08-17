@@ -263,7 +263,7 @@ button { color: inherit; }
    selects and entered text, where user content looked like another heading. */
 .field :where(input, textarea, select, .rich-text-editor__surface) { font-weight: 400; }
 /* DateTimePicker draws the border on its own wrapper and zeroes the inner
-   input's, so a child combinator alone leaves "Ends At must be after Starts At"
+   input's, so a child combinator alone leaves "The end must be after the start"
    with an unmarked control. `.field-invalid .datetime-picker` (0-2-0) beats
    `.datetime-picker` (0-1-0). The colour well and its hex field are one control
    inside `.color-input`, so they need the same descendant treatment or an

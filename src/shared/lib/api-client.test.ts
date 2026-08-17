@@ -20,11 +20,11 @@ describe("api client", () => {
   // "Request validation failed" with nothing beside the offending input.
   it("carries the envelope's fieldErrors onto the thrown AppError", async () => {
     vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(Response.json({
-      error: { code: "VALIDATION", message: "Request validation failed", fieldErrors: { endsAt: "Ends At must be after Starts At" } },
+      error: { code: "VALIDATION", message: "Request validation failed", fieldErrors: { endsAt: "The end must be after the start" } },
     }, { status: 400 })));
     await expect(api("events", z.object({ id: z.string() }), { method: "POST", body: {} })).rejects.toMatchObject({
       code: "VALIDATION",
-      fieldErrors: { endsAt: "Ends At must be after Starts At" },
+      fieldErrors: { endsAt: "The end must be after the start" },
     });
   });
 

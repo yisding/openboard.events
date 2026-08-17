@@ -112,7 +112,7 @@ export function assertNoNewlyOrphanedVisibility(
       if (values.some((value) => typeof value === "string" && removed.has(value))) {
         throw new AppError(
           "VALIDATION",
-          `“${candidate.label}” is only shown for an option you are removing. Update that question's visibility rule first.`,
+          `“${candidate.label}” is only shown for an option you are removing. Update that question’s visibility rule first.`,
           { fieldId: candidate.id },
         );
       }
