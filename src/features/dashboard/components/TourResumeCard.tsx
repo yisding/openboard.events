@@ -83,8 +83,12 @@ export function TourResumeCard({ eventId, chapter, stepId, chapterLabel, percent
     window.location.assign(resumeHref);
   }
 
+  // `data-tour-resume` is the engine's one host contract — see the probe in
+  // `guided-tour/provider.tsx`. While this card is on screen the floating pill
+  // stands down, so a paused tour offers one way back in per screen rather than
+  // two; the pill is still there on every other page of the demo.
   return (
-    <section className="dashboard-activation" aria-labelledby="dashboard-tour-resume-title">
+    <section className="dashboard-activation" data-tour-resume="" aria-labelledby="dashboard-tour-resume-title">
       <span className="dashboard-activation-icon" aria-hidden><PlayCircle size={18} /></span>
       <div className="dashboard-activation-content">
         <span className="dashboard-activation-eyebrow">{stranded ? "Guided tour · waiting for you" : "Guided tour · paused"}</span>
