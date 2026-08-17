@@ -324,7 +324,7 @@ export function SubmissionDrawer({
       open
       onClose={onClose}
       title={detail ? formatCode(detail.code) : "Submission"}
-      {...(nav ? { headerExtra: <FlowNavControls index={nav.index} total={nav.total} itemLabel={nav.itemLabel} onPrev={nav.onPrev} onNext={nav.onNext} /> } : {})}
+      {...(nav ? { headerExtra: <FlowNavControls index={nav.index} total={nav.total} itemLabel={nav.itemLabel} itemNoun="submission" onPrev={nav.onPrev} onNext={nav.onNext} /> } : {})}
     >
       {loadState.status === "failed" && (
         <LoadFailure

@@ -294,7 +294,10 @@ export function PortalFormBuilder({ event, initialForm }: { event: BuilderEvent;
           <div className="builder-fields">
             {section?.fields.map((field, index) => (
               <div className={selectedFieldId === field.id ? "selected builder-field-row" : "builder-field-row"} key={field.id}>
-                <button className="field-row-main" onClick={() => setSelectedFieldId(field.id)}>
+                {/* `aria-pressed` carries what `.selected` only paints: which
+                    question the editor is on. Without it the row that is lit up
+                    on screen is indistinguishable from the rest in speech. */}
+                <button className="field-row-main" aria-pressed={selectedFieldId === field.id} onClick={() => setSelectedFieldId(field.id)}>
                   <span className="field-type-icon">{typeIcon(field.fieldType)}</span>
                   <div><b>{field.label}{field.required && <em>*</em>}</b><small>{field.mapsTo ? `Maps to ${mapsToLabel(field.mapsTo)}` : "Custom question"}</small></div>
                 </button>

@@ -213,6 +213,32 @@ describe("shared UI spacing regressions", () => {
     expect(css).toContain(".table-scroll");
   });
 
+  it("gives every DataTable a scroll affordance instead of a silently clipped edge (issue #665)", () => {
+    // A bare `overflow:auto` scrolls fine, but an overlay scrollbar (macOS
+    // trackpad default, every mobile browser) paints nothing until a drag is
+    // already underway, so nothing on screen said there was more table.
+    // A persistently visible scrollbar is the fix that needs no JS and works
+    // whether or not the reader has ever dragged one before.
+    expect(css).toMatch(/\.table-scroll\{[^}]*scrollbar-width:thin/u);
+    expect(css).toContain(".table-scroll::-webkit-scrollbar{height:8px}");
+    // The edge-fade "scroll shadow": an opaque cover that scrolls with the
+    // content sits over a soft shadow pinned to the container, so the shadow
+    // only shows on an edge that still has more to reveal.
+    expect(css).toMatch(/\.table-scroll\{[^}]*background-attachment:local,local,scroll,scroll/u);
+    // The cover needs a real backdrop color to match, not "whatever the page
+    // behind happens to be" — `.data-panel` (every `DataTable`'s own wrapper)
+    // now paints one explicitly instead of leaving bare `.page` callers to
+    // show `--canvas` through a gap the cover assumes is `--surface`.
+    expect(css).toContain(".data-panel{background:var(--surface)}");
+    // `.row-actions` wraps deliberately in non-table cards (file requests, the
+    // review queue), but inside a `.data-table` cell that same flex-wrap gave
+    // the table-layout algorithm a tiny minimum width to squeeze the column
+    // to, wrapping the action buttons three and four deep and inflating the
+    // whole row — on evaluation, off screen behind the very edge that got
+    // starved. Table cells scroll instead, same as every other column.
+    expect(css).toContain(".data-table .row-actions{flex-wrap:nowrap}");
+  });
+
   it("keeps a grid's track list matching the children its component renders", () => {
     // Both of these declared more tracks than the markup fills, so a child landed
     // in a slot meant for something else.
@@ -392,6 +418,24 @@ describe("shared UI spacing regressions", () => {
     expect(css).not.toMatch(/(?<!\.abstracts-title-column )\.submission-title-cell b[,{][^{}]*display:-webkit-box/u);
   });
 
+  it("gives the agenda list's title column the same floor (#666)", () => {
+    const listView = read("./agenda/components/list-view.tsx");
+
+    // Same auto-layout shape as the abstracts table: Date, Start–End, Room,
+    // Track, Speakers and Status are all nowrap, so without a floor of its own
+    // the only wrapping column collapsed to roughly its longest word (#666:
+    // six lines, one to three words each, at 1440px).
+    expect(listView).toContain('meta: { className: "agenda-title-column" }');
+    expect(css).toContain(
+      ".data-table th.agenda-title-column,.data-table td.agenda-title-column{width:340px;min-width:280px}",
+    );
+    // T5: max-width breakpoints only, so the phone shape is a reset back to
+    // auto rather than a min-width band — same as the abstracts column.
+    expect(css).toContain(
+      ".data-table th.agenda-title-column,.data-table td.agenda-title-column{width:auto;min-width:0}",
+    );
+  });
+
   it("gives the evaluation plan row actions a floor, not just a ceiling", () => {
     const plans = read("./submissions/evaluation/components/plans-view.tsx");
 
@@ -438,6 +482,83 @@ describe("shared UI spacing regressions", () => {
     expect(css).toContain(
       ".unscheduled-tray>button .agenda-divergence-chip>span,.dv-unscheduled-card .agenda-divergence-chip>span{display:inline;margin-top:0;color:inherit}",
     );
+  });
+
+  it("keeps portal-home-list rules off the nested rows they were never meant to reach", () => {
+    // .portal-home-list li (a descendant selector) also matched the
+    // .submission-timeline <li>s nested inside a Recent-submissions row, so the
+    // compact inline stepper rendered as three bordered, padded boxes instead.
+    // .portal-home-list li time similarly matched the <time> nested inside
+    // .portal-session-when in My Sessions and margin-left:auto shoved the
+    // date away from its calendar icon, orphaning the icon on its own line.
+    const widgets = read("./portal/components/home/portal-home-widgets.tsx");
+
+    expect(css).toContain(
+      ".portal-home-list>li{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:12px 12px;border:1px solid var(--line);border-radius:9px;font-size:var(--text-xs)}",
+    );
+    expect(css).toContain(".portal-home-list>li>time{margin-left:auto;");
+    expect(css).not.toContain(".portal-home-list li{");
+    expect(css).not.toContain(".portal-home-list li time{");
+
+    // .portal-my-sessions li>div{flex-direction:column} matched both direct-child
+    // divs of the row — the session info block and .portal-session-cal-links —
+    // so the Google/Outlook links stacked vertically instead of sitting side by
+    // side. Scoping the column layout to its own class leaves the calendar
+    // links' own display:flex in charge of its own direction.
+    //
+    // Both children keep width:100%: the row's <li> resolves to a column flex
+    // whose align-items:center comes from the later .portal-home-list>li rule,
+    // so a shrink-to-fit child would render horizontally centered instead of
+    // left-aligned under the title — the old li>div rule masked that by
+    // stretching both divs.
+    expect(widgets).toContain('<div className="portal-session-info">');
+    expect(css).toContain(".portal-session-info{display:flex;flex-direction:column;gap:4px;width:100%}");
+    expect(css).toContain(".portal-session-cal-links{display:flex;gap:12px;width:100%}");
+    expect(css).not.toMatch(/\.portal-my-sessions li\s*>\s*div\b/u);
+  });
+
+  it("lays the speaker task filter beside the tabs, not boxed inside a boxed select", () => {
+    // `.table-search` draws its own bordered pill for a search-icon + input
+    // pairing; wrapping it around an already-bordered `.select-control`
+    // nested two boxes with mismatched heights around the "Open" dropdown.
+    // `.tab-row` had no layout rule of its own either, so its buttons fell
+    // back to block flow and stacked vertically instead of sitting beside the
+    // filter (#646).
+    const taskList = read("./portal/task-runtime/components/task-list.tsx");
+    expect(taskList).not.toContain('className="table-search"');
+    expect(taskList.match(/<Select\b/gu)).toHaveLength(1);
+    expect(css).toContain(".abstract-status-tabs .tab-row{display:flex;align-items:stretch;gap:4px;flex:1;min-width:0}");
+    expect(css).toContain(".abstract-status-tabs>.select-control{");
+  });
+
+  it("pads portal panels and keeps a task's description in the same card as its action", () => {
+    // `.portal-panel` carried background/border/radius/shadow but never a
+    // padding rule, so every consumer's text and buttons sat flush against
+    // the box edge. The task detail page also split a task's description
+    // into its own panel ahead of the completion action, so two boxes with
+    // no gap between them read as one card with a stray divider line, and
+    // the action panel — holding only a button — looked like a mostly-empty
+    // box below it (#646).
+    const taskDetail = read("./portal/task-runtime/components/task-detail.tsx");
+    expect(css).toContain(".portal-panel{padding:24px;");
+    expect(taskDetail).not.toContain('{task.descriptionHtml && <div className="portal-panel">');
+    // Once per completion-mode panel (manual, file_request, form-not-ready,
+    // form-ready) — a leading child of each, not a fifth panel of its own.
+    expect(taskDetail.match(/\{task\.descriptionHtml && <RichTextView html=\{task\.descriptionHtml\} \/>\}/gu)).toHaveLength(4);
+  });
+
+  it("styles the badge/due-date row wherever it appears, not just inside a task card", () => {
+    // `.portal-task-card>div>div` only matched `.portal-task-meta` nested
+    // three levels inside a task card. The task detail header uses the same
+    // class directly under `.portal-page-header`, where that selector never
+    // reached it — the badges sat flush against each other with no gap and
+    // the due date wrapped onto its own cramped line underneath (#646).
+    const taskDetail = read("./portal/task-runtime/components/task-detail.tsx");
+    const taskList = read("./portal/task-runtime/components/task-list.tsx");
+    expect(taskDetail).toContain('className="portal-task-meta"');
+    expect(taskList).toContain('className="portal-task-meta"');
+    expect(css).toMatch(/\.portal-task-meta\s*\{display:flex/u);
+    expect(css).not.toContain(".portal-task-card>div>div{");
   });
 
   it("vertically centers the footer's link and plain-text sibling on the same baseline", () => {

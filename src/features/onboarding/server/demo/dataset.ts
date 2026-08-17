@@ -755,7 +755,7 @@ export const TASK_DEFINITIONS: readonly DemoTaskDefinition[] = [
   },
   {
     key: "bio", name: "Write your speaker bio",
-    descriptionHtml: "<p>Two or three sentences for the program and the public speaker page.</p>",
+    descriptionHtml: "<p>Write it on your Profile page — two or three sentences for the program and the public speaker page.</p>",
     completionMode: "manual", dueOffsetDays: 10, createdOffsetDays: -20,
   },
   {

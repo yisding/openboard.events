@@ -45,7 +45,8 @@ export type AirtableScalarFieldType =
   | "email"
   | "url"
   | "number"
-  | "dateTime";
+  | "dateTime"
+  | "multipleAttachments";
 
 export type AirtableFieldSpec =
   | { name: string; type: AirtableScalarFieldType; options?: Record<string, unknown> }
@@ -86,6 +87,21 @@ function link(name: string, linkTo: SyncTableKey): AirtableFieldSpec {
   return { name, type: "multipleRecordLinks", linkTo };
 }
 
+/**
+ * An Airtable attachment column.
+ *
+ * We write `[{ url, filename }]` and Airtable *fetches the bytes once* and
+ * stores its own copy, so the URL only has to survive that one fetch. That is
+ * the whole reason speaker headshots need no signed-URL refresh machinery:
+ * `contacts.headshot_file_id` is a `headshot`-kind asset, `headshot` is a
+ * public kind, and `/f/{fileId}` serves it unauthenticated and immutably
+ * (replacing a headshot mints a new file id). A presigned R2 GET would have
+ * been a URL that expires; a public file id is one that does not.
+ */
+function attachment(name: string): AirtableFieldSpec {
+  return { name, type: "multipleAttachments" };
+}
+
 export const TABLE_PLANS: Readonly<Record<SyncTableKey, TablePlan>> = {
   tracks: {
     key: "tracks",
@@ -118,6 +134,7 @@ export const TABLE_PLANS: Readonly<Record<SyncTableKey, TablePlan>> = {
     fields: [
       text("Name"), text(OPENBOARD_ID_FIELD), text("First name"), text("Last name"),
       { name: "Email", type: "email" }, text("Job title"), text("Company"), longText("Bio"),
+      attachment("Headshot"),
       text("Pronouns"), text("Gender"), text("Confirmation status"),
       { name: "LinkedIn", type: "url" }, { name: "Website", type: "url" },
     ],
@@ -147,6 +164,24 @@ export const TABLE_PLANS: Readonly<Record<SyncTableKey, TablePlan>> = {
 
 export function isLinkField(field: AirtableFieldSpec): field is Extract<AirtableFieldSpec, { type: "multipleRecordLinks" }> {
   return field.type === "multipleRecordLinks";
+}
+
+/**
+ * What an organizer reads when they are told to create a field by hand — and
+ * what a `wrongType` issue names as expected.
+ *
+ * Airtable's API type names double as its UI labels for everything we declare
+ * except this one: the field picker says "Attachment", never
+ * "multipleAttachments", and telling somebody to look for a type that is not in
+ * the menu is the difference between a two-minute fix and a support ticket.
+ * One map, read by both the instructions and the schema checker, so the two can
+ * never say different things about the same column.
+ */
+const FIELD_TYPE_LABELS: Partial<Record<AirtableFieldSpec["type"], string>> = { multipleAttachments: "Attachment" };
+
+export function fieldTypeLabel(field: AirtableFieldSpec): string {
+  if (isLinkField(field)) return `Link to ${TABLE_PLANS[field.linkTo].displayName}`;
+  return FIELD_TYPE_LABELS[field.type] ?? field.type;
 }
 
 /** Fields a table is created with. Links need their target to exist, so they wait for pass 2. */
@@ -197,10 +232,7 @@ export function manualSchemaInstructions(): { table: string; primaryField: strin
     return {
       table: plan.displayName,
       primaryField: plan.primaryField,
-      fields: plan.fields.map((field) => ({
-        name: field.name,
-        type: isLinkField(field) ? `Link to ${TABLE_PLANS[field.linkTo].displayName}` : field.type,
-      })),
+      fields: plan.fields.map((field) => ({ name: field.name, type: fieldTypeLabel(field) })),
     };
   });
 }

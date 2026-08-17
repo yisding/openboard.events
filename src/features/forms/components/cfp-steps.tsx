@@ -295,13 +295,20 @@ export function cfpCodeRequestRecovery(result: RequestResult): {
   message: string;
   kind: "status" | "error";
 } {
-  return result.outcomeUnknown
-    ? {
+  if (result.outcomeUnknown) {
+    return {
       acceptCode: true,
       message: "We couldn’t confirm whether the code was sent. If it arrives, enter it below; otherwise resend in a moment.",
       kind: "status",
-    }
-    : { acceptCode: false, message: result.message, kind: "error" };
+    };
+  }
+  // Throttled, not rejected: the reason no new code was minted is that a recent
+  // one is still live, and the only field that can spend it is the one this
+  // opens. Closing code entry here left a submitter whose earlier request came
+  // from the portal sign-in box with nothing to do but re-press a button that
+  // fails the same way.
+  if (result.code === "RATE_LIMITED") return { acceptCode: true, message: result.message, kind: "status" };
+  return { acceptCode: false, message: result.message, kind: "error" };
 }
 
 export function cfpSubmitFailure(result: RequestResult, fieldErrorHint?: string): CfpSubmitFailure {

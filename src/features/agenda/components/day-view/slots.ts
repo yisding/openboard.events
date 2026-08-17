@@ -29,8 +29,14 @@ const MIN_SESSION_DURATION_MINUTES = 15;
  * Pixels per 15-minute row. The single source both the grid's CSS grid track
  * size and the resize handles' pixel-to-slot math read from, so a row drawn at
  * one height and a drag measured against another can never drift apart.
+ *
+ * 20, not the original 16 (#648) — a 15-minute row that short left every card
+ * shorter than half an hour fighting its own padding for room to draw a title,
+ * a time and a conflict badge without clipping. The extra 4px/row compounds
+ * fast (a 30-minute card gains 8px, an hour-long one 16px) without pushing a
+ * typical 8am-6pm day past a comfortable scroll.
  */
-export const SLOT_ROW_HEIGHT_PX = 16;
+export const SLOT_ROW_HEIGHT_PX = 20;
 
 /** A room column with nothing overlapping: the width family every room starts in. */
 export const ROOM_MIN_WIDTH_PX = 160;

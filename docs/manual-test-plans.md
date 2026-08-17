@@ -220,7 +220,7 @@ exception to the release bar.
 
 | Ref | The check that stays | Where |
 |---|---|---|
-| **DD-1** — dropdowns | Every dropdown uses the kit `Select` (designed chevron, no OS chrome) while keeping native keyboard type-ahead, Escape, and the touch picker. Compare admin vs public dropdowns at 390 px and by keyboard, not by counting tags | MTP-03 §4, MTP-08 §2 probe 1 |
+| **DD-1** — dropdowns | Every dropdown uses the kit `Select` (designed chevron, no OS chrome) while keeping native keyboard type-ahead, Escape, and the touch picker. Lists longer than the screen — bulk-email preview recipients — use `FilterSelect` instead: the same closed box, plus a filter, and the same type-ahead/Escape/arrow behaviour. Compare admin vs public dropdowns at 390 px and by keyboard, not by counting tags | MTP-03 §4, MTP-08 §2 probe 1 |
 | **DD-2** — date entry | Admin instants all go through the shared `DateTimePicker` with the event timezone named at entry (`tests/unit/source-invariants.test.ts` guards new raw `date`/`datetime-local` controls). The public form's **Date** question is deliberately `CalendarDatePicker` — a calendar date, no zone conversion | MTP-05 §1, MTP-08 §2 probe 2 |
 | **DD-3** — invited-talk path | The Agenda session dialog's `SpeakerQuickAdd` creates and selects a speaker inline without restarting; **Add abstract** is named on the Agenda toolbar; both intake paths share the `SESS-n` allocator and manual creation sends no CFP receipt | MTP-03 §2, MTP-09 task 1 |
 
@@ -843,7 +843,7 @@ exercise the spotlight, the coach card, the missing-anchor degradation and the d
 | # | Action | Expected result |
 |---|---|---|
 | 16 | Compare each kitchen-sink primitive to its in-app usage | Identical rendering. A drift means a surface has re-implemented a primitive |
-| 17 | List the primitives the kitchen sink does **not** show | Each absence is a gap in the design system; `Select` is present and matches in-app use (DD-1 regression) |
+| 17 | List the primitives the kitchen sink does **not** show | Each absence is a gap in the design system; `Select` and `FilterSelect` are both present and match in-app use (DD-1 regression). On `FilterSelect`: type a letter at the closed control and the list opens already filtered; `↑`/`↓`, `Home`/`End`, `Enter` and `Esc` behave as on a native dropdown |
 | 18 | Run `/kitchen-sink/tour` end to end | All four objective kinds complete; the spotlight hole tracks its anchor on scroll instead of closing; a step whose anchor never mounts degrades to a card docked in the bottom-right corner with **Take me there** (a `beat` with nothing to point at keeps the centre); the coach portals into an open dialog with no scrim behind it |
 
 ### Exit criteria
@@ -1643,9 +1643,10 @@ one-line move.
 
 ## Appendix B — Automated counterparts
 
-Fourteen Playwright specs in [`../e2e/`](../e2e) overlap these plans: `admin-setup` (MTP-01/02),
+Seventeen Playwright specs in [`../e2e/`](../e2e) overlap these plans: `admin-setup` (MTP-01/02),
 `cfp-submit` (MTP-03/04), `abstracts-decide` (MTP-06), `review-operations` (MTP-05), `portal-tasks`
-(MTP-10), `agenda-schedule` (MTP-07), `public-embeds` + `public-widgets-parity` (MTP-11),
+(MTP-10), `portal-resources` (MTP-10 §16), `agenda-schedule` (MTP-07), `public-embeds` +
+`public-widgets-parity` (MTP-11), `comms-outbox` (MTP-12), `crm-sync` (MTP-13),
 `speaker-content-ops` (MTP-10/12/13/14/15), `self-service-onboarding` (MTP-13/13a),
 `demo-tour` (MTP-18 §1 and the machine-checkable half of §4), and three that
 automate part of the design bar — `rendered-ui-polish`, `responsive-action-groups` and

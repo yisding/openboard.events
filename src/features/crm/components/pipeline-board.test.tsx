@@ -14,6 +14,7 @@ import {
   type CrmPipelineEntryDTO,
 } from "@/shared/contracts";
 import { AppError } from "@/shared/lib/errors";
+import type { ToastAction, ToastOptions } from "@/shared/ui/toast";
 import { PipelineBoard } from "./pipeline-board";
 
 const apiMock = vi.hoisted(() => vi.fn());
@@ -24,8 +25,10 @@ vi.mock("@/shared/ui/toast", () => ({ useToast: () => ({ toast: toastMock }) }))
 vi.mock("./crm-nav", () => ({ CrmNav: () => null }));
 vi.mock("@dnd-kit/core", () => ({
   DndContext: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  KeyboardCode: { Space: "Space", Down: "ArrowDown", Right: "ArrowRight", Left: "ArrowLeft", Up: "ArrowUp", Esc: "Escape", Enter: "Enter", Tab: "Tab" },
+  KeyboardSensor: class KeyboardSensor {},
   PointerSensor: class PointerSensor {},
-  useDraggable: () => ({ attributes: {}, listeners: {}, setNodeRef: vi.fn(), transform: null, isDragging: false }),
+  useDraggable: () => ({ attributes: {}, listeners: {}, setNodeRef: vi.fn(), setActivatorNodeRef: vi.fn(), transform: null, isDragging: false }),
   useDroppable: () => ({ setNodeRef: vi.fn(), isOver: false }),
   useSensor: () => ({}),
   useSensors: () => [],
@@ -778,6 +781,91 @@ describe("CRM prospect creation recovery", () => {
 
     expect(container.textContent).not.toContain("The directory is unavailable");
     expect(container.querySelector(".speaker-card")).not.toBeNull();
+  });
+});
+
+describe("CRM stage move feedback", () => {
+  const openEntry = crmPipelineEntryDtoSchema.parse({
+    id: "c8000000-0000-4000-8000-00000000000b",
+    organizationContactId: contactId,
+    targetEventId: null,
+    stage: "open",
+    notes: null,
+    createdAt: "2026-08-13T17:00:00.000Z",
+    updatedAt: "2026-08-13T17:00:00.000Z",
+  });
+
+  /** Every transition answers with a *new* `updatedAt`, the way the server does. */
+  function respondWithTransitions() {
+    const bodies: Array<Record<string, unknown>> = [];
+    let version = 0;
+    apiMock.mockImplementation(async (path: string, _schema: unknown, init?: { body?: Record<string, unknown> }) => {
+      if (path.endsWith(`/crm/pipeline/${openEntry.id}/transition`) && init?.body) {
+        bodies.push(init.body);
+        version += 1;
+        return { ...openEntry, stage: init.body.stage, updatedAt: `2026-08-13T18:0${version}:00.000Z` };
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    return bodies;
+  }
+
+  async function renderOneCard() {
+    await renderBoard([openEntry], {
+      [contactId]: { id: contactId, name: "Ada Speaker", email: contact.email, company: contact.company },
+    });
+    const stage = container.querySelector<HTMLSelectElement>('select[aria-label="Move Ada Speaker to a different stage"]');
+    if (!stage) throw new Error("Expected the prospect stage control");
+    return stage;
+  }
+
+  async function settle() {
+    await act(async () => {
+      for (let tick = 0; tick < 4; tick += 1) await Promise.resolve();
+    });
+  }
+
+  function lastToastAction(): ToastAction | undefined {
+    const call = toastMock.mock.calls.at(-1) as [string, ToastOptions | undefined] | undefined;
+    return call?.[1]?.action;
+  }
+
+  it("confirms a landed move and offers Undo, unlike the silent move it replaced", async () => {
+    respondWithTransitions();
+    const stage = await renderOneCard();
+
+    await changeValue(stage, "won");
+    await settle();
+
+    expect(toastMock).toHaveBeenCalledWith("Ada Speaker moved to Won", expect.objectContaining({
+      action: expect.objectContaining({ label: "Undo" }),
+    }));
+  });
+
+  it("undoes against the version the move produced, not the one it started from", async () => {
+    const bodies = respondWithTransitions();
+    const stage = await renderOneCard();
+
+    await changeValue(stage, "won");
+    await settle();
+    const undo = lastToastAction();
+    if (!undo) throw new Error("The move toast did not offer Undo");
+
+    await act(async () => undo.onClick());
+    await settle();
+
+    expect(bodies).toHaveLength(2);
+    // The Undo fires from a toast rendered before the move confirmed. Sending
+    // the pre-move `updatedAt` here is a guaranteed STALE_WRITE that would
+    // dump the whole board into an authority refresh instead of undoing.
+    expect(bodies[1]).toEqual({
+      stage: "open",
+      expectedFrom: "won",
+      expectedUpdatedAt: "2026-08-13T18:01:00.000Z",
+    });
+    expect(container.querySelector<HTMLSelectElement>('select[aria-label="Move Ada Speaker to a different stage"]')?.value).toBe("open");
+    // An undo confirms itself; it does not offer to undo the undo.
+    expect(toastMock).toHaveBeenLastCalledWith("Move undone — Ada Speaker is back in Open");
   });
 });
 

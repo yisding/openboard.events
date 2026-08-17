@@ -416,7 +416,15 @@ export function ConnectDialog({
           {choice === "existing" && (
             <div className="airtable-base-list">
               {bases === null && !basesError && <SkeletonText lines={3} label={AIRTABLE_COPY.base.loadingBases} />}
-              {basesError && <LoadFailure message={basesError} onRetry={() => void loadBases()} />}
+              {/*
+                * Clearing the error *is* the retry: the effect above loads
+                * whenever there is no list and no error, so calling `loadBases`
+                * here too sent two identical requests per click — the direct
+                * one, and the one the effect fired the moment `basesError` went
+                * back to null. Two is not free on a step whose own copy has a
+                * rate-limited branch.
+                */}
+              {basesError && <LoadFailure message={basesError} onRetry={() => setBasesError(null)} />}
               {bases !== null && bases.length === 0 && !basesError && (
                 <p className="airtable-note" role="status">{AIRTABLE_COPY.base.noBases}</p>
               )}

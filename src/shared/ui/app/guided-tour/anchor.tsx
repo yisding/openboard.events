@@ -193,6 +193,24 @@ export function useTourAnchor(spec: TourAnchorSpec | undefined, active: boolean)
   const foundRef = useRef<HTMLElement | null>(null);
   /** Set by the resolving effect; called by the measurer when its element goes. */
   const reresolveRef = useRef<() => void>(() => undefined);
+  /**
+   * Set by the measuring effect; called by the resolver on every DOM mutation,
+   * not only the ones that change *which* element is anchored.
+   *
+   * A validation error is the case that exposed the gap: ticking an unscheduled
+   * session and pressing Publish grows the list with a new alert banner above
+   * the table, which pushes the Publish button down without resizing it or
+   * firing `scroll`/`resize` — nothing a `ResizeObserver` on the anchor or a
+   * window listener was ever going to see. The resolver's own
+   * `MutationObserver` sees the insertion, because it watches the whole
+   * subtree, but `attempt()` only acts when the resolved *element* changes —
+   * and it hasn't, the button is the same node it always was. Without a way to
+   * reach the measurer, the spotlight stayed at the button's pre-error
+   * coordinates: a highlighted rectangle floating over blank page while the
+   * control it was supposed to frame sat well below it, right where the error
+   * toast said to look.
+   */
+  const remeasureRef = useRef<() => void>(() => undefined);
 
   useMeasureEffect(() => {
     if (!active || !spec || spec.kind === "none" || typeof document === "undefined") {
@@ -257,7 +275,16 @@ export function useTourAnchor(spec: TourAnchorSpec | undefined, active: boolean)
       attempt();
     };
     attempt();
-    const observer = typeof MutationObserver === "function" ? new MutationObserver(attempt) : null;
+    // Every mutation re-runs resolution *and* asks the measurer to check its
+    // rectangle again — see `remeasureRef` above. A held element that
+    // `attempt()` leaves untouched can still have moved because of what the
+    // mutation just changed around it.
+    const observer = typeof MutationObserver === "function"
+      ? new MutationObserver(() => {
+          attempt();
+          remeasureRef.current();
+        })
+      : null;
     observer?.observe(document.documentElement, {
       childList: true,
       subtree: true,
@@ -297,6 +324,10 @@ export function useTourAnchor(spec: TourAnchorSpec | undefined, active: boolean)
     resizeObserver?.observe(element);
     window.addEventListener("scroll", schedule, true);
     window.addEventListener("resize", schedule);
+    // The resolver's way in: a mutation anywhere in the tree can move this
+    // element without resizing it or firing a scroll, so it needs its own
+    // door rather than waiting on one of the two above.
+    remeasureRef.current = schedule;
     return () => {
       if (frame !== 0) {
         if (animated) window.cancelAnimationFrame(frame);
@@ -305,6 +336,7 @@ export function useTourAnchor(spec: TourAnchorSpec | undefined, active: boolean)
       resizeObserver?.disconnect();
       window.removeEventListener("scroll", schedule, true);
       window.removeEventListener("resize", schedule);
+      remeasureRef.current = () => undefined;
     };
   }, [element]);
 

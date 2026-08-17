@@ -11,6 +11,7 @@ describe("FlowNavControls", () => {
       index: 2,
       total: 9,
       itemLabel: "Ada Lovelace",
+      itemNoun: "speaker",
       onPrev: () => undefined,
       onNext: () => undefined,
     }));
@@ -20,5 +21,19 @@ describe("FlowNavControls", () => {
     expect(html).toContain('aria-atomic="true"');
     expect(html).toContain("Viewing Ada Lovelace, ");
     expect(html).toContain("3 of 9");
+  });
+
+  it("names what the arrows step through, since a bare direction names nothing", () => {
+    const html = renderToStaticMarkup(React.createElement(FlowNavControls, {
+      index: 2,
+      total: 9,
+      itemNoun: "speaker",
+      onPrev: () => undefined,
+      onNext: () => undefined,
+    }));
+
+    expect(html).toContain('aria-label="Previous speaker"');
+    expect(html).toContain('aria-label="Next speaker"');
+    expect(html).not.toContain('aria-label="Previous"');
   });
 });
