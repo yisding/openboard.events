@@ -22,15 +22,23 @@ function firstLink(html: string): string | null {
  * What to say where the body would be. A row the dispatcher stopped before
  * `renderTemplateContent` has neither subject nor body — every send on a demo
  * event is one — and "Body not captured." alone reads like data loss. The
- * `error` column already holds the answer (`SkipEmail`'s reason for a skipped
- * row, the failure for a failed one), so the placeholder says it out loud
- * rather than making the organizer join the two fields themselves.
+ * `error` column already holds the answer (`SkipEmail`'s reason), so the
+ * placeholder says it out loud rather than making the organizer join the two
+ * fields themselves.
+ *
+ * Only a `skipped` row earns the claim: every skip lands before the dispatcher
+ * persists the render, so "never rendered" is a fact there. A missing body on
+ * any other status proves nothing — the 90-day retention job
+ * (`data-lifecycle/server/retention.ts`) redacts the body of rows that
+ * rendered fine while keeping `error`, and a queued retry may still render on
+ * its next attempt. Those fall back to the plain line; the Error row beneath
+ * still shows the failure itself.
  */
 function bodyPlaceholder(detail: CommLogDetailWithFlag): string {
-  if (!detail.error) return "Body not captured.";
-  return detail.status === "skipped"
-    ? `Skipped before this message was rendered, so there is no body to show (${detail.error}).`
-    : `This message was never rendered, so there is no body to show (${detail.error}).`;
+  if (detail.status === "skipped" && detail.error) {
+    return `Skipped before this message was rendered, so there is no body to show (${detail.error}).`;
+  }
+  return "Body not captured.";
 }
 
 /**
@@ -92,7 +100,7 @@ export function LogDetailSheet({ eventId, logId, timezone, onClose }: { eventId:
             <div className="comm-detail-body-head">
               <div>
                 <span>SUBJECT</span>
-                <h2>{detail.subjectRendered ?? (detail.error ? <span className="log-unrendered-cell">Not rendered</span> : <Dash />)}</h2>
+                <h2>{detail.subjectRendered ?? (detail.status === "skipped" && detail.error ? <span className="log-unrendered-cell">Not rendered</span> : <Dash />)}</h2>
               </div>
               {hasPlainText && (
                 <MessageFormatToggle

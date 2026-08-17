@@ -267,9 +267,9 @@ automatically — every message carries `List-Unsubscribe`), and a **bulk send**
 
 ![The delivery log — in a demo event, every send is logged and then skipped](docs/screenshots/delivery-log.png)
 
-That screenshot is from the demo conference, which is why every row reads **Skipped**, with the
-reason in place of a subject: the dispatcher refuses demo events before the message is rendered,
-and the log shows why rather than inventing a subject line. In your real event those rows read
+That screenshot is from the demo conference, which is why every row reads **Skipped**: the
+dispatcher refuses demo events before the message is ever rendered, and the log records the
+skip and its reason instead of inventing a subject line. In your real event those rows read
 *Sent*, with the subject the recipient saw and the provider's message id beside it.
 
 ---

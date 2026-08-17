@@ -104,4 +104,16 @@ describe("LogDetailSheet rows that never rendered", () => {
   it("labels the missing subject instead of leaving a bare dash", () => {
     expect(renderSheet(skipped)).toContain("Not rendered");
   });
+
+  // Missing subject and body on any *other* status proves nothing: the 90-day
+  // retention job redacts rows that rendered fine while keeping `error`. Those
+  // get the plain placeholder — the Error row already shows the failure.
+  it("does not tell a failed row it was never rendered", () => {
+    const html = renderSheet({ ...skipped, status: "failed", error: "provider rejected the message" });
+
+    expect(html).toContain("Body not captured.");
+    expect(html).not.toContain("Not rendered");
+    expect(html).not.toContain("Skipped before this message was rendered");
+    expect(html).toContain("provider rejected the message");
+  });
 });

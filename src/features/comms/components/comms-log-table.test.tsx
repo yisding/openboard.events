@@ -103,4 +103,15 @@ describe("CommsLogTable rows that never rendered", () => {
 
     expect(html).toContain('<td class="comms-log-col-subject"><span class="dash"');
   });
+
+  // A failed row with no subject is *not* proof it never rendered: the 90-day
+  // retention job redacts the subject of rows that rendered fine while keeping
+  // `error` for the audit trail. Only `skipped` — which always lands before
+  // the render — may make the claim.
+  it("does not claim a failed row never rendered — its subject may be retention-redacted", () => {
+    const html = renderLog([{ ...skipped, status: "failed", error: "provider rejected the message" }]);
+
+    expect(html).toContain('<td class="comms-log-col-subject"><span class="dash"');
+    expect(html).not.toContain("log-unrendered-cell");
+  });
 });

@@ -101,14 +101,20 @@ function CommsLogTableInner({ eventId, contactId, contactName, timezone }: Comms
     // data. The reason the row stopped — the one true thing left to say about
     // it, and the same string the drawer shows as Error — takes the cell
     // instead, muted so it can never be mistaken for a subject line.
+    //
+    // Only a `skipped` row proves "never rendered": every skip lands before the
+    // dispatcher persists the render. Any other status with a missing subject
+    // may be the 90-day retention job redacting a message that rendered fine
+    // (`data-lifecycle/server/retention.ts` nulls the subject but keeps
+    // `error`), and this column may not claim otherwise — those keep the dash.
     {
       id: "subject",
       header: "Subject",
       accessorKey: "subjectRendered",
       cell: ({ row }) => {
-        const { subjectRendered, error } = row.original;
+        const { subjectRendered, status, error } = row.original;
         if (subjectRendered) return <span title={subjectRendered}>{subjectRendered}</span>;
-        if (error) return <span className="log-unrendered-cell" title={`Not rendered — ${error}`}>{error}</span>;
+        if (status === "skipped" && error) return <span className="log-unrendered-cell" title={`Not rendered — ${error}`}>{error}</span>;
         return <Dash />;
       },
       meta: { className: "comms-log-col-subject" },
