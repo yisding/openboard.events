@@ -3166,8 +3166,16 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
    scrolling the page — and expanding "Side quests" adds a tray of eight to a
    card that starts around 300px tall, which put the tail of the list and the
    Skip chapter / Finish tour disclosure out of reach on any laptop. Same
-   max-height/overflow/overscroll pairing .datetime-popover already uses. */
-.tour-coach { position: fixed; z-index: 201; width: 320px; max-width: calc(100vw - 24px); max-height: calc(100vh - 24px); overflow-y: auto; overscroll-behavior: contain; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 13px 15px 14px; animation: modal-in .18s ease; }
+   max-height/overflow/overscroll pairing .datetime-popover already uses.
+
+   `inset: auto` and `margin: 0` are the UA's `[popover]` box being undone in
+   advance: the card is raised into the top layer as a manual popover whenever a
+   dialog it is not inside is open (see coach.tsx), and the UA's `inset: 0` plus
+   `margin: auto` would otherwise drag it to the middle of the screen and
+   stretch it to the viewport's height. Everything else the UA sets — border,
+   padding, background, colour — this rule already states outright. The two
+   position classes below restate their own edges, so they still win. */
+.tour-coach { position: fixed; inset: auto; z-index: 201; width: 320px; max-width: calc(100vw - 24px); max-height: calc(100vh - 24px); margin: 0; overflow-y: auto; overscroll-behavior: contain; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 13px 15px 14px; animation: modal-in .18s ease; }
 .tour-coach-centred { top: 50%; left: 50%; transform: translate(-50%, -50%); }
 /* No anchor, but an instruction to carry out: the middle of the screen is
    where the work is, so the card takes the corner the paused pill uses instead
@@ -3243,8 +3251,15 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
 /* ---------------------------------------------------------------------------
    Easter eggs — the emoji-rain overlay (the palette's secret menu, Konami
    code) and the 404 compass. The overlay is fixed, pointer-events:none and self-removing,
-   so nothing here can affect layout or interaction on the page beneath it. */
-.egg-rain{position:fixed;inset:0;z-index:300;pointer-events:none;overflow:hidden}
+   so nothing here can affect layout or interaction on the page beneath it.
+
+   `emojiRain` shows the overlay as a manual popover so a burst fired while a
+   modal `<dialog>` is open — the tour's curtain call — rains over it rather
+   than behind it. That means undoing the UA's `[popover]` box the way
+   `.toast-stack` does: full-bleed instead of `fit-content` centred by
+   `margin: auto`, and no border, padding or Canvas background. `display` is
+   left alone so a closed popover really is hidden. */
+.egg-rain{position:fixed;inset:0;z-index:300;width:100%;height:100%;margin:0;border:0;padding:0;background:transparent;color:inherit;pointer-events:none;overflow:hidden}
 .egg-rain span{position:absolute;top:-48px;animation:egg-fall 3s linear forwards}
 @keyframes egg-fall{to{transform:translateY(115vh) rotate(360deg)}}
 .lost-compass{border:0;padding:0;cursor:pointer;font:inherit}

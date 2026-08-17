@@ -161,6 +161,28 @@ function stubMatchMedia() {
   });
 }
 
+/**
+ * A stand-in for the popover API — how the card joins the top layer over an
+ * open dialog. Kept local to the one test that needs it so nothing else in
+ * this file starts depending on the environment having it.
+ */
+function stubPopoverApi(): () => void {
+  const prototype = HTMLElement.prototype as unknown as Record<string, unknown>;
+  const before = { show: prototype.showPopover, hide: prototype.hidePopover };
+  prototype.showPopover = function showPopover(this: HTMLElement) {
+    if (this.hasAttribute("data-open")) throw new Error("InvalidStateError");
+    this.setAttribute("data-open", "");
+  };
+  prototype.hidePopover = function hidePopover(this: HTMLElement) {
+    if (!this.hasAttribute("data-open")) throw new Error("InvalidStateError");
+    this.removeAttribute("data-open");
+  };
+  return () => {
+    if (before.show === undefined) delete prototype.showPopover; else prototype.showPopover = before.show;
+    if (before.hide === undefined) delete prototype.hidePopover; else prototype.hidePopover = before.hide;
+  };
+}
+
 async function render(bootstrap: TourBootstrap | null, children?: React.ReactNode) {
   const container = document.createElement("div");
   document.body.append(container);
@@ -691,6 +713,36 @@ describe("anchoring", () => {
     // Nothing z-indexed can paint above the top layer; the dialog's own
     // ::backdrop is already the scrim.
     expect(document.querySelector(".tour-scrim")).toBe(null);
+  });
+
+  // The step that says "press ⌘K" was the step that lost its own card the
+  // moment the player did as they were told: the palette is a modal <dialog>,
+  // so it opens in the top layer, blurs everything it does not contain behind
+  // its ::backdrop and makes it inert. The card joins the top layer after it —
+  // insertion order is what decides — and leaves again when the palette closes.
+  it("rises above a dialog that opens over it, and settles back when it closes", async () => {
+    document.body.insertAdjacentHTML("beforeend", '<nav class="dashboard-tabs">Today</nav>');
+    const restorePopover = stubPopoverApi();
+    try {
+      await render(makeBootstrap(makeServer()));
+      await tick();
+      const card = coach();
+      expect(card?.hasAttribute("popover")).toBe(false);
+
+      document.body.insertAdjacentHTML("beforeend", '<dialog class="command-palette-shell"><input aria-label="Search anything" /></dialog>');
+      const palette = document.querySelector<HTMLDialogElement>("dialog.command-palette-shell");
+      // What `showModal()` does to the DOM, which is what the card watches for.
+      await act(async () => { palette?.setAttribute("open", ""); await Promise.resolve(); });
+      expect(card?.getAttribute("popover")).toBe("manual");
+      // Manual, never auto: this card has never trapped focus or closed on
+      // Escape, and both auto popovers and dialogs would take that away.
+      expect(card?.getAttribute("role")).toBe("dialog");
+
+      await act(async () => { palette?.removeAttribute("open"); await Promise.resolve(); });
+      expect(card?.hasAttribute("popover")).toBe(false);
+    } finally {
+      restorePopover();
+    }
   });
 
   it("spotlights with a real hole the player can click through", async () => {
