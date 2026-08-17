@@ -1,6 +1,6 @@
 "use client";
 
-import { Mail, RotateCcw, Search, Send, X } from "lucide-react";
+import { Mail, RotateCcw, Send } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { COMM_STATUSES, TEMPLATE_KEYS, type CommLogId, type CommLogRow, type CommStatus, type ContactId, type EventId, type TemplateKey } from "@/shared/contracts";
@@ -8,7 +8,7 @@ import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
 import { DataTable } from "@/shared/ui/app/data-table";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { Dash } from "@/shared/ui/app/dash";
-import { Button, EmptyState, Select, StatusBadge } from "@/shared/ui/ui-kit";
+import { Button, EmptyState, SearchInput, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { QueryBoundary } from "@/shared/ui/app/query-boundary";
 import { statusBadgeLabel } from "@/shared/ui/status-badge";
 import { templateLabel } from "@/shared/ui/template-label";
@@ -174,11 +174,7 @@ function CommsLogTableInner({ eventId, contactId, contactName, timezone }: Comms
         toolbar={
           <>
             {!contactId && (
-              <label className="table-search">
-                <Search size={16} />
-                <input aria-label="Search recipients" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search recipients" />
-                {search && <button type="button" aria-label="Clear search" onClick={() => setSearch("")}><X size={14} /></button>}
-              </label>
+              <SearchInput label="Search recipients" placeholder="Search recipients" value={search} onChange={setSearch} />
             )}
             <Select className="filter-button" value={status} onChange={(event) => setStatus(event.target.value as CommStatus | "")} aria-label="Filter by status">
               <option value="">All statuses</option>

@@ -1,25 +1,42 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 
-describe("search clear controls", () => {
-  const sources = [
-    "./comms/components/comms-log-table.tsx",
-    "./comms/components/suppressions-tab.tsx",
-    "./crm/components/directory-view.tsx",
-    "./portal/components/speakers-admin/speakers-admin-view.tsx",
-    "./portal/deliverables/components/files-admin-view.tsx",
-  ];
+function sourceFiles(directory: URL): URL[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.isDirectory()) return sourceFiles(new URL(`${entry.name}/`, directory));
+    return entry.name.endsWith(".tsx") && !entry.name.includes(".test.") ? [new URL(entry.name, directory)] : [];
+  });
+}
 
-  it("names every icon-only clear-search button", () => {
-    for (const path of sources) {
-      const source = read(path);
-      expect(source, path).toMatch(/aria-label="Clear search"[\s\S]{0,200}<X size=\{14\} \/><\/button>/u);
-    }
+/**
+ * #638 — every search field in the product is one component.
+ *
+ * Twelve toolbars each rebuilt `.table-search` by hand, so only five ever
+ * shipped the clear (X) and two shipped as a bare `<input>` with no box at all.
+ * The gap is not cosmetic: a filter you cannot undo in one click is the
+ * difference between "No forms here" meaning *you have none* and it meaning
+ * *you typed something four screens ago*. `SearchInput` owns the recipe, so a
+ * hand-rolled copy is the regression to catch — not the presence of any one
+ * clear button.
+ */
+describe("search fields", () => {
+  it("are never rebuilt by hand around an input", () => {
+    const rebuilt = sourceFiles(new URL("./", import.meta.url))
+      .filter((path) => {
+        const source = readFileSync(path, "utf8");
+        // The class on an element that also contains a text input: a search box
+        // written out longhand. `task-list.tsx` reuses the same box around a
+        // <Select>, which is a filter, not a search, and stays legitimate.
+        return /className=\{?"table-search[^"]*"[\s\S]{0,600}?<input/u.test(source);
+      })
+      .map((path) => path.pathname);
+
+    expect(rebuilt).toEqual([]);
   });
 
-  it("provides full desktop and compact pointer targets", () => {
+  it("provides full desktop and compact pointer targets for the clear control", () => {
     const css = read("../app/globals.css");
     expect(css).toContain(".table-search button{min-width:24px;min-height:24px;");
     expect(css).toContain(".table-search button { min-width: 44px; min-height: 44px; margin-right: -8px; }");

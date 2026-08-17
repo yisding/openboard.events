@@ -10,7 +10,7 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { Kanban, Plus, Search } from "lucide-react";
+import { Kanban, Plus } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { OrganizationEventRow } from "@/features/organizations";
@@ -30,7 +30,7 @@ import {
   type OrganizationContactSummaryDTO,
   type OrganizationId,
 } from "@/shared/contracts";
-import { Button, EmptyState, Field, Modal, PageHeader, Select } from "@/shared/ui/ui-kit";
+import { Button, EmptyState, Field, Modal, PageHeader, SearchInput, Select } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
 import { AppError, isAppError, isDefinitiveWriteFailure } from "@/shared/lib/errors";
@@ -316,10 +316,15 @@ function AddProspectDialog({ organizationId, events, open, onClose, onCreated }:
         <div className="form-stack">
           {!picked ? (
             <>
-              <form className="table-search" style={{ width: "100%" }} onSubmit={(event) => { event.preventDefault(); void search(); }}>
-                <Search size={16} />
-                <input aria-label="Search the directory" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search the directory" autoFocus />
-              </form>
+              <SearchInput
+                className="table-search--fill"
+                label="Search the directory"
+                placeholder="Search the directory"
+                value={query}
+                onChange={setQuery}
+                onSubmit={() => void search()}
+                autoFocus
+              />
               {searching && <p className="long-copy">Searching…</p>}
               {!searching && results.map((row) => (
                 <button key={row.id} type="button" className="speaker-card" style={{ width: "100%", textAlign: "left" }} onClick={() => setPicked(row)}>

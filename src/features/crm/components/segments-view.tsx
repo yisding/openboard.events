@@ -398,7 +398,7 @@ export function SegmentsView({
             </header>
             {result && (
               <div className="crm-segment-preview">
-                {result.preview.length === 0 && <span style={{ color: "var(--muted)", fontSize: "var(--text-xs)" }}>No contacts currently match this segment.</span>}
+                {result.preview.length === 0 && <span className="muted-note">No contacts currently match this segment.</span>}
                 {result.preview.map((row) => <span key={row.organizationContactId} className="chip">{row.name}</span>)}
                 {result.capped && <span className="chip">…and more (capped at 2,000)</span>}
               </div>

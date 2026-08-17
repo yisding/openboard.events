@@ -1,13 +1,13 @@
 "use client";
 
-import { ShieldOff, Search, X } from "lucide-react";
+import { ShieldOff } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { ContactId, EventId } from "@/shared/contracts";
 import type { SuppressionRow } from "@/features/comms";
 import { DataTable } from "@/shared/ui/app/data-table";
 import { TzTime } from "@/shared/ui/app/tz-time";
-import { Button, EmptyState, StatusBadge } from "@/shared/ui/ui-kit";
+import { Button, EmptyState, SearchInput, StatusBadge } from "@/shared/ui/ui-kit";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { useToast } from "@/shared/ui/toast";
 import { useRemoveSuppression, useSuppressions } from "../hooks/use-suppressions";
@@ -72,11 +72,7 @@ export function SuppressionsTab({ eventId, timezone }: { eventId: EventId; timez
         getRowId={(row) => row.contactId}
         pageSize={50}
         toolbar={
-          <label className="table-search">
-            <Search size={16} />
-            <input aria-label="Search suppressed addresses" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search suppressed addresses" />
-            {search && <button type="button" aria-label="Clear search" onClick={() => setSearch("")}><X size={14} /></button>}
-          </label>
+          <SearchInput label="Search suppressed addresses" placeholder="Search suppressed addresses" value={search} onChange={setSearch} />
         }
         empty={
           <EmptyState

@@ -1,10 +1,10 @@
 "use client";
 
-import { AlertTriangle, ArrowRight, CalendarDays, Filter, LayoutGrid, List, MapPin, Plus, Search, UserPlus } from "lucide-react";
+import { AlertTriangle, ArrowRight, CalendarDays, Filter, LayoutGrid, List, MapPin, Plus, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { useMemo } from "react";
 import { zoneAbbreviation, zonedInputToUtc } from "@/shared/lib/time";
-import { Button } from "@/shared/ui/ui-kit";
+import { Button, SearchInput } from "@/shared/ui/ui-kit";
 import { moveRovingTab } from "@/shared/ui/app/roving-tabs";
 import type { AgendaView } from "../store";
 import { AGENDA_VIEWS, dayTabLabel, eventDayKeys } from "../store";
@@ -101,15 +101,7 @@ export function AgendaToolbar({
           })}
         </div>
         <div className="agenda-toolbar-actions">
-          <label className="table-search">
-            <Search size={14} aria-hidden />
-            <input
-              value={search}
-              onChange={(changed) => onSearch(changed.target.value)}
-              placeholder="Find session"
-              aria-label="Find session"
-            />
-          </label>
+          <SearchInput label="Find session" placeholder="Find session" value={search} onChange={onSearch} />
           {/* #117 — the two off-CFP paths, named, at the moment the organizer
               picks one. "Add Session" schedules a talk that has no abstract and
               never needed one; the link goes to the drawer that files it as an

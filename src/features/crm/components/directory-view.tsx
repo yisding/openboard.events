@@ -1,6 +1,6 @@
 "use client";
 
-import { Building2, Contact, GitMerge, Mail, Plus, Search, Tags, Upload, Users, X } from "lucide-react";
+import { Building2, Contact, GitMerge, Mail, Plus, Tags, Upload, Users } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -20,7 +20,7 @@ import {
 import { DataTable } from "@/shared/ui/app/data-table";
 import { BulkActionBar } from "@/shared/ui/app/bulk-action-bar";
 import { Dash } from "@/shared/ui/app/dash";
-import { Avatar, Button, EmptyState, PageHeader, Select } from "@/shared/ui/ui-kit";
+import { Avatar, Button, EmptyState, PageHeader, SearchInput, Select } from "@/shared/ui/ui-kit";
 import { LocalTime } from "@/shared/ui/app/local-time";
 import { statusBadgeLabel } from "@/shared/ui/status-badge";
 import { CrmNav } from "./crm-nav";
@@ -277,11 +277,14 @@ export function DirectoryView({
         serverPagination={{ page, pageSize, total, onPageChange: (next) => setParams({ page: next > 1 ? String(next) : null }, false) }}
         toolbar={
           <>
-            <form className="table-search" onSubmit={(event) => { event.preventDefault(); setParams({ search: draftSearch || null }); }}>
-              <Search size={16} />
-              <input value={draftSearch} onChange={(event) => setDraftSearch(event.target.value)} placeholder="Search name, email, or company" aria-label="Search the directory" />
-              {draftSearch && <button type="button" aria-label="Clear search" onClick={() => { setDraftSearch(""); setParams({ search: null }); }}><X size={14} /></button>}
-            </form>
+            <SearchInput
+              label="Search the directory"
+              placeholder="Search name, email, or company"
+              value={draftSearch}
+              onChange={setDraftSearch}
+              onClear={() => { setDraftSearch(""); setParams({ search: null }); }}
+              onSubmit={() => setParams({ search: draftSearch || null })}
+            />
             <Select className="compact-select" aria-label="Filter by event" value={eventId ?? ""} onChange={(event) => setParams({ eventIds: event.target.value || null })}>
               <option value="">All events</option>
               {events.map((event) => <option key={event.id} value={event.id}>{event.name}</option>)}
