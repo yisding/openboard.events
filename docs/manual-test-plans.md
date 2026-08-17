@@ -1642,9 +1642,10 @@ one-line move.
 
 ## Appendix B — Automated counterparts
 
-Fourteen Playwright specs in [`../e2e/`](../e2e) overlap these plans: `admin-setup` (MTP-01/02),
+Seventeen Playwright specs in [`../e2e/`](../e2e) overlap these plans: `admin-setup` (MTP-01/02),
 `cfp-submit` (MTP-03/04), `abstracts-decide` (MTP-06), `review-operations` (MTP-05), `portal-tasks`
-(MTP-10), `agenda-schedule` (MTP-07), `public-embeds` + `public-widgets-parity` (MTP-11),
+(MTP-10), `portal-resources` (MTP-10 §16), `agenda-schedule` (MTP-07), `public-embeds` +
+`public-widgets-parity` (MTP-11), `comms-outbox` (MTP-12), `crm-sync` (MTP-13),
 `speaker-content-ops` (MTP-10/12/13/14/15), `self-service-onboarding` (MTP-13/13a),
 `demo-tour` (MTP-18 §1 and the machine-checkable half of §4), and three that
 automate part of the design bar — `rendered-ui-polish`, `responsive-action-groups` and
