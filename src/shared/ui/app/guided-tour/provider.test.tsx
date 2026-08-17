@@ -640,6 +640,42 @@ describe("anchoring", () => {
     expect(coach()?.className).not.toContain("tour-coach-settling");
   });
 
+  it("holds it back on a step change too, not only on the first step", async () => {
+    // Raised in review: the grace period was reset in a passive effect while
+    // the anchor it guards against is cleared in a layout one, which leaves a
+    // render where the rect is `null` and the flag is still the previous
+    // step's `true` — card centred, visible, wearing the new step's copy.
+    document.body.insertAdjacentHTML("beforeend", '<nav class="dashboard-tabs">Today</nav>');
+    const server = makeServer();
+    await render(makeBootstrap(server, {
+      steps: [
+        STEPS[0] as TourStep,
+        { ...STEPS[1], anchor: MISSING_ANCHOR } as TourStep,
+        ...STEPS.slice(2),
+      ],
+    }));
+    await tick(400);
+    expect(coach()?.className).not.toContain("tour-coach-settling");
+
+    // Onto the step whose anchor is nowhere: the grace period has to start
+    // again rather than still be spent from the step before.
+    //
+    // What this cannot check is *when* the reset lands. `act` flushes layout
+    // and passive effects together and React coalesces the two commits into a
+    // single class mutation either way, so the ordering is invisible from
+    // here — sampled per animation frame in Chrome it is invisible there too,
+    // because React happens to flush passive effects before paint for a
+    // click-driven update. The layout effect is what stops that being load
+    // bearing. This covers the coarser half: the flag resetting per step at
+    // all.
+    await act(async () => control("Continue").click());
+    expect(coach()?.textContent).toContain("Fix it.");
+    expect(coach()?.className).toContain("tour-coach-settling");
+
+    await tick(400);
+    expect(coach()?.className).not.toContain("tour-coach-settling");
+  });
+
   it("portals into an open dialog and suppresses its own scrim there", async () => {
     document.body.insertAdjacentHTML(
       "beforeend",

@@ -16,7 +16,7 @@ import type { TourAnchorSpec } from "./types";
  * most of them. `useLayoutEffect` on the server is a no-op that warns, so the
  * hook degrades to the passive one where there is no window.
  */
-const useMeasureEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
+export const useMeasureEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 /**
  * Finding the thing the tour is pointing at, and keeping the measurement true

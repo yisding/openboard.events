@@ -400,8 +400,15 @@ const THE_DECISION: readonly TourStep[] = [
     id: "decide.select",
     chapter: "the-decision",
     kind: "act",
-    title: "Tick three proposals.",
-    body: "The checkboxes are the first column. Pick whichever three you would say yes to — an action bar appears along the bottom as soon as one is ticked.",
+    // Not "Tick three proposals". The objective below is satisfied by the
+    // action bar appearing, and the bar appears on the *first* tick — so a
+    // card demanding three sat there contradicting itself the moment one was
+    // ticked, saying "Tick three proposals" and "Done." in the same breath.
+    // Nothing in the world counts a selection, so the copy is what gives: three
+    // is the suggestion the demo is built around, not a requirement the step
+    // then fails to hold anybody to.
+    title: "Tick the proposals you would accept.",
+    body: "The checkboxes are the first column, and three is a good number to take. An action bar appears along the bottom the moment one row is ticked.",
     route: at("/abstracts", { view: "needs_decision" }),
     // The first body row's checkbox cell. `.select-cell` is the shared table's
     // own class for that column, so this is the cheap rung of the ladder

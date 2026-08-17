@@ -11,7 +11,7 @@ import { QueryBoundary } from "@/shared/ui/app/query-boundary";
 import { useGuardedAction } from "@/shared/ui/app/unsaved-work-guard";
 import { emojiRain } from "@/shared/ui/emoji-rain";
 import { useToast } from "@/shared/ui/toast";
-import { portalTargetFor, tourIdPresent, useTourAnchor } from "./anchor";
+import { portalTargetFor, tourIdPresent, useMeasureEffect, useTourAnchor } from "./anchor";
 import { TourCoach, TourPill, type TourCoachMode } from "./coach";
 import { useMobileTourViewport } from "./media";
 import { readTourMirror, writeTourMirror } from "./mirror";
@@ -790,9 +790,22 @@ function GuidedTourLayer({ bootstrap, onComplete, onStatusChange }: {
    * expires unused; one that needs a navigation, a drawer or a query boundary
    * gets `ANCHOR_SETTLE_MS` before the card gives up and appears centred
    * anyway. Keyed on the step, so every step gets its own grace.
+   *
+   * **A layout effect, deliberately.** `useTourAnchor` clears its element and
+   * rectangle before paint, so on a step change there is a render where the
+   * rect is already `null` and this flag is still `true` from the step
+   * before — the card centred and visible, carrying the new step's copy,
+   * which is the exact frame this exists to prevent. Whether that render is
+   * ever *painted* comes down to React choosing to flush passive effects
+   * before paint. It does today for a step change driven by a click, which is
+   * how every advance now happens, and measured in Chrome the bad frame does
+   * not appear either way. It is not a guarantee, it is not true for the step
+   * changes that arrive from a timer or an adopted server cursor, and the
+   * cost of not relying on it is one word: registered after `useTourAnchor`'s
+   * hooks, this reset lands in the same pre-paint pass as the clear.
    */
   const [anchorSettled, setAnchorSettled] = useState(false);
-  useEffect(() => {
+  useMeasureEffect(() => {
     setAnchorSettled(false);
     const timer = window.setTimeout(() => setAnchorSettled(true), ANCHOR_SETTLE_MS);
     return () => window.clearTimeout(timer);

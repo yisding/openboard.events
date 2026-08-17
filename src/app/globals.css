@@ -2976,8 +2976,17 @@ input:not([type="checkbox"]):not([type="radio"]), select { min-height: 32px; }
 /* Held back for an anchor that has not mounted yet — up to ANCHOR_SETTLE_MS.
    Hidden rather than unmounted, so the card keeps its place in the tree; the
    entrance animation is suppressed here and plays when the class comes off,
-   which is the frame the card is finally in the right place. */
-.tour-coach-settling { visibility: hidden; animation: none; }
+   which is the frame the card is finally in the right place.
+
+   `opacity`, never `visibility: hidden`. This card is the tour's only live
+   region — the sole channel by which a screen-reader user is told the step
+   changed — and a live region that is `visibility: hidden` is out of the
+   accessibility tree, so the title and body swapped underneath it announce
+   nothing. The class comes off later with no further text mutation, so the
+   announcement is not late, it never happens. Transparent and inert keeps
+   the node in the tree and out of the way of the pointer, which is all this
+   ever needed. */
+.tour-coach-settling { opacity: 0; pointer-events: none; animation: none; }
 .tour-coach-won { border-color: var(--accent-border); }
 .tour-coach-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 9px; }
 .tour-coach-chapter { color: var(--accent-dark); font-size: var(--text-xs); font-weight: var(--weight-emphasis); letter-spacing: 1.1px; text-transform: uppercase; }
