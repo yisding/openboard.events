@@ -687,6 +687,10 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .drawer-compact { width: min(480px, 95vw); }
 .drawer-title { position: sticky; z-index: 3; top: 0; height: 66px; background: var(--surface); border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; padding: 0 24px; }
 .drawer-title h2 { margin: 0; font-size: 16px; }
+/* The heading is where an opening drawer puts focus (see `Drawer`), so it needs
+   the app's ring rather than the UA's — `:focus-visible` keeps it to the
+   keyboard opens, where seeing the landing spot is the point. */
+.drawer-title h2:focus-visible { outline: 2px solid var(--accent-dark); outline-offset: 4px; border-radius: 4px; }
 .drawer-title h2 + .flow-nav-controls { margin-left: auto; margin-right: 16px; }
 .drawer-body { padding: 24px; }
 .drawer-form { display: grid; gap: 24px; }
@@ -2120,6 +2124,13 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .crm-board-cards{padding:12px;display:grid;gap:8px;flex:1}
 .crm-board-card{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:12px 12px;cursor:grab;touch-action:none}
 .crm-board-card--dragging{opacity:.5}
+.crm-board-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.crm-board-card-head>div{flex:1;min-width:0}
+/* The keyboard drag activator. It is the only tab stop the card adds, so it
+   keeps the shared 36px icon-button box; the negative margins pull that box
+   back onto the card's padding instead of widening the row. */
+.crm-board-card-grip{flex:none;margin:-6px -6px 0 0;color:var(--muted);cursor:grab}
+.crm-board-card-grip:active:not(:disabled){cursor:grabbing}
 .crm-board-card b{display:block;font-size:var(--text-xs)}
 .crm-board-card span{display:block;color:var(--muted);font-size:var(--text-xs);margin-top:2px}
 .crm-board-card-actions{display:flex;gap:6px;margin-top:8px}
