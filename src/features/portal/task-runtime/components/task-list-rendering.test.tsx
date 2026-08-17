@@ -79,7 +79,10 @@ describe("portal task list rendering", () => {
   });
 
   it("gives .tab-row its own flex layout so the wrapper does not break the strip", () => {
-    const css = readFileSync(new URL("../../../../app/globals.css", import.meta.url), "utf8");
+    // process.cwd(), not `new URL(..., import.meta.url)`: under happy-dom the
+    // module URL resolves against the fake location's http: scheme, which
+    // readFileSync refuses (same approach as `toast-provider.test.tsx`).
+    const css = readFileSync(`${process.cwd()}/src/app/globals.css`, "utf8");
     expect(css).toMatch(/\.abstract-status-tabs \.tab-row\{[^}]*display:flex/);
   });
 
