@@ -13,7 +13,9 @@ describe("isClickNotDrag", () => {
   it("refuses anything dnd-kit reported as a drag, wherever it was released", () => {
     // A block dragged one room across and dropped back over its own card still
     // fires a click; opening the editor on top of the move is not what the
-    // organizer asked for.
+    // organizer asked for. `dragged` is fed by the whole DndContext, so a
+    // resize that dragged the card's own strip back to where it started — the
+    // one gesture the distance check alone would call a click — lands here too.
     expect(isClickNotDrag(press, press, true)).toBe(false);
     expect(isClickNotDrag(press, { x: 640, y: 300 }, true)).toBe(false);
   });
@@ -23,10 +25,19 @@ describe("isClickNotDrag", () => {
     expect(isClickNotDrag(press, { x: press.x + 40, y: press.y + 40 }, false)).toBe(false);
   });
 
-  it("refuses a release with no recorded press — the resize-handle path", () => {
-    // `ResizeHandles` stops the pointerdown from reaching the card, so a resize
-    // released over the card arrives with no origin and must not open a dialog.
+  it("refuses a release with no recorded press", () => {
+    // Every pointer press inside the drag source records an origin in the
+    // capture phase, so a `click` with none behind it was synthesized rather
+    // than pressed. The keyboard route is the card's own Enter/Space handler.
     expect(isClickNotDrag(null, press, false)).toBe(false);
+  });
+
+  it("watches every drag in the context, not just the card's own", () => {
+    // The resize strips are sibling draggables: the card's `isDragging` stays
+    // false right through a resize, so `active` is what makes a resize count.
+    const hook = readFileSync(new URL("./click-to-open.ts", import.meta.url), "utf8");
+    expect(hook).toContain("const { active } = useDndContext();");
+    expect(hook).toContain("if (isDragging || active !== null) dragged.current = true;");
   });
 
   it("stays in step with the DndContext's activation distance", () => {

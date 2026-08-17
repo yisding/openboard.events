@@ -32,11 +32,14 @@ describe("tray rows", () => {
     // answer only the small Edit link, while the panel's hint and the guided
     // tour both told organizers to click the row (#720).
     expect(panel).toContain("useOpenOnClick(isDragging");
+    expect(panel).toContain("onPointerDownCapture={openOnClick.onPointerDownCapture}");
     expect(panel).toContain("onClick={openOnClick.onClick}");
   });
 
   it("keeps the drag onto the grid and the Edit keyboard route", () => {
-    expect(panel).toContain("listeners?.onPointerDown?.(pointerEvent)");
+    // The click handlers sit after `{...listeners}` and share no handler name
+    // with them, so dnd-kit's own `onPointerDown` still reaches the row.
+    expect(panel).toContain("{...listeners}");
     expect(panel).toContain('className="dv-tray-edit"');
   });
 });

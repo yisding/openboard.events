@@ -68,10 +68,12 @@ export function SessionCard({
 
   // Click opens the editor, the same single click that opens a List view row or
   // a tray row. Drag stays the fast path for moving a block; `useOpenOnClick`
-  // is what tells the two apart, so a completed drag that happens to release
-  // over the card does not also open a dialog on top of it. `onEdit` is a state
-  // setter, so the double-click that used to be the *only* way in still works
-  // and its second call is a no-op.
+  // is what tells the two apart, so a completed drag or resize that happens to
+  // release over the card does not also open a dialog on top of it. It records
+  // the press in the capture phase, which is the only phase that sees a press
+  // landing on a `ResizeHandles` strip — on a 15-minute block those strips are
+  // almost the whole card. `onEdit` is a state setter, so the double-click that
+  // used to be the *only* way in still works and its second call is a no-op.
   const openOnClick = useOpenOnClick(isDragging, () => onEdit?.(String(session.id)));
 
   const conflicts = useDayGridConflicts();
@@ -146,10 +148,6 @@ export function SessionCard({
       }}
       {...listeners}
       onPointerDownCapture={openOnClick.onPointerDownCapture}
-      onPointerDown={(pointerEvent) => {
-        openOnClick.onPointerDown(pointerEvent);
-        listeners?.onPointerDown?.(pointerEvent);
-      }}
       onClick={openOnClick.onClick}
     >
       <ResizeHandles session={session} />

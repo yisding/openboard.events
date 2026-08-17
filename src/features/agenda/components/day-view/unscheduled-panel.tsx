@@ -61,10 +61,6 @@ function TrayCard({
         title={onEdit ? "Click to edit · drag onto the grid" : undefined}
         {...listeners}
         onPointerDownCapture={openOnClick.onPointerDownCapture}
-        onPointerDown={(pointerEvent) => {
-          openOnClick.onPointerDown(pointerEvent);
-          listeners?.onPointerDown?.(pointerEvent);
-        }}
         onClick={openOnClick.onClick}
       >
         <GripVertical size={13} aria-hidden />
