@@ -391,17 +391,48 @@ const JUDGEMENT: readonly TourStep[] = [
  * demonstration of the product's care.
  */
 const THE_DECISION: readonly TourStep[] = [
+  // Two instructions, two targets, two steps. It shipped as one card that said
+  // "tick three rows, then Move to accept queue" and spotlit the first row's
+  // *title* — the one part of the row that does nothing when you click it, and
+  // nowhere near the button the second half of the sentence names. A step
+  // points at one control; a step that has to name two controls is two steps.
+  {
+    id: "decide.select",
+    chapter: "the-decision",
+    kind: "act",
+    // Not "Tick three proposals". The objective below is satisfied by the
+    // action bar appearing, and the bar appears on the *first* tick — so a
+    // card demanding three sat there contradicting itself the moment one was
+    // ticked, saying "Tick three proposals" and "Done." in the same breath.
+    // Nothing in the world counts a selection, so the copy is what gives: three
+    // is the suggestion the demo is built around, not a requirement the step
+    // then fails to hold anybody to.
+    title: "Tick the proposals you would accept.",
+    body: "The checkboxes are the first column, and three is a good number to take. An action bar appears along the bottom the moment one row is ticked.",
+    route: at("/abstracts", { view: "needs_decision" }),
+    // The first body row's checkbox cell. `.select-cell` is the shared table's
+    // own class for that column, so this is the cheap rung of the ladder
+    // rather than another pinned attribute.
+    anchor: css(".select-cell"),
+    // Above, not beside. The instruction is "tick three", so the two rows
+    // under this one have to stay clickable — and a 320px card opening to the
+    // right of a 44px cell lands squarely on the titles the organizer is
+    // reading to choose between them.
+    placement: "top",
+    // The bar the next step lives in exists only while something is selected,
+    // which makes its arrival the honest evidence that a row was ticked.
+    objective: { via: "dom", present: "abstracts.move-accept" },
+  },
   {
     id: "decide.queue",
     chapter: "the-decision",
     kind: "act",
-    title: "Queue three acceptances.",
-    body: "Tick three rows, then Move to accept queue. Nothing is sent by that — a queue is a promise you can still take back.",
-    route: at("/abstracts", { view: "needs_decision" }),
-    anchor: tourIdAnchor("abstracts.row"),
-    placement: "bottom",
+    title: "Move them to the accept queue.",
+    body: "Nothing is sent by that. A queue is a promise you can still take back, and the emails do not exist until you say so on the next screen.",
+    anchor: tourIdAnchor("abstracts.move-accept"),
+    placement: "top",
     objective: world("pendingCount", "decreased"),
-    hint: "Checkboxes are in the first column. The action bar appears once a row is selected.",
+    hint: "The action bar sits along the bottom of the table while rows are selected.",
   },
   {
     id: "decide.preflight",
@@ -657,6 +688,12 @@ const MISSION_CONTROL: readonly TourStep[] = [
     kind: "act",
     title: "Change a subject line.",
     body: "Edit one and save it. Every send from here renders from your words, and the log keeps the exact version it used.",
+    // Stated rather than inherited. A step with no route of its own borrows the
+    // last one its chapter declared, and this chapter declared `?tab=reminders`
+    // — so the only route this step knew about was the tab the player has just
+    // left. "Take me there", offered whenever the editor is slow to mount,
+    // would have walked them off the Templates tab the step is about.
+    route: at("/communications", { tab: "templates" }),
     anchor: css(".template-editor"),
     objective: world("templateUpdatedAt", "changed"),
   },
@@ -664,6 +701,10 @@ const MISSION_CONTROL: readonly TourStep[] = [
     id: "mission.reminders",
     chapter: "mission-control",
     kind: "act",
+    // Same reason, and one worse: inherited, this step's way back was the very
+    // URL its objective is waiting for, so "Take me there" completed the step
+    // instead of helping with it.
+    route: at("/communications", { tab: "templates" }),
     title: "Open Reminders.",
     // One ladder with four rungs, which is what the tab draws: a heading, then
     // 7 days before, 1 day before, 1 day after, 7 days after. "Four ladders"
@@ -737,7 +778,13 @@ const SIDE_QUESTS: readonly TourStep[] = [
     title: "Look at how blind review is set up.",
     body: "Round 2 hides the proposal's authors from its reviewers and the reviewers from each other. It is a pair of settings, not a separate product.",
     route: at("/evaluation"),
-    anchor: css(".reviewer-progress"),
+    // No anchor, deliberately. It pointed at `.reviewer-progress` — the
+    // Reviewers column, which lists who is assigned and how far along they
+    // are, and is evidence for nothing this card says. The two settings it
+    // *is* about are printed in the Window cell of the second round, and
+    // `.plan-window` resolves to the first round's cell, which is not blind.
+    // A card in the centre of the right page beats a spotlight on the wrong
+    // control: the step is "have a look", and the page is the answer.
   },
   {
     id: "quest.chase-a-speaker",

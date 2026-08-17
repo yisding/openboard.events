@@ -319,6 +319,39 @@ describe("guided tour script", () => {
     }
   });
 
+  it("points the decision chapter at the two controls it names", () => {
+    // It shipped as one card — "Tick three rows, then Move to accept queue" —
+    // with the spotlight on the first row's *title*: the one part of the row
+    // that does nothing when you click it, and nowhere near the button the
+    // second half of the sentence names. Two instructions, two targets, two
+    // steps, and each anchored on the control its own copy is about.
+    const select = tourStepById("decide.select") as TourStep;
+    const queue = tourStepById("decide.queue") as TourStep;
+    expect(select.anchor).toEqual({ kind: "selector", css: ".select-cell" });
+    // The action bar only exists while something is ticked, which makes its
+    // arrival the honest evidence that the first instruction was followed.
+    expect(select.objective).toEqual({ via: "dom", present: "abstracts.move-accept" });
+    expect(queue.anchor).toEqual({ kind: "tour-id", id: "abstracts.move-accept" });
+    expect(queue.objective).toEqual({ via: "world", fact: "pendingCount", delta: "decreased" });
+    // Same chapter, adjacent, in that order: the second step's anchor is only
+    // on screen because the first one's objective put it there.
+    const arcIds = ARC.map((step) => step.id);
+    expect(arcIds.indexOf("decide.queue")).toBe(arcIds.indexOf("decide.select") + 1);
+    expect(queue.chapter).toBe(select.chapter);
+  });
+
+  it("keeps every mission-control step on the tab its work happens on", () => {
+    // A step with no route of its own borrows the last one its chapter
+    // declared — and this chapter declares `?tab=reminders` first. So "Change
+    // a subject line", which happens on the Templates tab, inherited a way
+    // back to the tab the player had just left: the card's own "Take me
+    // there" walked them off the editor it was pointing at.
+    for (const id of ["mission.subject", "mission.reminders"]) {
+      const step = tourStepById(id) as TourStep;
+      expect(step.route, id).toEqual({ path: "/events/:eventId/communications", query: { tab: "templates" } });
+    }
+  });
+
   it("offers a way out of every act that could stick", () => {
     // A world objective can only be reached by doing the thing. Each one owes
     // the player either a hint or an anchor they can actually see.

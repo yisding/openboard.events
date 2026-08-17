@@ -103,7 +103,11 @@ export function VisibilityRuleEditor({
               />
             ))}
           </div>
-          <Button variant="ghost" className="add-question" disabled={value.conditions.length >= MAX_CONDITIONS} onClick={addCondition}>
+          {/* `add-condition`, not `add-question`: it shares the styling but it
+              is not that control, and the tour addresses the builder's Add
+              question by that class. Two buttons answering one selector is a
+              spotlight waiting to land on the wrong one. */}
+          <Button variant="ghost" className="add-condition" disabled={value.conditions.length >= MAX_CONDITIONS} onClick={addCondition}>
             Add condition
           </Button>
           {value.conditions.length >= MAX_CONDITIONS && <small>Up to 5 conditions</small>}

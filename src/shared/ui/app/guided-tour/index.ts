@@ -33,8 +33,8 @@ export type { MirroredCursor } from "./mirror";
 export { emitTourSignal, onTourSignal } from "./signals";
 export { prefersReducedMotion, useMobileTourViewport, useReducedMotion, TOUR_MOBILE_QUERY } from "./media";
 export {
+  ANCHOR_SETTLE_MS,
   ANCHOR_TIMEOUT_MS,
-  CELEBRATION_MS,
   HINT_REVEAL_MS,
   OBSERVE_DWELL_MS,
   POLL_BASE_MS,

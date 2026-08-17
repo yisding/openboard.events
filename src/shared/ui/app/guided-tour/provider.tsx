@@ -11,12 +11,12 @@ import { QueryBoundary } from "@/shared/ui/app/query-boundary";
 import { useGuardedAction } from "@/shared/ui/app/unsaved-work-guard";
 import { emojiRain } from "@/shared/ui/emoji-rain";
 import { useToast } from "@/shared/ui/toast";
-import { portalTargetFor, tourIdPresent, useTourAnchor } from "./anchor";
+import { portalTargetFor, tourIdPresent, useMeasureEffect, useTourAnchor } from "./anchor";
 import { TourCoach, TourPill, type TourCoachMode } from "./coach";
 import { useMobileTourViewport } from "./media";
 import { readTourMirror, writeTourMirror } from "./mirror";
 import {
-  CELEBRATION_MS,
+  ANCHOR_SETTLE_MS,
   HINT_REVEAL_MS,
   OBSERVE_DWELL_MS,
   POLL_BASE_MS,
@@ -568,27 +568,37 @@ function GuidedTourLayer({ bootstrap, onComplete, onStatusChange }: {
     goToStep(target);
   }, [completed, finish, goToStep, recordStep, step, steps]);
 
-  const celebrateAndAdvance = useCallback(() => {
+  /**
+   * The objective is met. Say so, pay out the reward — and stop.
+   *
+   * Stopping is the whole point. This used to hand off to a 900 ms timer that
+   * advanced on the player's behalf, and the result was a card that told you
+   * you had done it and then replaced itself with the next instruction before
+   * either could be read. Worse, it did it at the exact moment the player's
+   * attention was on the control they had just used, several hundred pixels
+   * away from the card. Nothing advances a step now except a press: `settle`
+   * puts the card into its finished state and waits there.
+   */
+  const settleStep = useCallback(() => {
     if (!step || celebrating) return;
-    if (step.reward) {
-      emojiRain([step.reward.emoji], step.reward.drops ?? 6);
-      setCelebrating(true);
-      return;
-    }
+    if (step.reward) emojiRain([step.reward.emoji], step.reward.drops ?? 6);
+    setCelebrating(true);
+  }, [celebrating, step]);
+
+  /**
+   * The player pressed the one button that moves the tour on.
+   *
+   * From a finished objective that is a plain "Next" — the reward has already
+   * been paid out and the card has been sitting there being read. From a beat
+   * or an `observe`, the press *is* the completion, so the reward (if the step
+   * has one) fires on the way out: the emoji rain is an overlay of its own and
+   * goes on falling over the next card quite happily.
+   */
+  const advance = useCallback(() => {
+    if (!step) return;
+    if (!celebrating && step.reward) emojiRain([step.reward.emoji], step.reward.drops ?? 6);
     leaveStep("completed");
   }, [celebrating, leaveStep, step]);
-
-  // Held in a ref so a poll landing mid-celebration cannot restart the timer
-  // and leave the reward line on screen indefinitely.
-  const leaveStepRef = useRef(leaveStep);
-  useEffect(() => {
-    leaveStepRef.current = leaveStep;
-  }, [leaveStep]);
-  useEffect(() => {
-    if (!celebrating) return;
-    const timer = window.setTimeout(() => leaveStepRef.current("completed"), CELEBRATION_MS);
-    return () => window.clearTimeout(timer);
-  }, [celebrating]);
 
   const skipChapter = useCallback(() => {
     if (!step) return;
@@ -770,18 +780,49 @@ function GuidedTourLayer({ bootstrap, onComplete, onStatusChange }: {
     return () => window.clearTimeout(timer);
   }, [running, runtime.hintVisible, satisfied, step?.hint, step?.id]);
 
+  /**
+   * A quarter of a second of patience for an anchor that arrives late.
+   *
+   * The card is positioned from the anchor's rectangle, so a card drawn before
+   * the anchor resolves is a card drawn in the middle of the screen that then
+   * jumps to the control — with the spotlight blinking on a frame behind it.
+   * An anchor already on the page now resolves before the first paint and this
+   * expires unused; one that needs a navigation, a drawer or a query boundary
+   * gets `ANCHOR_SETTLE_MS` before the card gives up and appears centred
+   * anyway. Keyed on the step, so every step gets its own grace.
+   *
+   * **A layout effect, deliberately.** `useTourAnchor` clears its element and
+   * rectangle before paint, so on a step change there is a render where the
+   * rect is already `null` and this flag is still `true` from the step
+   * before — the card centred and visible, carrying the new step's copy,
+   * which is the exact frame this exists to prevent. Whether that render is
+   * ever *painted* comes down to React choosing to flush passive effects
+   * before paint. It does today for a step change driven by a click, which is
+   * how every advance now happens, and measured in Chrome the bad frame does
+   * not appear either way. It is not a guarantee, it is not true for the step
+   * changes that arrive from a timer or an adopted server cursor, and the
+   * cost of not relying on it is one word: registered after `useTourAnchor`'s
+   * hooks, this reset lands in the same pre-paint pass as the clear.
+   */
+  const [anchorSettled, setAnchorSettled] = useState(false);
+  useMeasureEffect(() => {
+    setAnchorSettled(false);
+    const timer = window.setTimeout(() => setAnchorSettled(true), ANCHOR_SETTLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [step?.id]);
+
   /* --- advance on satisfaction ------------------------------------------ */
 
   // Held in a ref so the satisfaction effect fires once per satisfaction, not
   // once per re-render of the callback it happens to close over.
-  const advanceRef = useRef(celebrateAndAdvance);
+  const settleRef = useRef(settleStep);
   useEffect(() => {
-    advanceRef.current = celebrateAndAdvance;
-  }, [celebrateAndAdvance]);
+    settleRef.current = settleStep;
+  }, [settleStep]);
   useEffect(() => {
     if (!running || !satisfied || celebrating) return;
     if (step?.kind !== "act") return;
-    advanceRef.current();
+    settleRef.current();
   }, [celebrating, running, satisfied, step?.kind]);
 
   /* --- keyboard --------------------------------------------------------- */
@@ -880,6 +921,18 @@ function GuidedTourLayer({ bootstrap, onComplete, onStatusChange }: {
   const position = !mobile && anchor.rect && typeof window !== "undefined"
     ? popoverPosition(step.placement ?? "bottom", anchor.rect, { width: window.innerWidth, height: window.innerHeight }, { width: COACH_WIDTH, clearance: COACH_CLEARANCE })
     : null;
+  // An anchored card with no anchor yet is a card in the wrong place. Hold it
+  // for `ANCHOR_SETTLE_MS` rather than drawing it centred and moving it — see
+  // the `anchorSettled` effect. A modal owns the screen and never had an
+  // anchor to wait for; a sheet on mobile is bottom-docked and never moves.
+  const settling = !anchorSettled
+    && !mobile
+    && step.presentation !== "modal"
+    && step.presentation !== "modal-wide"
+    && step.anchor !== undefined
+    && step.anchor.kind !== "none"
+    && anchor.rect === null
+    && anchor.status !== "missing";
 
   const mode: TourCoachMode = celebrating
     ? "celebrating"
@@ -896,16 +949,25 @@ function GuidedTourLayer({ bootstrap, onComplete, onStatusChange }: {
   // already there — and `navigate` returns without pushing for the URL the
   // browser is on, which made the button render and do nothing at all.
   const elsewhere = takeMeThereHref !== null && !isCurrentLocation(takeMeThereHref, location);
+  /**
+   * What the card says when it has nothing to point at.
+   *
+   * Both lines are about the *spotlight*, not about the step, and both used to
+   * read as though they were about the step. "Nothing to point at yet — it
+   * appears once you have started. The step still counts" made an organizer
+   * hunt for an "it" the sentence never named and then wonder what "still
+   * counts" was conceding. What is actually true is narrower and much less
+   * alarming: the control this step is about does not exist on screen *yet*,
+   * because making it exist is the first half of the instruction directly
+   * above — the workshop question appears once Format is Workshop, the accept
+   * queue's action bar appears once a row is ticked. So say that, and say
+   * nothing about counting, which was never in doubt.
+   */
   const notice = notices[step.id] ?? (!anchorless
     ? null
     : elsewhere
-      ? "That control isn't on this screen right now — the step still counts."
-      // On the right screen with nothing to point at: for these steps the
-      // control's absence *is* the work — the workshop question only exists
-      // once Format is Workshop, the publish bar only once rows are selected.
-      // Telling the player it "isn't on this screen" contradicts the very
-      // instruction the card is giving them.
-      : "Nothing to point at yet — it appears once you have started. The step still counts.");
+      ? "The control for this step is on another screen. Take me there, or do it your own way — either finishes the step."
+      : "No spotlight yet: the control appears once you start the step above.");
 
   /**
    * The finale's scoreboard.
@@ -929,6 +991,7 @@ function GuidedTourLayer({ bootstrap, onComplete, onStatusChange }: {
       progress={progress}
       position={position}
       container={portalTargetFor(anchor.element)}
+      settling={settling}
       mode={mode}
       notice={notice}
       hintVisible={runtime.hintVisible}
@@ -936,7 +999,7 @@ function GuidedTourLayer({ bootstrap, onComplete, onStatusChange }: {
       sideQuests={sideQuests}
       questsDone={questsDone}
       recap={recap}
-      onContinue={() => celebrateAndAdvance()}
+      onContinue={advance}
       onDecline={step.declineLabel ? pause : null}
       onAction={step.action ? () => {
         const action = step.action;
