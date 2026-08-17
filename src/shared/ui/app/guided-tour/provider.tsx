@@ -811,6 +811,31 @@ function GuidedTourLayer({ bootstrap, onComplete, onStatusChange }: {
     return () => window.clearTimeout(timer);
   }, [step?.id]);
 
+  /**
+   * A modal step pays its reward on arrival, not on the way out.
+   *
+   * Every other rewarded step pays out while the surface it belongs to is
+   * still on screen: an `act` step's burst fires the moment its objective is
+   * met, over the card that is about to say so. A `beat` fires on the press
+   * that leaves it, which is right when the confetti's job is to carry over
+   * into the next card — and exactly wrong for the two beats that own the
+   * screen. The curtain call *is* the payoff, and firing on "Keep playing in
+   * the demo" meant its 28 drops only ever rained over the dashboard behind
+   * it, celebrating the moment after the moment.
+   *
+   * The reward's *line* is already shown on arrival — the modal renders
+   * `step.reward` the frame it opens — so this only brings the burst into step
+   * with the sentence it illustrates. `celebrating` is what stops `advance`
+   * paying it a second time, and it is reset by every move onto a step, so a
+   * player who comes back to the finale gets their confetti again.
+   */
+  useEffect(() => {
+    if (!running || celebrating || !step?.reward) return;
+    if (step.presentation !== "modal" && step.presentation !== "modal-wide") return;
+    emojiRain([step.reward.emoji], step.reward.drops ?? 6);
+    setCelebrating(true);
+  }, [celebrating, running, step]);
+
   /* --- advance on satisfaction ------------------------------------------ */
 
   // Held in a ref so the satisfaction effect fires once per satisfaction, not
