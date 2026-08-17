@@ -60,7 +60,7 @@ export const AIRTABLE_COPY = {
     pushedLead: "Seven tables:",
     pushedTables: "Tracks, Rooms, Formats, Tags, People, Sessions, and Proposals.",
     pushedPeople:
-      "For programme people that means names, email addresses, job titles, companies, and bios.",
+      "For programme people that means names, email addresses, job titles, companies, bios, and headshots.",
     notPushedLead: "What never leaves Openboard:",
     notPushedBody:
       "no attendee data beyond programme people, no form answers, no unsubscribe state, and no pronouns or gender unless you turn them on.",
@@ -271,6 +271,10 @@ export const AIRTABLE_COPY = {
     includeBio: {
       label: "Speaker bios",
       hint: "Public programme copy, pushed as plain text.",
+    },
+    includeHeadshots: {
+      label: "Speaker headshots",
+      hint: "Airtable keeps its own copy of each photo, so your base stays complete even if you later replace one here.",
     },
     includePronouns: {
       label: "Pronouns",

@@ -42,6 +42,19 @@ export type CandidateRow = {
   contentHash: string;
 };
 
+/**
+ * The connection's gates, plus the origin the public headshot URLs are built
+ * against.
+ *
+ * `appBaseUrl` is threaded in rather than read from `getEnv()` here so this
+ * module stays runtime-neutral (it is exercised against PGlite), and — more
+ * usefully — so the origin lands *inside* the hashed object. Moving a
+ * deployment to a new hostname therefore re-pushes every speaker with a
+ * headshot instead of leaving Airtable holding attachments fetched from a name
+ * that no longer resolves.
+ */
+export type ProjectionOptions = AirtableConnectionOptions & { appBaseUrl: string };
+
 export type OrphanRow = { recordPk: string; airtableRecordId: string };
 
 /** Everything an organizer types is HTML; Airtable long text is not. */
@@ -68,6 +81,44 @@ function gated(enabled: boolean, column: SQL): SQL {
   return enabled ? column : sql`NULL`;
 }
 
+/**
+ * The speaker's headshot as an Airtable attachment array — `[]` when there
+ * isn't one, and `[]` when the organizer has the gate switched off.
+ *
+ * **The URL is the public, permanent `/f/{fileId}`, not a presigned R2 GET.**
+ * Airtable fetches an attachment's bytes once at write time and then serves its
+ * own copy, so the only thing the URL has to do is resolve during that fetch;
+ * `headshot` is a public file kind and `/f/{fileId}` is unauthenticated and
+ * immutable (replacing a headshot mints a new file id). That is what makes the
+ * "signed URL that has to be refreshed before it expires" machinery this column
+ * was deferred over unnecessary rather than merely unwritten.
+ *
+ * `[]` rather than the `gated` helper's SQL `NULL`: an empty array is how
+ * Airtable's API spells "no attachments", and it clears the cell for both
+ * reasons a cell can be empty. The key is still in the hashed object either
+ * way, so switching the gate off still flips the hash and still clears the
+ * column on the next run.
+ *
+ * Only a finalized asset is offered. A row still on its `staging/` key never
+ * passed the size check and sniff, `/f/{fileId}` 404s for it, and handing
+ * Airtable a URL that 404s buys a broken attachment chip in someone else's base.
+ */
+function headshotAttachment(appBaseUrl: string): SQL {
+  return sql`coalesce((
+    SELECT jsonb_build_array(jsonb_build_object(
+      -- Cast the bound origin explicitly: an untyped parameter on the left of
+      -- `||` is one of the few places Postgres will refuse to infer a type.
+      'url', ${`${appBaseUrl}/f/`}::text || fa.id::text,
+      'filename', fa.filename
+    ))
+    FROM file_assets fa
+    WHERE fa.id = c.headshot_file_id
+      AND fa.event_id = c.event_id
+      AND fa.kind = 'headshot'
+      AND fa.r2_key NOT LIKE 'staging/%'
+  ), '[]'::jsonb)`;
+}
+
 /** Resolved Airtable record ids for a single-valued link, as a jsonb array. */
 function linkOne(tableKey: SyncTableKey, foreignKeyColumn: SQL): SQL {
   return sql`coalesce((
@@ -76,7 +127,7 @@ function linkOne(tableKey: SyncTableKey, foreignKeyColumn: SQL): SQL {
   ), '[]'::jsonb)`;
 }
 
-function projectedRowsSql(key: SyncTableKey, eventId: EventId, options: AirtableConnectionOptions): SQL {
+function projectedRowsSql(key: SyncTableKey, eventId: EventId, options: ProjectionOptions): SQL {
   switch (key) {
     case "tracks":
       return sql`
@@ -128,6 +179,7 @@ function projectedRowsSql(key: SyncTableKey, eventId: EventId, options: Airtable
           'Job title', c.job_title,
           'Company', c.company,
           'Bio', ${gated(options.includeBio, plainText(sql`c.bio_html`))},
+          'Headshot', ${options.includeHeadshots ? headshotAttachment(options.appBaseUrl) : sql`'[]'::jsonb`},
           'Pronouns', ${gated(options.includePronouns, sql`c.pronouns`)},
           'Gender', ${gated(options.includeGender, sql`c.gender`)},
           'Confirmation status', c.confirmation_status::text,
@@ -243,7 +295,7 @@ export async function candidateRecordsIn(
   dbOrTx: DbOrTx,
   eventId: EventId,
   key: SyncTableKey,
-  options: AirtableConnectionOptions,
+  options: ProjectionOptions,
   limit: number,
 ): Promise<{ rows: CandidateRow[]; total: number }> {
   const result = await dbOrTx.execute<CandidateSqlRow>(sql`

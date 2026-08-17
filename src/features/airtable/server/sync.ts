@@ -28,6 +28,7 @@ import {
   orphanRecordsIn,
   recordSyncedRowsIn,
   syncedRowCountIn,
+  type ProjectionOptions,
 } from "./projection";
 import {
   claimSyncRunIn,
@@ -201,6 +202,12 @@ export async function runAirtableSyncForEventIn(
       : createAirtableClient(connection.pat, { budgetRemainingMs: remainingMs });
     const airtable: AirtableClient = client;
 
+    // Read once per run rather than once per candidate query: it is the origin
+    // a speaker's `Headshot` attachment URL is built from, and a projection
+    // that asked for it again per page could hash two different answers into
+    // one table during a config reload.
+    const projection: ProjectionOptions = { ...connection.options, appBaseUrl: getEnv().APP_BASE_URL };
+
     const canManageSchema = connection.scopes.includes("schema.bases:write");
     let ensured = await ensureBaseSchema(airtable, {
       baseId,
@@ -258,7 +265,7 @@ export async function runAirtableSyncForEventIn(
         for (;;) {
           const pageLimit = Math.min(CANDIDATE_PAGE_SIZE, writeCap - writesUsed);
           if (pageLimit <= 0) return "deferred";
-          const { rows, total } = await candidateRecordsIn(dbOrTx, eventId, key, connection.options, pageLimit);
+          const { rows, total } = await candidateRecordsIn(dbOrTx, eventId, key, projection, pageLimit);
           if (rows.length === 0) { remainderIsKnown(); return "done"; }
 
           // What this page has actually landed, which is what `total` has to be
@@ -382,7 +389,7 @@ export async function runAirtableSyncForEventIn(
     if (stoppedEarly) {
       for (const key of SYNC_TABLE_ORDER) {
         if (completed.has(key) || remainderKnown.has(key)) continue;
-        const { total } = await candidateRecordsIn(dbOrTx, eventId, key, connection.options, 1);
+        const { total } = await candidateRecordsIn(dbOrTx, eventId, key, projection, 1);
         const entry = stats.perTable.find((candidate) => candidate.key === key);
         if (entry) entry.deferred = total;
         else stats.perTable = [...stats.perTable, { ...emptyTableStats(key), deferred: total }];
