@@ -2284,10 +2284,12 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
      block steps it to 14" never rendered. */
   .public-event-header .public-event-logo{font-size:var(--text-base);overflow:visible;text-overflow:clip;white-space:normal}
   .public-event-header .public-event-name{min-width:0;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;white-space:normal;line-height:1.15}
-  /* Five full labels fit cleanly in equal phone-width cells; "My schedule" can
-     wrap inside its own 44px target instead of forcing a clipped scroll row. */
+  /* Five labels fit cleanly in equal phone-width cells. Keep every label on
+     one line — a lone item wrapping to two lines sits taller than its
+     siblings and breaks the row's alignment (issue #682). Any label that
+     can't fit ellipsizes instead of wrapping. */
   .public-event-header nav{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));overflow-x:visible;scrollbar-width:auto}
-  .public-event-header nav a{width:100%;min-width:0;padding:0 2px;text-align:center;white-space:normal;line-height:1.15}
+  .public-event-header nav a{width:100%;min-width:0;padding:0 2px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.15}
 
   /* At phone widths three nowrap labels cannot share one line. Give the two
      secondary actions matching columns and the forward action a stable row. */

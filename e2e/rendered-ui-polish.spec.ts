@@ -231,7 +231,7 @@ test.describe("public event phone navigation", () => {
             <nav aria-label="Event navigation">
               <a href="#">Sessions</a>
               <a href="#">Agenda</a>
-              <a href="#">My schedule</a>
+              <a href="#">Schedule</a>
               <a class="active" href="#">Speakers</a>
               <a href="#">Gallery</a>
             </nav>
@@ -248,12 +248,23 @@ test.describe("public event phone navigation", () => {
         const nav = header.querySelector("nav");
         if (!logoName || !nav) throw new Error("Public event header fixture is incomplete");
         const navBox = nav.getBoundingClientRect();
-        const linkBoxes = [...nav.querySelectorAll("a")].map((link) => link.getBoundingClientRect());
+        const links = [...nav.querySelectorAll("a")];
+        const linkBoxes = links.map((link) => link.getBoundingClientRect());
+        // A label that wraps renders its text across more than one client
+        // rect even though the cell's own box height is fixed — that extra
+        // line is what makes one tab sit visibly taller than its siblings
+        // (issue #682).
+        const textLineCount = (link: Element) => {
+          const range = document.createRange();
+          range.selectNodeContents(link);
+          return range.getClientRects().length;
+        };
         return {
           nameFits: logoName.scrollWidth <= logoName.clientWidth && logoName.scrollHeight <= logoName.clientHeight,
           navFits: nav.scrollWidth <= nav.clientWidth
             && linkBoxes.every((box) => box.left >= navBox.left - 0.5 && box.right <= navBox.right + 0.5),
           touchTargets: linkBoxes.every((box) => box.height >= 44),
+          singleLine: links.every((link) => textLineCount(link) === 1),
           documentScrollWidth: document.documentElement.scrollWidth,
           viewportWidth: window.innerWidth,
         };
@@ -261,6 +272,7 @@ test.describe("public event phone navigation", () => {
       expect(layout.nameFits).toBe(true);
       expect(layout.navFits).toBe(true);
       expect(layout.touchTargets).toBe(true);
+      expect(layout.singleLine).toBe(true);
       expect(layout.documentScrollWidth).toBeLessThanOrEqual(layout.viewportWidth);
     }
   });
