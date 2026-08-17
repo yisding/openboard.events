@@ -344,12 +344,29 @@ describe("CFP request and stale form recovery", () => {
     expect(cfpCodeRequestRecovery({
       ok: false,
       data: {},
-      message: "Check your inbox, or try again in a few minutes",
+      message: "Enter a valid email",
+      code: "VALIDATION",
       retryable: false,
     })).toEqual({
       acceptCode: false,
-      message: "Check your inbox, or try again in a few minutes",
+      message: "Enter a valid email",
       kind: "error",
+    });
+  });
+
+  // The throttle fires precisely because a usable code was already issued, so
+  // refusing to show the field for it strands the submitter until it expires.
+  it("opens code entry when the request was throttled rather than rejected", () => {
+    expect(cfpCodeRequestRecovery({
+      ok: false,
+      data: {},
+      message: "Too many code requests. If you already have a code, it still works — otherwise try again in a few minutes",
+      code: "RATE_LIMITED",
+      retryable: true,
+    })).toEqual({
+      acceptCode: true,
+      message: "Too many code requests. If you already have a code, it still works — otherwise try again in a few minutes",
+      kind: "status",
     });
   });
 
