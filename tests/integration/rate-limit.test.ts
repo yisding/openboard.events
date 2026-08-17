@@ -4,6 +4,8 @@ import { drizzle } from "drizzle-orm/pglite";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { TxDb } from "@/db/client";
 import * as schema from "@/db/schema";
+import { claimWebhookDelivery } from "@/features/comms";
+import { retryAfterSeconds } from "@/shared/lib/errors";
 import { checkRateLimit } from "@/shared/server/rate-limit";
 
 const migration0 = readFileSync(new URL("../../drizzle/0000_init.sql", import.meta.url), "utf8");
@@ -85,5 +87,89 @@ describe("checkRateLimit (PLAN P3-SEC)", () => {
     await checkRateLimit(tx, { key, limit: 5, windowMs: 60_000 });
     const rows = await pglite.query<{ key_hash: string }>("SELECT key_hash FROM rate_limit_buckets");
     expect(rows.rows.every((row) => row.key_hash !== key)).toBe(true);
+  });
+
+  // The refusal carries the bucket's own reset so `errorEnvelope` can publish a
+  // `Retry-After` that is arithmetic rather than a guess.
+  it("reports seconds to reset from the window it actually opened", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const key = "retry-after";
+      vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+      await checkRateLimit(tx, { key, limit: 1, windowMs: 60_000 });
+      vi.setSystemTime(new Date("2026-01-01T00:00:15.000Z"));
+      const refusal = await checkRateLimit(tx, { key, limit: 1, windowMs: 60_000 }).catch((error: unknown) => error);
+      // 60s window opened at :00, refused at :15 — 45 seconds left, not 60.
+      expect(retryAfterSeconds(refusal)).toBe(45);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+/**
+ * Issue #631 — the Resend webhook verified an HMAC and a five-minute timestamp
+ * tolerance but recorded nothing about the delivery, so a captured payload
+ * replayed freely inside that window.
+ */
+describe("claimWebhookDelivery (issue #631)", () => {
+  let pglite: PGlite;
+  let tx: TxDb;
+
+  beforeAll(async () => {
+    pglite = new PGlite();
+    await pglite.exec(migration0);
+    await pglite.exec(migration1);
+    await pglite.exec(migrationReviewOps);
+    await pglite.exec(migration2);
+    await pglite.exec(migration5);
+    tx = drizzle(pglite, { schema }) as unknown as TxDb;
+  }, 30_000);
+
+  afterAll(async () => pglite.close());
+
+  it("claims a delivery id once and refuses the replay", async () => {
+    await expect(claimWebhookDelivery(tx, "resend", "msg_2abc")).resolves.toBe(true);
+    await expect(claimWebhookDelivery(tx, "resend", "msg_2abc")).resolves.toBe(false);
+    await expect(claimWebhookDelivery(tx, "resend", "msg_2abc")).resolves.toBe(false);
+  });
+
+  it("keeps distinct deliveries and distinct providers independent", async () => {
+    await expect(claimWebhookDelivery(tx, "resend", "msg_first")).resolves.toBe(true);
+    await expect(claimWebhookDelivery(tx, "resend", "msg_second")).resolves.toBe(true);
+    // A future provider reusing an id string must not be refused by ours.
+    await expect(claimWebhookDelivery(tx, "billing", "msg_first")).resolves.toBe(true);
+  });
+
+  // The claim outlives the signature tolerance that would let the replay
+  // verify at all, so the two can never leave a gap between them.
+  it("holds the claim for the whole signature tolerance window", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+      await expect(claimWebhookDelivery(tx, "resend", "msg_window")).resolves.toBe(true);
+      // 4m59s later: still inside the five-minute tolerance, still refused.
+      vi.setSystemTime(new Date("2026-01-01T00:04:59.000Z"));
+      await expect(claimWebhookDelivery(tx, "resend", "msg_window")).resolves.toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // A swallowed storage failure would be the worst possible outcome here: every
+  // delivery would read as a replay, and the endpoint would go on answering 200
+  // while silently recording no suppressions at all. Unlike the abuse counters,
+  // this one must fail loudly.
+  it("propagates a storage failure instead of reporting it as a duplicate", async () => {
+    const broken = {
+      insert: () => { throw new Error('relation "rate_limit_buckets" does not exist'); },
+    } as unknown as TxDb;
+    await expect(claimWebhookDelivery(broken, "resend", "msg_storage_down")).rejects.toThrow(/rate_limit_buckets/);
+  });
+
+  it("hashes the delivery id rather than storing it in the clear", async () => {
+    await claimWebhookDelivery(tx, "resend", "msg_secret_delivery");
+    const rows = await pglite.query<{ key_hash: string }>("SELECT key_hash FROM rate_limit_buckets");
+    expect(rows.rows.every((row) => !row.key_hash.includes("msg_secret_delivery"))).toBe(true);
   });
 });

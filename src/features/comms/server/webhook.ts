@@ -1,5 +1,8 @@
 import { z } from "zod";
+import type { DbOrTx } from "@/db/client";
 import { safeEqual } from "@/shared/lib/crypto";
+import { isAppError } from "@/shared/lib/errors";
+import { checkRateLimit } from "@/shared/server/rate-limit";
 import type { SuppressionReason } from "@/shared/contracts";
 
 /**
@@ -54,6 +57,40 @@ export async function verifyResendWebhookSignature(args: {
     const [version, signature] = entry.split(",");
     return version === "v1" && typeof signature === "string" && signature.length > 0 && safeEqual(signature, expected);
   });
+}
+
+/**
+ * First-delivery claim on a `svix-id`.
+ *
+ * The signature and the timestamp tolerance together say "this payload is
+ * genuine and recent" — they cannot say "we have not already handled it", so a
+ * captured delivery replayed freely for the full tolerance window. `svix-id` is
+ * the delivery's unique identity and the one standard webhook property the
+ * sibling checks did not cover.
+ *
+ * Backed by the shared hashed-key counter with a limit of one rather than a
+ * table of its own — the same reuse `checkRateLimit`'s own contract argues for,
+ * and it brings two properties this needs: the key is stored as a SHA-256
+ * digest rather than in the clear, and the daily retention sweep already
+ * reclaims idle buckets, so nothing accumulates.
+ *
+ * The window is `TOLERANCE_SECONDS` on purpose, not a separately-tuned number.
+ * A first delivery arrives at or after its signing time, so a window that long
+ * from first receipt always outlives the tolerance that would let the replay
+ * verify at all; the two can never drift apart into a gap.
+ */
+export async function claimWebhookDelivery(dbOrTx: DbOrTx, provider: string, deliveryId: string): Promise<boolean> {
+  try {
+    await checkRateLimit(dbOrTx, {
+      key: `webhook:${provider}:delivery:${deliveryId}`,
+      limit: 1,
+      windowMs: TOLERANCE_SECONDS * 1000,
+    });
+    return true;
+  } catch (error) {
+    if (isAppError(error) && error.code === "RATE_LIMITED") return false;
+    throw error;
+  }
 }
 
 const resendWebhookEventSchema = z.object({

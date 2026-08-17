@@ -26,7 +26,7 @@ export { nudgeOutbox } from "./server/triggers";
 // P3-EMAIL — Resend bounce/complaint webhook: signature verification +
 // payload parsing (server/webhook.ts) and the suppression write it drives
 // (server/suppression.ts). Consumed by src/app/api/webhooks/resend/route.ts.
-export { parseResendWebhookEvent, verifyResendWebhookSignature } from "./server/webhook";
+export { claimWebhookDelivery, parseResendWebhookEvent, verifyResendWebhookSignature } from "./server/webhook";
 export { recordSuppression, recordSuppressionIn, suppressAddress, suppressAddressIn } from "./server/suppression";
 // M46 — suppression list admin UI (list + reinstate).
 export type { SuppressionRow } from "./server/suppression";

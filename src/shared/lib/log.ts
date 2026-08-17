@@ -28,6 +28,14 @@ export type LogEntry = {
   code?: string;
   eventId?: string;
   route?: string;
+  /**
+   * Provider-generated delivery identity for an inbound webhook (`svix-id`).
+   * Opaque and provider-side — it names a delivery, never a recipient — which
+   * is what makes it safe to log and what makes a replay investigable: without
+   * it, "a duplicate arrived" cannot be turned into "which one, and was it the
+   * provider's own retry or somebody replaying a capture".
+   */
+  deliveryId?: string;
   durationMs?: number;
   /** Job counters (rows claimed, sent, deleted) kept queryable alongside the tick. */
   stats?: Record<string, number>;
