@@ -45,26 +45,35 @@ export function popoverPosition(
   const margin = POPOVER_EDGE_MARGIN;
   const clampLeft = (left: number) => Math.min(Math.max(margin, left), Math.max(margin, viewport.width - width - margin));
   const clampTop = (top: number) => Math.min(Math.max(margin, top), Math.max(margin, viewport.height - clearance));
-  if (placement === "right") return { left: clampLeft(anchor.right + OFFSET), top: clampTop(anchor.top - 8) };
-  if (placement === "left") return { left: clampLeft(anchor.left - width - OFFSET), top: clampTop(anchor.top - 8) };
   /*
-   * Top opens *above* the anchor, and the panel's own height is unknown until
-   * it has rendered — so pin its **bottom** edge instead of guessing its top.
-   * `clearance` is only an estimate, and a panel taller than the estimate
-   * positioned by `top` lands right on top of the control it is pointing at:
-   * the tour's coach card grew a hint and a side-quest tray and then covered
-   * the Add question button it was spotlighting. Anchoring the far edge is
-   * exact for any height.
+   * Which sides the panel actually fits on.
    *
-   * The estimate still decides *whether* there is room up there, because that
-   * question genuinely has to be answered before the panel exists. When there
-   * is not, open below rather than off the top of the screen.
+   * Every placement below is a preference, not an instruction. Clamping a
+   * panel that does not fit puts it *on top of the control it points at* —
+   * the anchor is exactly the thing the player has to click next, and a
+   * tutorial that covers its own target is worse than one that opens on the
+   * other side. So each placement names the side it wants, and falls back to
+   * the opposite one when its own has no room.
    */
-  if (placement === "top") {
-    return anchor.top - OFFSET - margin >= clearance
-      ? { left: clampLeft(anchor.left), bottom: viewport.height - anchor.top + OFFSET }
-      : { left: clampLeft(anchor.left), top: clampTop(anchor.bottom + OFFSET) };
-  }
-  if (placement === "bottom-end") return { left: clampLeft(anchor.right - width), top: clampTop(anchor.bottom + OFFSET) };
-  return { left: clampLeft(anchor.left), top: clampTop(anchor.bottom + OFFSET) };
+  const roomAbove = anchor.top - OFFSET - margin >= clearance;
+  const roomBelow = viewport.height - anchor.bottom - OFFSET >= clearance;
+  const roomRight = viewport.width - anchor.right - OFFSET - width >= margin;
+  const roomLeft = anchor.left - OFFSET - width >= margin;
+  /*
+   * Above pins the panel's **bottom** edge instead of guessing its top: its
+   * own height is unknown until it has rendered, `clearance` is only an
+   * estimate, and a panel taller than the estimate positioned by `top` lands
+   * right on the control it is pointing at — the tour's coach card grew a hint
+   * and a side-quest tray and then covered the Add question button it was
+   * spotlighting. Anchoring the far edge is exact for any height.
+   */
+  const above = (left: number) => ({ left: clampLeft(left), bottom: viewport.height - anchor.top + OFFSET });
+  const below = (left: number) => ({ left: clampLeft(left), top: clampTop(anchor.bottom + OFFSET) });
+  const rightOf = (top: number) => ({ left: clampLeft(anchor.right + OFFSET), top: clampTop(top) });
+  const leftOf = (top: number) => ({ left: clampLeft(anchor.left - width - OFFSET), top: clampTop(top) });
+  if (placement === "right") return roomRight || !roomLeft ? rightOf(anchor.top - 8) : leftOf(anchor.top - 8);
+  if (placement === "left") return roomLeft || !roomRight ? leftOf(anchor.top - 8) : rightOf(anchor.top - 8);
+  if (placement === "top") return roomAbove ? above(anchor.left) : below(anchor.left);
+  const left = placement === "bottom-end" ? anchor.right - width : anchor.left;
+  return roomBelow || !roomAbove ? below(left) : above(left);
 }

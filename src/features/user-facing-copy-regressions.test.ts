@@ -74,11 +74,20 @@ describe("user-facing copy regressions", () => {
     expect(script).not.toContain("the demo's speakers cannot receive a code");
     expect(script).toContain("the demo event suppresses every message");
     // The delivery log is where the tour stakes its credibility, and it is
-    // also the one screen that can contradict it at a glance: phase 10
-    // backdates nine terminal rows — six `sent`, one `failed` — so the log a
-    // player opens is *not* nine skips. "Every row reads skipped" was
-    // falsifiable by reading the column the card was pointing at.
-    expect(script).not.toContain("Every row reads skipped");
+    // also the one screen that can contradict it at a glance. This guard used
+    // to ban "Every row reads skipped" outright, because phase 10 then
+    // backdated six `sent` rows and one `failed` — the sweeping claim was
+    // falsifiable by reading the column the card was pointing at. Phase 10
+    // now seeds all nine as `skipped` (`phases-06-10.test.ts` enforces it),
+    // so the sweeping claim is true again and deliberately restored. What is
+    // *still* falsifiable on that screen is a render: the dispatcher stops a
+    // demo send before it renders (#679), which is why a live row carries the
+    // skip reason where its subject would be — so the tour may not promise a
+    // render the product deliberately never performs.
+    expect(script).toContain("Every row reads skipped");
+    expect(script).not.toContain("rendered in full");
+    expect(script).not.toContain("rendered and logged");
+    expect(script).not.toContain("rendered, logged");
     expect(script).not.toContain("Nine seeded messages");
   });
 

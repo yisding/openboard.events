@@ -10,6 +10,7 @@ import { isAppError } from "@/shared/lib/errors";
 import {
   createResourcePageIn,
   deleteResourcePageIn,
+  excerptFromHtml,
   reorderResourcePagesIn,
   saveResourcePageIn,
   saveResourcePageInputSchema,
@@ -69,8 +70,9 @@ describe("resource pages: database CRUD, the wide-sanitize-on-save law, and even
     expect(page?.sortOrder).toBe(0);
     expect(page?.published).toBe(true);
     // The excerpt is computed off the sanitized body, so a stripped script's
-    // text content never leaks into it either.
-    expect(page?.summary).toBe("Welcome Check in at the Speaker Lounge.");
+    // text content never leaks into it either — and the heading is left to the
+    // body rather than fused into the sentence beneath it.
+    expect(page?.summary).toBe("Check in at the Speaker Lounge.");
   });
 
   it("replays a collection create by stable client id without duplicating or rewriting it", async () => {
@@ -230,5 +232,31 @@ describe("resource pages: database CRUD, the wide-sanitize-on-save law, and even
     const forbidden = await deleteAsReviewer().catch((thrown: unknown) => thrown);
     expect(isAppError(forbidden) && forbidden.code).toBe("FORBIDDEN");
     expect(await getResourcePageByIdIn(db, eventId, protectedPage.pageId)).not.toBeNull();
+  });
+});
+
+describe("excerptFromHtml: an excerpt that reads like something a person wrote", () => {
+  it("leaves the heading to the body instead of fusing it into the sentence beneath it", () => {
+    const body = "<h2>Welcome</h2><p>Check in at the Speaker Lounge at least 45 minutes before your session.</p>";
+    expect(excerptFromHtml(body)).toBe("Check in at the Speaker Lounge at least 45 minutes before your session.");
+  });
+
+  it("keeps separate blocks separate: a sentence closes itself, a fragment gets a bullet", () => {
+    const body = "<p>Everything you need before stage.</p><ul><li>Arrive 45 minutes early</li><li>Bring a backup deck</li></ul>";
+    expect(excerptFromHtml(body)).toBe("Everything you need before stage. Arrive 45 minutes early · Bring a backup deck");
+  });
+
+  it("reads inline markup and entities as the text they render as", () => {
+    expect(excerptFromHtml("<p><strong>Tea</strong> &amp; <em>coffee</em> are on us.</p>")).toBe("Tea & coffee are on us.");
+  });
+
+  it("falls back to the headings when a page has nothing but headings, rather than showing a blank card", () => {
+    expect(excerptFromHtml("<h2>Draft — not yet published</h2>")).toBe("Draft — not yet published");
+  });
+
+  it("truncates on a word boundary", () => {
+    const excerpt = excerptFromHtml("<p>Economy flights, with a Bay-Area-local exception for anyone within driving distance of the venue.</p>", 40);
+    expect(excerpt).toBe("Economy flights, with a Bay-Area-local…");
+    expect(excerpt.length).toBeLessThanOrEqual(41);
   });
 });
