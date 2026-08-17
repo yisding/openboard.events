@@ -166,20 +166,26 @@ function stubMatchMedia() {
  * open dialog. Kept local to the one test that needs it so nothing else in
  * this file starts depending on the environment having it.
  */
-function stubPopoverApi(): () => void {
+function stubPopoverApi(): { calls: string[]; restore: () => void } {
+  const calls: string[] = [];
   const prototype = HTMLElement.prototype as unknown as Record<string, unknown>;
   const before = { show: prototype.showPopover, hide: prototype.hidePopover };
   prototype.showPopover = function showPopover(this: HTMLElement) {
     if (this.hasAttribute("data-open")) throw new Error("InvalidStateError");
+    calls.push("show");
     this.setAttribute("data-open", "");
   };
   prototype.hidePopover = function hidePopover(this: HTMLElement) {
     if (!this.hasAttribute("data-open")) throw new Error("InvalidStateError");
+    calls.push("hide");
     this.removeAttribute("data-open");
   };
-  return () => {
-    if (before.show === undefined) delete prototype.showPopover; else prototype.showPopover = before.show;
-    if (before.hide === undefined) delete prototype.hidePopover; else prototype.hidePopover = before.hide;
+  return {
+    calls,
+    restore: () => {
+      if (before.show === undefined) delete prototype.showPopover; else prototype.showPopover = before.show;
+      if (before.hide === undefined) delete prototype.hidePopover; else prototype.hidePopover = before.hide;
+    },
   };
 }
 
@@ -722,7 +728,7 @@ describe("anchoring", () => {
   // insertion order is what decides — and leaves again when the palette closes.
   it("rises above a dialog that opens over it, and settles back when it closes", async () => {
     document.body.insertAdjacentHTML("beforeend", '<nav class="dashboard-tabs">Today</nav>');
-    const restorePopover = stubPopoverApi();
+    const popover = stubPopoverApi();
     try {
       await render(makeBootstrap(makeServer()));
       await tick();
@@ -737,11 +743,23 @@ describe("anchoring", () => {
       // Manual, never auto: this card has never trapped focus or closed on
       // Escape, and both auto popovers and dialogs would take that away.
       expect(card?.getAttribute("role")).toBe("dialog");
+      expect(popover.calls).toEqual(["show"]);
+
+      // Raising is a hide-and-re-show, and hiding a popover that holds focus
+      // hands focus back to whatever had it before. The palette rewrites its
+      // result list on every keystroke, so a card that re-raised on every
+      // mutation would throw a keyboard player out of "Skip this" mid-press.
+      await act(async () => {
+        palette?.append(document.createElement("li"));
+        document.body.append(document.createElement("span"));
+        await Promise.resolve();
+      });
+      expect(popover.calls).toEqual(["show"]);
 
       await act(async () => { palette?.removeAttribute("open"); await Promise.resolve(); });
       expect(card?.hasAttribute("popover")).toBe(false);
     } finally {
-      restorePopover();
+      popover.restore();
     }
   });
 
@@ -1132,6 +1150,28 @@ describe("the curtain call", () => {
     // own `:token` context, not a literal colon in the address bar.
     await act(async () => control("Create my real event").click());
     expect(harness.push).toHaveBeenCalledWith("/organizations/org-1/onboarding?mode=create");
+  });
+
+  // The confetti used to fire from `advance` — the press that dismisses the
+  // finale — so the payoff screen never saw a single drop and the burst landed
+  // over the dashboard behind it, celebrating the moment after the moment.
+  // A modal step's reward line is already on screen the frame it opens; the
+  // burst belongs on the same beat as the sentence it illustrates.
+  it("rains its confetti over the modal, not over the dashboard behind it", async () => {
+    harness.pathname = "/events/evt-1/dashboard";
+    const server = makeServer({ chapter: "live", stepId: "curtain.done", status: "active" });
+    await render(makeBootstrap(server, { steps: [...STEPS, CURTAIN_STEP], context: FINALE_CONTEXT }));
+    await tick();
+
+    expect(document.querySelector("dialog[open]")).not.toBe(null);
+    expect(harness.rain).toHaveBeenCalledWith(["🎉"], 6);
+
+    // And not a second time on the way out: one celebration, paid once.
+    harness.rain.mockClear();
+    await act(async () => control("Keep playing in the demo").click());
+    await tick();
+    expect(harness.rain).not.toHaveBeenCalled();
+    expect(server.state.status).toBe("complete");
   });
 
   it("comes back when the host restarts the tour from outside the engine", async () => {

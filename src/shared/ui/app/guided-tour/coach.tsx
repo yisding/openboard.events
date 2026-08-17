@@ -207,9 +207,26 @@ function useCardDrag(stepId: string, cardRef: { current: HTMLDivElement | null }
 function useTopLayerCard(card: HTMLDivElement | null) {
   useEffect(() => {
     if (!card) return;
+    /*
+     * What the last sync acted on, so the raise happens on a change and not on
+     * every mutation the observer sees — and it sees a great many, because the
+     * app it is watching is a React tree that commits constantly.
+     *
+     * Raising is not idempotent: it hides the popover and shows it again, to
+     * re-enter the top layer at the end. Hiding a popover that contains the
+     * focused element hands focus back to whatever had it before, so a player
+     * who had tabbed to "Skip this" while the palette was open would have been
+     * thrown back into the palette's search box by the next keystroke's
+     * re-render — and the card, an `aria-live` region, would have left and
+     * re-joined the accessibility tree each time with it.
+     */
+    let above: Element[] = [];
+    const same = (next: Element[]) => next.length === above.length && next.every((dialog, index) => dialog === above[index]);
     const sync = () => {
-      const buried = [...document.querySelectorAll("dialog[open]")].some((dialog) => !dialog.contains(card));
-      if (buried) raiseIntoTopLayer(card); else dropFromTopLayer(card);
+      const buried = [...document.querySelectorAll("dialog[open]")].filter((dialog) => !dialog.contains(card));
+      if (same(buried)) return;
+      above = buried;
+      if (buried.length > 0) raiseIntoTopLayer(card); else dropFromTopLayer(card);
     };
     sync();
     // Attributes as well as nodes: `showModal()` sets `open` on a dialog that
