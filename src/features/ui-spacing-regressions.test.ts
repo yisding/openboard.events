@@ -484,6 +484,50 @@ describe("shared UI spacing regressions", () => {
     );
   });
 
+  it("lays the speaker task filter beside the tabs, not boxed inside a boxed select", () => {
+    // `.table-search` draws its own bordered pill for a search-icon + input
+    // pairing; wrapping it around an already-bordered `.select-control`
+    // nested two boxes with mismatched heights around the "Open" dropdown.
+    // `.tab-row` had no layout rule of its own either, so its buttons fell
+    // back to block flow and stacked vertically instead of sitting beside the
+    // filter (#646).
+    const taskList = read("./portal/task-runtime/components/task-list.tsx");
+    expect(taskList).not.toContain('className="table-search"');
+    expect(taskList.match(/<Select\b/gu)).toHaveLength(1);
+    expect(css).toContain(".abstract-status-tabs .tab-row{display:flex;align-items:stretch;gap:4px;flex:1;min-width:0}");
+    expect(css).toContain(".abstract-status-tabs>.select-control{");
+  });
+
+  it("pads portal panels and keeps a task's description in the same card as its action", () => {
+    // `.portal-panel` carried background/border/radius/shadow but never a
+    // padding rule, so every consumer's text and buttons sat flush against
+    // the box edge. The task detail page also split a task's description
+    // into its own panel ahead of the completion action, so two boxes with
+    // no gap between them read as one card with a stray divider line, and
+    // the action panel — holding only a button — looked like a mostly-empty
+    // box below it (#646).
+    const taskDetail = read("./portal/task-runtime/components/task-detail.tsx");
+    expect(css).toContain(".portal-panel{padding:24px;");
+    expect(taskDetail).not.toContain('{task.descriptionHtml && <div className="portal-panel">');
+    // Once per completion-mode panel (manual, file_request, form-not-ready,
+    // form-ready) — a leading child of each, not a fifth panel of its own.
+    expect(taskDetail.match(/\{task\.descriptionHtml && <RichTextView html=\{task\.descriptionHtml\} \/>\}/gu)).toHaveLength(4);
+  });
+
+  it("styles the badge/due-date row wherever it appears, not just inside a task card", () => {
+    // `.portal-task-card>div>div` only matched `.portal-task-meta` nested
+    // three levels inside a task card. The task detail header uses the same
+    // class directly under `.portal-page-header`, where that selector never
+    // reached it — the badges sat flush against each other with no gap and
+    // the due date wrapped onto its own cramped line underneath (#646).
+    const taskDetail = read("./portal/task-runtime/components/task-detail.tsx");
+    const taskList = read("./portal/task-runtime/components/task-list.tsx");
+    expect(taskDetail).toContain('className="portal-task-meta"');
+    expect(taskList).toContain('className="portal-task-meta"');
+    expect(css).toMatch(/\.portal-task-meta\s*\{display:flex/u);
+    expect(css).not.toContain(".portal-task-card>div>div{");
+  });
+
   it("vertically centers the footer's link and plain-text sibling on the same baseline", () => {
     // `.portal-site-footer div div a` carries a 32px touch-target floor that
     // `<span>Powered by Openboard</span>` never gets, so without align-items
