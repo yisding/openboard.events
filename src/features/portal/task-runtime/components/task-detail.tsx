@@ -178,7 +178,19 @@ export function TaskDetailView({
               Marked complete <TzTime instant={task.completedAt ?? ""} tz={timezone} style="long" />.
             </p>
           ) : (
-            <Button disabled={busy} onClick={() => complete()}>{busy ? "Saving…" : "Mark as complete"}</Button>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              <Button disabled={busy} onClick={() => complete()}>{busy ? "Saving…" : "Mark as complete"}</Button>
+              {/* Some manual tasks — the speaker bio, notably — ask for work
+                  that lives on another portal page, not on this one (#719).
+                  `relatedTaskLink` only appears when the server recognizes
+                  this exact task, so unrelated manual tasks render just the
+                  button as before. */}
+              {task.relatedTaskLink && (
+                <Link className="button button-secondary" href={`/portal/${encodeURIComponent(eventSlug)}/${task.relatedTaskLink.path}`}>
+                  {task.relatedTaskLink.label}
+                </Link>
+              )}
+            </div>
           )}
         </div>
       )}
