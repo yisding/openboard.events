@@ -1,6 +1,7 @@
 import Image from "next/image";
 import { CalendarDays, MapPin, Sparkles } from "lucide-react";
 import type { SpeakerShareDTO } from "@/features/portal/index.share";
+import { personInitials } from "@/shared/lib/person-initials";
 import { formatInZone } from "@/shared/lib/time";
 
 /**
@@ -18,7 +19,7 @@ export function SpeakerSharePage({ data }: { data: SpeakerShareDTO }) {
           // Our own immutable-cached `/f/[fileId]` route, not a remote host —
           // same `unoptimized` convention as `SpeakerHeadshot`/the profile photo.
           ? <Image className="share-headshot" src={headshotUrl} alt={speakerName} width={128} height={128} unoptimized />
-          : <span className="share-headshot share-headshot-fallback" aria-hidden="true">{speakerName.slice(0, 2).toUpperCase()}</span>}
+          : <span className="share-headshot share-headshot-fallback" aria-hidden="true">{personInitials(speakerName)}</span>}
         <h1>{speakerName}</h1>
         <p className="share-talk-title">&ldquo;{submissionTitle}&rdquo;</p>
         {schedule && (
