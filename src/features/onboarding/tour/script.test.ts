@@ -323,6 +323,20 @@ describe("guided tour script", () => {
     expect(copy).toContain(SET_PIECE_TARGET_SLOT.start);
   });
 
+  it("tells the player what actually clears the conflict it made them cause", () => {
+    // The step is armed on the conflict count going *down*, and the move that
+    // does that every time is a change of room. An organizer reading "move it"
+    // reaches for the time instead, drags the talk fifteen minutes down a grid
+    // whose slots are eighteen minutes long, lands back on the pair it started
+    // on — and gets a card that says nothing, because nothing changed.
+    const copy = copyOf(tourStepById("grid.resolve") as TourStep).join(" ");
+    expect(copy.toLowerCase()).toContain("room");
+    // Both ends of the slot the dataset planted: the minute the talk is on,
+    // and the minute a move in time has to clear to be worth making.
+    expect(copy).toContain(SET_PIECE_TARGET_SLOT.start);
+    expect(copy).toContain(SET_PIECE_TARGET_SLOT.end);
+  });
+
   it("hands the finished player a route to a real event", () => {
     // Design §5.4's first hand-off nudge. The curtain call is the moment of
     // maximum intent, and a modal whose only button is "Keep playing" spends

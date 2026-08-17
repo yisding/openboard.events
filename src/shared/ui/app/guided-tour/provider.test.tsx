@@ -166,34 +166,6 @@ function stubMatchMedia() {
 /** The root of the most recent `render`, so a test can re-render it in place. */
 let lastRender: (() => Promise<void>) | null = null;
 
-/**
- * A stand-in for the popover API — how the card joins the top layer over an
- * open dialog. Kept local to the one test that needs it so nothing else in
- * this file starts depending on the environment having it.
- */
-function stubPopoverApi(): { calls: string[]; restore: () => void } {
-  const calls: string[] = [];
-  const prototype = HTMLElement.prototype as unknown as Record<string, unknown>;
-  const before = { show: prototype.showPopover, hide: prototype.hidePopover };
-  prototype.showPopover = function showPopover(this: HTMLElement) {
-    if (this.hasAttribute("data-open")) throw new Error("InvalidStateError");
-    calls.push("show");
-    this.setAttribute("data-open", "");
-  };
-  prototype.hidePopover = function hidePopover(this: HTMLElement) {
-    if (!this.hasAttribute("data-open")) throw new Error("InvalidStateError");
-    calls.push("hide");
-    this.removeAttribute("data-open");
-  };
-  return {
-    calls,
-    restore: () => {
-      if (before.show === undefined) delete prototype.showPopover; else prototype.showPopover = before.show;
-      if (before.hide === undefined) delete prototype.hidePopover; else prototype.hidePopover = before.hide;
-    },
-  };
-}
-
 async function render(bootstrap: TourBootstrap | null, children?: React.ReactNode) {
   const container = document.createElement("div");
   document.body.append(container);
@@ -360,6 +332,25 @@ describe("objective verification", () => {
     // The title stays in the DOM — it is still `aria-labelledby`'s target —
     // just no longer read as an instruction.
     expect(coach()?.querySelector(".tour-coach-title-done")?.textContent).toBe("Fix it.");
+  });
+
+  it("stops explaining the missing spotlight once the step is done", async () => {
+    // The anchor is routinely gone by the time the objective is met, because
+    // meeting it is what takes the control away: the dialog saved and closed,
+    // the row ticked and cleared, the conflict resolved off the list. The card
+    // then said "Done." and, underneath it, that the control appears once you
+    // start — an instruction for a step the player has already finished.
+    const server = makeServer({ chapter: "grid", stepId: "grid.resolve" });
+    await render(makeBootstrap(server, {
+      steps: STEPS.map((step) => (step.id === "grid.resolve" ? { ...step, anchor: MISSING_ANCHOR } as TourStep : step)),
+    }));
+    await tick(6_500);
+    expect(coach()?.textContent).toContain("No spotlight yet");
+
+    server.state = { ...server.state, world: { conflictCount: 2, publishedSessions: 0 } };
+    await tick(2_100);
+    expect(coach()?.textContent).toContain("Two rooms, one time, zero apologies to write.");
+    expect(coach()?.textContent).not.toContain("No spotlight yet");
   });
 
   it("polls only while an act step is armed", async () => {
@@ -876,43 +867,41 @@ describe("anchoring", () => {
   // The step that says "press ⌘K" was the step that lost its own card the
   // moment the player did as they were told: the palette is a modal <dialog>,
   // so it opens in the top layer, blurs everything it does not contain behind
-  // its ::backdrop and makes it inert. The card joins the top layer after it —
-  // insertion order is what decides — and leaves again when the palette closes.
-  it("rises above a dialog that opens over it, and settles back when it closes", async () => {
+  // its ::backdrop and makes it inert — no pointer events, no focus. Painting
+  // the card above the palette is not enough, and that is what this shipped
+  // as: measured in Chrome, a popover raised over an open modal dialog is on
+  // top *and* still inert, so every button on the card, the grab handle
+  // included, was dead. The one exemption is the dialog's own subtree.
+  it("moves inside a dialog that opens over it, and back out when it closes", async () => {
     document.body.insertAdjacentHTML("beforeend", '<nav class="dashboard-tabs">Today</nav>');
-    const popover = stubPopoverApi();
-    try {
-      await render(makeBootstrap(makeServer()));
-      await tick();
-      const card = coach();
-      expect(card?.hasAttribute("popover")).toBe(false);
+    await render(makeBootstrap(makeServer()));
+    await tick();
+    expect(coach()?.parentElement).toBe(document.body);
 
-      document.body.insertAdjacentHTML("beforeend", '<dialog class="command-palette-shell"><input aria-label="Search anything" /></dialog>');
-      const palette = document.querySelector<HTMLDialogElement>("dialog.command-palette-shell");
-      // What `showModal()` does to the DOM, which is what the card watches for.
-      await act(async () => { palette?.setAttribute("open", ""); await Promise.resolve(); });
-      expect(card?.getAttribute("popover")).toBe("manual");
-      // Manual, never auto: this card has never trapped focus or closed on
-      // Escape, and both auto popovers and dialogs would take that away.
-      expect(card?.getAttribute("role")).toBe("dialog");
-      expect(popover.calls).toEqual(["show"]);
+    document.body.insertAdjacentHTML("beforeend", '<dialog class="command-palette-shell"><input aria-label="Search anything" /></dialog>');
+    const palette = document.querySelector<HTMLDialogElement>("dialog.command-palette-shell");
+    // What `showModal()` does to the DOM, which is what the card watches for.
+    await act(async () => { palette?.setAttribute("open", ""); await Promise.resolve(); });
+    expect(coach()?.parentElement).toBe(palette);
+    // In the dialog, never of it: same card, same step, and still not a modal
+    // itself — it does not trap focus and does not close on Escape.
+    expect(coach()?.getAttribute("role")).toBe("dialog");
+    expect(coach()?.textContent).toContain("Everything that needs you, ranked.");
 
-      // Raising is a hide-and-re-show, and hiding a popover that holds focus
-      // hands focus back to whatever had it before. The palette rewrites its
-      // result list on every keystroke, so a card that re-raised on every
-      // mutation would throw a keyboard player out of "Skip this" mid-press.
-      await act(async () => {
-        palette?.append(document.createElement("li"));
-        document.body.append(document.createElement("span"));
-        await Promise.resolve();
-      });
-      expect(popover.calls).toEqual(["show"]);
+    // A second modal over the first — a confirm raised from a drawer — and the
+    // card rides the newest one, because the newest is the only one that is
+    // not itself inert. Document order cannot answer that; the order they
+    // opened in can.
+    document.body.insertAdjacentHTML("afterbegin", '<dialog class="modal-shell"><p>Are you sure?</p></dialog>');
+    const confirm = document.querySelector<HTMLDialogElement>("dialog.modal-shell");
+    await act(async () => { confirm?.setAttribute("open", ""); await Promise.resolve(); });
+    expect(coach()?.parentElement).toBe(confirm);
 
-      await act(async () => { palette?.removeAttribute("open"); await Promise.resolve(); });
-      expect(card?.hasAttribute("popover")).toBe(false);
-    } finally {
-      popover.restore();
-    }
+    await act(async () => { confirm?.removeAttribute("open"); await Promise.resolve(); });
+    expect(coach()?.parentElement).toBe(palette);
+
+    await act(async () => { palette?.removeAttribute("open"); await Promise.resolve(); });
+    expect(coach()?.parentElement).toBe(document.body);
   });
 
   it("spotlights with a real hole the player can click through", async () => {
@@ -966,6 +955,24 @@ describe("getting out of the way", () => {
     expect(coach()?.style.transform).toBe("translate(-200px, 60px)");
     // And the tour is still the tour: the card it moved is the card it keeps.
     expect(coach()?.textContent).toContain("Everything that needs you, ranked.");
+  });
+
+  it("stays draggable while a modal owns the page", async () => {
+    // The report this comes from: a step whose control is inside a dialog, and
+    // a card parked over that dialog with no way to move it — the grab handle
+    // was inert along with the rest of the page behind the modal. The card
+    // rides the dialog now, so the handle is a handle again.
+    document.body.insertAdjacentHTML("beforeend", '<nav class="dashboard-tabs">Today</nav>');
+    await render(makeBootstrap(makeServer()));
+    await tick();
+    document.body.insertAdjacentHTML("beforeend", '<dialog class="drawer-shell"><button>Open portal as Victor</button></dialog>');
+    const drawer = document.querySelector<HTMLDialogElement>("dialog.drawer-shell");
+    await act(async () => { drawer?.setAttribute("open", ""); await Promise.resolve(); });
+    expect(coach()?.parentElement).toBe(drawer);
+    sizedCoach();
+
+    await drag({ x: 500, y: 320 }, { x: 300, y: 380 });
+    expect(coach()?.style.transform).toBe("translate(-200px, 60px)");
   });
 
   it("will not let a drag throw the card off screen", async () => {

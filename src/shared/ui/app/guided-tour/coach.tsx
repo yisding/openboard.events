@@ -4,7 +4,6 @@ import { ExternalLink, GripVertical, X } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/shared/lib/cn";
-import { dropFromTopLayer, raiseIntoTopLayer } from "@/shared/ui/top-layer";
 import { Button, Modal, ProgressBar } from "@/shared/ui/ui-kit";
 import type { TourProgress } from "./objectives";
 import type { TourStep } from "./types";
@@ -48,7 +47,11 @@ export type TourCoachProps = {
   progress: TourProgress;
   /** Fixed-position style from the shared popover geometry; null centres the card. */
   position: CSSProperties | null;
-  /** `document.body`, or the open `<dialog>` the anchor lives inside. */
+  /**
+   * `document.body`, or the open `<dialog>` the anchor lives inside — where
+   * the card goes when nothing is holding the page hostage. A modal dialog
+   * opening on top of it overrides this; see `useCardHost`.
+   */
   container: HTMLElement | null;
   /**
    * The anchor has not resolved yet and the engine is still waiting for it.
@@ -185,59 +188,61 @@ function useCardDrag(stepId: string, cardRef: { current: HTMLDivElement | null }
 }
 
 /**
- * Keeps the card visible over a modal `<dialog>` that opens on top of it.
+ * Where the card has to live to stay usable: **inside** whatever modal
+ * `<dialog>` is on top of the page, and `document.body` when none is.
  *
- * A modal dialog lives in the top layer, which paints above every z-index there
- * is, dims everything behind its `::backdrop` and — the part that actually
- * hurts — makes everything it does not contain inert: no pointer events, out of
- * the accessibility tree. The step that says "press ⌘K" therefore lost its own
- * card the moment the player did as they were told, blurred and unclickable
- * behind the command palette.
+ * A modal dialog lives in the top layer, which paints above every z-index
+ * there is, dims everything behind its `::backdrop` and — the part that
+ * actually hurts — makes everything it does not contain inert: no pointer
+ * events, no focus, out of the accessibility tree. The step that says "press
+ * ⌘K" therefore lost its own card the moment the player did as they were told,
+ * blurred and unclickable behind the command palette.
  *
- * So when a dialog the card is not inside is open, the card joins the top layer
- * too, as a `popover="manual"` — manual because this card never traps focus and
- * never closes on Escape, and both of those are exactly what the other popover
- * kinds would take away. Top-layer order is insertion order, so raising it
- * *after* the dialog opened is what puts it in front; the observer is there
- * because the palette opens while the card is already on screen.
+ * This shipped as a `popover="manual"` raised into the top layer *after* the
+ * dialog, on the theory that a later top-layer entry escapes the earlier one's
+ * inertness. It does not — measured in Chrome, a popover raised over an open
+ * modal dialog paints on top and is still inert: no `pointerdown`, no click,
+ * `focus()` a no-op. So the card looked fixed while every button on it,
+ * including the grab handle the player needs to drag it off the control they
+ * are being asked to use, was dead. Inertness has exactly one exemption and it
+ * is the dialog's own subtree, so that is where the card goes.
  *
- * With no dialog open the card goes back to being an ordinary z-indexed
- * element, which is what every other step wants: nothing to be above.
+ * Which dialog, when several are open, is not a question the DOM will answer:
+ * only the newest modal is interactive and document order says nothing about
+ * which that is. So the open ones are remembered in the order they opened —
+ * that being top-layer order — and the card rides the last of them.
+ *
+ * Every `<dialog>` in this app opens with `showModal()`, so `dialog[open]` is
+ * the whole test. The `:modal` pseudo-class would be the precise one, and it
+ * is not worth it: engines disagree about it, and a card that took a wrong
+ * answer would either sit inside a harmless non-modal dialog or be stranded
+ * behind a modal one — and only the second failure is one the player feels.
  */
-function useTopLayerCard(card: HTMLDivElement | null) {
+function useCardHost(fallback: HTMLElement | null): HTMLElement | null {
+  const [dialog, setDialog] = useState<HTMLElement | null>(null);
+  const openedRef = useRef<HTMLElement[]>([]);
   useEffect(() => {
-    if (!card) return;
-    /*
-     * What the last sync acted on, so the raise happens on a change and not on
-     * every mutation the observer sees — and it sees a great many, because the
-     * app it is watching is a React tree that commits constantly.
-     *
-     * Raising is not idempotent: it hides the popover and shows it again, to
-     * re-enter the top layer at the end. Hiding a popover that contains the
-     * focused element hands focus back to whatever had it before, so a player
-     * who had tabbed to "Skip this" while the palette was open would have been
-     * thrown back into the palette's search box by the next keystroke's
-     * re-render — and the card, an `aria-live` region, would have left and
-     * re-joined the accessibility tree each time with it.
-     */
-    let above: Element[] = [];
-    const same = (next: Element[]) => next.length === above.length && next.every((dialog, index) => dialog === above[index]);
+    if (typeof document === "undefined") return;
     const sync = () => {
-      const buried = [...document.querySelectorAll("dialog[open]")].filter((dialog) => !dialog.contains(card));
-      if (same(buried)) return;
-      above = buried;
-      if (buried.length > 0) raiseIntoTopLayer(card); else dropFromTopLayer(card);
+      const open = [...document.querySelectorAll<HTMLElement>("dialog[open]")];
+      // Ones already known keep their place; the rest have just opened and go
+      // on the end. A dialog that closes and reopens is new again, which is
+      // exactly right — it re-entered the top layer at the end too.
+      const known = openedRef.current.filter((candidate) => open.includes(candidate));
+      openedRef.current = [...known, ...open.filter((candidate) => !known.includes(candidate))];
+      setDialog(openedRef.current.at(-1) ?? null);
     };
     sync();
+    if (typeof MutationObserver !== "function") return;
     // Attributes as well as nodes: `showModal()` sets `open` on a dialog that
     // is already in the tree, which is how every dialog in this app opens.
     const observer = new MutationObserver(sync);
     observer.observe(document.documentElement, { subtree: true, childList: true, attributeFilter: ["open"] });
-    return () => {
-      observer.disconnect();
-      dropFromTopLayer(card);
-    };
-  }, [card]);
+    return () => observer.disconnect();
+  }, []);
+  // Composed at render rather than held in the state, so a step whose anchor
+  // moves to a new container with no dialog open lands there the same frame.
+  return dialog ?? fallback;
 }
 
 function continueLabel(step: TourStep, mode: TourCoachMode): string {
@@ -367,15 +372,8 @@ export function TourCoach(props: TourCoachProps) {
   const bodyId = `tour-body-${generatedId}`;
   const { step, position, container, mobile, mode, settling } = props;
   const cardRef = useRef<HTMLDivElement | null>(null);
-  // State as well as a ref: the raise has to run when the node arrives and
-  // again when it is replaced, which a ref alone would never tell an effect.
-  const [cardNode, setCardNode] = useState<HTMLDivElement | null>(null);
-  const attachCard = useCallback((node: HTMLDivElement | null) => {
-    cardRef.current = node;
-    setCardNode(node);
-  }, []);
   const drag = useCardDrag(step.id, cardRef);
-  useTopLayerCard(cardNode);
+  const host = useCardHost(container);
 
   if (step.presentation === "modal" || step.presentation === "modal-wide") {
     // The cold open and the curtain call are the two beats that deserve to own
@@ -417,7 +415,7 @@ export function TourCoach(props: TourCoachProps) {
     );
   }
 
-  if (!container) return null;
+  if (!host) return null;
   /*
    * With no anchor to sit beside, the middle of the screen is the *worst*
    * place a card can be: on every screen this tour visits, the middle is where
@@ -432,7 +430,7 @@ export function TourCoach(props: TourCoachProps) {
   const moved = drag.offset.x !== 0 || drag.offset.y !== 0;
   const card: ReactNode = (
     <div
-      ref={attachCard}
+      ref={cardRef}
       className={cn("tour-coach", mobile && "tour-coach-sheet", centred && "tour-coach-centred", docked && "tour-coach-docked", settling && "tour-coach-settling", drag.dragging && "tour-coach-dragging", mode === "celebrating" && "tour-coach-won")}
       role="dialog"
       aria-labelledby={titleId}
@@ -452,7 +450,7 @@ export function TourCoach(props: TourCoachProps) {
       <TourCoachBody {...props} titleId={titleId} bodyId={bodyId} drag={mobile ? null : drag} />
     </div>
   );
-  return createPortal(card, container);
+  return createPortal(card, host);
 }
 
 /**

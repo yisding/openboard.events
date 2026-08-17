@@ -2,8 +2,14 @@
  * Promoting an element into the top layer by hand. Two callers: the toast stack
  * (`toast.tsx` shows it as a `popover="manual"` so it paints above the
  * `<dialog>` drawers, which are in the top layer themselves) and the guided
- * tour, whose confetti and coach card have the same problem for the same
- * reason.
+ * tour's confetti, which has the same problem for the same reason.
+ *
+ * This buys **paint order only**. An element raised over an open modal
+ * `<dialog>` is painted above it and is still inert — no pointer events, no
+ * focus — because a modal dialog's inertness exempts its own subtree and
+ * nothing else. Fine for confetti and for toasts, which are read rather than
+ * used; anything the player has to *press* while a modal is open has to be
+ * rendered inside that dialog instead (see `useCardHost` in guided-tour/coach).
  *
  * Top-layer order is insertion order, and it settles more than paint order:
  * everything a modal `<dialog>` does not contain is blocked by it, so an

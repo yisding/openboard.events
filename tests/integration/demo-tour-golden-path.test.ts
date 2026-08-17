@@ -246,10 +246,10 @@ const DRIVERS: Record<string, Driver> = {
   },
 
   /**
-   * Ch7 — "Fix it." Move yours, or move the other one.
+   * Ch7 — "Give it a room of its own."
    *
-   * Same minute, different room, which is the answer an organizer reaches
-   * for first and the one that keeps a talk on the day it was announced for.
+   * Same minute, different room, which is the move the card names and the one
+   * that keeps a talk on the day it was announced for.
    * It also isolates the assertion: a room move cannot create or clear a
    * speaker or track collision, so a decrease here is unambiguously the room
    * clash being resolved.

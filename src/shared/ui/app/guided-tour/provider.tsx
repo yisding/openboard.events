@@ -1063,11 +1063,22 @@ function GuidedTourLayer({ bootstrap, onComplete, onStatusChange }: {
    * own navigation is the reason: it pushes on step entry and the router stays
    * on the old page until the new route commits, so a short fuse there offered
    * "Take me there" for a trip already under way and then withdrew it.
+   *
+   * And nothing at all once the objective is met. The notice is a claim about
+   * a control the player has not reached yet, and by the time the card is
+   * celebrating they have not only reached it, they have used it — often *by*
+   * making it go away, which is what strands the anchor in the first place:
+   * the dialog they saved and closed, the row they ticked and cleared, the
+   * conflict they resolved off the list. Every one of those ends on a card
+   * that says "Done." and then, underneath, that the control appears once you
+   * start. Whatever the spotlight has lost, it is not the player's problem
+   * any more.
    */
   const anchorless = step.anchor !== undefined
     && step.anchor.kind !== "none"
     && step.presentation !== "modal"
     && step.presentation !== "modal-wide"
+    && !celebrating
     && anchor.status !== "found"
     && (anchor.status === "missing" || (noticeDue && !elsewhere));
   /**
