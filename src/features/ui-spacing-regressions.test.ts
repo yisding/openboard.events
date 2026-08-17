@@ -461,9 +461,15 @@ describe("shared UI spacing regressions", () => {
     // so the Google/Outlook links stacked vertically instead of sitting side by
     // side. Scoping the column layout to its own class leaves the calendar
     // links' own display:flex in charge of its own direction.
+    //
+    // Both children keep width:100%: the row's <li> resolves to a column flex
+    // whose align-items:center comes from the later .portal-home-list>li rule,
+    // so a shrink-to-fit child would render horizontally centered instead of
+    // left-aligned under the title — the old li>div rule masked that by
+    // stretching both divs.
     expect(widgets).toContain('<div className="portal-session-info">');
     expect(css).toContain(".portal-session-info{display:flex;flex-direction:column;gap:4px;width:100%}");
-    expect(css).toContain(".portal-session-cal-links{display:flex;gap:12px}");
+    expect(css).toContain(".portal-session-cal-links{display:flex;gap:12px;width:100%}");
     expect(css).not.toMatch(/\.portal-my-sessions li\s*>\s*div\b/u);
   });
 
