@@ -195,6 +195,66 @@ describe("moving from one step to the next", () => {
   });
 });
 
+describe("re-measuring after a mutation that leaves the anchor itself untouched", () => {
+  const SPEC = { kind: "tour-id", id: "agenda.publish" } as const;
+
+  it("catches a rect that moved because a validation error inserted a banner above it", async () => {
+    // The case that screwed up the tour highlighting: ticking an unscheduled
+    // session and pressing Publish grows the page with a new alert banner
+    // *above* the button, pushing it down without resizing it, moving the
+    // window, or firing scroll — nothing a ResizeObserver on the button or a
+    // window listener was ever going to see. Only the resolver's own
+    // MutationObserver notices the insertion, and `attempt()` alone does
+    // nothing with it because the anchored element hasn't changed. Without a
+    // way to reach the measurer, the spotlight stayed at the button's
+    // pre-banner coordinates.
+    const frames: Array<() => void> = [];
+    const realRaf = window.requestAnimationFrame;
+    window.requestAnimationFrame = ((callback: () => void) => frames.push(callback)) as never;
+
+    const host = mount('<div class="page"><button data-tour="agenda.publish">Publish selected</button></div>');
+    const page = host.querySelector<HTMLElement>(".page");
+    const button = host.querySelector<HTMLElement>('[data-tour="agenda.publish"]');
+    if (!page || !button) throw new Error("fixture did not mount");
+    button.getBoundingClientRect = () => new DOMRect(40, 200, 120, 32);
+
+    let state: TourAnchorState = { element: null, rect: null, status: "idle" };
+    function Probe() {
+      state = useTourAnchor(SPEC, true);
+      return null;
+    }
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => { root.render(React.createElement(Probe)); });
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+      expect(state.element).toBe(button);
+      expect(state.rect?.top).toBe(200);
+
+      // The validation-error banner: a sibling mounts above the button and the
+      // button's own box moves with it — nothing about the button itself
+      // (its attributes, its identity) changed.
+      button.getBoundingClientRect = () => new DOMRect(40, 300, 120, 32);
+      const banner = document.createElement("div");
+      banner.setAttribute("role", "alert");
+      await act(async () => {
+        page.prepend(banner);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(state.element).toBe(button);
+      // Still the stale rect until the frame the mutation scheduled runs.
+      for (const frame of frames.splice(0)) frame();
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+
+      expect(state.rect?.top).toBe(300);
+    } finally {
+      await act(async () => { root.unmount(); });
+      window.requestAnimationFrame = realRaf;
+    }
+  });
+});
+
 describe("the native dialog top layer", () => {
   it("portals the coach into the open dialog its anchor lives in", () => {
     // Nothing z-indexed can paint above the top layer, so a card portalled to
