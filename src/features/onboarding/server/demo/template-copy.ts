@@ -189,15 +189,18 @@ function remapVisibility(
     const optionSource = source.fieldType === "dropdown" || source.fieldType === "multiselect";
     if (!optionSource || condition.value === undefined) return [{ ...condition, sourceFieldId }];
 
-    const values = Array.isArray(condition.value) ? condition.value : [condition.value];
-    const remapped: string[] = [];
-    for (const value of values) {
+    const copiedOptionId = (value: string): string | null => {
       const option = source.options.find((candidate) => candidate.id === value);
-      if (!option) return [];
-      remapped.push(stableUuid(newFormId, `option:${option.label}`));
+      return option ? stableUuid(newFormId, `option:${option.label}`) : null;
+    };
+    if (!Array.isArray(condition.value)) {
+      const value = copiedOptionId(condition.value);
+      return value === null ? [] : [{ ...condition, sourceFieldId, value }];
     }
-    const value = Array.isArray(condition.value) ? remapped : remapped[0];
-    return value === undefined ? [] : [{ ...condition, sourceFieldId, value }];
+    // All or nothing: an `in` rule that kept only the options that survived
+    // would quietly narrow what the organizer asked for.
+    const value = condition.value.flatMap((entry) => copiedOptionId(entry) ?? []);
+    return value.length === condition.value.length ? [{ ...condition, sourceFieldId, value }] : [];
   });
   return conditions.length > 0 ? { match: visibility.match, conditions } : null;
 }
