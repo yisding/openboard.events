@@ -118,7 +118,9 @@ test.describe("portal-tasks", () => {
         await expect(page.getByRole("heading", { name: TASKS.manual.name })).toBeVisible();
         // #661: the task-detail panel must not render its content and button
         // flush against the card edge — bare `.portal-panel` has no padding.
-        const panelPadding = await page.locator(".portal-panel").first().evaluate((el) => getComputedStyle(el).paddingLeft);
+        // Scoped to the detail view's stack so a padding-less panel added
+        // elsewhere on the page can never become the `.first()` this reads.
+        const panelPadding = await page.locator(".portal-panel-stack .portal-panel").first().evaluate((el) => getComputedStyle(el).paddingLeft);
         expect(parseFloat(panelPadding), "the task panel must be padded, not flush against its own edge").toBeGreaterThan(0);
         await page.getByRole("button", { name: /mark as complete/i }).click();
         await expect(page).toHaveURL(new RegExp(`${PORTAL}/tasks$`), { timeout: 20_000 });
