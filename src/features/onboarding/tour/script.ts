@@ -463,11 +463,16 @@ const THE_DECISION: readonly TourStep[] = [
     // which made the sweeping version falsifiable on the very screen this card
     // points at. Phase 10 now seeds all nine as `skipped`, so the column the
     // card names says what the card says, all the way down.
-    body: "Every row on this log reads skipped, reason: demo event — mail is never delivered. The nine older ones are backdated history the demo was built with; they were rendered and logged like the rest, and went exactly as far.",
+    //
+    // No claim to a render, though (#679): the dispatcher skips a demo send
+    // *before* it renders, which is why a live row carries the skip reason
+    // where its subject would be. Only the nine backdated rows have subjects —
+    // history the demo was built with, not something the dispatcher produced.
+    body: "Every row reads skipped, reason: demo event — mail is never delivered. Nine backdated rows carry subjects the demo was built with; anything queued live stops before it renders, so the reason takes the subject's place.",
     route: at("/communications", { tab: "log" }),
     anchor: css("#communications-tab-log"),
     placement: "bottom",
-    reward: { emoji: "📮", line: "Queued, rendered, logged and going absolutely nowhere." },
+    reward: { emoji: "📮", line: "Queued, logged and going absolutely nowhere." },
   },
 ];
 
@@ -764,8 +769,9 @@ const SIDE_QUESTS: readonly TourStep[] = [
     optional: true,
     title: "Read the mail you did not send.",
     // Same restoration as `decide.outbox`: the nine seeded rows are backdated
-    // history, and they are nine skips.
-    body: "Nine backdated messages the world was built with, plus everything this tour queued — and every one of them was rendered in full, logged, and then skipped.",
+    // history, and they are nine skips. And the same rule as there (#679): no
+    // claim to a render, because the dispatcher stops a demo send before one.
+    body: "Nine backdated messages the world was built with, plus everything this tour queued — and every one of them was logged and then skipped, with the reason on the row.",
     route: at("/communications", { tab: "log" }),
     anchor: css("#communications-tab-log"),
     placement: "bottom",

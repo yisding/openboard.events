@@ -45,7 +45,12 @@ export async function listAdminSessionsIn(dbOrTx: DbOrTx, userId: UserId, curren
   )).orderBy(desc(adminSessions.createdAt));
   return rows.map((row) => ({
     id: row.id,
-    ipAddress: row.ipAddress,
+    // Better Auth writes this column itself and, when it can't determine the
+    // client's address, writes `""` rather than `NULL` — so `?? "—"` at the
+    // display layer never catches it. Normalize here, at the one place every
+    // consumer of `AdminSessionSummary` reads through, so "unknown IP" is
+    // `null` everywhere and no renderer has to know about the empty-string case.
+    ipAddress: row.ipAddress === "" ? null : row.ipAddress,
     userAgent: row.userAgent,
     createdAt: row.createdAt.toISOString(),
     expiresAt: row.expiresAt.toISOString(),

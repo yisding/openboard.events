@@ -65,7 +65,7 @@ restarted from the ribbon at the top of the demo event.
 | | |
 |---|---|
 | **It is labelled.** | A `Demo` badge in the topbar and on the event switcher, and a *"Sample event · built with Openboard"* ribbon on its public pages, which are also `noindex`. |
-| **It cannot email anybody.** | Every fabricated address ends in `.demo.invalid` (a domain that cannot resolve, anywhere), *and* the mail dispatcher refuses demo events outright. Mail the tour queues is rendered, logged — and skipped. |
+| **It cannot email anybody.** | Every fabricated address ends in `.demo.invalid` (a domain that cannot resolve, anywhere), *and* the mail dispatcher refuses demo events outright. Mail queued by the tour is logged — and then skipped, with the reason on the row. |
 | **It is free.** | It never counts toward your organization's event allowance. |
 | **It is disposable.** | *Reset* rebuilds it from scratch; *Delete* (owner only, typed confirmation) removes it and everything under it. Neither can touch a real event. |
 
@@ -265,11 +265,12 @@ apart), the full **delivery log**, **suppressions** (bounces and unsubscribes ar
 automatically — every message carries `List-Unsubscribe`), and a **bulk send** for the one-off
 "speaker dinner is Thursday" announcement.
 
-![The delivery log — in a demo event, every send is rendered, logged, and skipped](docs/screenshots/delivery-log.png)
+![The delivery log — in a demo event, every send is logged and then skipped](docs/screenshots/delivery-log.png)
 
 That screenshot is from the demo conference, which is why every row reads **Skipped**: the
-dispatcher refuses demo events. In your real event those rows read *Sent*, with the provider's
-message id beside them.
+dispatcher refuses demo events before the message is ever rendered, and the log records the
+skip and its reason instead of inventing a subject line. In your real event those rows read
+*Sent*, with the subject the recipient saw and the provider's message id beside it.
 
 ---
 
