@@ -393,6 +393,9 @@ export function PlansView({
       id: "actions",
       header: "",
       enableSorting: false,
+      // Gives this column a floor: see the `.plan-actions-column` rule in
+      // globals.css for why it needs one.
+      meta: { className: "plan-actions-column" },
       cell: ({ row }) => {
         const lock = assignmentLockReason(row.original, new Date(assignmentNowMs));
         return <span className="row-actions">
