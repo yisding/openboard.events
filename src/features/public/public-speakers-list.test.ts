@@ -2,6 +2,7 @@ import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { PUBLISHED_SPEAKERS_FIXTURE } from "@/shared/fixtures/sessions";
+import { formatDateRangeInZone } from "@/shared/lib/time";
 import { PublicSpeakersList } from "./public-speakers-list";
 
 Object.assign(globalThis, { React });
@@ -52,5 +53,24 @@ describe("PublicSpeakersList", () => {
     expect(alone).toContain("Speakers coming soon");
     expect(alone).not.toContain("View the agenda");
     expect(withAgenda).toContain("View the agenda");
+  });
+
+  // Issue #667: the speakers DTO used to omit event.startsAt/endsAt, so the
+  // hero band's date eyebrow had nothing to render here — unlike every other
+  // public surface — and sat empty.
+  it("renders the event date eyebrow in the hero, same as the other public surfaces", () => {
+    const html = renderToStaticMarkup(React.createElement(PublicSpeakersList, {
+      eventSlug: "openboard-summit",
+      speakers: PUBLISHED_SPEAKERS_FIXTURE,
+    }));
+    const range = formatDateRangeInZone(
+      PUBLISHED_SPEAKERS_FIXTURE.event.startsAt,
+      PUBLISHED_SPEAKERS_FIXTURE.event.endsAt,
+      PUBLISHED_SPEAKERS_FIXTURE.event.timezone,
+      { showZone: false },
+    ).toUpperCase();
+
+    expect(html).toContain('class="public-eyebrow"');
+    expect(html).toContain(range);
   });
 });

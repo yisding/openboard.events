@@ -274,6 +274,8 @@ async function getPublishedSpeakersForEventIn(dbOrTx: DbOrTx, event: PublicEvent
     event: {
       name: event.name,
       timezone: event.timezone,
+      startsAt: event.startsAt.toISOString(),
+      endsAt: event.endsAt.toISOString(),
       accentColor: asAccentColor(event.theme),
       logoUrl: event.logoFileId ? `/f/${event.logoFileId}` : null,
       backgroundUrl: event.backgroundFileId ? `/f/${event.backgroundFileId}` : null,
