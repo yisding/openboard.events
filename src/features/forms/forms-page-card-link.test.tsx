@@ -63,6 +63,13 @@ describe("form list card surface", () => {
     // The card is the stretched link's containing block, the pseudo-element
     // covers it, and the actions row is lifted back out from under it.
     expect(css).toMatch(/\.form-list-card \{[^}]*position: relative;/u);
+    // All three declarations, each pinned separately: the pseudo-element does
+    // not exist without `content`, `inset` does nothing on a statically
+    // positioned box, and a rule missing either one covers nothing while still
+    // reading like it does. Separate assertions rather than one sequence, so a
+    // reorder inside the block stays a reorder rather than a failure.
+    expect(css).toMatch(/\.form-list-title-link::after \{[^}]*content: "";/u);
+    expect(css).toMatch(/\.form-list-title-link::after \{[^}]*position: absolute;/u);
     expect(css).toMatch(/\.form-list-title-link::after \{[^}]*inset: 0;/u);
     expect(css).toMatch(/\.form-list-actions \{[^}]*position: relative;[^}]*z-index: 1;/u);
   });
