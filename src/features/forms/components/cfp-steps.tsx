@@ -981,7 +981,11 @@ export function CfpSteps({ data, signedInEmail }: { data: PublicForm; signedInEm
             {emailError && <small id="cfp-email-error" className="field-error" role="alert">{emailError}</small>}
           </label>
           {!codeRequested ? (
-            <Button type="submit" disabled={busy || email.trim() === ""}>{busy ? "Sending…" : "Send me a code"}</Button>
+            // Deliberately not disabled on an empty/invalid email: `requestCode`
+            // is the designed field-error pipeline for this control (focuses the
+            // input and surfaces `emailError`), and a disabled button with no
+            // hint would make that error unreachable.
+            <Button type="submit" disabled={busy}>{busy ? "Sending…" : "Send me a code"}</Button>
           ) : (
             <>
               <label className="field">

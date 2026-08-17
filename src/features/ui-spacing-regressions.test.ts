@@ -392,6 +392,24 @@ describe("shared UI spacing regressions", () => {
     expect(css).not.toMatch(/(?<!\.abstracts-title-column )\.submission-title-cell b[,{][^{}]*display:-webkit-box/u);
   });
 
+  it("gives the evaluation plan row actions a floor, not just a ceiling", () => {
+    const plans = read("./submissions/evaluation/components/plans-view.tsx");
+
+    // Same defect as the abstracts title column above, mirrored: auto table
+    // layout satisfies every nowrap column first and hands the deficit to the
+    // only column that can still shrink. There it collapsed the Title column;
+    // here it left Assign/Remind/Edit on one line and wrapped Delete alone
+    // onto a second, orphaned and right-aligned into empty space even at
+    // 1440px, where there was room for all four.
+    expect(plans).toContain('meta: { className: "plan-actions-column" }');
+    expect(css).toContain(".data-table td.plan-actions-column .row-actions{flex-wrap:nowrap}");
+    // The shared class's own wrap behavior stays intact — `.admin-task-row`
+    // cards and every other `.row-actions` group still fall back to wrapping
+    // on a narrow viewport; only this column's four-button cluster is pinned
+    // to one row, falling back to the table's own horizontal scroll instead.
+    expect(css).toContain(".row-actions { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }");
+  });
+
   it("keeps a table toolbar's search from being squeezed by its filters", () => {
     expect(css).toContain(".data-toolbar>.table-search{flex:0 0 280px}");
     expect(css).toContain(".data-toolbar>.filter-button{min-width:0}");
@@ -447,6 +465,55 @@ describe("shared UI spacing regressions", () => {
     expect(css).toContain(".portal-session-info{display:flex;flex-direction:column;gap:4px;width:100%}");
     expect(css).toContain(".portal-session-cal-links{display:flex;gap:12px}");
     expect(css).not.toMatch(/\.portal-my-sessions li\s*>\s*div\b/u);
+  });
+
+  it("vertically centers the footer's link and plain-text sibling on the same baseline", () => {
+    // `.portal-site-footer div div a` carries a 32px touch-target floor that
+    // `<span>Powered by Openboard</span>` never gets, so without align-items
+    // on their shared flex row the two texts sat ~10px apart: the anchor
+    // centered inside its own taller box, the span stretched to match it and
+    // kept its text pinned to the top.
+    expect(css).toMatch(/\.portal-site-footer div div\s*\{[^}]*align-items:\s*center/u);
+  });
+
+  it("gives the portal's bounced edit-unavailable notice the same weight as other page-level alerts", () => {
+    const page = read("../app/portal/[eventSlug]/submissions/[submissionId]/page.tsx");
+
+    // A speaker who follows a stale /edit link and bounces back used to see
+    // this as plain `.portal-note` text — the same muted style used for dozens
+    // of low-stakes hints, easy to miss as feedback for a real navigation.
+    expect(page).toContain('className="portal-bounce-notice"');
+    expect(page).not.toContain('className="portal-note" role="status">{notice}');
+    expect(css).toContain(".portal-bounce-notice{display:flex;align-items:center;gap:8px;margin-bottom:16px;padding:12px 16px;border:1px solid var(--amber-border);border-radius:9px;background:var(--amber-soft);color:var(--amber)");
+  });
+
+  it("shows the speaker profile's bio character count exactly once", () => {
+    const profile = read("./portal/profile/components/profile-form.tsx");
+
+    // RichTextEditor already renders its own "used / max" counter for any
+    // `maxChars` editor (`rich-text-editor.tsx`'s `.rich-text-editor__count`).
+    // The Biography field's Field wrapper duplicated it as a `hint`, so the
+    // count appeared twice: once inside the editor's own corner, once again
+    // as the field hint directly below it.
+    expect(profile).toContain('<Field label="Biography" error={bioError} errorId="profile-bio-error">');
+    expect(profile).not.toContain("characters`}");
+  });
+
+  it("keeps a single 'Public preview' card on the profile sidebar", () => {
+    const profile = read("./portal/profile/components/profile-form.tsx");
+
+    // A whole second card — icon, "Public preview" heading, explainer
+    // paragraph — used to sit directly above the actual preview card, which
+    // has its own "PUBLIC PREVIEW" eyebrow label. The explainer now lives as
+    // a caption inside the one card that does the previewing.
+    expect(profile).not.toContain("profile-readiness");
+    // Case-sensitive: "PUBLIC PREVIEW" (the surviving card's eyebrow label)
+    // must stay, only the duplicated "Public preview" heading is gone.
+    expect(profile).not.toContain("Public preview");
+    expect(profile).toContain("PUBLIC PREVIEW");
+    expect(profile).toContain('className="public-preview-hint"');
+    expect(css).toContain(".public-preview-hint{");
+    expect(css).not.toMatch(/\.profile-readiness\b/u);
   });
 
   it("gives discrete public session and gallery actions full pointer targets", () => {

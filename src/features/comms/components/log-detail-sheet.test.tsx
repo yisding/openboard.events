@@ -77,3 +77,43 @@ describe("LogDetailSheet message format", () => {
     expect(html).not.toContain("Plain text");
   });
 });
+
+// Every send on a demo event is skipped before it renders, so this drawer is
+// where an organizer lands asking "why is there nothing here?".
+describe("LogDetailSheet rows that never rendered", () => {
+  const skipped: CommLogDetailWithFlag = {
+    ...DETAIL,
+    templateKey: "schedule_assigned",
+    status: "skipped",
+    subjectRendered: null,
+    bodyRenderedHtml: null,
+    bodyRenderedText: null,
+    providerMessageId: null,
+    sentAt: null,
+    error: "demo event — mail is never delivered",
+  };
+
+  it("says why there is no body, rather than reporting it as lost", () => {
+    const html = renderSheet(skipped);
+
+    expect(html).toContain("Skipped before this message was rendered");
+    expect(html).toContain("demo event — mail is never delivered");
+    expect(html).not.toContain("Body not captured.");
+  });
+
+  it("labels the missing subject instead of leaving a bare dash", () => {
+    expect(renderSheet(skipped)).toContain("Not rendered");
+  });
+
+  // Missing subject and body on any *other* status proves nothing: the 90-day
+  // retention job redacts rows that rendered fine while keeping `error`. Those
+  // get the plain placeholder — the Error row already shows the failure.
+  it("does not tell a failed row it was never rendered", () => {
+    const html = renderSheet({ ...skipped, status: "failed", error: "provider rejected the message" });
+
+    expect(html).toContain("Body not captured.");
+    expect(html).not.toContain("Not rendered");
+    expect(html).not.toContain("Skipped before this message was rendered");
+    expect(html).toContain("provider rejected the message");
+  });
+});
