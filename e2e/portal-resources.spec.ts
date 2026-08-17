@@ -51,6 +51,19 @@ const xssFired = (page: Page): Promise<boolean> =>
   page.evaluate((flag) => Boolean((window as unknown as Record<string, unknown>)[flag]), XSS_FLAG);
 
 /**
+ * The seeded probe's payloads call `alert(1)` — they are the app's own fixture
+ * (`scripts/seed/resources.ts`), written long before this spec and not ours to
+ * bend into an e2e convention. Routing `alert` into the same flag makes the
+ * behavioral question answerable on that page too; without it `xssFired()`
+ * there could only ever report the authored payloads.
+ */
+async function trapAlertIntoFlag(page: Page): Promise<void> {
+  await page.addInitScript((flag) => {
+    window.alert = () => { (window as unknown as Record<string, unknown>)[flag] = true; };
+  }, XSS_FLAG);
+}
+
+/**
  * The embed host is stubbed rather than fetched. The assertion is about our
  * sanitizer's decision and the page's CSP `frame-src`, and a spec that depends
  * on a third party being up is a spec that fails for reasons it is not about.
@@ -132,6 +145,7 @@ test.describe("portal-resources", () => {
     const portal = await page.context().newPage();
     const assertPortalClean = expectNoConsoleErrors(portal);
     await stubEmbedHost(portal);
+    await trapAlertIntoFlag(portal);
 
     await test.step("the speaker finds the page, and the payloads inside it never run", async () => {
       await loginAsSpeaker(portal, EVENTS.main.slug, speaker.email);
@@ -158,7 +172,12 @@ test.describe("portal-resources", () => {
       await expect(portal.getByRole("heading", { name: SEEDED.probe.title })).toBeVisible();
       await expect(portal.locator(".resource-detail-page iframe")).toHaveAttribute("src", EMBED_SRC);
       expect(await xssFired(portal), "unsanitized stored HTML is still sanitized on the way out").toBe(false);
-      expect(await portal.locator(".resource-detail-page article").innerHTML()).not.toContain("<script");
+      const article = await portal.locator(".resource-detail-page article").innerHTML();
+      // Both vectors, as on the authored page — a render-side sanitizer that
+      // dropped `<script>` but kept `onerror` is exactly the divergence a
+      // single-vector check would wave through.
+      expect(article).not.toContain("<script");
+      expect(article).not.toContain("onerror");
     });
 
     await test.step("an unpublished page is a 404 in the portal, never a 403", async () => {

@@ -205,11 +205,12 @@ test.describe("airtable-sync", () => {
     await loginAsAdmin(request);
     await loginAsAdmin(page);
 
-    // The read that the panel is built on. `AirtableConnectionSummary` has no
-    // field for a token, a ciphertext or a fingerprint — this asserts the
-    // shape an organizer's browser is actually handed.
+    // The read that the panel is built on. Not a credential-leak assertion:
+    // this environment is seeded without an Airtable connection, so a token
+    // regex here would pass against `{"connection":null}` no matter what the
+    // handler did. `src/features/airtable/connect-contract.test.ts` seeds a
+    // real token into the summary and proves it cannot ride back out.
     const status = await apiData<AirtableStatus>(request, AIRTABLE_API);
-    expect(JSON.stringify(status), "no credential material may reach the browser").not.toMatch(/pat[A-Za-z0-9]{10}/u);
 
     await page.goto(AIRTABLE_PAGE);
     await expect(page.getByRole("heading", { name: "Airtable", level: 1 })).toBeVisible();
