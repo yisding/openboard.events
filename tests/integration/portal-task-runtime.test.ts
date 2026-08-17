@@ -45,6 +45,8 @@ const deck = "c4000000-0000-4000-8000-000000000041";
 const replacementDeck = "c4000000-0000-4000-8000-000000000046";
 const othersDeck = "c4000000-0000-4000-8000-000000000042";
 const stagedDeck = "c4000000-0000-4000-8000-000000000043";
+const pendingDeck = "c4000000-0000-4000-8000-000000000047";
+const othersPendingDeck = "c4000000-0000-4000-8000-000000000048";
 const wrongType = "c4000000-0000-4000-8000-000000000044";
 const oversized = "c4000000-0000-4000-8000-000000000045";
 const formId = "c4000000-0000-4000-8000-000000000050";
@@ -115,9 +117,23 @@ vi.mock("@/db/client", async (importOriginal) => {
   };
 });
 
+/**
+ * `finalizeUpload` is the only R2-touching call on the single-request upload
+ * path, and the only one that cannot run here — everything else in the module
+ * (the key builders these fixtures are built from) stays real, so a fixture and
+ * the code under test cannot drift apart.
+ */
+const r2 = vi.hoisted(() => ({
+  finalizeUpload: vi.fn<(fileId: string) => Promise<{ status: "ready" } | { status: "rejected"; reason: string }>>(),
+}));
+vi.mock("@/shared/server/r2", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/shared/server/r2")>(),
+  finalizeUpload: r2.finalizeUpload,
+}));
+
 const {
   addTaskComment, completeTaskManual, completeTaskViaResponse, completeTaskViaUpload,
-  getMyTask, getTaskForm, listMyTasks, listTaskCompletions,
+  finalizeAndCompleteTaskUpload, getMyTask, getTaskForm, listMyTasks, listTaskCompletions,
 } = await import("@/features/portal");
 
 async function count(table: string, where = "TRUE"): Promise<number> {
@@ -209,6 +225,10 @@ describe("portal task runtime", () => {
     // Somebody else's private deck, for the case that must not be able to reach it.
     await asset(othersDeck, grace, "secret.pdf", "application/pdf", 2048);
     await asset(stagedDeck, ada, "half-sent.pdf", "application/pdf", 4096, "staged");
+    // The two the single-request path finalizes itself: still on their staging
+    // keys, exactly as a presigned PUT leaves them.
+    await asset(pendingDeck, ada, "pending.pdf", "application/pdf", 2048, "staged");
+    await asset(othersPendingDeck, grace, "grace-pending.pdf", "application/pdf", 2048, "staged");
     await asset(wrongType, ada, "notes.txt", "text/plain", 512);
     await asset(oversized, ada, "huge.pdf", "application/pdf", 40 * 1024 * 1024);
   }, 60_000);
@@ -414,6 +434,92 @@ describe("portal task runtime", () => {
       .catch((thrown: unknown) => thrown);
     expect(isAppError(staged) && staged.code).toBe("VALIDATION");
     expect(await count("task_completions")).toBe(0);
+  });
+
+  /**
+   * #621. The speaker used to publish the bytes with one request
+   * (`/api/uploads/finalize`) and attach them with a second, and nothing
+   * compensated for a lost second call: the file sat in R2 under its immutable
+   * key, owned by nothing, while the task stayed open and silent. One call now
+   * does both, which is only safe if neither half can run without the other.
+   */
+  describe("single-request upload", () => {
+    const stagingKeyOf = (fileId: string, filename: string) =>
+      buildStagingKey({ eventId, kind: "upload", fileId, filename });
+
+    beforeEach(async () => {
+      // Publishing is what the real finalizer does: it repoints the row from its
+      // staging key to the immutable one. The assertions below read that column,
+      // so the stub has to move it rather than just answer "ready".
+      r2.finalizeUpload.mockReset();
+      r2.finalizeUpload.mockImplementation(async (fileId: string) => {
+        const found = await pglite.query<{ filename: string }>("SELECT filename FROM file_assets WHERE id = $1", [fileId]);
+        const filename = found.rows[0]?.filename;
+        if (!filename) return { status: "rejected", reason: "the upload never reached storage" };
+        await pglite.query(
+          "UPDATE file_assets SET r2_key = $2 WHERE id = $1",
+          [fileId, buildObjectKey({ eventId, kind: "upload", fileId, filename })],
+        );
+        return { status: "ready" };
+      });
+      for (const [id, filename] of [[pendingDeck, "pending.pdf"], [othersPendingDeck, "grace-pending.pdf"]] as const) {
+        await pglite.query("UPDATE file_assets SET r2_key = $2 WHERE id = $1", [id, stagingKeyOf(id, filename)]);
+      }
+    });
+
+    it("publishes the staged file and completes the task in one call", async () => {
+      const version = await finalizeAndCompleteTaskUpload(eventId, ada, slidesTask, talkOne, pendingDeck);
+
+      expect(version.fileAssetId).toBe(pendingDeck);
+      expect(version.version).toBe(1);
+      const row = await pglite.query<{ r2_key: string }>("SELECT r2_key FROM file_assets WHERE id = $1", [pendingDeck]);
+      expect(row.rows[0]?.r2_key).toBe(buildObjectKey({ eventId, kind: "upload", fileId: pendingDeck, filename: "pending.pdf" }));
+      expect(await count("task_completions")).toBe(1);
+    });
+
+    it("publishes nothing for a task that is not this speaker's", async () => {
+      // The whole point of collapsing the two requests: an authorization failure
+      // must leave the bytes unpublished, not orphan them under an immutable key
+      // that only the daily sweep will ever reach.
+      const refused = await finalizeAndCompleteTaskUpload(eventId, grace, slidesTask, talkOne, pendingDeck)
+        .catch((thrown: unknown) => thrown);
+      expect(isAppError(refused) && refused.code).toBe("NOT_FOUND");
+      expect(r2.finalizeUpload).not.toHaveBeenCalled();
+      const row = await pglite.query<{ r2_key: string }>("SELECT r2_key FROM file_assets WHERE id = $1", [pendingDeck]);
+      expect(row.rows[0]?.r2_key).toBe(stagingKeyOf(pendingDeck, "pending.pdf"));
+    });
+
+    it("refuses to publish another speaker's staged upload", async () => {
+      // finalizeUpload is keyed on a file id alone, so without the ownership
+      // check first this route would promote Grace's private deck for Ada.
+      const stolen = await finalizeAndCompleteTaskUpload(eventId, ada, slidesTask, talkOne, othersPendingDeck)
+        .catch((thrown: unknown) => thrown);
+      expect(isAppError(stolen) && stolen.code).toBe("NOT_FOUND");
+      expect(r2.finalizeUpload).not.toHaveBeenCalled();
+      const row = await pglite.query<{ r2_key: string }>("SELECT r2_key FROM file_assets WHERE id = $1", [othersPendingDeck]);
+      expect(row.rows[0]?.r2_key).toBe(stagingKeyOf(othersPendingDeck, "grace-pending.pdf"));
+    });
+
+    it("leaves the task open and says why when the bytes are rejected", async () => {
+      r2.finalizeUpload.mockResolvedValue({ status: "rejected", reason: "the file contents do not match the declared type" });
+      const rejected = await finalizeAndCompleteTaskUpload(eventId, ada, slidesTask, talkOne, pendingDeck)
+        .catch((thrown: unknown) => thrown);
+      expect(isAppError(rejected) && rejected.code).toBe("VALIDATION");
+      expect(isAppError(rejected) && rejected.message).toContain("the file contents do not match the declared type");
+      expect(await count("task_completions")).toBe(0);
+      expect(await count("file_uploads")).toBe(0);
+    });
+
+    it("returns the same version when the speaker retries an outcome-unknown request", async () => {
+      // The retry `FileUpload` offers replays the same fileAssetId; it must not
+      // turn one upload into two historical versions.
+      const first = await finalizeAndCompleteTaskUpload(eventId, ada, slidesTask, talkOne, pendingDeck);
+      const second = await finalizeAndCompleteTaskUpload(eventId, ada, slidesTask, talkOne, pendingDeck);
+      expect(second.fileUploadId).toBe(first.fileUploadId);
+      expect(second.version).toBe(1);
+      expect(await count("file_uploads")).toBe(1);
+      expect(await count("task_completions")).toBe(1);
+    });
   });
 
   it("holds a file request's own accepted types and size cap", async () => {

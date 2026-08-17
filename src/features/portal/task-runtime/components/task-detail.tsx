@@ -108,6 +108,13 @@ export function TaskDetailView({
     });
   }
 
+  /**
+   * The whole upload, in one request: this route finalizes the staged object and
+   * completes the task together, so a lost response leaves the bytes unpublished
+   * and the task honestly outstanding rather than the file in R2 with nothing
+   * pointing at it (#621). `FileUpload` keeps offering "Try saving again" for
+   * this exact fileAssetId, and the server treats a replay as the same version.
+   */
   async function attach(fileId: string): Promise<boolean> {
     const result = await post(`/api/internal/portal/tasks/${task.taskId}/upload`, { fileAssetId: fileId });
     if (!result.ok) return false;
@@ -190,6 +197,7 @@ export function TaskDetailView({
             maxSizeMb={task.fileRequest.maxSizeMb}
             accept={task.fileRequest.acceptedExtensions.map((extension) => `.${extension}`).join(",")}
             label={uploads.length > 0 ? "Upload a newer version" : "Choose a file"}
+            associationFinalizes
             onUploaded={(fileId) => attach(fileId)}
           />
           {uploads.length > 0 && (

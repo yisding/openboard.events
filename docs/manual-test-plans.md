@@ -1004,7 +1004,8 @@ failure. See `docs/runbooks/sign-in-capacity.md` for budgets, log fields, and in
 | 9 | Upload a headshot | Presign → PUT → finalize; the image renders from `/f/<fileId>` |
 | 10 | `curl -I` that `/f/<fileId>` | `200`, right content-type, `cache-control: public, max-age=31536000, immutable` |
 | 11 | Upload a disallowed type / oversize file | Rejected before the PUT, naming the limit |
-| 12 | Complete the **file-request** task | Flips to complete; the organizer sees the file under **Files** |
+| 12 | Complete the **file-request** task | Flips to complete; the organizer sees the file under **Files**. One request does it: the network panel shows presign → PUT → the task's own `upload` POST, and no separate `/api/uploads/finalize` |
+| 12a | Repeat, but kill the network (or the tab) between the PUT finishing and the `upload` POST | The task stays outstanding and no file appears anywhere — the bytes are still in `staging/` and the daily sweep reclaims them. Re-uploading is the whole recovery; there must be no published file attached to nothing |
 | 13 | Complete the **manual** task | Flips to complete; the home count drops |
 | 14 | Complete the **form** task | Real form fields, same validation as the CFP renderer |
 | 15 | Open the overdue task | Visibly flagged as overdue |
@@ -1022,10 +1023,6 @@ failure. See `docs/runbooks/sign-in-capacity.md` for budgets, log fields, and in
 
 **Design checks.** §0.7 on portal home, task list, task detail, profile, resources, and the share
 page — this is the surface a speaker sees, so S3s here cost more than elsewhere.
-
-**Known gaps.** Step 12 has an open defect ([#621](https://github.com/yisding/openboard.events/issues/621)):
-the upload's `attach()` POST is a separate request from the R2 finalize, so the file may land in R2
-without the task flipping. Confirm against that issue rather than re-filing.
 
 ---
 
