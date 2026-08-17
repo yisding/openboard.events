@@ -10,12 +10,14 @@ import { TzTime } from "@/shared/ui/app/tz-time";
 import { Button } from "@/shared/ui/ui-kit";
 import type { NameLookup } from "../../store";
 import { AbstractDivergenceChip } from "../abstract-divergence-chip";
+import { useOpenOnClick } from "./click-to-open";
 
 /**
  * The Day view's own drag source for its Unscheduled and Needs a room trays.
  * It is deliberately separate from `unscheduled-tray.tsx`, which lives outside
- * this view's DndContext. An explicit Edit action also keeps every tray row
- * usable without requiring a precise pointer drag.
+ * this view's DndContext. Like that tray's rows, the whole row opens the
+ * session on click; the explicit Edit action stays as the keyboard route, so
+ * no row depends on a precise pointer drag.
  */
 function TrayCard({
   session,
@@ -33,12 +35,18 @@ function TrayCard({
   // `attributes` is deliberately not spread onto the drag region: dnd-kit would
   // make it a focusable role="button" that announces "press the space bar to
   // pick up a draggable item", and this view registers a PointerSensor only.
-  // The Edit button below is the row's keyboard route, so the grip stays a
-  // pointer-only affordance instead of a silent tab stop.
+  // The Edit button below stays the row's keyboard and assistive-tech route —
+  // the row's own click below is a pointer affordance on top of it, not a
+  // replacement, so the row never becomes a second silent tab stop.
   const { listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: String(session.id),
     data: { type, session },
   });
+  // Clicking the row opens the session, which is what the panel's own hint
+  // ("open a session to place it precisely") and the workspace tray
+  // (`unscheduled-tray.tsx`, whose rows are plain buttons) already promise. The
+  // guard tells that click apart from the end of a drag onto the grid.
+  const openOnClick = useOpenOnClick(isDragging, () => onEdit?.(String(session.id)));
   const track = lookup.track(session.trackId);
   const speakers = lookup.speakers(session.speakerIds);
 
@@ -48,7 +56,17 @@ function TrayCard({
       style={{ transform: transform ? CSS.Translate.toString(transform) : undefined, touchAction: "none" }}
       className={isDragging ? "dv-unscheduled-card dv-unscheduled-card--dragging" : "dv-unscheduled-card"}
     >
-      <div className="dv-tray-drag" {...listeners}>
+      <div
+        className="dv-tray-drag"
+        title={onEdit ? "Click to edit · drag onto the grid" : undefined}
+        {...listeners}
+        onPointerDownCapture={openOnClick.onPointerDownCapture}
+        onPointerDown={(pointerEvent) => {
+          openOnClick.onPointerDown(pointerEvent);
+          listeners?.onPointerDown?.(pointerEvent);
+        }}
+        onClick={openOnClick.onClick}
+      >
         <GripVertical size={13} aria-hidden />
         <div>
           <b>{session.title}</b>

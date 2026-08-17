@@ -23,3 +23,20 @@ describe("boardJustCleared", () => {
     expect(page).toContain("unscheduledTotal: unscheduled(sessions).length");
   });
 });
+
+describe("tray rows", () => {
+  const panel = readFileSync(new URL("./unscheduled-panel.tsx", import.meta.url), "utf8");
+
+  it("opens the session when the row itself is clicked", () => {
+    // Both trays this file renders — Unscheduled and Needs a room — used to
+    // answer only the small Edit link, while the panel's hint and the guided
+    // tour both told organizers to click the row (#720).
+    expect(panel).toContain("useOpenOnClick(isDragging");
+    expect(panel).toContain("onClick={openOnClick.onClick}");
+  });
+
+  it("keeps the drag onto the grid and the Edit keyboard route", () => {
+    expect(panel).toContain("listeners?.onPointerDown?.(pointerEvent)");
+    expect(panel).toContain('className="dv-tray-edit"');
+  });
+});

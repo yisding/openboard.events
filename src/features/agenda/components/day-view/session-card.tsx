@@ -9,6 +9,7 @@ import { cn } from "@/shared/lib/cn";
 import { TzTime } from "@/shared/ui/app/tz-time";
 import { useDayGridConflicts } from "../../hooks/use-day-grid-state";
 import { abstractDivergence, divergenceNotice } from "../../lib/abstract-divergence";
+import { useOpenOnClick } from "./click-to-open";
 import { ResizeHandles } from "./resize-handles";
 
 function initialsOf(name: string): string {
@@ -64,6 +65,14 @@ export function SessionCard({
     id: String(session.id),
     data: { type: "session", session },
   });
+
+  // Click opens the editor, the same single click that opens a List view row or
+  // a tray row. Drag stays the fast path for moving a block; `useOpenOnClick`
+  // is what tells the two apart, so a completed drag that happens to release
+  // over the card does not also open a dialog on top of it. `onEdit` is a state
+  // setter, so the double-click that used to be the *only* way in still works
+  // and its second call is a no-op.
+  const openOnClick = useOpenOnClick(isDragging, () => onEdit?.(String(session.id)));
 
   const conflicts = useDayGridConflicts();
   const severity = useMemo(() => {
@@ -123,6 +132,10 @@ export function SessionCard({
       title={[
         speakerNames.length > 0 ? `${session.title} · ${speakerNames.join(", ")}` : session.title,
         divergenceMark?.detail,
+        // The grab cursor advertises the drag and nothing advertises the click,
+        // so the card says both out loud — but only where there is an editor to
+        // open.
+        onEdit ? "Click to edit · drag to move" : null,
       ].filter(Boolean).join("\n")}
       onDoubleClick={() => onEdit?.(String(session.id))}
       onKeyDown={(keyEvent) => {
@@ -132,6 +145,12 @@ export function SessionCard({
         onEdit?.(String(session.id));
       }}
       {...listeners}
+      onPointerDownCapture={openOnClick.onPointerDownCapture}
+      onPointerDown={(pointerEvent) => {
+        openOnClick.onPointerDown(pointerEvent);
+        listeners?.onPointerDown?.(pointerEvent);
+      }}
+      onClick={openOnClick.onClick}
     >
       <ResizeHandles session={session} />
       {severity && <AlertTriangle className="dv-session-card-conflict-icon" size={13} aria-hidden="true" />}

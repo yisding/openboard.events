@@ -1747,6 +1747,10 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .dv-unscheduled-panel header span{min-width:18px;height:18px;border-radius:9px;background:var(--accent-soft);color:var(--accent-dark);display:grid;place-items:center;font-size:var(--text-xs)}
 .dv-unscheduled-hint{font-size:var(--text-xs);color:var(--muted);margin:6px 0}
 .dv-unscheduled-card{width:100%;border:1px solid var(--line);border-radius:7px;background:var(--surface);margin-top:6px;padding:8px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:center;text-align:left}
+/* The row answers a click (opens the session) as well as a drag, so it lights
+   up like the other clickable rows in the app rather than looking inert until
+   the pointer finds the small Edit link. */
+.dv-unscheduled-card:hover{border-color:var(--accent-border);background:var(--surface-raised)}
 .dv-tray-drag{min-width:0;display:grid;grid-template-columns:13px minmax(0,1fr);gap:6px;align-items:center;cursor:grab}
 .dv-tray-drag>svg{color:var(--muted)}
 .dv-unscheduled-card b{display:block;font-size:var(--text-xs);line-height:1.4}
@@ -1765,6 +1769,14 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .dv-cell--over{background:var(--accent-faint)}
 .dv-session-card{position:relative;margin:1px 4px;border-radius:6px;border:1px solid var(--accent-border);border-left:3px solid var(--accent);background:var(--accent-soft);color:var(--accent-dark);padding:6px 8px 6px 8px;overflow:hidden;cursor:grab;z-index:2}
 .dv-session-card:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+/* A placed block takes a click (opens the editor) as well as a drag, and the
+   grab cursor only advertises the second. Hover rings the block in its own
+   track colour — `currentColor`, so a tracked session lights up in its track's
+   hue and an untracked one in the accent. The conflict variants keep their
+   coloured ring and lift instead, since that ring is information. */
+.dv-session-card:hover{box-shadow:0 0 0 1px currentColor inset,var(--shadow-sm)}
+.dv-session-card--warning:hover{box-shadow:0 0 0 1px var(--amber) inset,var(--shadow-sm)}
+.dv-session-card--error:hover{box-shadow:0 0 0 1px var(--red) inset,var(--shadow-sm)}
 /* Clamped, because the card's own overflow is hidden and its height is the
    session's duration: a title long enough to wrap past the available lines
    pushed the time label out of the card instead of truncating, so a session
