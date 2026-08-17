@@ -54,6 +54,15 @@ describe("form builder accessibility", () => {
     expect(source).toContain('<button type="button" className="icon-button" aria-label={`Move ${field.label} down`}');
   });
 
+  // `.selected builder-field-row` is a border and a glow. Speech gets neither,
+  // so without a state on the row's own button the question the inspector is
+  // editing is indistinguishable from the twenty questions around it.
+  it("says which question the inspector is editing, not only paints it", () => {
+    const source = readFileSync(new URL("./form-builder.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain('className="field-row-main" aria-pressed={selected === field.id}');
+  });
+
   it("keeps the full field editor reachable when the desktop inspector is hidden", () => {
     const source = readFileSync(new URL("./form-builder.tsx", import.meta.url), "utf8");
     const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
