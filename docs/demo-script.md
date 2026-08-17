@@ -29,7 +29,7 @@ invite a co-organizer. It is an ordinary event with four differences, all of the
 | | |
 |---|---|
 | **It is labelled.** | A `Demo` badge in the topbar, on the event switcher, and on the organization home card. A *"Sample event · built with Openboard"* ribbon on the public pages, which also carry `robots: noindex, nofollow`. |
-| **It cannot send mail.** | Every fabricated address ends `@…demo.invalid` (RFC 2606 — no DNS, anywhere), *and* the dispatcher throws `SkipEmail("demo event — mail is never delivered")` on `events.is_demo` with no exceptions. Provisioning writes no `queued` outbox row at all. Mail the tour queues is logged and then skipped — the skip lands before the render, so the delivery log carries the reason where a subject would be, which is Chapter 5's punchline, not a workaround. |
+| **It cannot send mail.** | Every fabricated address ends `@…demo.invalid` (RFC 2606 — no DNS, anywhere), *and* the dispatcher throws `SkipEmail("demo event — mail is never delivered")` on `events.is_demo` with no exceptions. Provisioning writes no `queued` outbox row at all. Mail queued by the tour is logged and then skipped — the skip lands before the render, so the delivery log carries the reason where a subject would be, which is Chapter 5's punchline, not a workaround. |
 | **It is free.** | It does not consume a plan slot and is not metered. An organization at 5 of 5 events can still take the tour; its billing page reads *"5 of 5"* plus *"1 demo event (not counted toward your plan)"*. |
 | **It is disposable.** | Reset rebuilds it at the same id. Delete (owner only, typed confirmation) removes it and everything under it. Neither touches a real event: `is_demo = true` sits inside the DELETE's own predicate. |
 

@@ -65,7 +65,7 @@ restarted from the ribbon at the top of the demo event.
 | | |
 |---|---|
 | **It is labelled.** | A `Demo` badge in the topbar and on the event switcher, and a *"Sample event · built with Openboard"* ribbon on its public pages, which are also `noindex`. |
-| **It cannot email anybody.** | Every fabricated address ends in `.demo.invalid` (a domain that cannot resolve, anywhere), *and* the mail dispatcher refuses demo events outright. Mail the tour queues is logged — and then skipped, with the reason on the row. |
+| **It cannot email anybody.** | Every fabricated address ends in `.demo.invalid` (a domain that cannot resolve, anywhere), *and* the mail dispatcher refuses demo events outright. Mail queued by the tour is logged — and then skipped, with the reason on the row. |
 | **It is free.** | It never counts toward your organization's event allowance. |
 | **It is disposable.** | *Reset* rebuilds it from scratch; *Delete* (owner only, typed confirmation) removes it and everything under it. Neither can touch a real event. |
 
