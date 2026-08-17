@@ -30,9 +30,10 @@ export function Switch({ checked, label, className, ...props }: Omit<ButtonHTMLA
  * `<select multiple>` keeps native rendering: an always-open listbox has no
  * closed state to put a chevron on.
  *
- * Long or searchable option lists (speaker pickers, track selectors on large
- * events) still want a filterable listbox with type-ahead. That is a second
- * primitive, not a change to this one — see #115.
+ * Long or searchable option lists — a few hundred speakers, every timezone —
+ * want a filterable listbox instead. That is a second primitive, not a change
+ * to this one: `FilterSelect` in `@/shared/ui/app/filter-select`. Reach for it
+ * when the list is longer than the screen; this one stays right for the dozen.
  */
 export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
   return <select className={cn("select-control", className)} {...props} />;

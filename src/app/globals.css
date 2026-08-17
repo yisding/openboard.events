@@ -1516,6 +1516,41 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 .datetime-time-select{height:36px;padding-top:0;padding-bottom:0;font-variant-numeric:tabular-nums}
 .datetime-picker-warning{margin:10px 0 0;padding:9px 10px;border:1px solid var(--red-border);border-radius:7px;background:var(--red-soft);color:var(--red);font-size:var(--text-xs);line-height:1.45}
 .datetime-popover-actions{display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:8px;margin-top:12px}
+/* #642 — `FilterSelect`, the kit's long dropdown. Closed, it is deliberately
+   the same box as `.select-control`: same height, border, focus ring and
+   chevron, because swapping a picker to it must change what the control can
+   *do*, not what kind of control it looks like. Only the magnifier ahead of the
+   value says the list can be searched. Longhand background properties, not the
+   shorthand — see "Select — contextual corrections" at the end of this file. */
+.filter-select{position:relative;display:flex;align-items:center;gap:6px;width:100%;height:40px;padding:0 34px 0 10px;border:1px solid var(--line-strong);border-radius:8px;background-color:var(--surface);background-image:var(--select-chevron);background-repeat:no-repeat;background-position:right 12px center;background-size:14px 14px;transition:border .15s,box-shadow .15s}
+.filter-select:hover:not(.is-disabled){border-color:var(--accent-border)}
+.filter-select:focus-within,.filter-select.is-open{border-color:var(--accent);box-shadow:var(--focus-ring)}
+.filter-select.is-invalid{border-color:var(--red)}
+.filter-select.is-disabled{background-color:var(--surface-subtle);border-color:var(--line);cursor:not-allowed}
+.filter-select-icon{flex:none;color:var(--muted)}
+.filter-select input{min-width:0;flex:1;height:38px;padding:0;border:0;background:transparent;box-shadow:none;font-size:var(--text-sm);color:var(--ink);text-overflow:ellipsis;cursor:pointer}
+.filter-select input:focus{border:0;box-shadow:none}
+.filter-select input:disabled{background:transparent;color:var(--muted);cursor:not-allowed}
+.filter-select input::placeholder{color:var(--muted)}
+.filter-select.is-open input{cursor:text}
+/* The list is portalled to `document.body` — or, for a picker opened inside a
+   `Modal`, to that `<dialog>` so it stays in the top layer rather than behind
+   the backdrop. Same max-height/overflow/overscroll pairing as
+   `.datetime-popover`. */
+.filter-select-popover{position:fixed;z-index:300;display:flex;flex-direction:column;max-height:min(320px,calc(100vh - 24px));padding:5px;border:1px solid var(--line-strong);border-radius:10px;background:var(--surface);box-shadow:var(--shadow);color:var(--ink);font-size:var(--text-sm);overflow:hidden;overscroll-behavior:contain}
+.filter-select-list{display:flex;flex-direction:column;gap:1px;overflow-y:auto}
+.filter-select-group-label{padding:8px 10px 4px;color:var(--muted);font-size:var(--text-xs);font-weight:var(--weight-emphasis);text-transform:uppercase;letter-spacing:.35px}
+.filter-select-option{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:7px;line-height:1.35;cursor:pointer}
+.filter-select-option>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.filter-select-option>small{flex:none;color:var(--muted);font-size:var(--text-xs)}
+/* The matched run, marked so a filtered list explains why each row survived.
+   Weight and colour rather than a highlighter block, which at eight rows deep
+   reads as noise. */
+.filter-select-option mark{background:transparent;color:var(--accent-dark);font-weight:var(--weight-emphasis)}
+.filter-select-check{flex:none;opacity:0;color:var(--accent-dark)}
+.filter-select-option.is-selected .filter-select-check{opacity:1}
+.filter-select-option.is-active{background:var(--accent-faint)}
+.filter-select-empty{margin:0;padding:16px 12px;text-align:center;color:var(--muted);font-size:var(--text-sm)}
 .file-upload{display:grid;gap:8px}
 .file-upload__drop{display:grid;justify-items:center;gap:4px;padding:24px;border:1px dashed var(--line-strong);border-radius:10px;background:var(--surface-raised);color:var(--muted);font-size:var(--text-xs);cursor:pointer}
 .file-upload__drop:disabled{cursor:progress;opacity:.75}

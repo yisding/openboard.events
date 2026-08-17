@@ -31,9 +31,10 @@ import {
 } from "@/features/comms/index.bulk-send-recovery";
 import { composeBulkSpeakerEmailResultSchema, type ComposeBulkSpeakerEmailResult } from "@/shared/contracts";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
+import { FilterSelect } from "@/shared/ui/app/filter-select";
 import { RichTextView } from "@/shared/ui/app/rich-text-view";
 import { useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
-import { Button, Field, Modal, Select } from "@/shared/ui/ui-kit";
+import { Button, Field, Modal } from "@/shared/ui/ui-kit";
 import { useToast } from "@/shared/ui/toast";
 import { api } from "@/shared/lib/api-client";
 import { isAppError } from "@/shared/lib/errors";
@@ -89,6 +90,14 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected, initi
   const subjectRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const [previewContactId, setPreviewContactId] = useState(restored?.previewRecipientId ?? audience[0]?.contactId ?? "");
+  // A bulk email to a whole roster is exactly the list a native dropdown gives
+  // up on: the audience is every speaker the organizer selected, so the picker
+  // is filterable and searches the address too — two speakers can share a name,
+  // and the address is how the sender tells them apart.
+  const previewOptions = useMemo(
+    () => audience.map((row) => ({ value: row.contactId, label: row.name, hint: row.email })),
+    [audience],
+  );
   const [preview, setPreview] = useState<ApprovedPreview | null>(() => restored ? {
     result: restored.approvedPreview,
     fingerprint: restored.fingerprint,
@@ -449,9 +458,15 @@ export function SpeakerBulkEmailDialog({ eventId, open, onClose, selected, initi
           </div>
           <aside className="template-editor__preview">
             <Field label="Preview recipient">
-              <Select value={previewContactId} disabled={recoveryRequired} onChange={(event) => { invalidatePreview(); setPreviewContactId(event.target.value); }}>
-                {audience.map((row) => <option key={row.contactId} value={row.contactId}>{row.name}</option>)}
-              </Select>
+              <FilterSelect
+                value={previewContactId}
+                onChange={(next) => { invalidatePreview(); setPreviewContactId(next); }}
+                options={previewOptions}
+                disabled={recoveryRequired}
+                ariaLabel="Preview recipient"
+                filterPlaceholder="Filter by name or email…"
+                emptyLabel="No speaker in this audience matches"
+              />
             </Field>
             <Button size="sm" variant="secondary" disabled={!ready || busyPreview || recoveryRequired} onClick={() => void runPreview()}>{busyPreview ? "Rendering…" : "Refresh preview"}</Button>
             {currentPreview ? (
