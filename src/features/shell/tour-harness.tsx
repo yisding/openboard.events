@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { forgetTourMirror, GuidedTourMount, TourAnchor } from "@/shared/ui/app/guided-tour";
 import type { TourBootstrap, TourChapter, TourCompletion, TourStateWire, TourStep, TourTransport } from "@/shared/ui/app/guided-tour";
-import { Button, PageHeader, StatusBadge } from "@/shared/ui/ui-kit";
+import { Button, Modal, PageHeader, StatusBadge } from "@/shared/ui/ui-kit";
 
 /**
  * The guided tour, against a fixture.
@@ -101,6 +101,7 @@ export function TourHarness() {
   const [generation, setGeneration] = useState(0);
   const [running, setRunning] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
   const [shipped, setShipped] = useState(0);
   const [log, setLog] = useState<readonly string[]>([]);
   const stateRef = useRef<TourStateWire>(freshState());
@@ -161,6 +162,7 @@ export function TourHarness() {
     shippedRef.current = 0;
     setShipped(0);
     setPanelOpen(false);
+    setModalOpen(false);
     setRunning(false);
     setGeneration((current) => current + 1);
   }, []);
@@ -218,6 +220,15 @@ export function TourHarness() {
             <Button onClick={ship}>Ship something</Button>
           </TourAnchor>
           <Button variant="ghost" onClick={ship}>Ship it from over here instead</Button>
+          {/* The case that is impossible to reason about and trivial to look
+              at: a modal `<dialog>` makes everything it does not contain
+              inert, so a card left outside one is unclickable and — the report
+              this button comes from — undraggable, however far up the top
+              layer it is painted. Open this with the tour running and the card
+              should still take a drag by its header. */}
+          <Button variant="secondary" className="tour-demo-modal-toggle" onClick={() => setModalOpen(true)}>
+            Open a modal over the card
+          </Button>
           <StatusBadge value="demo" />
           <span style={{ color: "var(--muted)", fontSize: "var(--text-xs)" }}>shipped: {shipped}</span>
         </div>
@@ -262,6 +273,21 @@ export function TourHarness() {
             {log.map((line) => <li key={line}><code>{line}</code></li>)}
           </ul>}
       </section>
+
+      <Modal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title="A modal over the tour"
+        description="Everything this dialog does not contain is inert while it is open."
+        footer={<Button onClick={() => setModalOpen(false)}>Close</Button>}
+      >
+        <p>
+          The coach card should still be on top, still readable, and still take a drag by its
+          header — because while this is open the card is rendered <em>inside</em> this dialog.
+          Painting it above the dialog is not enough: the top layer decides what is seen, and the
+          dialog decides what can be touched.
+        </p>
+      </Modal>
 
       <GuidedTourMount key={generation} bootstrap={running ? bootstrap : null} onComplete={onComplete} />
     </main>

@@ -4,8 +4,8 @@ import { ExternalLink, GripVertical, X } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/shared/lib/cn";
-import { dropFromTopLayer, raiseIntoTopLayer } from "@/shared/ui/top-layer";
 import { Button, Modal, ProgressBar } from "@/shared/ui/ui-kit";
+import { useMeasureEffect } from "./anchor";
 import type { TourProgress } from "./objectives";
 import type { TourStep } from "./types";
 
@@ -48,7 +48,11 @@ export type TourCoachProps = {
   progress: TourProgress;
   /** Fixed-position style from the shared popover geometry; null centres the card. */
   position: CSSProperties | null;
-  /** `document.body`, or the open `<dialog>` the anchor lives inside. */
+  /**
+   * `document.body`, or the open `<dialog>` the anchor lives inside — where
+   * the card goes when nothing is holding the page hostage. A modal dialog
+   * opening on top of it overrides this; see `useCardHost`.
+   */
   container: HTMLElement | null;
   /**
    * The anchor has not resolved yet and the engine is still waiting for it.
@@ -185,59 +189,151 @@ function useCardDrag(stepId: string, cardRef: { current: HTMLDivElement | null }
 }
 
 /**
- * Keeps the card visible over a modal `<dialog>` that opens on top of it.
+ * Put `node` inside `host`, keeping the node the browser already has.
  *
- * A modal dialog lives in the top layer, which paints above every z-index there
- * is, dims everything behind its `::backdrop` and — the part that actually
- * hurts — makes everything it does not contain inert: no pointer events, out of
- * the accessibility tree. The step that says "press ⌘K" therefore lost its own
- * card the moment the player did as they were told, blurred and unclickable
- * behind the command palette.
- *
- * So when a dialog the card is not inside is open, the card joins the top layer
- * too, as a `popover="manual"` — manual because this card never traps focus and
- * never closes on Escape, and both of those are exactly what the other popover
- * kinds would take away. Top-layer order is insertion order, so raising it
- * *after* the dialog opened is what puts it in front; the observer is there
- * because the palette opens while the card is already on screen.
- *
- * With no dialog open the card goes back to being an ordinary z-indexed
- * element, which is what every other step wants: nothing to be above.
+ * `moveBefore` is the same move without the teardown — the state-preserving
+ * atomic move, which keeps CSS animations running and focus where it is. It is
+ * recent (Chrome 133), it throws rather than degrading, and it cannot help a
+ * node that is already out of the document, which is where this one is every
+ * time a dialog unmounts around it. So `appendChild` stands behind it, and
+ * everything held in the node's own subtree — an expanded quest tray, a scroll
+ * position, React's own state — survives either way, which is the point.
  */
-function useTopLayerCard(card: HTMLDivElement | null) {
-  useEffect(() => {
-    if (!card) return;
-    /*
-     * What the last sync acted on, so the raise happens on a change and not on
-     * every mutation the observer sees — and it sees a great many, because the
-     * app it is watching is a React tree that commits constantly.
-     *
-     * Raising is not idempotent: it hides the popover and shows it again, to
-     * re-enter the top layer at the end. Hiding a popover that contains the
-     * focused element hands focus back to whatever had it before, so a player
-     * who had tabbed to "Skip this" while the palette was open would have been
-     * thrown back into the palette's search box by the next keystroke's
-     * re-render — and the card, an `aria-live` region, would have left and
-     * re-joined the accessibility tree each time with it.
-     */
-    let above: Element[] = [];
-    const same = (next: Element[]) => next.length === above.length && next.every((dialog, index) => dialog === above[index]);
-    const sync = () => {
-      const buried = [...document.querySelectorAll("dialog[open]")].filter((dialog) => !dialog.contains(card));
-      if (same(buried)) return;
-      above = buried;
-      if (buried.length > 0) raiseIntoTopLayer(card); else dropFromTopLayer(card);
+function moveInto(host: HTMLElement, node: HTMLElement): void {
+  if (node.parentNode === host) return;
+  const move = (host as HTMLElement & { moveBefore?: (moved: Node, child: Node | null) => void }).moveBefore;
+  if (typeof move === "function" && node.isConnected && node.ownerDocument === host.ownerDocument) {
+    try {
+      move.call(host, node, null);
+      return;
+    } catch {
+      // Not movable in place — fall through and re-insert it.
+    }
+  }
+  // A removal takes the focus with it, and `appendChild` is a removal and an
+  // insertion. If the player was on the grab handle — arrow-keying the card off
+  // the control they are being asked to use — this move has to hand it back.
+  const focused = node.contains(node.ownerDocument.activeElement) ? node.ownerDocument.activeElement : null;
+  host.appendChild(node);
+  // Only if nothing else has claimed it in the meantime. The usual reason the
+  // card moves at all is a modal opening, and `showModal()` has already put the
+  // focus where that dialog wants it.
+  if (focused instanceof HTMLElement && node.ownerDocument.activeElement === node.ownerDocument.body) {
+    focused.focus({ preventScroll: true });
+  }
+  // Re-inserting an element replays its CSS animations from zero. Every
+  // animation running on the card a moment after this line is therefore one
+  // this move just restarted — and nothing about the card is new: same node,
+  // same step, same place on screen, so its entrance has no business playing
+  // again. Send them to their end instead. The hint pulse loops forever and has
+  // no end to be sent to; a restart there is a ripple out of phase, which is
+  // nothing anyone sees. (`getAnimations` belongs to a browser with a timeline;
+  // the DOM the tests run in has neither, and nothing to replay either.)
+  if (typeof node.getAnimations !== "function") return;
+  for (const animation of node.getAnimations({ subtree: true })) {
+    if (Number.isFinite(Number(animation.effect?.getComputedTiming().endTime ?? Infinity))) animation.finish();
+  }
+}
+
+/**
+ * Where the card has to live to stay usable: **inside** whatever modal
+ * `<dialog>` is on top of the page, and `document.body` when none is.
+ *
+ * A modal dialog lives in the top layer, which paints above every z-index
+ * there is, dims everything behind its `::backdrop` and — the part that
+ * actually hurts — makes everything it does not contain inert: no pointer
+ * events, no focus, out of the accessibility tree. The step that says "press
+ * ⌘K" therefore lost its own card the moment the player did as they were told,
+ * blurred and unclickable behind the command palette.
+ *
+ * This shipped as a `popover="manual"` raised into the top layer *after* the
+ * dialog, on the theory that a later top-layer entry escapes the earlier one's
+ * inertness. It does not — measured in Chrome, a popover raised over an open
+ * modal dialog paints on top and is still inert: no `pointerdown`, no click,
+ * `focus()` a no-op. So the card looked fixed while every button on it,
+ * including the grab handle the player needs to drag it off the control they
+ * are being asked to use, was dead. Inertness has exactly one exemption and it
+ * is the dialog's own subtree, so that is where the card goes.
+ *
+ * Which dialog, when several are open, is not a question the DOM will answer:
+ * only the newest modal is interactive and document order says nothing about
+ * which that is. So the open ones are remembered in the order they opened —
+ * that being top-layer order — and the card rides the last of them.
+ *
+ * Every `<dialog>` in this app opens with `showModal()`, so `dialog[open]` is
+ * the whole test. The `:modal` pseudo-class would be the precise one, and it
+ * is not worth it: engines disagree about it, and a card that took a wrong
+ * answer would either sit inside a harmless non-modal dialog or be stranded
+ * behind a modal one — and only the second failure is one the player feels.
+ *
+ * **The card is moved, never re-created.** A React portal whose container
+ * changes is not moved: the old subtree is deleted and an identical one built
+ * in the new container. The card is this tour's one `aria-live` region, so a
+ * new node is new content — a screen reader re-reads the title, the body, the
+ * progress and every button, on every modal open *and* every modal close —
+ * and an expanded quest tray snaps shut with it. So React portals into one
+ * wrapper element, created here and never replaced, and it is the wrapper that
+ * travels.
+ *
+ * **And it travels imperatively**, from the observer callback rather than
+ * through a piece of state. Dialogs in this app unmount when they close, so
+ * the card leaves the document with its host; a re-render to put it back is
+ * scheduled a task later, which is a frame with no coach card on it. The
+ * microtask a `MutationObserver` already runs in is done before the paint.
+ */
+function useCardHost(fallback: HTMLElement | null): HTMLElement | null {
+  // Lazily, so there is nothing to create on the server — where this hook, like
+  // the old one, hands back null and the card does not render at all.
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  if (!wrapperRef.current && typeof document !== "undefined") {
+    wrapperRef.current = document.createElement("div");
+    // No box of its own: every shell the card lands in is a flex column with a
+    // gap, where even an empty child is another gap.
+    wrapperRef.current.style.display = "contents";
+  }
+  const wrapper = wrapperRef.current;
+  /** The open dialogs, oldest first — which is the order they entered the top layer. */
+  const openedRef = useRef<HTMLElement[]>([]);
+
+  // Before paint: the first placement is what puts the card in the page at all,
+  // and after paint it would cost the step its first frame.
+  useMeasureEffect(() => {
+    if (!wrapper) return;
+    const place = (records: MutationRecord[] = []) => {
+      // The records in order, not just the state they left behind. Mutations
+      // coalesce into one callback, so a dialog that closed and reopened in
+      // between is simply open by the time this looks — and it belongs at the
+      // end, because it re-entered the top layer at the end. The record whose
+      // `oldValue` is null is that reopen.
+      for (const record of records) {
+        const target = record.target;
+        if (record.type !== "attributes" || record.oldValue !== null) continue;
+        if (!(target instanceof HTMLElement) || target.tagName !== "DIALOG") continue;
+        openedRef.current = [...openedRef.current.filter((candidate) => candidate !== target), target];
+      }
+      const open = [...document.querySelectorAll<HTMLElement>("dialog[open]")];
+      // Ones already known keep their place; the rest have just opened, or were
+      // already open when the tour started, and go on the end.
+      const known = openedRef.current.filter((candidate) => open.includes(candidate));
+      openedRef.current = [...known, ...open.filter((candidate) => !known.includes(candidate))];
+      // `fallback` last, so a step whose anchor moves to a new container with
+      // no dialog open still lands there.
+      moveInto(openedRef.current.at(-1) ?? fallback ?? document.body, wrapper);
     };
-    sync();
+    place();
+    if (typeof MutationObserver !== "function") return;
     // Attributes as well as nodes: `showModal()` sets `open` on a dialog that
     // is already in the tree, which is how every dialog in this app opens.
-    const observer = new MutationObserver(sync);
-    observer.observe(document.documentElement, { subtree: true, childList: true, attributeFilter: ["open"] });
-    return () => {
-      observer.disconnect();
-      dropFromTopLayer(card);
-    };
-  }, [card]);
+    const observer = new MutationObserver(place);
+    observer.observe(document.documentElement, { subtree: true, childList: true, attributeFilter: ["open"], attributeOldValue: true });
+    return () => observer.disconnect();
+  }, [wrapper, fallback]);
+
+  // The wrapper is the tour's, not React's: nothing else takes it back out of
+  // the page when the tour ends.
+  useEffect(() => () => wrapper?.remove(), [wrapper]);
+
+  return wrapper;
 }
 
 function continueLabel(step: TourStep, mode: TourCoachMode): string {
@@ -367,15 +463,8 @@ export function TourCoach(props: TourCoachProps) {
   const bodyId = `tour-body-${generatedId}`;
   const { step, position, container, mobile, mode, settling } = props;
   const cardRef = useRef<HTMLDivElement | null>(null);
-  // State as well as a ref: the raise has to run when the node arrives and
-  // again when it is replaced, which a ref alone would never tell an effect.
-  const [cardNode, setCardNode] = useState<HTMLDivElement | null>(null);
-  const attachCard = useCallback((node: HTMLDivElement | null) => {
-    cardRef.current = node;
-    setCardNode(node);
-  }, []);
   const drag = useCardDrag(step.id, cardRef);
-  useTopLayerCard(cardNode);
+  const host = useCardHost(container);
 
   if (step.presentation === "modal" || step.presentation === "modal-wide") {
     // The cold open and the curtain call are the two beats that deserve to own
@@ -417,7 +506,7 @@ export function TourCoach(props: TourCoachProps) {
     );
   }
 
-  if (!container) return null;
+  if (!host) return null;
   /*
    * With no anchor to sit beside, the middle of the screen is the *worst*
    * place a card can be: on every screen this tour visits, the middle is where
@@ -432,7 +521,7 @@ export function TourCoach(props: TourCoachProps) {
   const moved = drag.offset.x !== 0 || drag.offset.y !== 0;
   const card: ReactNode = (
     <div
-      ref={attachCard}
+      ref={cardRef}
       className={cn("tour-coach", mobile && "tour-coach-sheet", centred && "tour-coach-centred", docked && "tour-coach-docked", settling && "tour-coach-settling", drag.dragging && "tour-coach-dragging", mode === "celebrating" && "tour-coach-won")}
       role="dialog"
       aria-labelledby={titleId}
@@ -452,7 +541,9 @@ export function TourCoach(props: TourCoachProps) {
       <TourCoachBody {...props} titleId={titleId} bodyId={bodyId} drag={mobile ? null : drag} />
     </div>
   );
-  return createPortal(card, container);
+  // Always the same element: `useCardHost` moves that into whichever modal owns
+  // the page, rather than handing this a new container to rebuild the card in.
+  return createPortal(card, host);
 }
 
 /**

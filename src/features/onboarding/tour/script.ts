@@ -635,12 +635,23 @@ const THE_GRID: readonly TourStep[] = [
     chapter: "the-grid",
     kind: "act",
     desktopOnly: true,
-    title: "Fix it.",
-    body: "Move yours, or move the other one. The verdict is computed server-side, so the badge, the grid and this list cannot disagree with each other.",
+    // "Move yours, or move the other one" was true and useless. The objective
+    // is a conflict *count* that went down, and the shortest way to move it is
+    // a different room — but an organizer who reads "move it" reaches for the
+    // time first, drags the talk fifteen minutes down a grid whose slots are
+    // eighteen minutes long, and lands back on top of the pair it started on.
+    // The count does not budge, the card says nothing, and a step that is
+    // working exactly as designed reads as broken. So the copy names the room
+    // as the fix and says what a move in time actually has to clear. The
+    // server-side-verdict point this body used to carry is made twice already,
+    // by `grid.trap` and by the step that opens the list.
+    title: "Give it a room of its own.",
+    body: "Move Voice Agents Under 300ms into a room nobody else has at 10:15 — or to a time that clears 10:33, since a fifteen-minute nudge lands it back on the pair it is overlapping.",
     route: at("/agenda", { view: "conflicts" }),
     anchor: css(".agenda-conflict-row"),
     placement: "bottom",
     objective: world("conflictCount", "decreased"),
+    hint: "Press Jump to Day on the conflict row, click Voice Agents Under 300ms on the grid, and change its room in the editor.",
     reward: { emoji: "🗓", line: "Two rooms, one time, zero apologies to write.", drops: 18 },
   },
 ];
