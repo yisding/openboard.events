@@ -175,15 +175,23 @@ describe("guided tour anchor registry", () => {
     }
   });
 
-  it("emits the two tour signals from the two success handlers that earn them", () => {
+  it("emits tour signals only from the success handlers that earn them", () => {
     // Latency shortcuts, not authorities: `poll-only.test.tsx` proves the tour
-    // completes with neither of them. Ten call sites would be a coupling; two
-    // beside an existing toast is a courtesy.
+    // completes with none of them. Ten call sites would be a coupling; three,
+    // each beside an existing toast, is a courtesy.
+    //
+    // Each one is the *only* thing that can notice its objective quickly: the
+    // work is finished by a save in place, with no navigation and no dialog
+    // close behind it, so the poll — stretched towards its ten-second ceiling
+    // by the time the organizer has finished typing — is otherwise the whole
+    // story. The builder's save is one function every builder action funnels
+    // through, which is why the form feature adds one emit and not six.
     const emitters = SHIPPED.filter(
       (file) => file.text.includes("emitTourSignal(") && !file.path.startsWith("shared/ui/app/guided-tour/"),
     );
     expect(emitters.map((file) => file.path).sort()).toEqual([
       "features/agenda/components/session-form-dialog.tsx",
+      "features/forms/form-builder.tsx",
       "features/submissions/components/decision-bar.tsx",
     ]);
   });

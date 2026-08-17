@@ -45,6 +45,8 @@ const CHAPTERS: readonly TourChapter[] = [
    their identity — exactly as a real script's step objects are. */
 const TABS_ANCHOR = { kind: "selector", css: ".dashboard-tabs" } as const;
 const MISSING_ANCHOR = { kind: "selector", css: ".never-mounts" } as const;
+/** Authored anchorlessness — a step that never wanted a spotlight. */
+const NO_ANCHOR = { kind: "none" } as const;
 const DIALOG_ANCHOR = { kind: "tour-id", id: "abstracts.decision-notify" } as const;
 
 const STEPS: readonly TourStep[] = [
@@ -364,6 +366,26 @@ describe("poll discipline", () => {
     await tick(100);
     expect(coach()?.textContent).toContain("Two rooms, one time, zero apologies to write.");
   });
+
+  it("does not make a step wait out a stretched interval once something says look now", async () => {
+    // The shape behind "added the question, saved it, and the card sat on
+    // Waiting for you… for twenty seconds": by the time an organizer has
+    // typed out a form question the step has been open for minutes, so the
+    // cadence has calmed all the way to its ten-second ceiling and the poll is
+    // the only thing watching. A save that rings the bus is answered now.
+    document.body.insertAdjacentHTML("beforeend", '<nav class="dashboard-tabs">Today</nav>');
+    const server = makeServer({ chapter: "grid", stepId: "grid.resolve" });
+    await render(makeBootstrap(server));
+    await tick(120_000);
+    const before = server.reads;
+
+    server.state = { ...server.state, world: { conflictCount: 2, publishedSessions: 0 } };
+    emitTourSignal("forms.builder-saved");
+    await tick(100);
+
+    expect(server.reads).toBeGreaterThan(before);
+    expect(coach()?.textContent).toContain("Two rooms, one time, zero apologies to write.");
+  });
 });
 
 describe("reduced motion", () => {
@@ -409,6 +431,33 @@ describe("leaving", () => {
     expect(coach()).toBe(null);
     expect(document.querySelector(".tour-pill")).not.toBe(null);
     expect(control("Resume the tour")).toBeTruthy();
+  });
+
+  it("stands the pill down on a screen where the host already offers a way back in", async () => {
+    // The demo dashboard's Today tab gives a paused tour a panel of its own,
+    // and the pill floated over the top of it: two controls, one action, one
+    // screen. The host marks its surface and the engine defers — that is the
+    // whole contract, and a host that marks nothing is unaffected.
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      '<section data-tour-resume><button>Pick the tour back up</button></section>',
+    );
+    const server = makeServer({ chapter: "live", stepId: "live.publish", status: "paused" });
+    await render(makeBootstrap(server));
+    await tick();
+
+    expect(coach()).toBe(null);
+    expect(document.querySelector(".tour-pill")).toBe(null);
+  });
+
+  it("keeps the pill on every screen that offers nothing of its own", async () => {
+    // Design §3.6 — a paused tour has a way back in on every page. Deferring
+    // to the dashboard's panel must not turn into deferring everywhere.
+    const server = makeServer({ chapter: "live", stepId: "live.publish", status: "paused" });
+    await render(makeBootstrap(server));
+    await tick();
+
+    expect(document.querySelector(".tour-pill")?.textContent).toContain("Chapter 3 of 3 — Go live");
   });
 
   it("tells the host the status changed, so its own resume surfaces can follow", async () => {
@@ -528,6 +577,43 @@ describe("anchoring", () => {
     expect(document.querySelector(".tour-scrim")).toBe(null);
     await act(async () => control("Take me there").click());
     expect(harness.push).toHaveBeenCalledWith("/events/evt-1/agenda");
+  });
+
+  it("explains the missing spotlight long before the anchor is declared missing", async () => {
+    // Two steps of the shipped script point at a control that does not exist
+    // until the player has done the first half of the instruction — the
+    // workshop question before the format is Workshop, the visibility
+    // inspector before a question with a rule is selected. Hanging the notice
+    // off `ANCHOR_TIMEOUT_MS` left both of them docked in the corner, with no
+    // spotlight and not a word about why, for six full seconds: indis-
+    // tinguishable, from the player's chair, from a tutorial that has broken.
+    harness.pathname = "/events/evt-1/agenda";
+    const server = makeServer();
+    await render(makeBootstrap(server, {
+      steps: [{ ...STEPS[0], anchor: MISSING_ANCHOR, route: { path: "/events/:eventId/agenda" } } as TourStep, ...STEPS.slice(1)],
+    }));
+
+    // Past the settle grace, so the card is on screen — and still saying
+    // nothing, because an anchor that is merely late deserves a moment.
+    await tick(400);
+    expect(coach()).not.toBe(null);
+    expect(coach()?.textContent).not.toContain("No spotlight yet");
+
+    await tick(1_300);
+    expect(coach()?.textContent).toContain("No spotlight yet");
+  });
+
+  it("says nothing about a step that was authored with nothing to point at", async () => {
+    // Deliberate anchorlessness is not a failure, so there is nothing to
+    // apologise for. The script's blind-review beat is exactly this shape.
+    const server = makeServer();
+    await render(makeBootstrap(server, {
+      steps: [{ ...STEPS[0], anchor: NO_ANCHOR, route: { path: "/events/:eventId/agenda" } } as TourStep, ...STEPS.slice(1)],
+    }));
+    await tick(6_500);
+    expect(coach()?.textContent).toContain("Everything that needs you, ranked.");
+    expect(coach()?.textContent).not.toContain("No spotlight yet");
+    expect(coach()?.textContent).not.toContain("Take me there");
   });
 
   it("still travels when an intercepted navigation has moved the address bar ahead of the router", async () => {

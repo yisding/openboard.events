@@ -41,6 +41,7 @@ import {
 import { AppError, isAppError, isDefinitiveWriteFailure } from "@/shared/lib/errors";
 import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { copyText } from "@/shared/ui/app/copy-text";
+import { emitTourSignal } from "@/shared/ui/app/guided-tour/signals";
 import { requestGuardedEditorClose } from "@/shared/ui/app/modal-editor-guard";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { RichTextEditor } from "@/shared/ui/app/rich-text-editor-lazy";
@@ -447,6 +448,15 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
       setDirty(remaining.size > 0);
       if (remaining.size === 0 && !newQuestionDraftDirty && !routingDraftDirty) setAvailabilityAlert(null);
       toast(success);
+      // A nudge to the guided tour, never a verdict: two of the script's world
+      // objectives (add a question, publish a version) are finished by a save
+      // on this page with no navigation and no dialog behind it, so the poll
+      // was the only thing that could notice — and by the time somebody has
+      // typed out a question the interval has stretched towards its ten-second
+      // ceiling. The engine still decides from the server's own snapshot; this
+      // only tells it when to go and look. Every save goes through here, which
+      // is why there is one call site rather than one per action.
+      emitTourSignal("forms.builder-saved");
       router.refresh();
       return true;
     } catch (error) {

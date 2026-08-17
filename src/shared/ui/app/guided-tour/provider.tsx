@@ -18,6 +18,7 @@ import { readTourMirror, writeTourMirror } from "./mirror";
 import {
   ANCHOR_SETTLE_MS,
   HINT_REVEAL_MS,
+  NOTICE_AFTER_MS,
   OBSERVE_DWELL_MS,
   POLL_BASE_MS,
   POLL_HARD_STOP_MS,
@@ -273,7 +274,8 @@ function GuidedTourLayer({ bootstrap, onComplete, onStatusChange }: {
    * started" about a control several pages away, which reads as the tutorial
    * having lost the plot. Inheriting the last route the chapter established
    * costs the stay nothing (the href is only consulted once the anchor has
-   * timed out) and makes both the notice and the way back honest.
+   * gone unresolved past `NOTICE_AFTER_MS`) and makes both the notice and the
+   * way back honest.
    */
   const stepRoute = useMemo(() => {
     if (!step) return undefined;
@@ -811,6 +813,24 @@ function GuidedTourLayer({ bootstrap, onComplete, onStatusChange }: {
     return () => window.clearTimeout(timer);
   }, [step?.id]);
 
+  /**
+   * And a second and a half of patience before the card *explains* itself.
+   *
+   * Separate from the grace period above because the two answer different
+   * questions. `anchorSettled` decides when to draw the card at all, and a
+   * quarter of a second is right for that. This one decides when an anchor
+   * that still has not resolved stops being a wait and starts being something
+   * the player deserves to be told about — see `NOTICE_AFTER_MS`. Keyed on the
+   * step for the same reason, so a step whose anchor arrives late does not
+   * inherit the previous step's verdict.
+   */
+  const [noticeDue, setNoticeDue] = useState(false);
+  useMeasureEffect(() => {
+    setNoticeDue(false);
+    const timer = window.setTimeout(() => setNoticeDue(true), NOTICE_AFTER_MS);
+    return () => window.clearTimeout(timer);
+  }, [step?.id]);
+
   /* --- advance on satisfaction ------------------------------------------ */
 
   // Held in a ref so the satisfaction effect fires once per satisfaction, not
@@ -899,6 +919,37 @@ function GuidedTourLayer({ bootstrap, onComplete, onStatusChange }: {
     setPillHidden(false);
   }, [pathname]);
 
+  /**
+   * Standing the pill down where the host already offers a way back in.
+   *
+   * The engine is host-agnostic on purpose, so it cannot know that the demo
+   * dashboard hands a paused tour a panel of its own — and on the Today tab
+   * the two shipped side by side: an inline *"Pick the tour back up"* card and
+   * the floating pill in the corner. Two controls, one action, one screen.
+   *
+   * The whole contract is one attribute. **A host that renders its own resume
+   * surface marks it `data-tour-resume`, and the pill stays out of its way.**
+   * Nothing else about that surface is the engine's business, and a host that
+   * marks nothing keeps the pill everywhere, exactly as before — including on
+   * every other page of the same demo, which is what design §3.6 promises.
+   *
+   * Probed rather than passed as a prop because the surface belongs to the
+   * *page*, while the engine is mounted once by the layout: no prop from up
+   * there could know what the route below it decided to render. Re-probed on
+   * every pathname change for the same reason, and only ever while paused,
+   * which is the only state that draws a pill. Before paint, so a full load of
+   * the dashboard never flashes a pill it is about to withdraw.
+   */
+  const paused = cursor.status === "paused";
+  const [hostResumeSurface, setHostResumeSurface] = useState(false);
+  useMeasureEffect(() => {
+    if (!paused || typeof document === "undefined") {
+      setHostResumeSurface(false);
+      return;
+    }
+    setHostResumeSurface(document.querySelector("[data-tour-resume]") !== null);
+  }, [paused, pathname]);
+
   /* --- rendering -------------------------------------------------------- */
 
   // A running tour always has a card to draw: a cursor naming a step this
@@ -908,7 +959,7 @@ function GuidedTourLayer({ bootstrap, onComplete, onStatusChange }: {
   if (!step || cursor.status === "complete") return null;
 
   if (cursor.status === "paused") {
-    if (pillHidden) return null;
+    if (pillHidden || hostResumeSurface) return null;
     return <TourPill progress={progress} onResume={resume} onDismiss={() => setPillHidden(true)} />;
   }
 
@@ -942,12 +993,39 @@ function GuidedTourLayer({ bootstrap, onComplete, onStatusChange }: {
         ? "waiting"
         : "ready";
 
-  const anchorless = step.anchor !== undefined && step.anchor.kind !== "none" && anchor.status === "missing";
+  /**
+   * "This step wanted something to point at and has not got it."
+   *
+   * Deliberately *not* `anchor.status === "missing"`. That status is only
+   * reached after `ANCHOR_TIMEOUT_MS`, and the steps that need the explanation
+   * most are exactly the ones whose control does not exist yet on arrival —
+   * the workshop question before the format is Workshop, the visibility
+   * inspector before a question with a rule is selected. Those spent the first
+   * six seconds docked in the corner with no spotlight and no notice, which
+   * reads as a tutorial that has lost its place rather than one waiting for
+   * the player to do the first half of the instruction. Waiting out
+   * `NOTICE_AFTER_MS` instead says it as soon as it is true and still leaves
+   * every merely-late anchor time to arrive unremarked.
+   *
+   * `status !== "found"` rather than "was it ever found", so an anchor that
+   * goes away later — the dialog it pointed into being closed, a tab switched —
+   * gets the same honesty without waiting out a second timeout.
+   *
+   * A step authored `anchor: { kind: "none" }` is *deliberately* anchorless
+   * and gets nothing: there is no failure to explain. Modal presentations are
+   * excluded because their anchor is never resolved in the first place.
+   */
+  const anchorless = step.anchor !== undefined
+    && step.anchor.kind !== "none"
+    && step.presentation !== "modal"
+    && step.presentation !== "modal-wide"
+    && anchor.status !== "found"
+    && (noticeDue || anchor.status === "missing");
   const takeMeThereHref = stepRoute ? tourHref(stepRoute, bootstrap.context) : null;
   // Offered only when it is actually a trip. The tour navigates to `step.route`
-  // on entry, so by the time the anchor times out the player is almost always
-  // already there — and `navigate` returns without pushing for the URL the
-  // browser is on, which made the button render and do nothing at all.
+  // on entry, so by the time the card gives up on the anchor the player is
+  // almost always already there — and `navigate` returns without pushing for
+  // the URL the browser is on, which made the button render and do nothing.
   const elsewhere = takeMeThereHref !== null && !isCurrentLocation(takeMeThereHref, location);
   /**
    * What the card says when it has nothing to point at.
