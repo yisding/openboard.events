@@ -183,6 +183,33 @@ describe("guided tour script", () => {
     }
   });
 
+  it("opens every leading-edge or overlong-anchor card away from what it would otherwise cover", () => {
+    // Four cards anchored on a control that is either flush against the
+    // navigation rail or taller/wider than the room the card needs, pinned so
+    // the next placement swap does not quietly reopen the coverage it fixed
+    // (#716).
+    //
+    // `grid.tray` and `quest.auto-place` anchor a tray against the leading
+    // edge: opening left can only ever clamp to the 12px margin, on top of
+    // the nav rail.
+    expect((tourStepById("grid.tray") as TourStep).placement).toBe("right");
+    expect((tourStepById("quest.auto-place") as TourStep).placement).toBe("right");
+    // `judge.rounds` anchors round 1's Window cell, which is narrower than
+    // the card: right clips the Reviewers/Progress/Status columns beside it,
+    // and bottom (in either variant) lands on round 2's Blind review badge
+    // directly below. Left is the only side that shares no pixel with either.
+    expect((tourStepById("judge.rounds") as TourStep).placement).toBe("left");
+    // `mission.templates` opens on the Reminders tab to point at the
+    // Templates tab beside it; the default bottom landed on the reminder
+    // ladder the Reminders panel was already showing.
+    expect((tourStepById("mission.templates") as TourStep).placement).toBe("right");
+    // `decide.confirm` anchors the dialog's whole scrollable body, which is
+    // taller than the dialog itself — the default bottom clamped to the
+    // viewport's bottom edge, over the decline sample the copy invites
+    // reading. The wide dialog leaves clear space beside it.
+    expect((tourStepById("decide.confirm") as TourStep).placement).toBe("right");
+  });
+
   it("owes the player a sentence for every chapter mobile drops", () => {
     const dropped = new Set(TOUR_STEPS.filter((step) => step.desktopOnly === true).map((step) => step.chapter));
     for (const chapter of dropped) {
@@ -256,6 +283,19 @@ describe("guided tour script", () => {
     expect(eventTemplates).toHaveLength(11);
     expect(copy).toContain("Eleven templates");
     expect(copy).not.toContain("Fourteen");
+  });
+
+  it("does not count the delivery log's backdated history where a player can count it too", () => {
+    // `COMM_LOG_ROWS` (demo/dataset.ts) backdates nine rows, but the log both
+    // `decide.outbox` and `quest.outbox` point at also holds the live
+    // reminder sweeper's output — `task_assigned`/`task_reminder` rows for
+    // every seeded assignment, tens more of them. A card that says "nine" is
+    // falsifiable by counting the very screen it is standing on (#709).
+    for (const id of ["decide.outbox", "quest.outbox"]) {
+      const copy = copyOf(tourStepById(id) as TourStep).join(" ");
+      expect(copy, id).not.toMatch(/\bnine\b/iu);
+      expect(copy, id).toContain("oldest rows");
+    }
   });
 
   it("names a talk the tray is actually holding, and a slot that is actually taken", () => {

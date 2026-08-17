@@ -814,7 +814,7 @@ export function FormBuilder({ event, initialForm }: { event: BuilderEvent; initi
         <div className="builder-edit-actions" role="group" aria-label="Form editing actions">
           {availability === "live" && <Button variant="secondary" aria-label="Copy live form link" title="Copy live form link" onClick={() => void copyLink()}><Copy size={16} /> <span className="builder-action-label">Copy live link</span></Button>}
           <Link className="button button-secondary" aria-label="Preview form" title="Preview form" target="_blank" rel="noreferrer" href={`/events/${event.id}/forms/${form.id}/preview`}><Eye size={16} /> <span className="builder-action-label">Preview</span></Link>
-          <Button className="builder-publish-action" id="publish-form-version" aria-label="Publish the current step as a new immutable form version" title="Publish the current step as a new immutable form version" disabled={busy || participantStepRecovery !== null} onClick={() => void saveStep()}><Save size={16} /> <span className="builder-action-label">{busy ? "Publishing…" : "Publish version"}</span></Button>
+          <Button className="builder-publish-action" id="publish-form-version" aria-label="Publish version — publishes the current step as a new immutable form version" title="Publish version — publishes the current step as a new immutable form version" disabled={busy || participantStepRecovery !== null} onClick={() => void saveStep()}><Save size={16} /> <span className="builder-action-label">{busy ? "Publishing…" : "Publish version"}</span></Button>
         </div>
         <div className="builder-lifecycle-actions" role="group" aria-label="Form availability">
           <span>Availability</span>
