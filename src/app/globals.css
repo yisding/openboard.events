@@ -1821,6 +1821,17 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .reviewer-progress li{font-size:var(--text-xs)}
 .reviewer-progress small{color:var(--muted);font-size:var(--text-xs)}
 .reviewer-progress .reviewer-load-bar{display:block;width:64px;margin-top:4px}
+
+/* `.data-table{white-space:nowrap}` means every other column in this table
+   already refuses to give up width; `.row-actions{flex-wrap:wrap}` is the one
+   thing in the row that *can* shrink, so under table-layout:auto it absorbed
+   the whole deficit — narrower than four compact buttons even at 1440px, so
+   Assign/Remind/Edit landed on one line and Delete wrapped alone onto a
+   second, orphaned and right-aligned into empty space. Locking this column to
+   a single row gives it the same floor the nowrap columns already have; a
+   viewport too narrow for that falls back to the table's own horizontal
+   scroll rather than reflowing the buttons. */
+.data-table td.plan-actions-column .row-actions{flex-wrap:nowrap}
 .assignment-choice{display:grid;grid-template-columns:16px minmax(0,1fr);column-gap:8px;row-gap:2px;align-items:center;min-height:44px;padding:8px 0;border-bottom:1px solid var(--fill);font-size:var(--text-xs);cursor:pointer}
 .assignment-choice:last-child{border-bottom:0}
 .assignment-choice input[type="checkbox"]{grid-column:1;grid-row:1/3;width:16px;height:16px;margin:0;padding:0;accent-color:var(--accent)}

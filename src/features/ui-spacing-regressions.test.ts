@@ -392,6 +392,24 @@ describe("shared UI spacing regressions", () => {
     expect(css).not.toMatch(/(?<!\.abstracts-title-column )\.submission-title-cell b[,{][^{}]*display:-webkit-box/u);
   });
 
+  it("gives the evaluation plan row actions a floor, not just a ceiling", () => {
+    const plans = read("./submissions/evaluation/components/plans-view.tsx");
+
+    // Same defect as the abstracts title column above, mirrored: auto table
+    // layout satisfies every nowrap column first and hands the deficit to the
+    // only column that can still shrink. There it collapsed the Title column;
+    // here it left Assign/Remind/Edit on one line and wrapped Delete alone
+    // onto a second, orphaned and right-aligned into empty space even at
+    // 1440px, where there was room for all four.
+    expect(plans).toContain('meta: { className: "plan-actions-column" }');
+    expect(css).toContain(".data-table td.plan-actions-column .row-actions{flex-wrap:nowrap}");
+    // The shared class's own wrap behavior stays intact — `.admin-task-row`
+    // cards and every other `.row-actions` group still fall back to wrapping
+    // on a narrow viewport; only this column's four-button cluster is pinned
+    // to one row, falling back to the table's own horizontal scroll instead.
+    expect(css).toContain(".row-actions { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }");
+  });
+
   it("keeps a table toolbar's search from being squeezed by its filters", () => {
     expect(css).toContain(".data-toolbar>.table-search{flex:0 0 280px}");
     expect(css).toContain(".data-toolbar>.filter-button{min-width:0}");
