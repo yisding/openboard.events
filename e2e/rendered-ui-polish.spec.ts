@@ -386,12 +386,25 @@ test.describe("login form panel error color", () => {
       const subtitle = document.querySelector(".login-form-panel form>p:not(.field-error)");
       const error = document.querySelector(".login-form-panel .field-error");
       if (!subtitle || !error) throw new Error("Login form fixture is incomplete");
-      return { subtitle: getComputedStyle(subtitle).color, error: getComputedStyle(error).color };
+      // Resolve the --red token through a probe instead of hardcoding its
+      // current value, so retuning the palette doesn't read as a regression.
+      const probe = document.createElement("span");
+      probe.style.color = "var(--red)";
+      document.body.appendChild(probe);
+      return {
+        subtitle: getComputedStyle(subtitle).color,
+        error: getComputedStyle(error).color,
+        red: getComputedStyle(probe).color,
+        errorMarginBottom: getComputedStyle(error).marginBottom,
+      };
     });
 
     expect(colors.error).not.toBe(colors.subtitle);
-    // #af323d
-    expect(colors.error).toBe("rgb(175, 50, 61)");
+    expect(colors.error).toBe(colors.red);
+    // The error is still a paragraph in the panel's grid: the gap owns the
+    // spacing, so a UA default margin sneaking back would shift the submit
+    // button down on every rejected sign-in.
+    expect(colors.errorMarginBottom).toBe("0px");
   });
 });
 
