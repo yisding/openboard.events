@@ -1,3 +1,5 @@
+import { raiseIntoTopLayer } from "./top-layer";
+
 // Shared engine for the app's easter eggs: a short, self-cleaning shower of
 // emoji over the whole viewport. Imperative DOM rather than a React portal on
 // purpose — callers fire it from event handlers (palette selection, a key
@@ -22,7 +24,15 @@ export function emojiRain(emojis: string[], count = 28) {
     overlay.appendChild(drop);
   }
   document.body.appendChild(overlay);
+  // The celebration that most deserves confetti is the tour's curtain call,
+  // which is a modal `<dialog>` — and a modal dialog is in the top layer, above
+  // every z-index there is. The burst fired on time and rained behind the
+  // payoff screen, becoming visible only once the modal was dismissed. Joining
+  // the top layer after it puts the confetti back over the moment it is for; a
+  // browser without popover support keeps the plain z-indexed overlay.
+  raiseIntoTopLayer(overlay);
   // Longest possible drop: 1.2s delay + 3.8s fall. The overlay is
   // pointer-events:none, so a slightly generous timeout costs nothing.
+  // Removing a shown popover takes it out of the top layer with it.
   window.setTimeout(() => overlay.remove(), 5200);
 }

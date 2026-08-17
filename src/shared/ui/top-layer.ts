@@ -1,7 +1,9 @@
 /**
- * The one element this product promotes into the top layer by hand: the toast
- * stack (`toast.tsx` shows it as a `popover="manual"` so it paints above the
- * `<dialog>` drawers, which are in the top layer themselves).
+ * Promoting an element into the top layer by hand. Two callers: the toast stack
+ * (`toast.tsx` shows it as a `popover="manual"` so it paints above the
+ * `<dialog>` drawers, which are in the top layer themselves) and the guided
+ * tour, whose confetti and coach card have the same problem for the same
+ * reason.
  *
  * Top-layer order is insertion order, and it settles more than paint order:
  * everything a modal `<dialog>` does not contain is blocked by it, so an
@@ -15,9 +17,51 @@
  * This lives in its own module rather than in `toast.tsx` so `ui-kit.tsx` can
  * call it from `showModal()` without importing the toast module — which many
  * component tests replace wholesale with a `vi.mock` of `useToast`.
+ *
+ * Anything raised this way owes the UA's `[popover]` box an undo in CSS —
+ * `inset: 0`, `margin: auto`, a border, a padding and an opaque background —
+ * see `.toast-stack`, `.egg-rain` and `.tour-coach` in globals.css.
  */
 
 let stack: HTMLElement | null = null;
+
+/**
+ * Leave the top layer if the element is in it. `hidePopover()` throws rather
+ * than no-ops on an element that was not showing, and `:popover-open` is not a
+ * selector every engine parses, so the throw is the cheapest test there is.
+ */
+function hideIfShown(element: HTMLElement): void {
+  try {
+    element.hidePopover();
+  } catch {
+    // Was not showing — nothing to leave.
+  }
+}
+
+/**
+ * Insert `element` at the end of the top layer — above whatever modal dialog is
+ * open right now — as a manual popover, which neither traps focus nor closes on
+ * Escape. Already raised is fine: it leaves and re-enters at the end.
+ */
+export function raiseIntoTopLayer(element: HTMLElement | null): void {
+  if (!element || typeof element.showPopover !== "function") return;
+  element.setAttribute("popover", "manual");
+  try {
+    hideIfShown(element);
+    element.showPopover();
+  } catch {
+    // A browser without popover support, or a failed show: leave an ordinary,
+    // visible element behind rather than one the UA hides as a closed popover.
+    element.removeAttribute("popover");
+  }
+}
+
+/** Put a raised element back in normal flow, at its own z-index. */
+export function dropFromTopLayer(element: HTMLElement | null): void {
+  if (!element?.hasAttribute("popover")) return;
+  hideIfShown(element);
+  element.removeAttribute("popover");
+}
 
 /** Called by the toast provider as its stack element mounts and unmounts. */
 export function registerTopLayerStack(element: HTMLElement | null): void {
@@ -26,14 +70,5 @@ export function registerTopLayerStack(element: HTMLElement | null): void {
 
 /** Re-insert the stack at the end of the top layer. A no-op with no toasts up. */
 export function raiseTopLayerStack(): void {
-  if (!stack || typeof stack.showPopover !== "function") return;
-  stack.setAttribute("popover", "manual");
-  try {
-    if (stack.matches(":popover-open")) stack.hidePopover();
-    stack.showPopover();
-  } catch {
-    // A browser without popover support, or a failed show: leave an ordinary,
-    // visible element behind rather than one the UA hides as a closed popover.
-    stack.removeAttribute("popover");
-  }
+  raiseIntoTopLayer(stack);
 }

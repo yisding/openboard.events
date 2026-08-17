@@ -35,8 +35,9 @@ export async function loginAsAdmin(target: Page | APIRequestContext, email: stri
  * have to explain one.
  *
  * There are *two* throttles on this path and the UI cannot tell them apart: it
- * maps any 429 to "Check your inbox, or try again in a few minutes". So neither
- * helper may name one of them as the cause.
+ * maps any 429 to the same code-entry step, whose copy says a code may already
+ * be in hand and names only when a new one can be asked for. So neither helper
+ * may name one of them as the cause.
  *
  *  - The request route counts code requests *per address* and
  *    `requestPortalLoginIn` counts un-expired OTPs *per contact* — the same
@@ -154,16 +155,30 @@ export async function loginAsSpeaker(page: Page, eventSlug: string, email: strin
   await page.getByLabel("Email address").fill(email);
   await page.getByRole("button", { name: /send|continue|sign in/i }).click();
 
-  // The form answers with either the fallback panel or an inline error, and a
-  // throttle has to be named: waiting 30 s for a panel that will never appear
-  // reports the wrong failure.
+  // The form answers with the fallback panel, an inline error, or — on a 429 —
+  // the code-entry step for an earlier code, which this run does not have. Each
+  // has to be named: waiting 30 s for a panel that will never appear reports
+  // the wrong failure.
   const code = page.locator(".demo-code code");
   const failure = page.locator(".field-error");
-  const answered = async () => (await code.count()) > 0 ? "issued" : (await failure.count()) > 0 ? "refused" : "pending";
+  const throttled = page.getByRole("heading", { name: "Enter your code" });
+  const answered = async () => (await code.count()) > 0
+    ? "issued"
+    : (await throttled.count()) > 0
+      ? "throttled"
+      : (await failure.count()) > 0 ? "refused" : "pending";
   await expect
     .poll(answered, { message: "the login form should answer the code request", timeout: 20_000 })
     .not.toEqual("pending");
-  if (await answered() === "refused") {
+  const outcome = await answered();
+  if (outcome === "throttled") {
+    throw new Error(
+      `/api/internal/auth/portal/request throttled a code for ${email}: the form moved to code entry for a code `
+      + "issued earlier, which this run cannot read. "
+      + PORTAL_CODE_REFUSAL_CAUSES,
+    );
+  }
+  if (outcome === "refused") {
     throw new Error(
       `/api/internal/auth/portal/request refused a code for ${email}: "${(await failure.first().innerText()).trim()}". `
       + PORTAL_CODE_REFUSAL_CAUSES,

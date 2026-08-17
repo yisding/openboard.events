@@ -2,17 +2,23 @@
 
 import {
   DndContext,
+  KeyboardCode,
+  KeyboardSensor,
   PointerSensor,
   useDraggable,
   useDroppable,
   useSensor,
   useSensors,
+  type Announcements,
   type DragEndEvent,
+  type KeyboardCoordinateGetter,
+  type ScreenReaderInstructions,
+  type UniqueIdentifier,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { Kanban, Plus, Search } from "lucide-react";
+import { GripVertical, Kanban, Plus, Search } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { OrganizationEventRow } from "@/features/organizations";
 import {
   CRM_PIPELINE_STAGES,
@@ -43,6 +49,47 @@ const CONTACT_REFRESH_RECOVERY_MESSAGE = "The prospect was added, but we could n
 const PIPELINE_REFRESH_ERROR_MESSAGE = "We could not confirm the latest pipeline yet. Adding and moving prospects remain paused so an older snapshot cannot overwrite your work.";
 const PIPELINE_TRANSITION_RECOVERY_MESSAGE = "We could not confirm that move. The pipeline is refreshing before any more changes.";
 const MAX_AUTHORITY_READS = 4;
+
+/**
+ * dnd-kit's stock keyboard instructions describe a sortable list. This board is
+ * a set of stage columns, and it has a second, drag-free path to the same
+ * mutation — say both, so nobody hunts for a gesture they do not need.
+ */
+const SCREEN_READER_INSTRUCTIONS: ScreenReaderInstructions = {
+  draggable: "Press space or enter on a prospect's drag handle to pick it up. The left and right arrow keys move it between stages, space or enter drops it, escape cancels. Every card also carries a stage menu that makes the same move without a drag.",
+};
+
+/**
+ * The stock keyboard coordinate getter nudges the picked-up card 25px per
+ * press, so crossing one of three full-width columns took a dozen presses and
+ * the card spent most of them over nothing. Left/right — and up/down, so the
+ * gesture works from either hand position — step it to the next stage instead:
+ * one press, one column, always centred over a real drop target.
+ */
+const stageCoordinateGetter: KeyboardCoordinateGetter = (event, { currentCoordinates, context }) => {
+  const step = event.code === KeyboardCode.Right || event.code === KeyboardCode.Down ? 1
+    : event.code === KeyboardCode.Left || event.code === KeyboardCode.Up ? -1
+      : 0;
+  if (step === 0) return undefined;
+  event.preventDefault();
+  const dragged = context.collisionRect;
+  const columns = CRM_PIPELINE_STAGES.flatMap((stage) => {
+    const rect = context.droppableRects.get(stage);
+    return rect ? [rect] : [];
+  });
+  if (!dragged || columns.length === 0) return undefined;
+  const centerOf = (rect: { left: number; width: number }) => rect.left + rect.width / 2;
+  const draggedCenter = centerOf(dragged);
+  let nearest = 0;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  columns.forEach((rect, index) => {
+    const distance = Math.abs(centerOf(rect) - draggedCenter);
+    if (distance < nearestDistance) { nearest = index; nearestDistance = distance; }
+  });
+  const target = columns[nearest + step];
+  if (!target) return undefined;
+  return { x: currentCoordinates.x + (centerOf(target) - draggedCenter), y: currentCoordinates.y };
+};
 
 type ContactLite = { id: OrganizationContactId; name: string; email: string; company: string | null };
 type AddProspectAttempt = {
@@ -137,20 +184,43 @@ async function loadPipelineAuthority(organizationId: OrganizationId): Promise<Pi
 
 function Card({ entry, contact, eventName, mutationsBlocked, onMove }: { entry: CrmPipelineEntryDTO; contact: ContactLite | undefined; eventName: string | null; mutationsBlocked: boolean; onMove: (stage: CrmPipelineStage) => void }) {
   // dnd-kit's `attributes` are ARIA only — dragging needs `setNodeRef` and the
-  // listeners. Spreading them here made every card a `role="button" tabindex="0"`
-  // tab stop with no keyboard activation (the board registers PointerSensor
-  // only) and nested the stage <Select> below inside a button. That Select is
-  // the pointer-free path, so the card takes the drag listeners and nothing else.
-  const { listeners, setNodeRef, transform, isDragging } = useDraggable({ id: entry.id, data: { entry }, disabled: mutationsBlocked });
+  // listeners. Spreading them over the whole card made it a `role="button"
+  // tabindex="0"` tab stop that nested the stage <Select> below inside a
+  // button, so they live on a dedicated grip instead: the card body still
+  // drags by pointer from anywhere, and the one element carrying the keyboard
+  // activator is a real button with a name that says what it does.
+  // `setActivatorNodeRef` is what makes that split safe — the KeyboardSensor
+  // compares the keydown target against it, so Space inside the <Select> stays
+  // a <Select> interaction instead of bubbling up and picking the card up.
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, isDragging } = useDraggable({ id: entry.id, data: { entry }, disabled: mutationsBlocked });
   const style: CSSProperties = { transform: transform ? CSS.Translate.toString(transform) : undefined };
+  // A card with no resolved contact shows "Unknown contact" but is *named*
+  // "this prospect": a control called "Drag Unknown contact" reads like the
+  // control is broken rather than the row.
+  const spokenName = contact?.name ?? "this prospect";
   return (
     <div ref={setNodeRef} style={style} className={isDragging ? "crm-board-card crm-board-card--dragging" : "crm-board-card"} {...listeners}>
-      <b>{contact?.name ?? "Unknown contact"}</b>
-      <span>{contact?.email}{contact?.company ? ` · ${contact.company}` : ""}</span>
+      <div className="crm-board-card-head">
+        <div>
+          <b>{contact?.name ?? "Unknown contact"}</b>
+          <span>{contact?.email}{contact?.company ? ` · ${contact.company}` : ""}</span>
+        </div>
+        <button
+          ref={setActivatorNodeRef}
+          type="button"
+          className="icon-button crm-board-card-grip"
+          aria-label={`Drag ${spokenName} between stages`}
+          disabled={mutationsBlocked}
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical size={15} />
+        </button>
+      </div>
       {eventName && <span>Target: {eventName}</span>}
       {entry.notes && <span>{entry.notes}</span>}
       <div className="crm-board-card-actions" onPointerDown={(event) => event.stopPropagation()}>
-        <Select aria-label={`Move ${contact?.name ?? "this prospect"} to a different stage`} value={entry.stage} disabled={mutationsBlocked} onChange={(event) => onMove(event.target.value as CrmPipelineStage)}>
+        <Select aria-label={`Move ${spokenName} to a different stage`} value={entry.stage} disabled={mutationsBlocked} onChange={(event) => onMove(event.target.value as CrmPipelineStage)}>
           {CRM_PIPELINE_STAGES.map((stage) => <option key={stage} value={stage}>{STAGE_LABEL[stage]}</option>)}
         </Select>
       </div>
@@ -354,9 +424,9 @@ function AddProspectDialog({ organizationId, events, open, onClose, onCreated }:
  * M55 — the sourcing kanban (AC: "Move a prospect through open/won/lost
  * states and verify timestamped history"). Drag between columns
  * (`@dnd-kit/core`, the same library the agenda day-grid already depends on)
- * moves a card; each card also carries a plain `<Select>` dropdown as the pointer-free
- * path to the identical `transitionCrmPipeline` call, since dnd-kit's drag
- * gesture has no keyboard equivalent on its own.
+ * moves a card; the drag itself is keyboard-operable from each card's grip,
+ * and every card also carries a plain `<Select>` dropdown as a second,
+ * gesture-free path to the identical `transitionCrmPipeline` call.
  */
 export function PipelineBoard({
   organizationId,
@@ -379,7 +449,15 @@ export function PipelineBoard({
   const authorityRefreshInFlightRef = useRef(false);
   const pendingMutationsRef = useRef(new Set<Promise<void>>());
   const pendingEntryIdsRef = useRef(new Set<string>());
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
+  // `entriesRef` is what a move reads its "expected" row from. The Undo below
+  // fires from a toast, long after the render that created it, so a closure
+  // over `entries` would send the server the version this card had *before*
+  // the move it is undoing — a guaranteed STALE_WRITE.
+  const entriesRef = useRef(entries);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: stageCoordinateGetter }),
+  );
   const eventNameById = Object.fromEntries(events.map((event) => [event.id, event.name]));
   const mutationsBlocked = authorityRefresh !== null;
 
@@ -388,6 +466,42 @@ export function PipelineBoard({
   // a late RSC snapshot must never overwrite a mutation made after close.
   useEffect(() => setEntries(initialEntries), [initialEntries]);
   useEffect(() => setContacts(contactsById), [contactsById]);
+  useEffect(() => { entriesRef.current = entries; }, [entries]);
+
+  // dnd-kit narrates a drag from the draggable and droppable *ids*, which here
+  // are a pipeline-entry UUID and a stage key — "Draggable item 3f0a…-… was
+  // dropped over droppable area won". Name the prospect and the stage instead,
+  // the same treatment the routing-rules list already gets.
+  const announcements = useMemo<Announcements>(() => {
+    const entryOf = (id: UniqueIdentifier) => entries.find((row) => row.id === id);
+    const nameOf = (id: UniqueIdentifier) => {
+      const entry = entryOf(id);
+      return (entry && contacts[entry.organizationContactId]?.name) || "this prospect";
+    };
+    const stageOf = (id: UniqueIdentifier) => {
+      const entry = entryOf(id);
+      return entry ? STAGE_LABEL[entry.stage] : "its stage";
+    };
+    const columnOf = (id: UniqueIdentifier) => {
+      const stage = CRM_PIPELINE_STAGES.find((candidate) => candidate === id);
+      return stage ? STAGE_LABEL[stage] : null;
+    };
+    return {
+      onDragStart: ({ active }) => `Picked up ${nameOf(active.id)}, currently in ${stageOf(active.id)}. Use the left and right arrow keys to choose a stage.`,
+      onDragOver: ({ active, over }) => {
+        const column = over ? columnOf(over.id) : null;
+        return column ? `${nameOf(active.id)} is over ${column}.` : `${nameOf(active.id)} is not over a stage.`;
+      },
+      onDragEnd: ({ active, over }) => {
+        const from = stageOf(active.id);
+        const column = over ? columnOf(over.id) : null;
+        return column && column !== from
+          ? `Moved ${nameOf(active.id)} to ${column}.`
+          : `${nameOf(active.id)} stayed in ${from}.`;
+      },
+      onDragCancel: ({ active }) => `Cancelled. ${nameOf(active.id)} stayed in ${stageOf(active.id)}.`,
+    };
+  }, [entries, contacts]);
 
   async function drainPendingMutations() {
     while (pendingMutationsRef.current.size > 0) {
@@ -418,9 +532,15 @@ export function PipelineBoard({
     }
   }
 
-  function move(entryId: string, stage: CrmPipelineStage) {
+  /**
+   * `undoing` only changes what the organizer is told: an undo confirms itself
+   * rather than offering to undo the undo, which is how the agenda's equivalent
+   * move behaves. The request is a real transition either way, so the history
+   * this board exists to produce records both directions.
+   */
+  function move(entryId: string, stage: CrmPipelineStage, undoing = false) {
     if (mutationsBlockedRef.current || pendingEntryIdsRef.current.has(entryId)) return;
-    const current = entries.find((entry) => entry.id === entryId);
+    const current = entriesRef.current.find((entry) => entry.id === entryId);
     if (!current || current.stage === stage) return;
     pendingEntryIdsRef.current.add(entryId);
     setPendingEntryIds(new Set(pendingEntryIdsRef.current));
@@ -433,6 +553,22 @@ export function PipelineBoard({
           body: { stage, expectedFrom: current.stage, expectedUpdatedAt: current.updatedAt },
         });
         setEntries((rows) => rows.map((row) => row.id === entryId ? updated : row));
+        // Every other optimistic write in the app says so when it lands. A
+        // silent one leaves a drag looking indistinguishable from a drag the
+        // server threw away — and leaves a screen reader with nothing at all,
+        // since the card that moved is no longer where focus was.
+        const name = contacts[updated.organizationContactId]?.name ?? "That prospect";
+        if (undoing) toast(`Move undone — ${name} is back in ${STAGE_LABEL[stage]}`);
+        else {
+          // A move can still land while an authority refresh has already
+          // barred the board. Saying so is right; offering an Undo that the
+          // barrier would swallow without a word is not.
+          const undoable = !mutationsBlockedRef.current;
+          toast(`${name} moved to ${STAGE_LABEL[stage]}`, {
+            durationMs: 8_000,
+            ...(undoable ? { action: { label: "Undo", onClick: () => move(entryId, current.stage, true) } } : {}),
+          });
+        }
       } catch (caught) {
         if (pipelineTransitionNeedsAuthority(caught)) {
           // Block synchronously before React paints. The authority reader starts
@@ -501,7 +637,7 @@ export function PipelineBoard({
           action={<Button disabled={mutationsBlocked} onClick={() => { if (!mutationsBlockedRef.current) setAddOpen(true); }}><Plus size={15} /> Add prospect</Button>}
         />
       ) : (
-        <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+        <DndContext sensors={sensors} accessibility={{ announcements, screenReaderInstructions: SCREEN_READER_INSTRUCTIONS }} onDragEnd={onDragEnd}>
           <div className="crm-board">
             {CRM_PIPELINE_STAGES.map((stage) => (
               <Column

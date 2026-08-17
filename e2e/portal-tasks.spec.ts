@@ -116,6 +116,13 @@ test.describe("portal-tasks", () => {
         await page.goto(`${PORTAL}/tasks`);
         await page.getByRole("link", { name: new RegExp(TASKS.manual.name) }).first().click();
         await expect(page.getByRole("heading", { name: TASKS.manual.name })).toBeVisible();
+        // #661/#646: the task's card must pad its content — bare `.portal-panel`
+        // used to carry no padding, leaving the button flush against the card
+        // edge. Located as "the panel holding the action button" so a future
+        // extra panel elsewhere on the page can never become what this reads.
+        const actionPanel = page.locator(".portal-panel", { has: page.getByRole("button", { name: /mark as complete/i }) });
+        const panelPadding = await actionPanel.evaluate((el) => getComputedStyle(el).paddingLeft);
+        expect(parseFloat(panelPadding), "the task panel must be padded, not flush against its own edge").toBeGreaterThan(0);
         await page.getByRole("button", { name: /mark as complete/i }).click();
         await expect(page).toHaveURL(new RegExp(`${PORTAL}/tasks$`), { timeout: 20_000 });
         // The list's default filter is Open, so a completed task leaves it.
