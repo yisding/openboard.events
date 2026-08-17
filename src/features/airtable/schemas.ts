@@ -33,6 +33,7 @@ export const airtableConnectionOptionsSchema = z.object({
   includeBio: z.boolean(),
   includePronouns: z.boolean(),
   includeGender: z.boolean(),
+  includeHeadshots: z.boolean(),
   pruneRemoved: z.boolean(),
 });
 export type AirtableConnectionOptionsDTO = z.infer<typeof airtableConnectionOptionsSchema>;

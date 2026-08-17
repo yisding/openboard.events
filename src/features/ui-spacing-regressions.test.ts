@@ -213,6 +213,32 @@ describe("shared UI spacing regressions", () => {
     expect(css).toContain(".table-scroll");
   });
 
+  it("gives every DataTable a scroll affordance instead of a silently clipped edge (issue #665)", () => {
+    // A bare `overflow:auto` scrolls fine, but an overlay scrollbar (macOS
+    // trackpad default, every mobile browser) paints nothing until a drag is
+    // already underway, so nothing on screen said there was more table.
+    // A persistently visible scrollbar is the fix that needs no JS and works
+    // whether or not the reader has ever dragged one before.
+    expect(css).toMatch(/\.table-scroll\{[^}]*scrollbar-width:thin/u);
+    expect(css).toContain(".table-scroll::-webkit-scrollbar{height:8px}");
+    // The edge-fade "scroll shadow": an opaque cover that scrolls with the
+    // content sits over a soft shadow pinned to the container, so the shadow
+    // only shows on an edge that still has more to reveal.
+    expect(css).toMatch(/\.table-scroll\{[^}]*background-attachment:local,local,scroll,scroll/u);
+    // The cover needs a real backdrop color to match, not "whatever the page
+    // behind happens to be" — `.data-panel` (every `DataTable`'s own wrapper)
+    // now paints one explicitly instead of leaving bare `.page` callers to
+    // show `--canvas` through a gap the cover assumes is `--surface`.
+    expect(css).toContain(".data-panel{background:var(--surface)}");
+    // `.row-actions` wraps deliberately in non-table cards (file requests, the
+    // review queue), but inside a `.data-table` cell that same flex-wrap gave
+    // the table-layout algorithm a tiny minimum width to squeeze the column
+    // to, wrapping the action buttons three and four deep and inflating the
+    // whole row — on evaluation, off screen behind the very edge that got
+    // starved. Table cells scroll instead, same as every other column.
+    expect(css).toContain(".data-table .row-actions{flex-wrap:nowrap}");
+  });
+
   it("keeps a grid's track list matching the children its component renders", () => {
     // Both of these declared more tracks than the markup fills, so a child landed
     // in a slot meant for something else.
@@ -390,6 +416,24 @@ describe("shared UI spacing regressions", () => {
     // …and the clamp never reaches a bare `.submission-title-cell b`, which is
     // how it would find the other four tables again.
     expect(css).not.toMatch(/(?<!\.abstracts-title-column )\.submission-title-cell b[,{][^{}]*display:-webkit-box/u);
+  });
+
+  it("gives the agenda list's title column the same floor (#666)", () => {
+    const listView = read("./agenda/components/list-view.tsx");
+
+    // Same auto-layout shape as the abstracts table: Date, Start–End, Room,
+    // Track, Speakers and Status are all nowrap, so without a floor of its own
+    // the only wrapping column collapsed to roughly its longest word (#666:
+    // six lines, one to three words each, at 1440px).
+    expect(listView).toContain('meta: { className: "agenda-title-column" }');
+    expect(css).toContain(
+      ".data-table th.agenda-title-column,.data-table td.agenda-title-column{width:340px;min-width:280px}",
+    );
+    // T5: max-width breakpoints only, so the phone shape is a reset back to
+    // auto rather than a min-width band — same as the abstracts column.
+    expect(css).toContain(
+      ".data-table th.agenda-title-column,.data-table td.agenda-title-column{width:auto;min-width:0}",
+    );
   });
 
   it("gives the evaluation plan row actions a floor, not just a ceiling", () => {

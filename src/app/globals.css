@@ -831,7 +831,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
    this change put it there. */
 .settings-section>header h2{margin:0 0 4px;font-size:var(--text-base);letter-spacing:-.15px}
 .settings-section>header p{margin:0;color:var(--muted);font-size:var(--text-sm)}.template-editor textarea{min-height:220px}.template-editor__preview{position:sticky;top:88px;height:max-content;max-height:calc(100vh - 112px);overflow:auto;background:var(--surface-subtle);border:1px solid var(--line);border-radius:12px;padding:16px;display:grid;gap:12px;align-content:start}.template-preview-heading{display:grid;gap:3px}.template-preview-heading span{color:var(--accent-dark);font-size:var(--text-xs);font-weight: var(--weight-emphasis);letter-spacing:.8px}.template-preview-heading small{color:var(--muted);font-size:var(--text-xs)}.template-preview-message{padding:16px;border:1px solid var(--line);border-radius:10px;background:var(--surface);box-shadow:var(--shadow-sm)}.template-preview-message>b{display:block;margin:0 0 16px;padding-bottom:12px;border-bottom:1px solid var(--line);font-size:var(--text-sm);line-height:1.45}.template-preview-message>.rich-text>:first-child{margin-top:0}.template-preview-message>.rich-text>:last-child{margin-bottom:0}.template-preview-status{margin:4px 0 0;padding:16px;border:1px dashed var(--line-strong);border-radius:10px;background:var(--surface);color:var(--muted);font-size:var(--text-sm);line-height:1.55}.reminder-layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:24px;align-items:start}.reminder-rules{display:grid;gap:12px}.reminder-rule{padding:16px}.reminder-rules-editor .reminder-rule{display:grid;grid-template-columns:minmax(0,1fr) 180px auto;gap:16px;align-items:end}.reminder-rule-remove{justify-self:start}.reminder-rules>footer{display:flex;justify-content:flex-end;padding:4px 0}.reminder-explainer{padding:24px}.reminder-explainer>span{width:42px;height:42px;display:grid;place-items:center;border-radius:10px;background:var(--accent-soft);color:var(--accent-dark)}.reminder-explainer h3{margin:16px 0 8px;font-size:16px}.reminder-explainer p,.reminder-explainer li{color:var(--muted);font-size:var(--text-sm);line-height:1.55}.reminder-explainer ul{display:grid;gap:8px;margin:16px 0 0;padding-left:18px}.checkbox-row{min-height:32px;display:inline-flex;align-items:center;gap:10px;cursor:pointer;font-size:var(--text-sm);font-weight:500}.checkbox-row input[type="checkbox"]{width:16px;height:16px;min-width:16px;min-height:16px;flex:0 0 16px;margin:0;padding:0;accent-color:var(--accent)}.checkbox-row>span{display:grid;gap:2px}.checkbox-row b{font-size:var(--text-sm)}.checkbox-row small{color:var(--muted);font-size:var(--text-xs);font-weight:400}.settings-layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:24px}.settings-nav{display:flex;flex-direction:column;gap:6px}.settings-nav button{background:none;border:0;border-radius:10px;color:var(--muted);cursor:pointer;font:inherit;padding:12px 12px;text-align:left}.settings-nav button.active{background:var(--accent-soft);color:var(--accent-dark);font-weight:var(--weight-control)}.settings-section{display:grid;gap:16px}.branding-preview{border:1px solid var(--line);border-radius:14px;overflow:hidden}.branding-preview__banner{min-height:120px;padding:24px}.branding-preview__body{padding:24px}.vocabulary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.login-page:has(> .login-card){align-items:center;display:flex;justify-content:center;padding:24px}.login-card{max-width:440px;padding:32px;width:100%}.login-card form{display:grid;gap:16px}.login-card__brand{align-items:center;display:flex;gap:12px;margin-bottom:24px}.login-card__brand img{height:32px;width:32px}
-.portal-login-card{display:grid;gap:16px}.portal-login-card .login-card__brand{margin-bottom:0}.portal-login-card h1{margin:0}.portal-login-card>p,.portal-login-card form>p:not(.field-error){margin:0;color:var(--muted);font-size:var(--text-sm);line-height:1.45}.portal-login-card>.text-button{min-height:44px;margin-top:0;justify-self:start}
+.portal-login-card{display:grid;gap:16px}.portal-login-card .login-card__brand{margin-bottom:0}.portal-login-card h1{margin:0}.portal-login-card>p,.portal-login-card form>p:not(.field-error){margin:0;color:var(--muted);font-size:var(--text-sm);line-height:1.45}.portal-login-card>.text-button,.portal-login-card form>.text-button{min-height:44px;margin-top:0;justify-self:start}.portal-login-card .text-button[disabled]{color:var(--muted);cursor:default}
 .portal-preferences-card{display:grid;gap:16px}.portal-preferences-card .login-card__brand{margin-bottom:0}.portal-preferences-card .empty-state{min-height:0;padding:0}.portal-preferences-card .empty-state h1{font-size:28px;line-height:1.15;margin:16px 0 8px}.portal-preferences-card .empty-state p{margin:0}.portal-preferences-card .empty-state form{width:100%;margin-top:16px}.portal-preferences-card .empty-state form .button{width:100%}
 @media(max-width:1024px){.template-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.reminder-layout,.settings-layout{grid-template-columns:1fr}.settings-nav{flex-direction:row;overflow:auto}}
 @media(max-width:768px){.template-grid,.vocabulary-grid{grid-template-columns:1fr}.communications-tabs{width:100%;overflow:auto}.communications-tabs button{min-height:44px}.template-editor,.comm-detail,.settings-section{padding:16px}.template-editor-actions{align-items:stretch;flex-direction:column}.template-editor-actions .button{width:100%}}
@@ -858,6 +858,78 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
      min-height alone does not release that pin. */
   .organization-members-section td.organization-member-actions{grid-column:2;grid-row:2;height:auto;min-height:54px;padding-block:4px 6px}
 }
+
+/* Issue #665 — every `DataTable` shares this one `.table-scroll`, so the fix
+   lands once here instead of once per surface. The org-members grid above and
+   the speakers-col-* ladder below both re-cut a table's *columns* for one
+   surface at a time; this instead gives the shared scroll container itself an
+   affordance, so every caller gets it for free — including the ones the audit
+   named (audit log, sessions, resources, evaluation, files, speakers,
+   dashboard, CRM) without touching any of their column definitions.
+   The edge-fade trick below (note 2) paints an opaque cover the exact color of
+   the table's own backdrop, so that backdrop has to be a real, known color —
+   not "whatever the page behind happens to be". `.data-panel` (the wrapper
+   `DataTable` itself renders, see data-table.tsx) never declared one; most
+   callers happen to sit inside a `.panel`, which already paints `--surface`,
+   but a bare `<div className="page">` caller (abstracts, evaluation) left it
+   showing the page's `--canvas` through — a near-white-on-near-white seam that
+   was invisible on its own but would have shown as a mismatched patch behind
+   the cover gradient. Giving the wrapper its own `--surface` background
+   matches the rest of the app's card language (modals, dashboard widgets)
+   for every caller, panelled or not, and makes note 2 correct everywhere. */
+.data-panel{background:var(--surface)}
+
+/* Two problems, one container:
+   1. "No scroll affordance" — `overflow:auto` scrolls, but an overlay
+      scrollbar (macOS trackpad default, every mobile browser) paints nothing
+      until a drag is already in progress, so a reader has no way to *notice*
+      there is more table before they stumble into it. `::-webkit-scrollbar`
+      forces the classic, always-rendered bar Chromium ships everywhere except
+      macOS/iOS' overlay style; `scrollbar-width/scrollbar-color` is the
+      standards path Firefox reads the same declaration from.
+   2. Even a visible scrollbar sits below the fold on a table tall enough to
+      need `.table-footer` pagination — nothing above it hints that a row is
+      cut off mid-column. The four-layer gradient below is the standard
+      "scroll shadow" trick: two opaque covers painted with
+      `background-attachment:local` (so they scroll *with* the table, staying
+      pinned over whichever edge is flush with the container) sit on top of
+      two soft shadows painted with `background-attachment:scroll` (so they
+      stay pinned to the container's own edges, ignoring the scroll offset).
+      At rest, both covers sit exactly over both shadows and hide them; the
+      moment either edge scrolls out of flush, its cover slides away with the
+      content and its shadow shows through — a shadow that reads "more this
+      way" and vanishes on its own once that edge is reached, no JS involved. */
+.table-scroll{
+  scrollbar-width:thin;
+  scrollbar-color:var(--line-strong) transparent;
+  background:
+    linear-gradient(to right,var(--surface) 50%,rgba(0,0,0,0)) left center,
+    linear-gradient(to left,var(--surface) 50%,rgba(0,0,0,0)) right center,
+    radial-gradient(farthest-side at 0 50%,rgba(0,0,0,.12),rgba(0,0,0,0)) left center,
+    radial-gradient(farthest-side at 100% 50%,rgba(0,0,0,.12),rgba(0,0,0,0)) right center;
+  background-repeat:no-repeat;
+  background-color:var(--surface);
+  background-size:24px 100%,24px 100%,10px 100%,10px 100%;
+  background-attachment:local,local,scroll,scroll;
+}
+.table-scroll::-webkit-scrollbar{height:8px}
+.table-scroll::-webkit-scrollbar-track{background:transparent}
+.table-scroll::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:4px}
+.table-scroll::-webkit-scrollbar-thumb:hover{background:var(--muted)}
+/* `.row-actions` is shared with card-style lists (file requests, the review
+   queue) where wrapping onto a second line is the point — those cards do not
+   scroll, so a narrow viewport is the only width the buttons will ever get.
+   Inside a `.data-table` cell that logic backfires: the column can always be
+   reached by the scroll affordance above, but the wrap-capable flex row gives
+   the browser's table-layout algorithm a much smaller minimum width to work
+   with than a `white-space:nowrap` text cell would, so the algorithm starves
+   this column first — the resources and evaluation "Edit/Delete"/"Assign
+   Remind Edit Delete" stacks were wrapping three and four buttons deep,
+   inflating the whole row to ~400px behind the very edge this column got
+   squeezed toward, mostly empty save for an off-screen stack. `nowrap` here
+   makes the column's minimum width match its actual content again, exactly
+   as every other `.data-table` column, and it scrolls into view instead. */
+.data-table .row-actions{flex-wrap:nowrap}
 
 /* M37 — comms admin UI (server-backed template editor, reminder ladder, log) */
 .comms-templates{display:grid;grid-template-columns:220px minmax(0,1fr);gap:24px}
@@ -1165,6 +1237,18 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 
 .data-table th.abstracts-title-column,.data-table td.abstracts-title-column{width:340px;min-width:280px}
 
+/* #666: the agenda list's Title column is the same shape as the abstracts one
+   above — the only wrapping column in an auto-layout `.data-table` full of
+   nowrap siblings (Date, Start–End, Room, Track, Speakers, Status) — so it
+   collapsed the same way (measured: ~90px, one word per line). Its
+   `.submission-title-cell` div already caps at `max-width:340px`; this floor
+   is what stops the cell shrinking past that down to its longest word. Unlike
+   the abstracts column it carries no description, so it keeps the plain
+   (non-clamped) `.submission-title-cell b` — a title that still runs long
+   wraps to as many lines as it needs rather than being cut, and the row's
+   `height:62px` is a floor, not a cap. */
+.data-table th.agenda-title-column,.data-table td.agenda-title-column{width:340px;min-width:280px}
+
 /* The delivery log's subject: enough width to identify the message, capped so
    a 120-character reminder subject cannot set the width of every other column.
    The full string is on the cell's `title` and in the detail drawer. */
@@ -1183,6 +1267,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
    already applies) and the search returns to the full-width row. */
 @media(max-width:768px){
   .data-table th.abstracts-title-column,.data-table td.abstracts-title-column{width:auto;min-width:0}
+  .data-table th.agenda-title-column,.data-table td.agenda-title-column{width:auto;min-width:0}
   .data-toolbar>.table-search{flex:1 1 100%}
 }
 .announce-speaker-links .announce-copy-row{margin-bottom:0}

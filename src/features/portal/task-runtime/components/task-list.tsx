@@ -124,7 +124,7 @@ export function TaskList({
     <>
       <div className="portal-task-summary">
         <div>
-          <strong>{progress.done}/{progress.all}</strong>
+          <strong>{progress.done}/{progress.all}</strong>{" "}
           <span>tasks complete</span>
         </div>
         <ProgressBar label="Task completion" value={progress.all === 0 ? 100 : Math.round((progress.done / progress.all) * 100)} tone="green" />

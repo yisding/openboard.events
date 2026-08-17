@@ -91,6 +91,18 @@ describe("user-facing copy regressions", () => {
     expect(script).not.toContain("Nine seeded messages");
   });
 
+  // A refusal that opens with the success screen's own heading is read as a
+  // confirmation, and this one is shown to someone deciding whether to keep
+  // waiting for an email that was never sent.
+  it("does not word the portal sign-in throttle as a delivery confirmation", () => {
+    const throttle = read("./auth/server/portal.ts");
+    const [, message] = /PORTAL_LOGIN_THROTTLE_MESSAGE = "([^"]+)"/u.exec(throttle) ?? [];
+
+    expect(message).toBeDefined();
+    expect(message).not.toMatch(/^Check your inbox/u);
+    expect(message).toMatch(/already have a code/u);
+  });
+
   // These credentials belong to a real deployment whose mail is restricted, not
   // to a sandbox. "Demo access" read as "the whole instance is a demo" to people
   // testing signup on preview, which is exactly the wrong thing to tell them;

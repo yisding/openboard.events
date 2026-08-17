@@ -417,7 +417,15 @@ export function ConnectDialog({
               {basesError && (
                 <div className="airtable-base-error">
                   <p className="field-error" role="alert">{basesError}</p>
-                  <Button size="sm" variant="secondary" onClick={() => void loadBases()}>
+                  {/*
+                    * Clearing the error *is* the retry: the effect above loads
+                    * whenever there is no list and no error, so calling
+                    * `loadBases` here too sent two identical requests per click
+                    * — the direct one, and the one the effect fired the moment
+                    * `basesError` went back to null. Two is not free on a step
+                    * whose own copy has a rate-limited branch.
+                    */}
+                  <Button size="sm" variant="secondary" onClick={() => setBasesError(null)}>
                     {AIRTABLE_COPY.base.retryList}
                   </Button>
                 </div>
