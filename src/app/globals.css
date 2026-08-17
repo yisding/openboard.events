@@ -706,6 +706,13 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
    `display: grid` also outranks the UA's `display: none`, so a browser without
    popover support still paints the stack in normal flow. */
 .toast-stack{position:fixed;z-index:200;inset:auto auto 24px 50%;transform:translateX(-50%);width:min(440px,calc(100vw - 32px));height:auto;margin:0;border:0;padding:0;overflow:visible;background:transparent;color:inherit;display:grid;gap:8px;pointer-events:none}
+/* A guided-tour coach card (`.tour-coach`, coach.tsx) can dock as low as
+   COACH_CLEARANCE (260px, provider.tsx) off the bottom edge — the same
+   fixed bottom-centre strip this stack occupies. A save toast landing there
+   covers the card's own Done/Next row (#716). The lift only applies while a
+   card is actually mounted, so every other toast keeps its usual resting
+   place. */
+body:has(.tour-coach) .toast-stack{bottom:300px}
 .toast { position: relative; width:100%; min-width: 0; background: var(--sidebar); color: var(--on-fill); border: 1px solid rgba(255,255,255,.12); box-shadow: 0 15px 45px rgba(10,30,27,.25); border-radius: 10px; padding: 12px 12px 12px 16px; display: flex; align-items: center; gap: 12px; font-size:var(--text-sm); animation: toast-item-in .22s ease; pointer-events:auto; }
 .toast > svg { color: var(--accent-on-dark); }.toast[role="alert"] > svg { color: var(--red-bright); }.toast span { flex: 1; }.toast button { border: 0; background: transparent; color: var(--on-dark-muted); display: grid; place-items: center; min-width: 32px; min-height: 32px; cursor: pointer; }.toast .toast-action{color:var(--accent-on-dark);font:inherit;font-weight: var(--weight-emphasis);padding:0 8px}.toast .toast-action:hover,.toast .toast-action:focus-visible{text-decoration:underline}.toast .toast-action:focus-visible,.toast .toast-dismiss:focus-visible{outline:2px solid currentColor;outline-offset:2px}
 .rich-text { color: var(--ink); line-height: 1.65; }

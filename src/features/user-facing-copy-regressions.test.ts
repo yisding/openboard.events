@@ -84,6 +84,13 @@ describe("user-facing copy regressions", () => {
     // demo send before it renders (#679), which is why a live row carries the
     // skip reason where its subject would be — so the tour may not promise a
     // render the product deliberately never performs.
+    //
+    // The count is gone too (#709): nine is the *seed's* backdated row count,
+    // but the log this card points at also holds the live reminder sweeper's
+    // output — roughly fifty more rows — so a player who counts what is on
+    // screen gets a number well past nine. The copy now says "the oldest
+    // rows" instead of a number that only the dataset, never the screen,
+    // agrees with.
     expect(script).toContain("Every row reads skipped");
     expect(script).not.toContain("rendered in full");
     expect(script).not.toContain("rendered and logged");

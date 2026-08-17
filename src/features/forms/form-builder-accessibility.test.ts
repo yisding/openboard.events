@@ -108,7 +108,11 @@ describe("form builder accessibility", () => {
     expect(source).toContain('className="builder-edit-actions" role="group" aria-label="Form editing actions"');
     expect(source).toContain('aria-label="Copy live form link" title="Copy live form link"');
     expect(source).toContain('aria-label="Preview form" title="Preview form"');
-    expect(source).toContain('id="publish-form-version" aria-label="Publish the current step as a new immutable form version"');
+    // The accessible name must start with the visible label ("Publish
+    // version") per WCAG 2.5.3 label-in-name — the rest is the long-form
+    // context, kept for narrow viewports where the visible label is hidden
+    // (see `.builder-action-label{display:none}` below).
+    expect(source).toContain('id="publish-form-version" aria-label="Publish version — publishes the current step as a new immutable form version"');
     expect(source).toContain('onClick={() => void saveStep()}');
     expect(source).toContain('className="builder-lifecycle-actions" role="group" aria-label="Form availability"');
     expect(source).toContain('<CircleStop size={16} />');
