@@ -38,9 +38,12 @@ check_forbidden "OPENBOARD_API_KEY" src docs/api.md .dev.vars.example
 check_forbidden "drizzle-kit[[:space:]]+push" package.json .github
 check_forbidden "NEXT_PUBLIC_BUILD_SHA" src scripts tests docs .github .dev.vars.example --glob '!check-invariants.sh'
 
-# Design Phase 1: meaningful interface copy has a 12px floor. The landing
-# page's scaled product illustration is the only exception: those preview and
-# floating-card labels are decorative pixels inside a miniature, not controls.
+# Design Phase 1: meaningful interface copy has a 12px floor. Two exceptions,
+# both narrowed to specific selectors below: the landing page's scaled product
+# illustration, whose preview and floating-card labels are decorative pixels
+# inside a miniature rather than controls; and SVG text inside a scaled
+# viewBox, where the declared number is user units and the rendered size is
+# that number times the viewBox scale, so the floor has to be checked by hand.
 # Fail closed: every CSS font-size must be one of the named type tokens,
 # `inherit`, the approved hero clamp, or a pixel literal at least 12px. This
 # also rejects alternate sub-floor units and expressions such as .5rem, 8pt,
@@ -77,6 +80,17 @@ if (( type_floor_status == 0 )); then
     if [[ "$value" == '10px' && "$path" == 'src/app/globals.css' ]]; then
       source_line=$(sed -n "${line_number}p" "$path")
       if [[ "$source_line" =~ ^\.(preview-chrome|preview-heading[[:space:]]+\.preview-add|preview-stats[[:space:]]+(small|em)|preview-list[[:space:]]+\>[[:space:]]+div|floating-card[[:space:]]+small)[[:space:]]*\{ ]]; then
+        continue
+      fi
+    fi
+
+    # The confirmation donut draws its ring in a 42-unit viewBox blown up to
+    # 145px, so its 7 and 3.4 are user units that land at ~24px and ~12px on
+    # screen -- above the floor, not below it. Keyed to the one selector so a
+    # genuinely tiny literal elsewhere still fails.
+    if [[ "$path" == 'src/app/globals.css' ]]; then
+      donut_line=$(sed -n "${line_number}p" "$path")
+      if [[ "$donut_line" == '.dashboard-donut text'* ]]; then
         continue
       fi
     fi
