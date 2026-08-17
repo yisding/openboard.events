@@ -1,6 +1,6 @@
 "use client";
 
-import { UserRound, X } from "lucide-react";
+import { Search, UserRound, X } from "lucide-react";
 import Image from "next/image";
 import React, { Children, useEffect, useRef, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type ReactNode, type RefObject, type SelectHTMLAttributes } from "react";
 import { cn } from "@/shared/lib/cn";
@@ -57,6 +57,57 @@ export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectE
  */
 export function ColorWell({ className, ...props }: Omit<InputHTMLAttributes<HTMLInputElement>, "type">) {
   return <input type="color" className={cn("color-well", className)} {...props} />;
+}
+
+/**
+ * The kit's search field. `.table-search` was always the box — a magnifier, an
+ * input, and a clear control — but every toolbar rebuilt it by hand, so only
+ * five of the twelve search fields in the product ever shipped the clear (X),
+ * and two shipped as a bare `<input>` with no box around it at all. That gap
+ * is not cosmetic: a filter you cannot undo in one click is the difference
+ * between "No forms here" meaning *you have none* and it meaning *you typed
+ * something four screens ago*.
+ *
+ * `onSubmit` picks the element. A search that only takes effect on Enter (the
+ * CRM's server-side lookups) is a real `<form>`, so the platform's own submit
+ * handling applies and the browser offers its search history; an as-you-type
+ * filter is a `<label>`, so clicking the magnifier focuses the input.
+ *
+ * `onClear` exists because clearing is not always `onChange("")` — the
+ * URL-backed tables have to drop the query parameter in the same gesture, or
+ * the box empties while the table stays filtered.
+ */
+export function SearchInput({ label, value, onChange, onClear, onSubmit, placeholder, name, className, autoFocus = false }: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  onClear?: () => void;
+  onSubmit?: () => void;
+  placeholder?: string;
+  name?: string;
+  className?: string;
+  autoFocus?: boolean;
+}) {
+  const contents = <>
+    <Search size={16} aria-hidden />
+    <input
+      aria-label={label}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      autoFocus={autoFocus}
+      {...(placeholder === undefined ? {} : { placeholder })}
+      {...(name === undefined ? {} : { name })}
+    />
+    {value !== "" && (
+      <button type="button" aria-label="Clear search" onClick={() => (onClear ? onClear() : onChange(""))}><X size={14} aria-hidden /></button>
+    )}
+  </>;
+  if (!onSubmit) return <label className={cn("table-search", className)}>{contents}</label>;
+  return (
+    <form className={cn("table-search", className)} onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
+      {contents}
+    </form>
+  );
 }
 
 export function StatusBadge({ value }: { value: StatusBadgeValue }) {

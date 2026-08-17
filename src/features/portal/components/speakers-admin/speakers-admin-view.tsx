@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Mail, Plus, Search, Upload, Users, X } from "lucide-react";
+import { Bell, Mail, Plus, Upload, Users } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ColumnDef, SortingState } from "@tanstack/react-table";
@@ -14,7 +14,7 @@ import { ConfirmDialog } from "@/shared/ui/app/confirm-dialog";
 import { DataTable } from "@/shared/ui/app/data-table";
 import { Dash } from "@/shared/ui/app/dash";
 import { useFlowKeyboardNav } from "@/shared/ui/app/use-flow-keyboard-nav";
-import { Button, EmptyState, PageHeader, Select, StatusBadge } from "@/shared/ui/ui-kit";
+import { Button, EmptyState, PageHeader, SearchInput, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { statusBadgeLabel } from "@/shared/ui/status-badge";
 import { useToast } from "@/shared/ui/toast";
 import { SpeakerBulkEmailDialog } from "./speaker-bulk-email-dialog";
@@ -345,19 +345,14 @@ export function SpeakersAdminView({
         }}
         toolbar={
           <>
-            <form
-              className="table-search"
-              onSubmit={(event) => { event.preventDefault(); setParams({ q: draftSearch || null }); }}
-            >
-              <Search size={16} />
-              <input
-                value={draftSearch}
-                onChange={(event) => setDraftSearch(event.target.value)}
-                placeholder="Search name or email"
-                aria-label="Search speakers"
-              />
-              {draftSearch && <button type="button" aria-label="Clear search" onClick={() => { setDraftSearch(""); setParams({ q: null }); }}><X size={14} /></button>}
-            </form>
+            <SearchInput
+              label="Search speakers"
+              placeholder="Search name or email"
+              value={draftSearch}
+              onChange={setDraftSearch}
+              onClear={() => { setDraftSearch(""); setParams({ q: null }); }}
+              onSubmit={() => setParams({ q: draftSearch || null })}
+            />
             <Select
               className="compact-select"
               aria-label="Filter by confirmation"

@@ -1,7 +1,7 @@
 "use client";
 
 import type { ColumnDef } from "@tanstack/react-table";
-import { Bell, Download, FolderOpen, MessageSquare, Paperclip, Search, X } from "lucide-react";
+import { Bell, Download, FolderOpen, MessageSquare, Paperclip } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -15,7 +15,7 @@ import { Dash } from "@/shared/ui/app/dash";
 import { LoadFailure } from "@/shared/ui/app/load-failure";
 import { PrivateFileLink } from "@/shared/ui/app/private-file-link";
 import { SkeletonText } from "@/shared/ui/app/skeleton";
-import { Button, Drawer, EmptyState, PageHeader, Select, StatusBadge } from "@/shared/ui/ui-kit";
+import { Button, Drawer, EmptyState, PageHeader, SearchInput, Select, StatusBadge } from "@/shared/ui/ui-kit";
 import { useGuardedAction, useUnsavedWorkGuard } from "@/shared/ui/app/unsaved-work-guard";
 import { useToast } from "@/shared/ui/toast";
 import { deliverableBulkTargets, deliverableExportSelection, fileExportStatusNote, filesSelectionBarState } from "./files-selection";
@@ -470,11 +470,13 @@ export function FilesAdminView({
 
       <section className="panel data-panel">
         <div className="data-toolbar files-data-toolbar">
-          <label className="table-search">
-            <Search size={16} />
-            <input aria-label="Search deliverables" value={draftSearch} onChange={(event) => onSearchChange(event.target.value)} placeholder="Search speaker, request, or session" />
-            {draftSearch && <button type="button" aria-label="Clear search" onClick={clearSearch}><X size={14} /></button>}
-          </label>
+          <SearchInput
+            label="Search deliverables"
+            placeholder="Search speaker, request, or session"
+            value={draftSearch}
+            onChange={onSearchChange}
+            onClear={clearSearch}
+          />
           {/* `compact-select` is the list-toolbar idiom (Speakers' confirmation
               filter): the base `select` rule is `width:100%`, so an unclassed
               filter takes a flex basis of the whole toolbar and this wrapping

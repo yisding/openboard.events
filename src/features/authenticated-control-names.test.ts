@@ -27,6 +27,9 @@ function attribute(source: ts.SourceFile, opening: Opening, name: string): strin
 }
 
 describe("authenticated control names", () => {
+  // `SearchInput` puts `label` on the input as `aria-label` (#638 moved these
+  // toolbars onto it); the name still has to be the field's own, not whatever
+  // the placeholder happens to say that release.
   it("names table searches independently of their placeholder text", () => {
     const expectations = [
       ["./comms/components/comms-log-table.tsx", '"Search recipients"'],
@@ -39,7 +42,7 @@ describe("authenticated control names", () => {
 
     for (const [path, label] of expectations) {
       const source = parse(path);
-      expect(openings(source, "input").some((node) => attribute(source, node, "aria-label") === label), path).toBe(true);
+      expect(openings(source, "SearchInput").some((node) => attribute(source, node, "label") === label), path).toBe(true);
     }
   });
 
