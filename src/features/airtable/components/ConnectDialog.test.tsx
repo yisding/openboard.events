@@ -198,7 +198,7 @@ describe("listing the bases a token can see", () => {
     expect(text()).not.toContain(AIRTABLE_COPY.base.loadingBases);
   });
 
-  it("asks again when the organizer retries, and shows what came back", async () => {
+  it("asks again exactly once when the organizer retries, and shows what came back", async () => {
     apiMock.mockRejectedValueOnce(new AppError("INTERNAL", "Airtable didn't answer"));
     await renderDialog(atBaseStep);
     await settle();
@@ -207,6 +207,8 @@ describe("listing the bases a token can see", () => {
     await act(async () => buttonNamed(AIRTABLE_COPY.base.retryList)?.click());
     await settle();
 
+    // One request per click. Clearing the error re-arms the load effect, so a
+    // retry that also called the loader directly sent the same request twice.
     expect(apiMock).toHaveBeenCalledTimes(2);
     expect(text()).toContain("Program 2026");
     expect(text()).not.toContain(AIRTABLE_COPY.base.retryList);
