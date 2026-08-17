@@ -80,7 +80,7 @@ export function EventSwitcher({
         if (!cancelled) setRemoteEvents(nextEvents);
       })
       .catch(() => {
-        if (!cancelled) setLoadError("Events couldn't be loaded. Check your connection and try again.");
+        if (!cancelled) setLoadError("Events couldn’t be loaded. Check your connection and try again.");
       });
     return () => { cancelled = true; };
   }, [demoEvents, loadAttempt, open, remoteEvents]);

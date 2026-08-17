@@ -230,7 +230,7 @@ export function ReviewQueueView({
         // Saying so is the difference between "still to finish" and "lost".
         ? `${formatCode(active.code)} saved — still unfinished until every required answer is in`
         : payload.data.overallScore === null
-          ? `${formatCode(active.code)} submitted — this round's answers do not produce a score`
+          ? `${formatCode(active.code)} submitted — this round’s answers do not produce a score`
           : `${formatCode(active.code)} scored ${payload.data.overallScore}`);
 
       setSavedDraft(draft);
@@ -531,7 +531,7 @@ export function ReviewQueueView({
                       {!complete
                         ? "This review stays unfinished until every required criterion is answered."
                         : preview === null
-                          ? "Finished — this round's answers do not produce a numeric score."
+                          ? "Finished — this round’s answers do not produce a numeric score."
                           : `Overall ${preview} — the weighted mean, recomputed on the server when you save.`}
                     </p>
                   </>

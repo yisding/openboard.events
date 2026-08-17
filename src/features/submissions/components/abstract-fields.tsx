@@ -196,11 +196,11 @@ export function AbstractFields({
       {/* Both instants are entered and shown in the event's zone, with its label
           on screen — an organizer in another zone cannot set a start an hour off
           without seeing it. */}
-      <Field label="Starts at" htmlFor={fieldId("starts-at")}>
+      <Field label="Starts" htmlFor={fieldId("starts-at")}>
         <DateTimePicker id={fieldId("starts-at")} value={values.startsAt} onChange={(next) => set("startsAt", next)} tz={timezone} disabled={disabled} />
       </Field>
 
-      <Field label="Ends at" htmlFor={fieldId("ends-at")}>
+      <Field label="Ends" htmlFor={fieldId("ends-at")}>
         <DateTimePicker id={fieldId("ends-at")} value={values.endsAt} onChange={(next) => set("endsAt", next)} tz={timezone} disabled={disabled} />
       </Field>
 

@@ -130,7 +130,7 @@ export const SPEAKERS: readonly DemoSpeaker[] = [
   {
     key: "marcus-iyer", firstName: "Marcus", lastName: "Iyer", jobTitle: "Founding Engineer",
     company: "Reedwood AI", emailDomainSlug: "reedwood",
-    bioHtml: "<p>Built Reedwood's retrieval stack from a weekend prototype into the backbone of its enterprise search product.</p>",
+    bioHtml: "<p>Built Reedwood’s retrieval stack from a weekend prototype into the backbone of its enterprise search product.</p>",
     confirmationStatus: "confirmed",
   },
   {
@@ -154,7 +154,7 @@ export const SPEAKERS: readonly DemoSpeaker[] = [
   {
     key: "kenji-watari", firstName: "Kenji", lastName: "Watari", jobTitle: "Principal Engineer, Voice AI",
     company: "Amberline", emailDomainSlug: "amberline",
-    bioHtml: "<p>Designed the low-latency speech pipeline powering Amberline's real-time voice-agent product.</p>",
+    bioHtml: "<p>Designed the low-latency speech pipeline powering Amberline’s real-time voice-agent product.</p>",
     confirmationStatus: "confirmed",
   },
   {
@@ -178,7 +178,7 @@ export const SPEAKERS: readonly DemoSpeaker[] = [
   {
     key: "owen-fairweather", firstName: "Owen", lastName: "Fairweather", jobTitle: "CTO",
     company: "Grainhouse", emailDomainSlug: "grainhouse",
-    bioHtml: "<p>Oversees Grainhouse's shift from rules-based underwriting to an agentic decisioning system in fintech.</p>",
+    bioHtml: "<p>Oversees Grainhouse’s shift from rules-based underwriting to an agentic decisioning system in fintech.</p>",
     confirmationStatus: "confirmed",
   },
   {
@@ -194,7 +194,7 @@ export const SPEAKERS: readonly DemoSpeaker[] = [
   {
     key: "claire-bijlsma", firstName: "Claire", lastName: "Bijlsma", jobTitle: "Product Manager, Agents",
     company: "Northline Systems", emailDomainSlug: "northline",
-    bioHtml: "<p>Bridges PM and engineering on Northline's agent roadmap; a former backend engineer turned PM.</p>",
+    bioHtml: "<p>Bridges PM and engineering on Northline’s agent roadmap; a former backend engineer turned PM.</p>",
     confirmationStatus: "unconfirmed",
   },
   {
@@ -271,8 +271,8 @@ export type DemoForm = {
 export const FORMS: readonly DemoForm[] = [
   {
     key: "cfp",
-    internalName: "Speak at AI Engineer World's Fair",
-    externalTitle: "Speak at AI Engineer World's Fair",
+    internalName: "Speak at AI Engineer World’s Fair",
+    externalTitle: "Speak at AI Engineer World’s Fair",
     pageHeading: "Submission",
     status: "open",
     opensOffsetDays: -20,
@@ -383,7 +383,7 @@ export const SUBMISSIONS: readonly DemoSubmission[] = [
   },
   {
     key: "reasoning-rl", title: "Reasoning Models in the Loop: When RL Post-Training Actually Pays Off",
-    descriptionHtml: "<p>Where GRPO-style post-training earned its compute budget, and where it quietly didn't.</p>",
+    descriptionHtml: "<p>Where GRPO-style post-training earned its compute budget, and where it quietly didn’t.</p>",
     formKey: "cfp", trackKey: "agentic-engineering", formatKey: "talk", level: "Advanced",
     participants: [speaker("tomas-reyes")], status: "accepted", createdOffsetDays: -31,
   },
@@ -394,7 +394,7 @@ export const SUBMISSIONS: readonly DemoSubmission[] = [
     participants: [speaker("devraj-anand")], status: "accept_queue", createdOffsetDays: -30,
   },
   {
-    key: "computer-use-agents", title: "Computer-Use Agents That Don't Fall Over on Real Websites",
+    key: "computer-use-agents", title: "Computer-Use Agents That Don’t Fall Over on Real Websites",
     descriptionHtml: "<p>The failure modes that only show up once an agent leaves a curated demo environment.</p>",
     formKey: "cfp", trackKey: "agentic-engineering", formatKey: "talk", level: "Intermediate",
     participants: [speaker("claire-bijlsma"), coSpeaker("priya-kalburgi")], status: "accepted", createdOffsetDays: -29,
@@ -425,7 +425,7 @@ export const SUBMISSIONS: readonly DemoSubmission[] = [
   },
   {
     key: "agentic-commerce-cart", title: "Agentic Commerce: Letting Agents Hold the Cart",
-    descriptionHtml: "<p>What actually changes, technically and legally, when an agent is allowed to spend the customer's money.</p>",
+    descriptionHtml: "<p>What actually changes, technically and legally, when an agent is allowed to spend the customer’s money.</p>",
     formKey: "cfp", trackKey: "agentic-commerce", formatKey: "talk", level: "Intermediate",
     participants: [speaker("owen-fairweather")], status: "pending", createdOffsetDays: -24,
   },
@@ -475,7 +475,7 @@ export const SUBMISSIONS: readonly DemoSubmission[] = [
   },
   {
     key: "data-quality-reliability", title: "Data Quality Is an Agent Reliability Problem in Disguise",
-    descriptionHtml: "<p>Most of the \"agent reliability\" incidents we've debugged were actually data quality incidents.</p>",
+    descriptionHtml: "<p>Most of the \"agent reliability\" incidents we’ve debugged were actually data quality incidents.</p>",
     formKey: "cfp", trackKey: "agentic-engineering", formatKey: "talk", level: "Intermediate",
     participants: [speaker("naledi-mokoena")], status: "declined", createdOffsetDays: -16,
   },
@@ -498,7 +498,7 @@ export const SUBMISSIONS: readonly DemoSubmission[] = [
     participants: [speaker("priya-kalburgi")], status: "draft", createdOffsetDays: -5,
   },
   {
-    key: "draft-dana-untitled", title: "Draft: Northline's internal agent platform, one year in",
+    key: "draft-dana-untitled", title: "Draft: Northline’s internal agent platform, one year in",
     descriptionHtml: "<p>Still outlining. Want to cover the incident that made us rebuild the tool-calling layer.</p>",
     formKey: "cfp", trackKey: "agentic-engineering", formatKey: "talk",
     participants: [speaker("dana-whitfield")], status: "draft", createdOffsetDays: -2,
@@ -618,7 +618,7 @@ export const SESSIONS: readonly DemoSession[] = [
   // Conflict 2, member B — Priya Kalburgi again, Expo Stage, the same 14:00.
   {
     key: "agentic-commerce-cart", title: "Agentic Commerce: Letting Agents Hold the Cart",
-    descriptionHtml: "<p>What actually changes, technically and legally, when an agent is allowed to spend the customer's money.</p>",
+    descriptionHtml: "<p>What actually changes, technically and legally, when an agent is allowed to spend the customer’s money.</p>",
     trackKey: "agentic-commerce", formatKey: "talk", speakerKeys: ["priya-kalburgi"],
     placement: { dayOffset: 65, start: "14:00", end: "14:18", roomKey: "expo-stage" },
   },
@@ -630,7 +630,7 @@ export const SESSIONS: readonly DemoSession[] = [
   },
   {
     key: "reasoning-rl", title: "Reasoning Models in the Loop: When RL Post-Training Actually Pays Off",
-    descriptionHtml: "<p>Where GRPO-style post-training earned its compute budget, and where it quietly didn't.</p>",
+    descriptionHtml: "<p>Where GRPO-style post-training earned its compute budget, and where it quietly didn’t.</p>",
     trackKey: "agentic-engineering", formatKey: "talk", speakerKeys: ["tomas-reyes"],
     placement: { dayOffset: 65, start: "15:00", end: "15:18", roomKey: "mission-room" },
   },
@@ -647,7 +647,7 @@ export const SESSIONS: readonly DemoSession[] = [
     placement: { dayOffset: 66, start: "10:00", end: "11:30", roomKey: "workshop-studio-a" },
   },
   {
-    key: "computer-use-agents", title: "Computer-Use Agents That Don't Fall Over on Real Websites",
+    key: "computer-use-agents", title: "Computer-Use Agents That Don’t Fall Over on Real Websites",
     descriptionHtml: "<p>The failure modes that only show up once an agent leaves a curated demo environment.</p>",
     trackKey: "agentic-engineering", formatKey: "talk", speakerKeys: ["claire-bijlsma", "priya-kalburgi"],
     placement: { dayOffset: 66, start: "10:00", end: "10:18", roomKey: "mission-room" },
@@ -696,7 +696,7 @@ export const SESSIONS: readonly DemoSession[] = [
   },
   {
     key: "data-quality-reliability", title: "Data Quality Is an Agent Reliability Problem in Disguise",
-    descriptionHtml: "<p>Most of the \"agent reliability\" incidents we've debugged were actually data quality incidents.</p>",
+    descriptionHtml: "<p>Most of the \"agent reliability\" incidents we’ve debugged were actually data quality incidents.</p>",
     trackKey: "agentic-engineering", formatKey: "talk", speakerKeys: ["naledi-mokoena"],
     placement: null,
   },
@@ -841,7 +841,7 @@ export const RESOURCE_PAGES: readonly DemoResourcePage[] = [
   {
     key: "travel-reimbursement", title: "Travel & reimbursement", slug: "travel-reimbursement",
     summary: "Flights, hotel nights covered, and how to file for reimbursement afterward.",
-    bodyHtml: "<h2>What's covered</h2><p>Economy flights, with a Bay-Area-local exception. Two nights domestic, three nights international. Submit receipts through the travel form within 30 days.</p>",
+    bodyHtml: "<h2>What’s covered</h2><p>Economy flights, with a Bay-Area-local exception. Two nights domestic, three nights international. Submit receipts through the travel form within 30 days.</p>",
     published: true,
   },
   {
@@ -899,7 +899,7 @@ export const COMM_LOG_ROWS: readonly DemoCommLogRow[] = [
   },
   {
     key: "submission-accepted-tomas", templateKey: "submission_accepted", speakerKey: "tomas-reyes",
-    subjectRendered: "You're in! Reasoning Models in the Loop: When RL Post-Training Actually Pays Off",
+    subjectRendered: "You’re in! Reasoning Models in the Loop: When RL Post-Training Actually Pays Off",
     offsetDays: -10,
   },
   // Victor Achebe, not Dana Whitfield: he is the one speaker whose travel form

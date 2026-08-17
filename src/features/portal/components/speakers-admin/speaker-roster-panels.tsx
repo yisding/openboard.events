@@ -355,7 +355,7 @@ function LogisticsPanel({ eventId, contactId, extras, onSaved }: { eventId: stri
       applyAuthority(fieldId, nextExtras);
       clearRecovery(fieldId);
       clearFieldError(fieldId);
-      toast("This field was removed while the save was being checked.", { kind: "error" });
+      toast("This field was removed while the save was being checked", { kind: "error" });
       return;
     }
 

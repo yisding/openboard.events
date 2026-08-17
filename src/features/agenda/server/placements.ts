@@ -179,7 +179,7 @@ export const previewPlacements = (eventId: EventId): Promise<PlacementPreviewDTO
 function describeSkip(reason: "roomOrSpeakerConflict" | "blackout" | "capacity"): string {
   if (reason === "roomOrSpeakerConflict") return "Another session now occupies that room or speaker at that time";
   if (reason === "blackout") return "A speaker declared unavailable for that time since the preview was generated";
-  return "The expected attendance no longer fits that room's capacity";
+  return "The expected attendance no longer fits that room’s capacity";
 }
 
 /**

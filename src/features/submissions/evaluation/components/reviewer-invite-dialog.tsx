@@ -122,7 +122,7 @@ export function ReviewerInviteDialog({
             <input ref={emailRef} required type="email" aria-invalid={Boolean(emailError) || undefined} aria-describedby={emailError ? "reviewer-email-error" : undefined} value={email} onChange={(event) => { setEmail(event.target.value); setEmailError(""); }} onBlur={() => setEmailError(reviewerEmailValidationError(email) ?? "")} placeholder="reviewer@example.com" />
           </Field>
           <p className="portal-note reviewer-invite-note">
-            They&apos;ll get an email-bound link to sign in or create their own account. Accepting it grants this event&apos;s review queue only; existing passwords and stronger roles are never changed.
+            They’ll get an email-bound link to sign in or create their own account. Accepting it grants this event’s review queue only; existing passwords and stronger roles are never changed.
           </p>
           {pendingInvitations.length > 0 && (
             <section className="reviewer-pending-invitations" aria-labelledby="reviewer-pending-heading">

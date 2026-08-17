@@ -25,8 +25,8 @@ export function SpeakerHomeHero({
     return (
       <section className="portal-hero portal-hero-celebration">
         <span className="portal-hero-eyebrow"><PartyPopper size={14} /> Congratulations</span>
-        <h2>You&rsquo;re speaking!</h2>
-        <p>Your submission was accepted. Watch My Sessions below for your time slot, and share the news whenever you&rsquo;re ready.</p>
+        <h2>You’re speaking!</h2>
+        <p>Your submission was accepted. Watch My sessions below for your time slot, and share the news whenever you’re ready.</p>
         {shareUrl && (
           <Link className="button button-primary" href={shareUrl} target="_blank" rel="noreferrer">
             <Share2 size={15} /> Get my share card
@@ -53,7 +53,7 @@ export function SpeakerHomeHero({
     return (
       <section className="portal-hero">
         <span className="portal-hero-eyebrow"><CalendarClock size={14} /> Draft in progress</span>
-        <h2>You were still working on &ldquo;{submission.title || "your submission"}&rdquo;</h2>
+        <h2>You were still working on “{submission.title || "your submission"}”</h2>
         <p>
           {daysLeft === null
             ? "Pick up right where you left off."
@@ -70,7 +70,7 @@ export function SpeakerHomeHero({
     <section className="portal-hero portal-hero-quiet">
       <span className="portal-hero-eyebrow"><CheckCircle2 size={14} /> All caught up</span>
       <h2>Nothing needs you right now.</h2>
-      <p>We&rsquo;ll let you know the moment there is something new.</p>
+      <p>We’ll let you know the moment there is something new.</p>
       {hero.hasAcceptedSubmission && shareUrl && (
         <Link className="button button-secondary" href={shareUrl} target="_blank" rel="noreferrer">
           <Share2 size={15} /> My share card

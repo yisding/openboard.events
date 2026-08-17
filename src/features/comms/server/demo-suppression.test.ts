@@ -159,7 +159,7 @@ describe("demo events never send mail (First Fair rail 2)", () => {
     await pglite.query(
       `INSERT INTO events(id,name,slug,location,timezone,starts_at,ends_at,is_demo)
        VALUES($1,$2,$3,'Moscone West','America/Los_Angeles','2099-09-15T16:00:00Z','2099-09-17T01:00:00Z',$4)`,
-      [target.eventId, `AI Engineer World's Fair (${target.label})`, target.slug, isDemo],
+      [target.eventId, `AI Engineer World’s Fair (${target.label})`, target.slug, isDemo],
     );
     await pglite.query(
       "INSERT INTO contacts(id,event_id,email,first_name,last_name) VALUES($1,$2,$3,'Dana','Whitfield')",

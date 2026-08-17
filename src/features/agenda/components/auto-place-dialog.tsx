@@ -26,7 +26,7 @@ const REASON_COPY: Record<PlacementPreviewDTO["unplaced"][number]["reason"], str
 
 function rejectionSummary(rejections: PlacementPreviewDTO["unplaced"][number]["rejections"]): string | null {
   const parts: string[] = [];
-  if (rejections.blackout > 0) parts.push(`${rejections.blackout} blocked by a speaker's declared unavailability`);
+  if (rejections.blackout > 0) parts.push(`${rejections.blackout} blocked by a speaker’s declared unavailability`);
   if (rejections.roomOrSpeakerConflict > 0) parts.push(`${rejections.roomOrSpeakerConflict} would double-book a room or speaker`);
   if (rejections.capacity > 0) parts.push(`${rejections.capacity} too small for the expected attendance`);
   return parts.length > 0 ? parts.join(" · ") : null;

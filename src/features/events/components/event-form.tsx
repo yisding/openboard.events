@@ -101,9 +101,9 @@ export function EventForm() {
   async function submit() {
     if (!name.trim()) return fail("Event name is required", { name: "Event name is required" });
     if (!startsAt || !endsAt) {
-      return fail("Starts At and Ends At are both required", {
-        ...(startsAt ? {} : { startsAt: "Starts At is required" }),
-        ...(endsAt ? {} : { endsAt: "Ends At is required" }),
+      return fail("Both start and end dates are required", {
+        ...(startsAt ? {} : { startsAt: "Start date and time are required" }),
+        ...(endsAt ? {} : { endsAt: "End date and time are required" }),
       });
     }
     setSaving(true);
@@ -163,10 +163,10 @@ export function EventForm() {
         </Field>
       </div>
       <div className="form-grid">
-        <Field label="Starts At" required error={fieldErrors.startsAt} errorId="event-starts-at-error">
+        <Field label="Starts" required error={fieldErrors.startsAt} errorId="event-starts-at-error">
           <DateTimePicker id="event-starts-at" required disabled={saving || recoveryRequired} invalid={Boolean(fieldErrors.startsAt)} {...(fieldErrors.startsAt ? { ariaDescribedBy: "event-starts-at-error" } : {})} value={startsAt} onChange={(value) => { setStartsAt(value); clearFieldError("startsAt"); }} tz={timezone} clearable={false} />
         </Field>
-        <Field label="Ends At" required error={fieldErrors.endsAt} errorId="event-ends-at-error">
+        <Field label="Ends" required error={fieldErrors.endsAt} errorId="event-ends-at-error">
           <DateTimePicker id="event-ends-at" required disabled={saving || recoveryRequired} invalid={Boolean(fieldErrors.endsAt)} {...(fieldErrors.endsAt ? { ariaDescribedBy: "event-ends-at-error" } : {})} value={endsAt} onChange={(value) => { setEndsAt(value); clearFieldError("endsAt"); }} tz={timezone} clearable={false} />
         </Field>
       </div>

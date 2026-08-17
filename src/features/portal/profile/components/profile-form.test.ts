@@ -40,7 +40,7 @@ describe("speaker profile unsaved-work guard", () => {
 
     expect(source).toContain("useUnsavedWorkGuard(dirty)");
     expect(source.indexOf("if (!result.ok)")).toBeLessThan(source.indexOf("setSavedText(submittedText)"));
-    expect(source.indexOf("setSavedText(submittedText)")).toBeLessThan(source.indexOf('toast("Saved successfully.")'));
+    expect(source.indexOf("setSavedText(submittedText)")).toBeLessThan(source.indexOf('toast("Profile saved")'));
     expect(source.indexOf("setSavedText(submittedText)")).toBeLessThan(source.indexOf("router.refresh()"));
     expect(source.slice(source.indexOf("async function onHeadshotUploaded"))).not.toContain("setSavedText");
   });

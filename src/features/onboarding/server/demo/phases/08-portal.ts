@@ -130,7 +130,7 @@ export async function runPortalPhase(ctx: PhaseCtx): Promise<void> {
 async function settleTravelFormIn(ctx: PhaseCtx, taskIds: ReadonlyMap<string, TaskId>): Promise<void> {
   const { dbOrTx, eventId, now, actorUserId } = ctx;
   const travelFormTaskId = taskIds.get("travel-form");
-  if (!travelFormTaskId) throw new AppError("INTERNAL", "The demo's travel-form task is missing");
+  if (!travelFormTaskId) throw new AppError("INTERNAL", "The demo’s travel-form task is missing");
 
   // A few days before the −30d due date: everyone but the holdout got it in
   // on time.

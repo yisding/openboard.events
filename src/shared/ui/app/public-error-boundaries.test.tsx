@@ -31,7 +31,7 @@ describe("public error boundaries", () => {
   it("gives submitters a retry and an event escape route", () => {
     const html = renderToStaticMarkup(<SubmitError {...props} />);
 
-    expect(html).toContain("We couldn&#x27;t open this submission form");
+    expect(html).toContain("We couldn’t open this submission form");
     expect(html).toContain("Try again");
     expect(html).toContain('href="/e/openboard-summit/agenda"');
   });
@@ -41,10 +41,10 @@ describe("public error boundaries", () => {
     const event = renderToStaticMarkup(<PublicEventError {...props} />);
 
     expect(existsSync(new URL("../../../app/portal/[eventSlug]/error.tsx", import.meta.url))).toBe(false);
-    expect(portal).toContain("The speaker portal didn&#x27;t load");
+    expect(portal).toContain("The speaker portal didn’t load");
     expect(portal).toContain("profile, submissions, and completed tasks are still safe");
     expect(portal).toContain('href="/e/openboard-summit/agenda"');
-    expect(event).toContain("This event page didn&#x27;t load");
+    expect(event).toContain("This event page didn’t load");
     expect(event).toContain("published program is temporarily unavailable");
     expect(event).toContain('href="/e/openboard-summit/agenda"');
   });
@@ -52,7 +52,7 @@ describe("public error boundaries", () => {
   it("lets a failed embed retry in place or escape to the full event", () => {
     const html = renderToStaticMarkup(<EmbedError {...props} />);
 
-    expect(html).toContain("This embedded program didn&#x27;t load");
+    expect(html).toContain("This embedded program didn’t load");
     expect(html).toContain("Try again");
     expect(html).toContain('href="/e/openboard-summit/agenda"');
     expect(html.match(/target="_top"/g)).toHaveLength(2);

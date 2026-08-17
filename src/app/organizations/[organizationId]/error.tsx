@@ -19,7 +19,7 @@ export default function OrganizationError({ reset }: { error: Error & { digest?:
   return (
     <RouteErrorState
       inline
-      title={atHome ? "We couldn't load this organization" : "This organization page didn't load"}
+      title={atHome ? "We couldn’t load this organization" : "This organization page didn’t load"}
       description="A temporary read failed before the page was ready. Retry here, or step back — nothing in this workspace has changed."
       reset={reset}
       backHref={atHome ? "/events" : `/organizations/${organizationId}`}

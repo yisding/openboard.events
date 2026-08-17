@@ -522,23 +522,23 @@ function referenceViolation(error: unknown): AppError | null {
   if (constraint === null) return null;
   const named = constraint.toLowerCase();
   if (named.includes("room")) {
-    return new AppError("VALIDATION", "That room isn't part of this event", undefined, { roomId: "Pick a room from this event" });
+    return new AppError("VALIDATION", "That room isn’t part of this event", undefined, { roomId: "Pick a room from this event" });
   }
   if (named.includes("track")) {
-    return new AppError("VALIDATION", "That track isn't part of this event", undefined, { trackId: "Pick a track from this event" });
+    return new AppError("VALIDATION", "That track isn’t part of this event", undefined, { trackId: "Pick a track from this event" });
   }
   if (named.includes("format")) {
-    return new AppError("VALIDATION", "That session format isn't part of this event", undefined, { formatId: "Pick a format from this event" });
+    return new AppError("VALIDATION", "That session format isn’t part of this event", undefined, { formatId: "Pick a format from this event" });
   }
   if (named.includes("contact") || named.includes("speaker")) {
-    return new AppError("VALIDATION", "One of those speakers isn't part of this event", undefined, { speakerContactIds: "Pick speakers from this event" });
+    return new AppError("VALIDATION", "One of those speakers isn’t part of this event", undefined, { speakerContactIds: "Pick speakers from this event" });
   }
   if (named.includes("submission")) {
-    return new AppError("VALIDATION", "That submission isn't part of this event");
+    return new AppError("VALIDATION", "That submission isn’t part of this event");
   }
   // A 23503 we could not attribute is still a client-actionable bad reference,
   // never an INTERNAL: name the set of columns it could have been.
-  return new AppError("VALIDATION", "A room, track, format or speaker on this session isn't part of this event");
+  return new AppError("VALIDATION", "A room, track, format or speaker on this session isn’t part of this event");
 }
 
 /**

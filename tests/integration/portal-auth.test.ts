@@ -173,7 +173,7 @@ describe("portal authentication", () => {
     const email = "throttle@example.com";
     for (let request = 0; request < 3; request += 1) {
       const result = await requestPortalLoginIn(tx, { eventId: eventA, eventSlug: "portal-a", email, appBaseUrl: "https://preview.example.com", sessionSecret: secret, fallback: false });
-      expect(result).toEqual({ message: "If that address is on file, we've sent a code" });
+      expect(result).toEqual({ message: "If that address is on file, we’ve sent a code" });
     }
     await expect(requestPortalLoginIn(tx, { eventId: eventA, eventSlug: "portal-a", email, appBaseUrl: "https://preview.example.com", sessionSecret: secret, fallback: false })).rejects.toMatchObject({ code: "RATE_LIMITED" });
     const rows = await pglite.query<{ n: number; encrypted: number }>("SELECT count(*)::int AS n,count(secret_payload_ciphertext)::int AS encrypted FROM communication_logs l JOIN contacts c ON c.id=l.contact_id WHERE c.email=$1", [email]);

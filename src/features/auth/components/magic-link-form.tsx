@@ -38,9 +38,9 @@ export function MagicLinkForm({ eventSlug, token, impersonate, next }: { eventSl
           return;
         }
         setError(unreachable
-          ? "We couldn't reach the server — check your connection and try again"
+          ? "We couldn’t reach the server — check your connection and try again"
           : serverFault
-            ? "We couldn't confirm that link right now — try again"
+            ? "We couldn’t confirm that link right now — try again"
             : "That link is invalid or expired");
         return;
       }
@@ -58,9 +58,9 @@ export function MagicLinkForm({ eventSlug, token, impersonate, next }: { eventSl
       const result = await portalAuthRequest("/api/internal/auth/portal/impersonate/renew", { eventSlug, token });
       if (!result.ok) {
         setError(result.status === null
-          ? "We couldn't reach the server — check your connection and try again"
+          ? "We couldn’t reach the server — check your connection and try again"
           : result.status === 401 || result.status === 403
-            ? "Your organizer sign-in has expired — sign in again, then reopen the portal from the speaker's page"
+            ? "Your organizer sign-in has expired — sign in again, then reopen the portal from the speaker’s page"
             : result.message);
         return;
       }

@@ -162,7 +162,7 @@ export async function createEventIn(
   const startsAt = new Date(input.startsAt);
   const endsAt = new Date(input.endsAt);
   if (!(endsAt.getTime() > startsAt.getTime())) {
-    throw new AppError("VALIDATION", "Ends At must be after Starts At", { field: "endsAt" });
+    throw new AppError("VALIDATION", "The end must be after the start", { field: "endsAt" });
   }
 
   const eventId = input.id ?? eventIdSchema.parse(crypto.randomUUID());
@@ -287,7 +287,7 @@ export async function updateEventIn(dbOrTx: DbOrTx, eventId: EventId, patch: Upd
   if (patch.timezone) assertValidTimezone(patch.timezone);
   const bundlesDates = patch.startsAt !== undefined || patch.endsAt !== undefined;
   if (bundlesDates && (!patch.startsAt || !patch.endsAt || !patch.timezone)) {
-    throw new AppError("VALIDATION", "Changing the schedule requires Starts At, Ends At and Timezone together", { field: "startsAt" });
+    throw new AppError("VALIDATION", "Changing the schedule requires the start, end and timezone together", { field: "startsAt" });
   }
 
   // A scheduled-session writer advances events.updated_at while holding this
@@ -304,7 +304,7 @@ export async function updateEventIn(dbOrTx: DbOrTx, eventId: EventId, patch: Upd
     const effectiveSlug = patch.slug ?? current.slug;
     const publicIcsMetadataChanged = effectiveName !== current.name || effectiveSlug !== current.slug;
     if (!(effectiveEndsAt.getTime() > effectiveStartsAt.getTime())) {
-      throw new AppError("VALIDATION", "Ends At must be after Starts At", { field: "endsAt" });
+      throw new AppError("VALIDATION", "The end must be after the start", { field: "endsAt" });
     }
 
     const scheduledSessionsFit = bundlesDates ? sql`NOT EXISTS (

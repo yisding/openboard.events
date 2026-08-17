@@ -151,7 +151,7 @@ describe("session mutation recovery", () => {
     expect(container.textContent).not.toContain("Session change unconfirmed");
     expect(container.textContent).not.toContain(chromeDevice);
     expect(container.textContent).toContain(firefoxDevice);
-    expect(toastMock).toHaveBeenLastCalledWith("Sessions checked — that session is not active.");
+    expect(toastMock).toHaveBeenLastCalledWith("Sessions checked — that session is not active");
   });
 
   it("keeps the exact revoke locked when a check still sees the target", async () => {
@@ -283,7 +283,7 @@ describe("identifying which session is which", () => {
     const row = [...container.querySelectorAll("tbody tr")]
       .find((candidate) => candidate.textContent?.includes(firefoxDevice));
     await act(async () => row?.querySelector<HTMLButtonElement>("button")?.click());
-    expect(container.textContent).toContain("This is the device you're using right now.");
+    expect(container.textContent).toContain("This is the device you’re using right now.");
     await act(async () => buttonsNamed("Sign out").at(-1)?.click());
     await settle();
 

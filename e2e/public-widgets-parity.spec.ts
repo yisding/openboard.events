@@ -284,24 +284,24 @@ test.describe("public-widgets-parity (M53)", () => {
     const second = SESSIONS.backToBackLate; // "Evals that survive contact with users" — a second, distinct published session.
     await waitForVisible(page, SURFACES.itinerary, KEYNOTE.title);
 
-    await test.step("starring two sessions updates the My Schedule count", async () => {
-      await page.getByRole("button", { name: `Add ${KEYNOTE.title} to My Schedule` }).click();
-      await page.getByRole("button", { name: `Add ${second.title} to My Schedule` }).click();
-      await expect(page.getByRole("button", { name: /My Schedule \(2\)/ })).toBeVisible();
+    await test.step("starring two sessions updates the My schedule count", async () => {
+      await page.getByRole("button", { name: `Add ${KEYNOTE.title} to My schedule` }).click();
+      await page.getByRole("button", { name: `Add ${second.title} to My schedule` }).click();
+      await expect(page.getByRole("button", { name: /My schedule \(2\)/ })).toBeVisible();
     });
 
     await test.step("a reload persists exactly the two starred sessions", async () => {
       await page.reload();
-      await expect(page.getByRole("button", { name: /My Schedule \(2\)/ })).toBeVisible();
-      await page.getByRole("button", { name: /My Schedule \(2\)/ }).click(); // filter to starred-only
+      await expect(page.getByRole("button", { name: /My schedule \(2\)/ })).toBeVisible();
+      await page.getByRole("button", { name: /My schedule \(2\)/ }).click(); // filter to starred-only
       await expect(page.locator(".itinerary-sessions article")).toHaveCount(2);
       await expect(page.getByText(KEYNOTE.title)).toBeVisible();
       await expect(page.getByText(second.title)).toBeVisible();
     });
 
     await test.step("removing one leaves exactly one, in both the count and the filtered list", async () => {
-      await page.getByRole("button", { name: `Remove ${second.title} from My Schedule` }).click();
-      await expect(page.getByRole("button", { name: /My Schedule \(1\)/ })).toBeVisible();
+      await page.getByRole("button", { name: `Remove ${second.title} from My schedule` }).click();
+      await expect(page.getByRole("button", { name: /My schedule \(1\)/ })).toBeVisible();
       await expect(page.locator(".itinerary-sessions article")).toHaveCount(1);
       await expect(page.getByText(KEYNOTE.title)).toBeVisible();
       await expect(page.getByText(second.title)).toHaveCount(0);

@@ -66,7 +66,7 @@ export default function WeekView({ event, sessions, rooms, tracks, formats, spea
       <EmptyState
         icon={<CalendarDays size={26} />}
         title="No event days yet"
-        description="Set the event's start and end dates to see a Week view."
+        description="Set the event’s start and end dates to see a Week view."
       />
     );
   }

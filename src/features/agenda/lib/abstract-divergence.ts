@@ -75,7 +75,7 @@ export function divergenceNotice(divergence: AbstractDivergence): DivergenceNoti
   }
   return {
     label: `Abstract ${status}`,
-    detail: `This session's abstract is ${status}. Publishing it will not put it on the public schedule until the abstract is accepted again.`,
+    detail: `This session’s abstract is ${status}. Publishing it will not put it on the public schedule until the abstract is accepted again.`,
     tone: "warning",
   };
 }

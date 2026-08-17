@@ -147,7 +147,7 @@ export function DemoProvisioningScreen({ organizationId, initialState, onReady }
   return (
     <section className="panel" style={{ maxWidth: 620, padding: "24px 24px 26px" }} aria-labelledby="demo-provisioning-title">
       <h2 id="demo-provisioning-title" style={{ margin: 0, fontSize: "var(--text-base)" }}>
-        Building AI Engineer World&rsquo;s Fair
+        Building AI Engineer World’s Fair
       </h2>
       <p style={{ margin: "6px 0 18px", color: "var(--muted)", fontSize: "var(--text-sm)" }}>
         {completed} of {DEMO_PHASE_COUNT} · a real conference, built with the same writers your own event uses.

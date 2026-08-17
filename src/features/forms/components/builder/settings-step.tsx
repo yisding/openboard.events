@@ -37,7 +37,7 @@ export function SettingsStep({ event, form, onChange }: {
         <div className="inline-setting">
           <div>
             <b>Set submission limit</b>
-            <small>Overrides the event&apos;s per-user default for this form only.</small>
+            <small>Overrides the event’s per-user default for this form only.</small>
           </div>
           <Switch
             label="Set submission limit"
@@ -64,7 +64,7 @@ export function SettingsStep({ event, form, onChange }: {
             Event max: {event.submissionCapPerUser}
           </span>
         </div>
-        <p className="builder-help">Counts submitted sessions only — saved drafts don&apos;t use up the limit.</p>
+        <p className="builder-help">Counts submitted sessions only — saved drafts don’t use up the limit.</p>
       </div>
       <SuccessPageCard form={form} onChange={onChange} />
     </section>

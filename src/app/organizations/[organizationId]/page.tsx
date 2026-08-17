@@ -96,7 +96,7 @@ export default async function Page({ params, searchParams }: {
       title={organization.name}
       description={leadWithCreate
         ? "Your demo event is a complete conference you can break safely. When you are ready for the real one, everything you learned in there still applies."
-        : "Your organization's event directory. Event access is assigned separately."}
+        : "Your organization’s event directory. Event access is assigned separately."}
       actions={canManageEvents ? <>
         <Link href={`/organizations/${organizationId}/crm`} className="button button-secondary"><Contact size={16} /> Speaker CRM</Link>
         {billingEnabled && <Link href={`/organizations/${organizationId}/billing`} className="button button-secondary"><CreditCard size={16} /> Billing</Link>}

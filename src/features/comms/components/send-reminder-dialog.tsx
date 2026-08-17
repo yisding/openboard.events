@@ -140,7 +140,7 @@ export function SendReminderDialog({
 
   return (
     <>
-      <Modal open onClose={onClose} title={`Send reminder — ${contactName}`} description="Only this speaker's currently open assignments are listed.">
+      <Modal open onClose={onClose} title={`Send reminder — ${contactName}`} description="Only this speaker’s currently open assignments are listed.">
         {assignments.isLoading && <SkeletonText lines={3} label="Loading open assignments…" />}
         {assignments.isError && (
           <LoadFailure

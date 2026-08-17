@@ -83,7 +83,7 @@ const COPY: Record<VocabKind, { title: string; addLabel: string; empty: string; 
     title: "Rooms",
     addLabel: "+ Add room",
     empty: "No rooms yet",
-    emptyHint: "The agenda's day grid needs at least one room to show columns.",
+    emptyHint: "The agenda’s day grid needs at least one room to show columns.",
   },
   formats: {
     title: "Formats",

@@ -147,7 +147,7 @@ export function PublicEventShell({
           <h1 className="sr-only">{event.name}</h1>
         )}
         {children}
-        <footer>Powered by <b>openboard</b></footer>
+        <footer>Powered by <b>Openboard</b></footer>
       </div>
     );
   }
@@ -196,7 +196,7 @@ export function PublicEventShell({
       <footer className="public-event-footer">
         <div className="public-event-container">
           <span className="public-event-logo">{event.name}</span>
-          <p>Built and run on openboard — schedule updates automatically as the program changes.</p>
+          <p>Built and run on Openboard — schedule updates automatically as the program changes.</p>
           <nav aria-label="Footer navigation"><span>Powered by Openboard</span></nav>
         </div>
       </footer>

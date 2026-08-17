@@ -397,7 +397,7 @@ export function CrmBulkEmailDialog({
       open={open}
       onClose={requestClose}
       title={`Email ${audience.length} contact${audience.length === 1 ? "" : "s"}`}
-      description="Sent through each contact's most recently linked event — a contact never pushed into an event is skipped, not silently dropped."
+      description="Sent through each contact’s most recently linked event — a contact never pushed into an event is skipped, not silently dropped."
       wide
       footer={sendResult ? (
         recoveryRequired ? <>
@@ -475,7 +475,7 @@ export function CrmBulkEmailDialog({
                 <RichTextView html={currentPreview.result.bodyHtml} />
               </div>
             ) : (
-              <p className="long-copy" style={{ marginTop: 12 }}>Refresh to see this recipient&rsquo;s resolved message, or the reason it will be skipped.</p>
+              <p className="long-copy" style={{ marginTop: 12 }}>Refresh to see this recipient’s resolved message, or the reason it will be skipped.</p>
             )}
           </aside>
         </div>

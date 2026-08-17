@@ -99,7 +99,7 @@ describe("the abstract drawer's Details form", () => {
     expect(controlLabelled("Capacity")?.getAttribute("name")).toBe("capacity");
     // The date picker puts a calendar button beside its input, so the label is
     // written to name the input rather than left to find it by position.
-    const startsAt = controlLabelled("Starts at");
+    const startsAt = controlLabelled("Starts");
     expect(startsAt?.tagName).toBe("INPUT");
     expect(container.querySelector(`label[for="${CSS.escape(startsAt?.id ?? "")}"]`)).not.toBeNull();
   });

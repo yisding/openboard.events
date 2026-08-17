@@ -265,7 +265,7 @@ function DayViewInner({ eventId, event, sessions, rooms, tracks, formats, speake
         ? (
           <EmptyState
             icon={<LayoutGrid size={26} />}
-            title="Set the event's dates"
+            title="Set the event’s dates"
             description="The day grid needs at least one event day to draw."
           />
         )

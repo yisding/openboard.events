@@ -17,7 +17,7 @@ const CODE = ["ArrowUp", "ArrowUp", "ArrowDown", "ArrowDown", "ArrowLeft", "Arro
 const ENCORES = [
   { emojis: ["🕹️", "🎉", "✨", "🎊"], message: "Achievement unlocked: the Konami keynote 🕹️ +30 lives, all of them backstage passes" },
   { emojis: ["👾", "🕹️", "💫", "✨"], message: "An encore! The retro track is officially oversubscribed. +30 more lives 👾" },
-  { emojis: ["🏆", "🎮", "🕹️", "✨"], message: "Three shows in one night. That's not an easter egg anymore — that's a residency. 🏆" },
+  { emojis: ["🏆", "🎮", "🕹️", "✨"], message: "Three shows in one night. That’s not an easter egg anymore — that’s a residency. 🏆" },
 ] as const;
 
 /** The celebration for the nth trigger (0-based); exported pure for tests. */

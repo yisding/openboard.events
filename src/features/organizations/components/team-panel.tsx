@@ -440,7 +440,7 @@ export function TeamPanel({
         <div>
           <b>Team access is unconfirmed</b>
           <span>
-            We couldn&apos;t confirm whether {recoveryDescription(membershipRecovery)}.
+            We couldn’t confirm whether {recoveryDescription(membershipRecovery)}.
             Restore your connection, then check the team before making another access change.
           </span>
         </div>
@@ -475,7 +475,7 @@ export function TeamPanel({
     <section className="panel settings-section">
       <header>
         <h2><Mail size={16} /> Pending invitations</h2>
-        <p>Invited by email, through Openboard&apos;s own outbox — no separate mailer.</p>
+        <p>Invited by email, through Openboard’s own outbox — no separate mailer.</p>
       </header>
       <DataTable
         columns={invitationColumns}
@@ -490,7 +490,7 @@ export function TeamPanel({
       open={inviting}
       onClose={() => (busy ? undefined : setInviting(false))}
       title="Invite a teammate"
-      description="They'll get an email with a link to join this workspace. This invitation does not grant access to any event."
+      description="They’ll get an email with a link to join this workspace. This invitation does not grant access to any event."
       footer={<>
         <Button variant="secondary" onClick={() => setInviting(false)} disabled={busy}>Cancel</Button>
         <Button onClick={() => void sendInvite()} disabled={teamWritesLocked || !inviteEmail.trim()}>{busy ? "Sending…" : "Send invitation"}</Button>

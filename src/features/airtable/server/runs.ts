@@ -15,17 +15,17 @@ import { emptySyncRunStats, syncRunStatsSchema, type SyncRunStats, type SyncRunS
  * token — reaching a page an organizer looks at.
  */
 export const SYNC_RUN_ERRORS = {
-  unauthorized: "Airtable stopped accepting your token. Paste a new one and we'll resume from where we stopped.",
-  missing_scope: "This token can't do everything the sync needs. Check the permissions list and add what's missing.",
-  schema_drifted: "Some tables or fields in your base don't match what we expect. The list below says exactly which.",
-  base_missing: "We can't see that base any more. It may have been deleted, or the token may have lost access to it.",
-  records_rejected: "Airtable wouldn't accept some of these records. That's usually two rows in your base sharing one hidden Openboard ID, or a value a column's type won't take. Fix it there and the next sync carries them over.",
+  unauthorized: "Airtable stopped accepting your token. Paste a new one and we’ll resume from where we stopped.",
+  missing_scope: "This token can’t do everything the sync needs. Check the permissions list and add what’s missing.",
+  schema_drifted: "Some tables or fields in your base don’t match what we expect. The list below says exactly which.",
+  base_missing: "We can’t see that base any more. It may have been deleted, or the token may have lost access to it.",
+  records_rejected: "Airtable wouldn’t accept some of these records. That’s usually two rows in your base sharing one hidden Openboard ID, or a value a column’s type won’t take. Fix it there and the next sync carries them over.",
   rate_limited: "Airtable asked us to slow down. We stopped cleanly and will pick up where we left off.",
-  airtable_unavailable: "Airtable didn't answer. Nothing was lost — the next sync carries on from here.",
-  token_unreadable: "We couldn't read the stored token. Reconnect and we'll take it from there.",
+  airtable_unavailable: "Airtable didn’t answer. Nothing was lost — the next sync carries on from here.",
+  token_unreadable: "We couldn’t read the stored token. Reconnect and we’ll take it from there.",
   disconnected: "This event was disconnected from Airtable before the run started, so nothing was written.",
   interrupted: "This run stopped before it finished. Nothing was duplicated — the next one picks up where it left off.",
-  internal: "Something on our side stopped this sync. We've been told, and the next run will try again.",
+  internal: "Something on our side stopped this sync. We’ve been told, and the next run will try again.",
 } as const;
 
 export type SyncRunErrorKey = keyof typeof SYNC_RUN_ERRORS;

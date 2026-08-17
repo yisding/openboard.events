@@ -1,7 +1,70 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
+
+const SRC = fileURLToPath(new URL("..", import.meta.url));
+
+function sourceFiles(dir: string): string[] {
+  return readdirSync(dir).flatMap((entry) => {
+    const path = join(dir, entry);
+    if (statSync(path).isDirectory()) return sourceFiles(path);
+    return /\.tsx?$/u.test(entry) && !/\.(?:test|spec)\.tsx?$/u.test(entry) ? [path] : [];
+  });
+}
+
+/** One run of authored text: a string literal, a template chunk, or JSX body text. */
+type CopySpan = { file: string; text: string; jsx: boolean };
+
+/**
+ * Everything in `src/` that can reach a reader as words, and nothing that
+ * cannot. Identifiers, JSX attribute *names*, imports and `//`-comments are not
+ * spans; SQL `--` comment lines inside a template literal are dropped because a
+ * tagged `sql` template is code that happens to be a string.
+ */
+function copySpans(): CopySpan[] {
+  const spans: CopySpan[] = [];
+  for (const path of sourceFiles(SRC)) {
+    const text = readFileSync(path, "utf8");
+    const file = relative(SRC, path);
+    const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    const visit = (node: ts.Node) => {
+      const jsx = ts.isJsxText(node);
+      const isCopy = jsx
+        || ts.isStringLiteral(node)
+        || ts.isNoSubstitutionTemplateLiteral(node)
+        || ts.isTemplateHead(node)
+        || ts.isTemplateMiddle(node)
+        || ts.isTemplateTail(node);
+      if (isCopy) {
+        const raw = text.slice(node.getStart(source), node.getEnd());
+        for (const line of raw.split("\n")) {
+          if (/^\s*--/u.test(line)) continue;
+          spans.push({ file, text: line, jsx });
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+  return spans;
+}
+
+const SPANS = copySpans();
+
+const offenders = (pattern: RegExp, only?: (span: CopySpan) => boolean) => SPANS
+  .filter((span) => (only ? only(span) : true) && pattern.test(span.text))
+  .map((span) => `${span.file}: ${span.text.trim()}`);
+
+/** Attribute values the product renders as a control's own name. */
+const labelValues = (attribute: "label" | "title") => sourceFiles(SRC).flatMap((path) => {
+  const file = relative(SRC, path);
+  return [...readFileSync(path, "utf8").matchAll(new RegExp(`\\b${attribute}="([^"{}]+)"`, "gu"))]
+    .map((match) => ({ file, value: match[1] ?? "" }));
+});
 
 describe("user-facing copy regressions", () => {
   it("does not expose internal data identifiers or raw session state", () => {
@@ -126,5 +189,89 @@ describe("user-facing copy regressions", () => {
     expect(surfaces).toContain("Test environment code");
     expect(surfaces).toContain("Your one-time code");
     expect(surfaces).toContain("Confirm email and continue");
+  });
+});
+
+/**
+ * #637 — four conventions that were each individually trivial and collectively
+ * made the product read as if several people had written it. They are policed
+ * here rather than in a style guide nobody opens, because every one of them
+ * drifted back in through code review that was looking at behaviour.
+ */
+describe("copy conventions", () => {
+  // Curly apostrophes were already the majority and the typographically right
+  // answer; the split was ~50 files deep, with the same sentence shipped both
+  // ways. `&apos;`/`&rsquo;` are the entity spelling of the same characters —
+  // JSX needs the escape only for a *straight* quote, so a typographic one is
+  // written as itself and reads as itself in the source too.
+  it("writes every apostrophe and quote in rendered copy as its typographic character", () => {
+    expect(offenders(/[A-Za-z]'(?:t|s|re|ve|ll|d|m)\b/u)).toEqual([]);
+    expect(offenders(/&(?:apos|rsquo|ldquo|rdquo);/u, (span) => span.jsx)).toEqual([]);
+  });
+
+  // Toasts clustered by author: "Saved", "Changes saved" and "Saved
+  // successfully." were three spellings of one act, and a minority carried a
+  // trailing period the rest did not. A confirmation names what it confirmed,
+  // and a single sentence takes no terminal period — multi-sentence recovery
+  // copy still punctuates normally.
+  it("confirms a save by naming what was saved, and leaves single-sentence toasts unpunctuated", () => {
+    const messages = sourceFiles(SRC).flatMap((path) => {
+      const file = relative(SRC, path);
+      return [...readFileSync(path, "utf8").matchAll(/\btoast\(\s*"([^"]+)"/gu)].map((match) => ({ file, message: match[1] ?? "" }));
+    });
+    expect(messages.length).toBeGreaterThan(100);
+
+    const anonymous = messages.filter(({ message }) => /^(?:Saved|Success|Changes saved|Saved successfully)\.?$/u.test(message));
+    expect(anonymous.map(({ file, message }) => `${file}: ${message}`)).toEqual([]);
+
+    const oneSentence = messages.filter(({ message }) => message.endsWith(".") && !message.slice(0, -1).includes(". "));
+    expect(oneSentence.map(({ file, message }) => `${file}: ${message}`)).toEqual([]);
+  });
+
+  // One start/end pair had four label sets across the product — "Starts At",
+  // "Starts at", "Starts", "Opens at". The bare verb wins (it was already the
+  // majority, and "at" adds nothing beside a datetime control), and a label is
+  // a name rather than a lead-in, so none of them ends in a colon.
+  it("names a start, an end and a deadline the same way everywhere", () => {
+    const labels = labelValues("label");
+    expect(labels.length).toBeGreaterThan(50);
+
+    const dangling = labels.filter(({ value }) => /^(?:Starts|Ends|Opens|Closes)\s+at$/iu.test(value));
+    expect(dangling.map(({ file, value }) => `${file}: ${value}`)).toEqual([]);
+
+    const punctuated = labels.filter(({ value }) => value.endsWith(":"));
+    expect(punctuated.map(({ file, value }) => `${file}: ${value}`)).toEqual([]);
+  });
+
+  // American spelling in copy (the comments keep their own voice), one casing
+  // for the itinerary surface, and a brand that is capitalised in prose. The
+  // lowercase wordmark is a logo, so it stays lowercase — and only there.
+  it("keeps one spelling of the program, the itinerary and the brand", () => {
+    expect(offenders(/programme/iu)).toEqual([]);
+    expect(offenders(/My Schedule/u)).toEqual([]);
+
+    const wordmark = new Set(["shared/ui/brand.tsx", "app/global-error.tsx"]);
+    expect(offenders(/\bopenboard\b/u, (span) => span.jsx && !wordmark.has(span.file))).toEqual([]);
+  });
+
+  // Sentence case is the product's register; "Submission Forms" and "Portal
+  // Forms" were the two page titles that had slipped into Title Case.
+  it("titles every page in sentence case", () => {
+    const proper = /^(?:Openboard|Airtable|API|CRM|CFP|ICS|CSV|URL|AI)$/u;
+    const titles = sourceFiles(SRC).flatMap((path) => {
+      const file = relative(SRC, path);
+      const text = readFileSync(path, "utf8");
+      // The `<h1>` of an organizer screen, and the browser tab's own title.
+      const headers = [...text.matchAll(/<PageHeader\b[^>]*?\btitle="([^"]+)"/gu)];
+      const metadata = file.startsWith("app") && file.endsWith("page.tsx") ? [...text.matchAll(/\btitle: "([^"]+)"/gu)] : [];
+      return [...headers, ...metadata].map((match) => ({ file, value: match[1] ?? "" }));
+    });
+    expect(titles.length).toBeGreaterThan(50);
+
+    const titleCased = titles.filter(({ value }) => value
+      .split(/[\s—–]+/u)
+      .slice(1)
+      .some((word) => /^[A-Z][a-z]+$/u.test(word) && !proper.test(word)));
+    expect(titleCased.map(({ file, value }) => `${file}: ${value}`)).toEqual([]);
   });
 });

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createEventInputSchema, eventDetailsPatchSchema } from "./schemas";
 
 const validBody = {
-  name: "AI Engineer World's Fair",
+  name: "AI Engineer World’s Fair",
   eventType: "conference" as const,
   timezone: "America/Los_Angeles",
   startsAt: "2026-10-19T16:00:00.000Z",

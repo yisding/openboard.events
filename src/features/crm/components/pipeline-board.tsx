@@ -56,7 +56,7 @@ const MAX_AUTHORITY_READS = 4;
  * mutation — say both, so nobody hunts for a gesture they do not need.
  */
 const SCREEN_READER_INSTRUCTIONS: ScreenReaderInstructions = {
-  draggable: "Press space or enter on a prospect's drag handle to pick it up. The left and right arrow keys move it between stages, space or enter drops it, escape cancels. Every card also carries a stage menu that makes the same move without a drag.",
+  draggable: "Press space or enter on a prospect’s drag handle to pick it up. The left and right arrow keys move it between stages, space or enter drops it, escape cancels. Every card also carries a stage menu that makes the same move without a drag.",
 };
 
 /**
@@ -158,7 +158,7 @@ async function resolveCurrentPipelineContact(
     }
     currentEntry = after;
   }
-  throw new AppError("INTERNAL", "The prospect's contact kept changing while the pipeline was refreshed");
+  throw new AppError("INTERNAL", "The prospect’s contact kept changing while the pipeline was refreshed");
 }
 
 async function loadPipelineAuthority(organizationId: OrganizationId): Promise<PipelineAuthority> {
@@ -369,7 +369,7 @@ function AddProspectDialog({ organizationId, events, open, onClose, onCreated }:
       open={open}
       onClose={requestClose}
       title="Add a prospect"
-      description="Search the directory for who you're sourcing, then optionally name the event you have in mind."
+      description="Search the directory for who you’re sourcing, then optionally name the event you have in mind."
       footer={<>
         <Button variant="secondary" onClick={requestClose} disabled={busy}>{recovery ? "Close and check pipeline" : "Cancel"}</Button>
         {!recovery?.closeOnly && (

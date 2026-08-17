@@ -4,7 +4,7 @@ import { requireAdmin } from "@/features/auth/index.server";
 import { getBuilderEvent, listForms } from "@/features/forms";
 import { PortalFormsPage } from "@/features/portal";
 
-export const metadata: Metadata = { title: "Portal Forms" };
+export const metadata: Metadata = { title: "Portal forms" };
 export default async function Page({ params }: { params: Promise<{ eventId: string }> }) {
   const { eventId } = await params;
   const parsedEventId = eventIdSchema.parse(eventId);

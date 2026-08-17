@@ -98,7 +98,7 @@ describe("AuditLogPanel filters", () => {
 
     const text = bodyText();
     expect(text).toContain("Revoked an invitation");
-    expect(text).not.toContain("Changed a member's role");
+    expect(text).not.toContain("Changed a member’s role");
     expect(text).not.toContain("Invited a teammate");
   });
 

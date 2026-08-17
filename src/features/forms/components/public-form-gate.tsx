@@ -78,7 +78,7 @@ export function PublicFormGate({ data, children }: { data: PublicForm; children?
               . Thank you for your interest in {event.name}.
             </p>
           )}
-          <Link href={`/e/${event.slug}/agenda`}>See the programme</Link>
+          <Link href={`/e/${event.slug}/agenda`}>See the program</Link>
         </section>
       </EventBackground>
     );

@@ -73,7 +73,7 @@ export function VisibilityRuleEditor({
   return (
     <div className="condition-card visibility-rule-editor">
       <div>
-        <b>Conditional visibility for &ldquo;{field.label}&rdquo;</b>
+        <b>Conditional visibility for “{field.label}”</b>
         <small>Conditions may reference only earlier questions.</small>
       </div>
       <Segmented

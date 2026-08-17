@@ -20,7 +20,7 @@ Object.assign(globalThis, { React, IS_REACT_ACT_ENVIRONMENT: true });
 
 const eventId = eventIdSchema.parse("40000000-0000-4000-8000-000000000001");
 const organizationId = organizationIdSchema.parse("30000000-0000-4000-8000-000000000001");
-const eventName = "AI Engineer World's Fair (demo)";
+const eventName = "AI Engineer World’s Fair (demo)";
 const demoPath = `/api/internal/organizations/${organizationId}/demo`;
 const tourPath = `/api/internal/events/${eventId}/tour`;
 

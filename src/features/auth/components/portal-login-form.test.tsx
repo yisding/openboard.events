@@ -139,7 +139,7 @@ describe("PortalLoginForm rate-limit recovery", () => {
     await clickText("Send a new code");
     await settle();
 
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain("We couldn't send a code right now");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("We couldn’t send a code right now");
     expect(container.querySelector('input[name="code"]')).not.toBeNull();
   });
 
@@ -153,6 +153,6 @@ describe("PortalLoginForm rate-limit recovery", () => {
     await submit();
 
     expect(container.querySelector('input[name="code"]')).toBeNull();
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain("We couldn't send a code right now");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("We couldn’t send a code right now");
   });
 });

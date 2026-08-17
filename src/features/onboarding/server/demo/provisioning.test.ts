@@ -126,7 +126,7 @@ describe("demo provisioning", () => {
       );
       const startsAt = new Date(String(row.rows[0]?.starts_at));
       expect(startsAt.getTime()).toBeGreaterThan(Date.now());
-      expect(row.rows[0]?.name).toMatch(/^AI Engineer World's Fair \d{4}$/);
+      expect(row.rows[0]?.name).toMatch(/^AI Engineer World’s Fair \d{4}$/);
     });
 
     it("upserts the demo's formats over the platform defaults instead of duplicating them by name", async () => {
@@ -142,7 +142,7 @@ describe("demo provisioning", () => {
       expect(formats.rows.map((row) => row.name)).toEqual([
         "Keynote", "Talk", "Workshop", "Panel", "Break", "Lightning Talk", "The Great AI Debate",
       ]);
-      // The real AI Engineer World's Fair signature slot, not the platform's
+      // The real AI Engineer World’s Fair signature slot, not the platform's
       // rounder default.
       expect(formats.rows.find((row) => row.name === "Talk")?.default_duration_mins).toBe(18);
     });
@@ -183,7 +183,7 @@ describe("demo provisioning", () => {
         `SELECT f.key, f.visibility, f.review_visibility
            FROM form_fields f JOIN forms ON forms.id = f.form_id
           WHERE f.event_id = $1 AND forms.internal_name = $2 AND f.deleted_at IS NULL`,
-        [eventId, "Speak at AI Engineer World's Fair"],
+        [eventId, "Speak at AI Engineer World’s Fair"],
       );
       const cfp = FORMS.find((form) => form.key === "cfp");
       expect(fields.rows.map((row) => row.key).sort()).toEqual([...(cfp?.fields ?? [])].map((field) => field.key).sort());
@@ -398,7 +398,7 @@ describe("demo provisioning", () => {
 
       const form = await pglite.query<{ closes_at: Date }>(
         "SELECT closes_at FROM forms WHERE event_id = $1 AND internal_name = $2",
-        [eventId, "Speak at AI Engineer World's Fair"],
+        [eventId, "Speak at AI Engineer World’s Fair"],
       );
       const closesAt = new Date(String(form.rows[0]?.closes_at));
       // +12 days from a `now` that is itself 14 days in the past.

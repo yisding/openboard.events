@@ -226,7 +226,7 @@ export function EventAccessTab({ eventId }: { eventId: EventId }) {
               toast(refreshed.grantRestriction ?? "Your event access permissions changed", { kind: "error" });
             } else {
               setSelectedUserId(null);
-              setGrantError("That teammate's access changed while you were choosing. The list is refreshed.");
+              setGrantError("That teammate’s access changed while you were choosing. The list is refreshed.");
             }
           } catch {
             setGrantError(appendGuidance(caught.message, "Event access could not be refreshed; close this picker and reload before trying again."));

@@ -571,7 +571,7 @@ export async function updateParticipantStepIn(
   const form = await getFormForBuilderIn(dbOrTx, eventId, formId);
   const section = form.sections.find((candidate) => candidate.id === operation.sectionId);
   if (form.context !== "cfp" || section?.key !== "participant") {
-    throw new AppError("VALIDATION", "Participant step updates require this form's participant section");
+    throw new AppError("VALIDATION", "Participant step updates require this form’s participant section");
   }
   const requested = participantStepValues(operation);
   const hypothetical = {

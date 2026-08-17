@@ -20,7 +20,7 @@ import { LocalTime } from "@/shared/ui/app/local-time";
  */
 const ACTION_LABELS = {
   "member.invited": "Invited a teammate",
-  "member.role_changed": "Changed a member's role",
+  "member.role_changed": "Changed a member’s role",
   "member.removed": "Removed a member",
   "invitation.revoked": "Revoked an invitation",
   "invitation.accepted": "Accepted an invitation",
@@ -29,7 +29,7 @@ const ACTION_LABELS = {
   "demo.provisioned": "Built the sample event",
   "demo.reset": "Reset the sample event",
   "demo.deleted": "Deleted the sample event",
-  "demo.scaffold_copied": "Copied the sample event's setup",
+  "demo.scaffold_copied": "Copied the sample event’s setup",
 } satisfies Record<OrganizationAuditAction, string>;
 
 /**

@@ -149,7 +149,7 @@ describe("form builder accessibility", () => {
     expect(source).toContain("A duplicate starts as a draft without submissions, routing rules, or opening and closing dates.");
     expect(source).toContain("duplicateFormAsDraft(event.id, form.id)");
     expect(source).toContain("runGuarded(() => { void duplicateAsDraft(); })");
-    expect(source).toContain("Return to Submission Forms and refresh before trying again.");
+    expect(source).toContain("Return to Submission forms and refresh before trying again.");
   });
 
   // The server refuses this delete with a compiler diagnostic naming field ids.
