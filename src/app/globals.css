@@ -1890,9 +1890,11 @@ button.chip,a.chip{display:inline-flex;align-items:center;gap:6px;min-height:32p
 .condition-row__help{color:var(--muted);font-size:var(--text-xs);line-height:1.5}
 .visibility-rule-editor{display:grid;gap:12px}
 .visibility-rule-editor__body{display:grid;gap:12px;padding-top:12px;border-top:1px solid var(--line)}
-.routing-rules-panel{margin-top:24px}
-.routing-rules-panel>header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px}
-.routing-rules-panel>header p{color:var(--muted);font-size:var(--text-xs);margin:4px 0 0}
+.routing-rules-panel{margin-top:12px}
+.routing-rules-panel>header{display:flex;justify-content:space-between;align-items:flex-start;padding:16px 24px 0;margin-bottom:16px}
+.routing-rules-panel>header h2{font-size:var(--text-base);letter-spacing:-.15px;margin:0 0 4px}
+.routing-rules-panel>header p{color:var(--muted);font-size:var(--text-sm);margin:4px 0 0}
+.routing-rules-panel__content{padding:0 24px 24px}
 .routing-rule-list{display:grid;gap:12px;margin-bottom:12px}
 .routing-rule-card{display:grid;gap:12px}
 .routing-rule-card__row{display:grid;grid-template-columns:auto auto 1fr auto auto auto;gap:12px;align-items:center}

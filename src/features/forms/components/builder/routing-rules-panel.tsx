@@ -184,14 +184,16 @@ export function RoutingRulesPanel({ eventId, formId, onDraftStateChange }: { eve
   }, [eventId, formId]);
 
   if (context !== "cfp") return null;
-  if (status === "loading") return <section className="panel routing-rules-panel"><SkeletonText lines={3} label="Loading routing rules…" /></section>;
+  if (status === "loading") return <section className="panel routing-rules-panel"><div className="routing-rules-panel__content"><SkeletonText lines={3} label="Loading routing rules…" /></div></section>;
   if (status === "error") {
     // Not an empty state: nothing here is empty, the read failed. An
     // `EmptyState` announced nothing and sent the organizer off to reload the
     // whole builder, losing every other unsaved panel with it.
     return (
       <section className="panel routing-rules-panel">
-        <LoadFailure message="Routing rules could not be loaded." onRetry={() => void load()} />
+        <div className="routing-rules-panel__content">
+          <LoadFailure message="Routing rules could not be loaded." onRetry={() => void load()} />
+        </div>
       </section>
     );
   }
@@ -265,7 +267,7 @@ export function RoutingRulesPanel({ eventId, formId, onDraftStateChange }: { eve
   }
 
   return (
-    <section className="panel routing-rules-panel">
+      <section className="panel routing-rules-panel">
       <header>
         <div>
           <h2>Category routing</h2>
@@ -273,6 +275,7 @@ export function RoutingRulesPanel({ eventId, formId, onDraftStateChange }: { eve
         </div>
       </header>
 
+      <div className="routing-rules-panel__content">
       {rules.length === 0 ? (
         <EmptyState
           icon={<RouteIcon size={20} />}
@@ -333,6 +336,7 @@ export function RoutingRulesPanel({ eventId, formId, onDraftStateChange }: { eve
         onConfirm={() => void confirmDelete()}
         onCancel={() => setPendingDelete(null)}
       />
+      </div>
     </section>
   );
 }
