@@ -106,8 +106,8 @@ curl 'http://localhost:8787/__scheduled?cron=*+*+*+*+*'
 The web job implementations are reachable only through the local Service Binding; there is no
 public job callback to invoke by hand.
 
-One cron fires every minute and the dispatcher decides what is due from the tick's own UTC clock:
-`outbox` every tick, `reminders` when the minute divides by 15, `cleanup` only at 09:00 UTC. The
+The recovery cron fires on quarter hours and the dispatcher decides what is due from the tick's
+own UTC clock: `outbox` and `reminders` on each tick, `cleanup` only at 09:00 UTC. The
 `__scheduled` call above therefore runs whatever the wall clock says is due at the moment you run
 it — at :15 it also scans and enqueues reminders, which is not always what you meant to do
 mid-plan — and `cleanup` is out of reach unless you happen to be testing at 09:00.

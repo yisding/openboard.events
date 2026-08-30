@@ -557,7 +557,7 @@ export async function requeueFailedAdminAuthEmailsIn(
 
   // `status = 'failed'` is inside the UPDATE's own WHERE, so the set that is
   // written is decided at write time rather than from the read above. The
-  // drain runs every minute; a row it claims in between is simply not matched,
+  // recovery drain runs every fifteen minutes; a row it claims in between is simply not matched,
   // and the intersection below keeps it out of the report too.
   const reopened = await dbOrTx.update(adminAuthEmailOutbox).set({
     status: "queued",

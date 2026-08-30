@@ -38,14 +38,15 @@ export function jobsForScheduledTime(
   if (minute % 15 === 0) jobs.push("reminders");
   // M39 is live: the web-side sweep claims a bounded set of connected events,
   // leases each one, upserts changed records keyed on `Openboard ID`, and
-  // reports the remainder it did not reach. It runs five minutes off the
-  // quarter hour so it never shares a tick with `reminders`. The flag is read
+  // reports the remainder it did not reach. It runs at :05 each hour, well off
+  // the quarter-hour recovery sweep, so an otherwise-idle Neon branch can
+  // suspend between reconciliations. The flag is read
   // *here* on purpose: with AIRTABLE_CRON unset or "0" nothing is dispatched,
   // so no heartbeat is written and the health endpoint reports the
   // integration as never having run — a flag must not make an unrun
   // integration look like successful scheduled work. Manual "Sync now" is
   // unaffected; it bypasses this dispatcher entirely.
-  if (options?.airtableCron === "1" && minute % 15 === 5) jobs.push("airtable");
+  if (options?.airtableCron === "1" && minute === 5) jobs.push("airtable");
   // Cleanup is the one sweep whose deletes are irreversible, so after a Neon
   // PITR — when Postgres has moved backward relative to R2's actual contents —
   // an object with no owning row looks exactly like an abandoned staging object

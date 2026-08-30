@@ -16,11 +16,14 @@ not exist.
 | preview | `sb-jobs-preview` | `sb-web-preview` |
 | production | `sb-jobs` | `sb-web` |
 
-One cron runs every minute. `outbox` runs each tick, `reminders` at minutes
-divisible by 15, `airtable` at `:05/:20/:35/:50` UTC (`minute % 15 === 5`,
-deliberately staggered off `reminders`' tick), and `cleanup` at 09:00 UTC. A
-missed tick self-heals on the next one because every real job is an
-idempotent bounded database scan.
+Production and local use a 15-minute recovery cron (`:00/:15/:30/:45`) plus
+an hourly Airtable tick at `:05` UTC. `outbox` runs on each recovery tick;
+normal queued mail is drained immediately by its enqueue-path nudge.
+`reminders` runs on the quarter hour, `airtable` runs hourly, and `cleanup`
+runs at 09:00 UTC. Preview intentionally has no scheduled work: it exercises
+the same request-triggered paths without holding its Neon branch awake.
+Missed ticks self-heal on the next one because every real job is an idempotent
+bounded database scan.
 
 `airtable` syncs every connected event's Airtable base (one-way push, keyed
 on the `Openboard ID` merge field so a redundant push can never duplicate a
@@ -33,7 +36,8 @@ as never having run rather than as a false "fresh" success. The hand-curled
 route below cannot undo that either: a tick whose stats say only
 `airtableSkippedDisabled` is not heartbeat-worthy, so `definePrivateJobRoute`
 returns it as a successful no-op without touching `scheduled_job_heartbeats`.
-`AIRTABLE_CRON` ships `"1"` in every environment; it remains the kill switch
+`AIRTABLE_CRON` ships `"1"` in local and production (and `"0"` in preview);
+it remains the kill switch
 for scheduled sync — set it back to `"0"` in both wrangler configs in the
 same deploy to pause cron pressure (see `docs/airtable.md`).
 The event settings panel's manual "Sync now" button is unaffected either way;
@@ -62,11 +66,11 @@ Local scheduled test with both Worker configs and the Service Binding connected
 ```bash
 pnpm build:worker
 pnpm exec wrangler dev -c workers/jobs/wrangler.jsonc -c wrangler.jsonc --test-scheduled
-curl 'http://localhost:8787/__scheduled?cron=*+*+*+*+*'
+curl 'http://localhost:8787/__scheduled?cron=*/15+*+*+*+*'
 ```
 
-That drives whatever the tick's own UTC clock says is due — the outbox always,
-reminders on a quarter hour, airtable five minutes off the quarter hour
+That drives whatever the tick's own UTC clock says is due — the outbox on a
+quarter hour, reminders on a quarter hour, airtable at five minutes past the hour
 (`AIRTABLE_CRON` ships `"1"` on `workers/jobs/wrangler.jsonc`'s dev config), cleanup
 at 09:00 — so it is not a way to run one job in isolation. For that, run the
 web app with `pnpm dev` and call its private route directly; the entrypoint

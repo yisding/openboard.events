@@ -5,7 +5,7 @@ import { errorMessage, log } from "@/shared/lib/log";
  * M48 — deepens the health probe with outbox observability: how many
  * `communication_logs` rows are backed up (`queued`), how many gave up
  * (`failed`), and how stale the oldest queued row is. The jobs Worker's cron
- * ticks every minute and claims up to 50 rows per tick (`dispatchOutboxIn`'s
+ * runs every fifteen minutes and claims up to 50 rows per recovery tick (`dispatchOutboxIn`'s
  * default budget), so under a healthy dispatcher `queuedCount` drains to
  * near-zero within a couple of ticks and `oldestQueuedAgeSeconds` stays in
  * the tens of seconds — a row legitimately mid-retry backoff can still be

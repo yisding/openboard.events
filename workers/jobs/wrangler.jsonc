@@ -5,7 +5,10 @@
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
   "keep_vars": false,
-  "triggers": { "crons": ["* * * * *"] },
+  // Queued mail is drained immediately by its enqueue path. This is the
+  // durable recovery sweep, not the normal delivery path, so a 15-minute
+  // cadence lets Neon suspend between otherwise-idle periods.
+  "triggers": { "crons": ["*/15 * * * *", "5 * * * *"] },
   "services": [
     { "binding": "WEB_JOBS", "service": "sb-web-local", "entrypoint": "JobsEntrypoint" }
   ],
@@ -26,16 +29,19 @@
   "env": {
     "preview": {
       "name": "sb-jobs-preview",
-      "triggers": { "crons": ["* * * * *"] },
+      // Preview validates request-triggered delivery. Do not keep its Neon
+      // branch awake with background work; operators can invoke a private job
+      // manually while diagnosing a scheduler-specific change.
+      "triggers": { "crons": [] },
       "services": [
         { "binding": "WEB_JOBS", "service": "sb-web-preview", "entrypoint": "JobsEntrypoint" }
       ],
-      "vars": { "AIRTABLE_CRON": "1", "CLEANUP_CRON": "1" },
+      "vars": { "AIRTABLE_CRON": "0", "CLEANUP_CRON": "0" },
       "observability": { "enabled": true }
     },
     "production": {
       "name": "sb-jobs",
-      "triggers": { "crons": ["* * * * *"] },
+      "triggers": { "crons": ["*/15 * * * *", "5 * * * *"] },
       "services": [
         { "binding": "WEB_JOBS", "service": "sb-web", "entrypoint": "JobsEntrypoint" }
       ],

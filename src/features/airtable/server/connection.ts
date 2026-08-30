@@ -26,8 +26,8 @@ import type { SyncRunErrorKey } from "./runs";
  * `AirtableConnectionSummary` has no field for them.
  */
 
-/** Fifteen minutes between scheduled attempts for a healthy connection. */
-export const AIRTABLE_INTERVAL_MS = 900_000;
+/** Scheduled Airtable reconciliation is hourly; manual Sync now is immediate. */
+export const AIRTABLE_INTERVAL_MS = 3_600_000;
 /** A repeatedly-failing tenant backs off to this and no further. */
 const MAX_BACKOFF_SECONDS = 21_600;
 

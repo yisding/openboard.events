@@ -210,12 +210,12 @@ AIRTABLE_RUN_BUDGET_MS     = 20_000   one event, cron trigger
 AIRTABLE_MANUAL_BUDGET_MS  = 15_000   one event, "Sync now" (inline in the request)
 AIRTABLE_SWEEP_BUDGET_MS   = 60_000   whole cron sweep
 AIRTABLE_LEASE_MS          = 600_000  10 minutes
-AIRTABLE_INTERVAL_MS       = 900_000  15 minutes between an event's scheduled runs
+AIRTABLE_INTERVAL_MS       = 3_600_000  1 hour between an event's scheduled runs
 MIN_REQUEST_INTERVAL_MS    = 220      serialized inter-request spacing, per base (5 req/s + headroom)
 ```
 
 Events sync **sequentially**, never concurrently — N events at once would multiply outbound rate
-against shared Cloudflare egress and a shared CPU budget for a latency win a 15-minute cadence
+against shared Cloudflare egress and a shared CPU budget for a latency win an hourly cadence
 cannot perceive. A run that hits its write cap or budget stops cleanly and reports the exact
 remainder (`deferred`); the next tick — or a manual "Sync now" — picks up exactly where it stopped.
 An event the sweep claimed but ran out of clock before reaching has its claim handed back
@@ -239,8 +239,8 @@ those two it was.
 
 ### Cron wiring
 
-`workers/jobs/dispatch.ts`'s `jobsForScheduledTime` dispatches `"airtable"` at `:05/:20/:35/:50`
-UTC (`minute % 15 === 5`) — deliberately staggered off `reminders`' `:00/:15/:30/:45` tick, and
+`workers/jobs/dispatch.ts`'s `jobsForScheduledTime` dispatches `"airtable"` at `:05`
+UTC — deliberately staggered off `reminders`' `:00/:15/:30/:45` recovery tick, and
 never colliding with `cleanup`'s 09:00 run — **and only when `AIRTABLE_CRON === "1"`**. The flag is
 read in the dispatcher itself, before the `WEB_JOBS` RPC is ever called:
 
@@ -273,7 +273,7 @@ pressure without touching manual "Sync now". After a deploy that changes the fla
 `jobs.airtableLastSuccessAgeSeconds` on `/api/health` after the first live tick and the
 `sb-jobs[-preview]` Cron Trigger Past Events, per `docs/runbooks/alerting.md`. A sweep with no
 connections due is a successful no-op and still writes the heartbeat, so the age becomes a number
-on the first `:05/:20/:35/:50` tick after the flag lands.
+on the first `:05` tick after the flag lands.
 
 To re-verify the write path end-to-end against a real PAT, run `scripts/airtable-acceptance.ts`
 by hand: `whoami` → create a scratch base → `ensureBaseSchema` → push a seeded fixture event →
