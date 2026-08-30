@@ -1065,8 +1065,8 @@ describe("the sweep: claiming, budgets, isolation", () => {
    * The claim pushes `next_sync_after` out a full interval before any work
    * starts, which is right for a run that crashes and wrong for one the sweep
    * never began. Without the hand-back, a tenant that keeps landing in the tail
-   * syncs every thirty minutes while the card promises fifteen, and nothing
-   * anywhere says so.
+   * syncs every two hours while the card promises one, and nothing anywhere
+   * says so.
    */
   it("hands the claim back on an event it never reached, so it is due again on the next tick", async () => {
     await quarantineAllOtherConnections();

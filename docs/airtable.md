@@ -108,7 +108,7 @@ with its own sharing model.
 | Include gender | **off** | Same, plus a retention warning in the drawer copy. |
 | Purge removed records | **off** | Not a privacy toggle — listed here because it is the sixth row of the same drawer. See below. |
 
-Flipping any toggle takes effect on the next sync (about 15 minutes on the scheduled cadence, or
+Flipping any toggle takes effect on the next sync (about an hour on the scheduled cadence, or
 immediately with "Sync now") — no manual re-sync or reconnect is needed. The newly included (or
 excluded) column changes the row's hashed content, so the change is picked up automatically.
 
@@ -210,7 +210,7 @@ AIRTABLE_RUN_BUDGET_MS     = 20_000   one event, cron trigger
 AIRTABLE_MANUAL_BUDGET_MS  = 15_000   one event, "Sync now" (inline in the request)
 AIRTABLE_SWEEP_BUDGET_MS   = 60_000   whole cron sweep
 AIRTABLE_LEASE_MS          = 600_000  10 minutes
-AIRTABLE_INTERVAL_MS       = 3_600_000  1 hour between an event's scheduled runs
+AIRTABLE_INTERVAL_MS       = 3_000_000  eligibility 10 minutes before the next hourly tick
 MIN_REQUEST_INTERVAL_MS    = 220      serialized inter-request spacing, per base (5 req/s + headroom)
 ```
 
@@ -230,7 +230,7 @@ remains the backstop beyond it.
 
 Retries: one retry on `429`/`5xx`/network, only if the wait fits the remaining run budget,
 honouring `Retry-After`. `401`/`403` get **zero** retries — a revoked token does not get three
-attempts across seven tables every fifteen minutes. A `422` schema error triggers exactly one
+attempts across seven tables every hour. A `422` schema error triggers exactly one
 re-ensure-and-retry, so an organizer renaming a field in Airtable self-heals in one run. A `422`
 that names a *value* or the customer's own records instead (`INVALID_VALUE_FOR_COLUMN`, or an
 upsert whose merge key matched two rows because someone duplicated one in their base) is

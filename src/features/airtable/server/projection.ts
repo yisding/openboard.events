@@ -289,7 +289,7 @@ type CandidateSqlRow = { record_pk: string; fields: Record<string, unknown>; con
  * query fail outright with `invalid input syntax for type bytea`. Not a wrong
  * hash: a failed query, classified `internal`, reaching the organizer as
  * "something on our side stopped this sync" and paging an operator again every
- * fifteen minutes until somebody edited the title.
+ * hour until somebody edited the title.
  */
 export async function candidateRecordsIn(
   dbOrTx: DbOrTx,

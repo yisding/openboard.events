@@ -164,7 +164,7 @@ export const AIRTABLE_COPY = {
     disconnect: "Disconnect",
     recentHeading: "Recent syncs",
     recentEmptyTitle: "No syncs yet",
-    recentEmptyBody: "The first one fills the base. After that we keep it in step every fifteen minutes.",
+    recentEmptyBody: "The first one fills the base. After that we keep it in step every hour.",
     columnWhen: "When",
     columnTrigger: "Trigger",
     columnResult: "Result",
@@ -263,7 +263,7 @@ export const AIRTABLE_COPY = {
   options: {
     title: "What we sync",
     lead: "These change what lands in your base. Nothing here is read back out of Airtable.",
-    footer: "Changes apply on the next sync — about fifteen minutes.",
+    footer: "Changes apply on the next sync — about an hour.",
     includeEmail: {
       label: "Speaker email addresses",
       hint: "The one field a program team actually needs in the base. Off means the column is cleared on the next sync.",

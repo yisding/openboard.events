@@ -10,13 +10,13 @@ describe("scheduled job cadence", () => {
     expect(jobsForScheduledTime(atUtc(10, 0), { airtableCron: "1", cleanupCron: "1" }))
       .toEqual(["outbox", "reminders"]);
     expect(jobsForScheduledTime(atUtc(10, 5), { airtableCron: "1", cleanupCron: "1" }))
-      .toEqual(["outbox", "airtable"]);
+      .toEqual(["airtable"]);
     expect(jobsForScheduledTime(atUtc(10, 20), { airtableCron: "1", cleanupCron: "1" }))
-      .toEqual(["outbox"]);
+      .toEqual([]);
   });
 
   it("does not schedule Airtable when its background sync is disabled", () => {
     expect(jobsForScheduledTime(atUtc(10, 5), { airtableCron: "0", cleanupCron: "1" }))
-      .toEqual(["outbox"]);
+      .toEqual([]);
   });
 });

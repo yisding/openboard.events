@@ -192,7 +192,7 @@ describe("422 handling", () => {
    * The two most likely 422s this integration will ever see are both the
    * organizer's own base: a row they duplicated with Cmd-D so an upsert matches
    * twice, and a value a typed column refuses under `typecast: false`. Read as
-   * `request` they became `failed`/`internal` — an operator paged every fifteen
+   * `request` they became `failed`/`internal` — an operator paged every hour
    * minutes, forever, for something only the organizer can fix.
    */
   it("a 422 naming a value the column refuses throws kind 'data_rejected'", async () => {

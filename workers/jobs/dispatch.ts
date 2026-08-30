@@ -34,8 +34,8 @@ export function jobsForScheduledTime(
 ): JobName[] {
   const scheduled = new Date(scheduledTime);
   const minute = scheduled.getUTCMinutes();
-  const jobs: JobName[] = ["outbox"];
-  if (minute % 15 === 0) jobs.push("reminders");
+  const jobs: JobName[] = [];
+  if (minute % 15 === 0) jobs.push("outbox", "reminders");
   // M39 is live: the web-side sweep claims a bounded set of connected events,
   // leases each one, upserts changed records keyed on `Openboard ID`, and
   // reports the remainder it did not reach. It runs at :05 each hour, well off
@@ -117,13 +117,36 @@ export async function dispatchJob(
   }));
 }
 
-/** Let every sibling settle before rejecting once if any failed. */
+/**
+ * Let every job settle before rejecting once if any failed.
+ *
+ * Reminders enqueue mail without an enqueue-path nudge, so their scan must
+ * finish before the outbox recovery begins. Other siblings still start with
+ * the outbox and settle independently.
+ */
 export async function runScheduledJobs(
   env: Env,
   jobs: readonly JobName[],
   options?: { rpc?: JobRpc },
 ): Promise<void> {
-  const results = await Promise.allSettled(jobs.map((job) => dispatchJob(env, job, options)));
+  const results: PromiseSettledResult<void>[] = new Array(jobs.length);
+  const reminderIndex = jobs.indexOf("reminders");
+  if (reminderIndex >= 0) {
+    [results[reminderIndex]] = await Promise.allSettled([
+      dispatchJob(env, "reminders", options),
+    ]);
+  }
+
+  const remaining = jobs
+    .map((job, index) => ({ job, index }))
+    .filter(({ index }) => index !== reminderIndex);
+  const remainingResults = await Promise.allSettled(
+    remaining.map(({ job }) => dispatchJob(env, job, options)),
+  );
+  remaining.forEach(({ index }, resultIndex) => {
+    results[index] = remainingResults[resultIndex] as PromiseSettledResult<void>;
+  });
+
   const failed = jobs.filter((_job, index) => results[index]?.status === "rejected");
   if (failed.length > 0) {
     throw new Error(`Scheduled jobs failed: ${failed.join(", ")}`);

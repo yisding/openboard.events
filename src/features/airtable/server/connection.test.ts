@@ -265,7 +265,7 @@ describe("the settings panel's gates", () => {
     });
     expect(updated.syncEnabled).toBe(true);
     // Flipping a gate changes the projected object, so the backfill has to
-    // happen on the next tick rather than up to fifteen minutes later.
+    // happen on the next tick rather than up to an hour later.
     expect(new Date(updated.nextSyncAfter).getTime()).toBeLessThanOrEqual(Date.now() + 1000);
 
     expect((await updateAirtableOptionsIn(db, eventId, { syncEnabled: false })).syncEnabled).toBe(false);
@@ -299,11 +299,11 @@ describe("claims and counts", () => {
     const eventId = await newEvent();
     await store(eventId);
     await attachAirtableBaseIn(db, eventId, { baseId: "appONE", baseName: "One" });
-    await pglite.query("UPDATE airtable_connections SET next_sync_after = now() + interval '15 minutes' WHERE event_id=$1", [eventId]);
+    await pglite.query("UPDATE airtable_connections SET next_sync_after = now() + interval '1 hour' WHERE event_id=$1", [eventId]);
 
     await releaseAirtableClaimsIn(db, [eventId]);
 
-    // Not "fifteen minutes late": a tenant that keeps landing in the tail of a
+    // Not "one tick late": a tenant that keeps landing in the tail of a
     // sweep would otherwise sync at half the advertised cadence silently.
     const summary = await getAirtableConnectionIn(db, eventId);
     expect(new Date(summary?.nextSyncAfter ?? 0).getTime()).toBeLessThanOrEqual(Date.now() + 1000);
