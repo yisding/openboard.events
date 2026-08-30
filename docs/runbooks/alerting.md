@@ -16,7 +16,9 @@ them:
    polls the canonical deployed origins committed in the workflow (workers.dev preview and the
    `openboard.events` production custom domain). Both environments
    run on every schedule and neither can be silently skipped because a repository variable is
-   missing. Override a default only when the corresponding deployment origin changes.
+   missing. Preview has no Cron Trigger by design, so its poll explicitly skips only the scheduled-job
+   heartbeat; database, unexpected-error, and communication thresholds still apply. Override a
+   default only when the corresponding deployment origin changes.
 2. **Unexpected-error-based** — `src/shared/lib/error-tracking.ts`'s `captureError` is the single
    seam every unmapped `INTERNAL` error (`defineHandler` and the private job runner) flows through. Next's
    `instrumentation.ts` adds uncaught renders, Server Actions, middleware, and unwrapped route

@@ -10,7 +10,7 @@ afterEach(() => {
   for (const path of created.splice(0)) rmSync(path, { recursive: true, force: true });
 });
 
-function run(payload: Record<string, unknown>) {
+function run(payload: Record<string, unknown>, options: { skipJobsHeartbeat?: boolean } = {}) {
   const scratch = join(homedir(), "Code");
   mkdirSync(scratch, { recursive: true });
   const root = mkdtempSync(join(scratch, "openboard-uptime-test-"));
@@ -29,7 +29,10 @@ printf '%s' "$UPTIME_FAKE_PAYLOAD" > "$body"
 printf '200'
 `);
   chmodSync(curl, 0o755);
-  return spawnSync("bash", [resolve("scripts/uptime-check.sh"), "https://example.test"], {
+  const args = [resolve("scripts/uptime-check.sh")];
+  if (options.skipJobsHeartbeat) args.push("--skip-jobs-heartbeat");
+  args.push("https://example.test");
+  return spawnSync("bash", args, {
     cwd: resolve("."),
     encoding: "utf8",
     env: {
@@ -108,14 +111,35 @@ describe("uptime scheduled-job heartbeat threshold", () => {
     expect(result.stdout).toContain("no successful outbox heartbeat");
   });
 
-  it("warns after three minutes and pages after five", () => {
-    const warning = run({ ...healthy, jobs: { ...healthy.jobs, outboxLastSuccessAgeSeconds: 181 } });
+  it("warns after 15 minutes and pages after 20", () => {
+    const warning = run({ ...healthy, jobs: { ...healthy.jobs, outboxLastSuccessAgeSeconds: 901 } });
     expect(warning.status).toBe(0);
-    expect(warning.stdout).toContain("exceeds warn threshold (180)");
+    expect(warning.stdout).toContain("exceeds warn threshold (900)");
 
-    const page = run({ ...healthy, jobs: { ...healthy.jobs, outboxLastSuccessAgeSeconds: 301 } });
+    const page = run({ ...healthy, jobs: { ...healthy.jobs, outboxLastSuccessAgeSeconds: 1201 } });
     expect(page.status).toBe(1);
-    expect(page.stdout).toContain("exceeds page threshold (300)");
+    expect(page.stdout).toContain("exceeds page threshold (1200)");
+  });
+
+  it("skips only the heartbeat check when the environment has no scheduler", () => {
+    const result = run(
+      { ...healthy, jobs: { ok: false, outboxLastSuccessAgeSeconds: null } },
+      { skipJobsHeartbeat: true },
+    );
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+    expect(result.stdout).toContain("scheduled-jobs heartbeat check disabled");
+    expect(result.stdout).not.toContain("jobs.ok=false");
+
+    const unexpectedError = run(
+      {
+        ...healthy,
+        errors: { ...healthy.errors, recentCount: 1, latestAgeSeconds: 30 },
+        jobs: { ok: false, outboxLastSuccessAgeSeconds: null },
+      },
+      { skipJobsHeartbeat: true },
+    );
+    expect(unexpectedError.status).toBe(1);
+    expect(unexpectedError.stdout).toContain("errors.recentCount=1");
   });
 });
 
