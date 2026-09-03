@@ -3,6 +3,7 @@ import { AppError } from "@/shared/lib/errors";
 import {
   compareOutboxRows,
   drainOutbox,
+  drainOutboxUntilQuiet,
   outboxBudget,
   outboxErrorMessage,
   outboxRetryDelayMinutes,
@@ -171,5 +172,30 @@ describe("shared outbox engine", () => {
 
     await expect(draining).rejects.toThrow("transition database unavailable");
     expect(delivered.sort((left, right) => left - right)).toEqual([1, 2, 3, 4]);
+  });
+
+  describe("recovery sweep", () => {
+    const batch = (claimed: number) => ({ claimed, sent: claimed, skipped: 0, failed: 0, retried: 0 });
+
+    it("keeps claiming while batches come back full and stops on the first short one", async () => {
+      const queue = [50, 50, 20, 50];
+      const dispatch = vi.fn(async () => batch(queue.shift() ?? 0));
+
+      const stats = await drainOutboxUntilQuiet(dispatch);
+
+      expect(dispatch).toHaveBeenCalledTimes(3);
+      expect(stats).toEqual(batch(120));
+    });
+
+    it("stops after the pass cap and the wall budget even when the queue is not quiet", async () => {
+      const capped = vi.fn(async () => batch(50));
+      expect((await drainOutboxUntilQuiet(capped, { passes: 2 })).claimed).toBe(100);
+      expect(capped).toHaveBeenCalledTimes(2);
+
+      let clock = 0;
+      const slow = vi.fn(async () => { clock += 40_000; return batch(50); });
+      expect((await drainOutboxUntilQuiet(slow, { budgetMs: 60_000, now: () => clock })).claimed).toBe(100);
+      expect(slow).toHaveBeenCalledTimes(2);
+    });
   });
 });

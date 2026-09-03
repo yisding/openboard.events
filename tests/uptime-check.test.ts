@@ -10,7 +10,7 @@ afterEach(() => {
   for (const path of created.splice(0)) rmSync(path, { recursive: true, force: true });
 });
 
-function run(payload: Record<string, unknown>, options: { skipJobsHeartbeat?: boolean } = {}) {
+function run(payload: Record<string, unknown>, options: { skipJobsHeartbeat?: boolean; flagAfterUrl?: boolean } = {}) {
   const scratch = join(homedir(), "Code");
   mkdirSync(scratch, { recursive: true });
   const root = mkdtempSync(join(scratch, "openboard-uptime-test-"));
@@ -30,8 +30,9 @@ printf '200'
 `);
   chmodSync(curl, 0o755);
   const args = [resolve("scripts/uptime-check.sh")];
-  if (options.skipJobsHeartbeat) args.push("--skip-jobs-heartbeat");
+  if (options.skipJobsHeartbeat && !options.flagAfterUrl) args.push("--skip-jobs-heartbeat");
   args.push("https://example.test");
+  if (options.skipJobsHeartbeat && options.flagAfterUrl) args.push("--skip-jobs-heartbeat");
   return spawnSync("bash", args, {
     cwd: resolve("."),
     encoding: "utf8",
@@ -140,6 +141,22 @@ describe("uptime scheduled-job heartbeat threshold", () => {
     );
     expect(unexpectedError.status).toBe(1);
     expect(unexpectedError.stdout).toContain("errors.recentCount=1");
+  });
+
+  it("accepts the flag after the URL and refuses an option it does not know", () => {
+    const trailing = run(
+      { ...healthy, jobs: { ok: false, outboxLastSuccessAgeSeconds: null } },
+      { skipJobsHeartbeat: true, flagAfterUrl: true },
+    );
+    expect(trailing.status, `${trailing.stdout}\n${trailing.stderr}`).toBe(0);
+    expect(trailing.stdout).toContain("scheduled-jobs heartbeat check disabled");
+
+    const typo = spawnSync("bash", [resolve("scripts/uptime-check.sh"), "--skip-job-heartbeat", "https://example.test"], {
+      cwd: resolve("."),
+      encoding: "utf8",
+    });
+    expect(typo.status).toBe(2);
+    expect(typo.stderr).toContain("unknown option --skip-job-heartbeat");
   });
 });
 

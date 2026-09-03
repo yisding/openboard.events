@@ -88,7 +88,7 @@ only one where nothing retries on its own:
 ```bash
 pnpm auth:requeue                          # report every failed row: who, which template, what it died of
 pnpm auth:requeue -- --email a@b.com       # narrow to one recipient
-pnpm auth:requeue -- --apply               # re-open them; the every-minute drain does the rest
+pnpm auth:requeue -- --apply               # re-open them; the 15-minute recovery drain does the rest
 ```
 
 Reporting is the default and `--apply` is opt-in on purpose — this re-sends real mail to real

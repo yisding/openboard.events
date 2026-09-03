@@ -4,6 +4,13 @@ import { isAppError } from "@/shared/lib/errors";
 export const OUTBOX_MAX_BATCH_SIZE = 50;
 export const OUTBOX_MAX_ATTEMPTS = 6;
 export const OUTBOX_DELIVERY_CONCURRENCY = 5;
+/**
+ * How many full batches one recovery sweep may claim in a row. Every row
+ * costs a provider call plus several Neon round trips against the Worker's
+ * per-request subrequest ceiling, so this is bounded by count, not only time.
+ */
+export const OUTBOX_RECOVERY_PASSES = 4;
+export const OUTBOX_RECOVERY_BUDGET_MS = 60_000;
 
 export type OutboxDeliveryOutcome = "sent" | "skipped";
 export type OutboxFailureOutcome = "failed" | "retried";
@@ -120,6 +127,31 @@ async function mapWithConcurrency<Item, Result>(
   await Promise.all(Array.from({ length: concurrency }, worker));
   if (failed) throw firstError;
   return results;
+}
+
+/**
+ * The scheduled recovery sweep runs every fifteen minutes, so a single
+ * 50-row claim per tick would cap it at 200 rows an hour — a reminder scan
+ * that enqueued a few hundred rows in the same tick would take an afternoon
+ * to drain. Keep claiming while whole batches come back, stopping on the
+ * first short batch, after `OUTBOX_RECOVERY_PASSES`, or once the wall budget
+ * is spent (well inside the jobs Worker's 120 s RPC deadline).
+ */
+export async function drainOutboxUntilQuiet(
+  dispatch: (budget: number) => Promise<OutboxDispatchStats>,
+  options?: { passes?: number; budgetMs?: number; now?: () => number },
+): Promise<OutboxDispatchStats> {
+  const passes = options?.passes ?? OUTBOX_RECOVERY_PASSES;
+  const budgetMs = options?.budgetMs ?? OUTBOX_RECOVERY_BUDGET_MS;
+  const now = options?.now ?? Date.now;
+  const started = now();
+  const total: OutboxDispatchStats = { claimed: 0, sent: 0, skipped: 0, failed: 0, retried: 0 };
+  for (let pass = 0; pass < passes; pass += 1) {
+    const stats = await dispatch(OUTBOX_MAX_BATCH_SIZE);
+    for (const key of ["claimed", "sent", "skipped", "failed", "retried"] as const) total[key] += stats[key];
+    if (stats.claimed < OUTBOX_MAX_BATCH_SIZE || now() - started >= budgetMs) break;
+  }
+  return total;
 }
 
 /**

@@ -153,7 +153,7 @@ export const AIRTABLE_COPY = {
     lastSync: (relative: string) => `Last synced ${relative} ago`,
     neverSynced: "Not synced yet — hit Sync now to fill your base.",
     nextSync: (relative: string) => `Next automatic sync in about ${relative}.`,
-    nextSyncDue: "Next automatic sync is due — it runs on the next quarter hour.",
+    nextSyncDue: "Next automatic sync is due — it runs at five past the hour.",
     automaticPaused: "Automatic sync is paused. Sync now still works whenever you want it.",
     syncNow: "Sync now",
     syncing: "Syncing…",

@@ -26,7 +26,7 @@ import {
  *   pnpm auth:requeue -- --apply               # re-open all of them
  *
  * Requires `DATABASE_URL`. The rows go back to `queued` with `next_attempt_at`
- * now, so the every-minute drain picks them up without a deploy.
+ * now, so the next 15-minute recovery drain picks them up without a deploy.
  */
 
 type Options = { emails: string[]; ids: string[]; apply: boolean };

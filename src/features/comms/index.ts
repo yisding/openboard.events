@@ -21,8 +21,10 @@ export {
   sendReviewReminders,
   sendReviewRemindersIn,
 } from "./server/review-reminders";
-// Call `nudgeOutbox(ctx.waitUntil)` right after a user-facing enqueue commits.
-export { nudgeOutbox } from "./server/triggers";
+// Call `nudgeOutbox(ctx.waitUntil)` (or `nudgeOutboxAfterCommit()` from a
+// `defineHandler` route) right after a user-facing enqueue commits: the outbox
+// sweep only runs every fifteen minutes, so the nudge is the delivery path.
+export { nudgeOutbox, nudgeOutboxAfterCommit } from "./server/triggers";
 // P3-EMAIL — Resend bounce/complaint webhook: signature verification +
 // payload parsing (server/webhook.ts) and the suppression write it drives
 // (server/suppression.ts). Consumed by src/app/api/webhooks/resend/route.ts.

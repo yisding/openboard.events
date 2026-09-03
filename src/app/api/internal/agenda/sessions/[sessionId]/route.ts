@@ -25,7 +25,11 @@ const update = defineHandler({
     const scopedEventId = eventIdSchema.parse(eventId);
     const actorUserId = authSession?.actorId ? userIdSchema.parse(authSession.actorId) : null;
     const session = await saveSession(scopedEventId, { ...input, id: sessionId }, actorUserId);
-    if (session.status === "published" && session.startsAt !== null) nudgeAfterEnqueue();
+    // A save that enters, moves within, *or leaves* the public schedule can
+    // enqueue schedule mail (the leaving case sends cancellations), and the
+    // saved row alone cannot say which transition happened. An empty claim is
+    // one cheap query; a cancellation waiting fifteen minutes is not.
+    nudgeAfterEnqueue();
     // A save that lands on (or leaves) `published` changes the public schedule,
     // so it does not wait out the 60s ISR window.
     await revalidatePublicEvent(scopedEventId, ["schedule", "speakers"], requestId);
@@ -40,6 +44,8 @@ const remove = defineHandler({
     const { sessionId } = paramsSchema.parse(params);
     const scopedEventId = eventIdSchema.parse(eventId);
     await deleteSession(scopedEventId, sessionId, input.expectedVersion);
+    // Deleting a scheduled session enqueues calendar cancellations.
+    nudgeAfterEnqueue();
     // A deleted session that was published is still on the public agenda until
     // the ISR entry expires, which is the one case where the stale page shows
     // something that no longer exists at all. The row is gone by now, so its

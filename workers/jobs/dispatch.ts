@@ -129,25 +129,16 @@ export async function runScheduledJobs(
   jobs: readonly JobName[],
   options?: { rpc?: JobRpc },
 ): Promise<void> {
-  const results: PromiseSettledResult<void>[] = new Array(jobs.length);
-  const reminderIndex = jobs.indexOf("reminders");
-  if (reminderIndex >= 0) {
-    [results[reminderIndex]] = await Promise.allSettled([
-      dispatchJob(env, "reminders", options),
-    ]);
-  }
-
-  const remaining = jobs
-    .map((job, index) => ({ job, index }))
-    .filter(({ index }) => index !== reminderIndex);
-  const remainingResults = await Promise.allSettled(
-    remaining.map(({ job }) => dispatchJob(env, job, options)),
-  );
-  remaining.forEach(({ index }, resultIndex) => {
-    results[index] = remainingResults[resultIndex] as PromiseSettledResult<void>;
-  });
-
-  const failed = jobs.filter((_job, index) => results[index]?.status === "rejected");
+  const rejected = new Set<JobName>();
+  const settle = async (batch: readonly JobName[]) => {
+    const results = await Promise.allSettled(batch.map((job) => dispatchJob(env, job, options)));
+    results.forEach((result, index) => {
+      if (result.status === "rejected") rejected.add(batch[index] as JobName);
+    });
+  };
+  if (jobs.includes("reminders")) await settle(["reminders"]);
+  await settle(jobs.filter((job) => job !== "reminders"));
+  const failed = jobs.filter((job) => rejected.has(job));
   if (failed.length > 0) {
     throw new Error(`Scheduled jobs failed: ${failed.join(", ")}`);
   }

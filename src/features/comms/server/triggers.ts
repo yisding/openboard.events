@@ -1,13 +1,16 @@
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { log } from "@/shared/lib/log";
 import { dispatchOutbox } from "./dispatcher";
 
 /**
- * Best-effort latency polish on top of the %1 outbox cron, never a substitute
- * for it. Call it immediately after a user-facing `enqueueEmail` has committed,
- * handing it the request's `ctx.waitUntil`: the drain then runs outside the
- * response path and turns "email arrives within a cron tick" into "email
- * arrives in about a second". Every failure is swallowed — the cron is the
- * guarantee, so a nudge that cannot run is a non-event.
+ * The normal delivery path for user-facing mail. Call it immediately after an
+ * `enqueueEmail` has committed, handing it the request's `ctx.waitUntil`: the
+ * drain then runs outside the response path and the email arrives in about a
+ * second. The jobs Worker's outbox sweep runs only every fifteen minutes now
+ * (`workers/jobs/wrangler.jsonc`) and is the durable recovery path for rows a
+ * nudge missed — a failed provider call, a request that died, a row parked in
+ * retry backoff. Every failure here is swallowed: the sweep is the guarantee,
+ * so a nudge that cannot run is a non-event.
  */
 export function nudgeOutbox(waitUntil: (promise: Promise<unknown>) => void): void {
   const drain = dispatchOutbox(10).catch((error: unknown) => {
@@ -17,6 +20,20 @@ export function nudgeOutbox(waitUntil: (promise: Promise<unknown>) => void): voi
     waitUntil(drain);
   } catch {
     // No Cloudflare context (tests, `next dev`): the promise still runs, and
-    // the cron picks up anything the process does not finish.
+    // the sweep picks up anything the process does not finish.
+  }
+}
+
+/**
+ * `nudgeOutbox` for route handlers that do not hold `ctx` themselves
+ * (`defineHandler` callers). Resolves the Worker context and is a no-op
+ * without one, so it is safe from tests and `next dev`.
+ */
+export function nudgeOutboxAfterCommit(): void {
+  try {
+    const ctx = getCloudflareContext().ctx;
+    nudgeOutbox(ctx.waitUntil.bind(ctx));
+  } catch {
+    // No Worker context here; the recovery sweep drains the rows on its next pass.
   }
 }

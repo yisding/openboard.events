@@ -114,7 +114,9 @@ describe("scheduled jobs Worker", () => {
     await expect(runScheduledJobs(env, ["outbox", "reminders", "cleanup"], { rpc }))
       .rejects.toThrow("Scheduled jobs failed: reminders");
 
-    expect(seen).toEqual(["reminders", "outbox", "cleanup"]);
+    // Reminders goes first; its siblings run concurrently, in no promised order.
+    expect(seen[0]).toBe("reminders");
+    expect(seen.slice(1).sort()).toEqual(["cleanup", "outbox"]);
   });
 
   it("does not start the outbox drain while the reminder scan is still enqueueing mail", async () => {
@@ -135,7 +137,7 @@ describe("scheduled jobs Worker", () => {
     finishReminders?.();
     await scheduled;
 
-    expect(seen).toEqual(["reminders", "outbox", "cleanup"]);
+    expect(seen.slice(1).sort()).toEqual(["cleanup", "outbox"]);
   });
 
   it("keeps the documented UTC cadence", () => {

@@ -21,13 +21,20 @@
 #     "don't page on the first sign of this" guidance for those fields.
 set -uo pipefail
 
+usage="usage: uptime-check.sh [--skip-jobs-heartbeat] URL"
 check_jobs_heartbeat=1
-if [[ "${1:-}" == "--skip-jobs-heartbeat" ]]; then
-  check_jobs_heartbeat=0
-  shift
-fi
-
-base_url="${1:?usage: uptime-check.sh [--skip-jobs-heartbeat] URL}"
+base_url=""
+for arg in "$@"; do
+  case "$arg" in
+    --skip-jobs-heartbeat) check_jobs_heartbeat=0 ;;
+    --*) echo "uptime-check: unknown option $arg" >&2; echo "$usage" >&2; exit 2 ;;
+    *)
+      if [[ -n "$base_url" ]]; then echo "uptime-check: unexpected argument $arg" >&2; echo "$usage" >&2; exit 2; fi
+      base_url="$arg"
+      ;;
+  esac
+done
+[[ -n "$base_url" ]] || { echo "$usage" >&2; exit 2; }
 base_url="${base_url%/}"
 
 command -v jq >/dev/null 2>&1 || { echo "uptime-check: jq is required" >&2; exit 2; }

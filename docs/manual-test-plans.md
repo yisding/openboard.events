@@ -93,14 +93,15 @@ MTP-03…MTP-07. The seeded event is in Pacific; a tester in Pacific cannot dete
 
 ### 0.3 Draining the outbox locally
 
-Outbound email never sends inline: a domain event enqueues an outbox row, and the cron-driven
-dispatcher is the only caller of Resend. Advance it by hand:
+Outbound email never sends inline: a domain event enqueues an outbox row, and the outbox
+dispatcher is the only caller of Resend — reached by the enqueue path's nudge on a deployed Worker,
+and otherwise by the scheduled recovery sweep. Advance the sweep by hand:
 
 ```bash
 pnpm build:worker
 pnpm exec wrangler dev -c workers/jobs/wrangler.jsonc -c wrangler.jsonc --test-scheduled
 # In another terminal, trigger the private dispatcher:
-curl 'http://localhost:8787/__scheduled?cron=*+*+*+*+*'
+curl 'http://localhost:8787/__scheduled?cron=*/15+*+*+*+*'
 ```
 
 The web job implementations are reachable only through the local Service Binding; there is no

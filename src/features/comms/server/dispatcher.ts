@@ -1,7 +1,7 @@
 import { and, asc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "@/db/client";
 import { calendarCancellationJobs, communicationLogs, emailTemplates } from "@/db/schema";
-import { isTransactionalTemplate, type JobStats } from "@/shared/contracts";
+import { isTransactionalTemplate } from "@/shared/contracts";
 import { getEnv, type RuntimeEnv } from "@/shared/lib/env";
 import { AppError, isAppError } from "@/shared/lib/errors";
 import {
@@ -235,6 +235,6 @@ export async function dispatchOutboxIn(
   });
 }
 
-export async function dispatchOutbox(budget = 50): Promise<JobStats> {
+export async function dispatchOutbox(budget = 50): Promise<OutboxStats> {
   return dispatchOutboxIn(db, budget);
 }

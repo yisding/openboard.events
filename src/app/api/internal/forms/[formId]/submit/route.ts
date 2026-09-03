@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { submitCfpForm } from "@/features/cfp";
+import { nudgeOutboxAfterCommit } from "@/features/comms";
 import { revalidatePublicEvent } from "@/features/public/server/revalidate";
 import { answerValueSchema, contactIdSchema, eventIdSchema, formIdSchema, participantRoleSchema, submissionIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
@@ -65,6 +66,9 @@ const submit = defineHandler({
         }
         : {}),
     });
+    // A final submit queues the "we received it" confirmation; the outbox
+    // sweep alone would leave the speaker waiting up to fifteen minutes for it.
+    nudgeOutboxAfterCommit();
     await revalidatePublicEvent(scopedEventId, ["schedule", "speakers"], requestId);
     return result;
   },
