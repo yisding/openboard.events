@@ -9,6 +9,7 @@ import { applyProductMigrations } from "../../../../../scripts/lib/product-migra
 import { getActiveOrganizationOnboardingForUserIn } from "../progress";
 import { DEMO_RUNNABLE_PHASES, type DemoRunnablePhase } from "../../demo-schemas";
 import { FORMS, SPEAKERS, SUBMISSIONS, TRACKS } from "./dataset";
+import { demoDates } from "./clock";
 import { demoEventId, demoSlug } from "./ids";
 import { unavailableTourChapters } from "../../tour/script";
 import { getDemoTourBootstrapIn } from "../tour";
@@ -382,15 +383,24 @@ describe("demo provisioning", () => {
       // makes the agenda phase place sessions two months outside their own
       // event — which `saveSessionIn` rightly refuses, and which would have
       // this test reporting a bounds violation instead of a clock one.
+      //
+      // It is re-authored through `demoDates` rather than shifted by an
+      // interval, because the two are not the same window whenever the
+      // fortnight straddles a DST boundary: `starts_at - interval '14 days'`
+      // subtracts a fixed 336 hours, while the phases bin on the *local*
+      // calendar day and would place their 09:00 Pacific sessions an hour
+      // before a window shifted out of PDT into PST. Phase 1 only ever writes
+      // `demoDates(now).event`, so that is what a provision started a
+      // fortnight ago left behind.
+      const frozenNow = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
       await pglite.query(
-        "UPDATE event_demo_tour SET created_at = now() - interval '14 days' WHERE event_id = $1",
-        [eventId],
+        "UPDATE event_demo_tour SET created_at = $2 WHERE event_id = $1",
+        [eventId, frozenNow.toISOString()],
       );
+      const frozenWindow = demoDates(frozenNow).event;
       await pglite.query(
-        `UPDATE events SET starts_at = starts_at - interval '14 days',
-                           ends_at = ends_at - interval '14 days'
-          WHERE id = $1`,
-        [eventId],
+        "UPDATE events SET starts_at = $2, ends_at = $3 WHERE id = $1",
+        [eventId, frozenWindow.startsAt.toISOString(), frozenWindow.endsAt.toISOString()],
       );
       for (let step = 1; step < DEMO_RUNNABLE_PHASES.length; step += 1) {
         await advanceDemoProvisioningIn(database, ownerUserId, organizationId, { inTransaction });
@@ -414,12 +424,15 @@ describe("demo provisioning", () => {
       // after it in that request dies, and no cursor is ever written. Deleting
       // the cursor and winding the committed window back reproduces exactly
       // that — an orphaned event authored two days before the retry arrives.
+      // Same reason as the frozen-clock test above for re-authoring the window
+      // through `demoDates` instead of subtracting an interval: phase 1 writes
+      // a window whose local wall-clock times are fixed, and a DST-straddling
+      // interval would hand the retry one no provision could have written.
       await pglite.query("DELETE FROM event_demo_tour WHERE event_id = $1", [eventId]);
+      const orphanedWindow = demoDates(new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)).event;
       await pglite.query(
-        `UPDATE events SET starts_at = starts_at - interval '2 days',
-                           ends_at = ends_at - interval '2 days'
-          WHERE id = $1`,
-        [eventId],
+        "UPDATE events SET starts_at = $2, ends_at = $3 WHERE id = $1",
+        [eventId, orphanedWindow.startsAt.toISOString(), orphanedWindow.endsAt.toISOString()],
       );
       const window = await pglite.query<{ starts_at: Date; ends_at: Date }>(
         "SELECT starts_at, ends_at FROM events WHERE id = $1",

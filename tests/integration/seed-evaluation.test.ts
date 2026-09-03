@@ -32,13 +32,25 @@ describe("evaluation seed", () => {
   let pglite: PGlite;
   let ctx: { tx: TxDb; now: Date; eventId: typeof SEEDED_EVENT_ID; emptyEventId: typeof SEEDED_EMPTY_EVENT_ID; id: typeof seedId; log: (message: string) => void };
   const logs: string[] = [];
+  /**
+   * The seed's clock, and the whole fixture's, is the wall clock — the same
+   * `new Date()` `scripts/seed/index.ts` hands every seeder. It cannot be a
+   * literal: Round 2 is authored as a window around this instant
+   * (`now − 1 d` … `now + 14 d`) and every assignment write into it is gated by
+   * `closes_at > clock_timestamp()` in the database, so a frozen `now` more
+   * than a fortnight behind the wall clock has the seed build a round the
+   * server then refuses to fill. Everything else here is expressed as an
+   * offset from it for the same reason.
+   */
+  const now = new Date();
+  const daysFromNow = (days: number): string => new Date(now.getTime() + days * 24 * 60 * 60 * 1000).toISOString();
 
   beforeAll(async () => {
     pglite = new PGlite();
     for (const migration of MIGRATIONS) await pglite.exec(migration);
     await pglite.query(
-      "INSERT INTO events(id,name,slug,starts_at,ends_at) VALUES($1,'Seed Event','seed-event','2026-09-15T16:00:00Z','2026-09-17T01:00:00Z')",
-      [SEEDED_EVENT_ID],
+      "INSERT INTO events(id,name,slug,starts_at,ends_at) VALUES($1,'Seed Event','seed-event',$2,$3)",
+      [SEEDED_EVENT_ID, daysFromNow(37), daysFromNow(39)],
     );
     for (const [index, key] of TRACKS.entries()) {
       await pglite.query("INSERT INTO tracks(id,event_id,name,color,sort_order) VALUES($1,$2,$3,'#6958d7',$4)", [
@@ -76,7 +88,7 @@ describe("evaluation seed", () => {
 
     ctx = {
       tx: drizzle(pglite, { schema }) as unknown as TxDb,
-      now: new Date("2026-08-09T12:00:00.000Z"),
+      now,
       eventId: SEEDED_EVENT_ID,
       emptyEventId: SEEDED_EMPTY_EVENT_ID,
       id: seedId,
