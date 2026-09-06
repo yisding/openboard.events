@@ -15,8 +15,9 @@ import { EVENTS, uniqueEmail } from "./helpers/seeded";
  * a deployed target rather than PGlite is the half PGlite structurally cannot
  * see:
  *
- *  - a queued row is actually *drained* by the deployed `%1` outbox cron, and
- *    reaches a terminal state that states its own outcome — a provider message
+ *  - a queued row is actually *drained* on the deployed target — by the
+ *    enqueue path's nudge, with the fifteen-minute recovery sweep behind it —
+ *    and reaches a terminal state that states its own outcome — a provider message
  *    id when it sent, a specific named reason when it did not;
  *  - the same send replayed with the same `sendId` adds no second row to a
  *    real database, not merely to a fixture;
@@ -32,7 +33,11 @@ const COMMS = `/api/internal/comms/${EVENT}`;
 const SPEAKERS = `/api/internal/speakers/${EVENT}`;
 const COMMUNICATIONS = `/events/${EVENT}/communications`;
 
-/** How long the deployed `%1` cron is given to claim and settle one row. */
+/**
+ * How long the deployed target is given to claim and settle one row. The
+ * enqueue-path nudge normally does it in seconds; this is generous enough to
+ * absorb a cold Worker and a slow provider, not to wait for the recovery sweep.
+ */
 const DRAIN_BUDGET_MS = 180_000;
 
 type CommLogRow = {
@@ -62,22 +67,22 @@ const logFor = (request: APIRequestContext, contactId: string): Promise<CommLogR
   apiData<CommLogRow[]>(request, `${COMMS}/log?contactId=${encodeURIComponent(contactId)}`);
 
 /**
- * Waits for the deployed cron to take one queued row to a terminal state.
+ * Waits for the deployed outbox to take one queued row to a terminal state.
  *
  * `queued` is the only non-terminal status: `sent`, `skipped` and `failed` are
  * all outcomes the organizer is entitled to read, and which one it is depends
  * on the target's mail configuration (an `EMAIL_ALLOWLIST` on preview skips
  * every address it does not name). The wait is the assertion — a target whose
- * outbox cron is not running never leaves `queued`.
+ * outbox nudge is not running never leaves `queued` inside the budget.
  */
 async function settledRow(request: APIRequestContext, logId: string): Promise<CommLogDetail> {
   const read = (): Promise<CommLogDetail> => apiData<CommLogDetail>(request, `${COMMS}/log/${logId}`);
   await expect
     .poll(async () => (await read()).status, {
-      message: "the deployed outbox cron should claim and settle a queued message",
+      message: "the deployed outbox should claim and settle a queued message",
       timeout: DRAIN_BUDGET_MS,
-      // The cron ticks once a minute; polling faster than that only spends the
-      // target's request budget on an answer that cannot have changed.
+      // The nudge runs in `waitUntil` after the response; a few seconds is
+      // the expected answer, and slower polling saves the target's budget.
       intervals: [1_000, 5_000, 10_000],
     })
     .not.toEqual("queued");
@@ -93,11 +98,11 @@ async function openCommsTab(page: Page, label: string): Promise<void> {
 test.describe("comms-outbox", () => {
   test.skip(!targetConfigured(), NO_TARGET);
 
-  // One long round trip through a real outbox: the cron tick alone is allowed
+  // One long round trip through a real outbox: the drain alone is allowed
   // three minutes, which Playwright's 30 s default expires inside.
   test.beforeEach(({}, testInfo) => { testInfo.setTimeout(300_000); });
 
-  test("a bulk send writes one outbox row, replays without duplicating it, and the cron settles it with a stated outcome", async ({ page, request }) => {
+  test("a bulk send writes one outbox row, replays without duplicating it, and the outbox settles it with a stated outcome", async ({ page, request }) => {
     const assertClean = expectNoConsoleErrors(page);
     await loginAsAdmin(request);
     await loginAsAdmin(page);
@@ -141,7 +146,7 @@ test.describe("comms-outbox", () => {
       expect(await logFor(request, contactId)).toHaveLength(1);
     });
 
-    await test.step("the deployed cron drains it, and the row says what became of it", async () => {
+    await test.step("the deployed outbox drains it, and the row says what became of it", async () => {
       const settled = await settledRow(request, logId);
       expect(settled.attempts, "a claimed row counts its attempt").toBeGreaterThanOrEqual(1);
       expect(settled.idempotencyKey).toContain(sendId);

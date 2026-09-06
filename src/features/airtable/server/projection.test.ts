@@ -65,7 +65,7 @@ describe("Airtable projection (M39)", () => {
    * syntax, where a backslash introduces an escape. So the projection failed
    * with `invalid input syntax for type bytea` — not a wrong hash, a failed
    * query — which classified as `internal`, told the organizer "something on
-   * our side stopped this sync", and paged an operator again every fifteen
+   * our side stopped this sync", and paged an operator again every hour
    * minutes until somebody edited the title.
    *
    * Every character that makes `jsonb::text` emit a backslash is in this

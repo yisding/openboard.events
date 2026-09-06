@@ -26,8 +26,8 @@ import type { SyncRunErrorKey } from "./runs";
  * `AirtableConnectionSummary` has no field for them.
  */
 
-/** Fifteen minutes between scheduled attempts for a healthy connection. */
-export const AIRTABLE_INTERVAL_MS = 900_000;
+/** Become eligible ten minutes before the next hourly tick; manual Sync now is immediate. */
+export const AIRTABLE_INTERVAL_MS = 50 * 60 * 1_000;
 /** A repeatedly-failing tenant backs off to this and no further. */
 const MAX_BACKOFF_SECONDS = 21_600;
 
@@ -360,8 +360,8 @@ export async function downgradeSchemaWriteScopeIn(dbOrTx: DbOrTx, eventId: Event
  * Close out a run against the connection.
  *
  * A failing tenant backs off exponentially to a six-hour ceiling, which is what
- * stops one broken connection from eating a cron tick's budget every fifteen
- * minutes while its healthy siblings queue behind it. A run that deferred work
+ * stops one broken connection from eating every hourly cron tick's budget
+ * while its healthy siblings queue behind it. A run that deferred work
  * asks to be picked up immediately instead.
  */
 export async function recordSyncOutcomeIn(
@@ -444,8 +444,8 @@ export const pruneAbandonedAirtableConnections = () => pruneAbandonedAirtableCon
  * lives, so a crash mid-run costs one interval rather than a hot loop.
  *
  * Never-synced connections sort first: a first sync an organizer is watching
- * matters more than the fifteen-minute freshness of one that has been running
- * for a month.
+ * matters more than the hourly freshness of one that has been running for a
+ * month.
  */
 export async function claimDueAirtableConnectionsIn(
   dbOrTx: DbOrTx,
@@ -480,9 +480,9 @@ export async function claimDueAirtableConnectionsIn(
  * The claim pushes `next_sync_after` out a full interval *before* any work
  * happens, which is right for an event that then crashes mid-run and wrong for
  * one the sweep simply ran out of clock before reaching: without this, "deferred"
- * would quietly mean "fifteen minutes late" rather than "next tick", and a
- * tenant that keeps landing in the tail would sync at half the advertised
- * cadence with nothing saying so.
+ * would quietly mean "one tick late" rather than "next tick", and a tenant
+ * that keeps landing in the tail would sync at half the advertised cadence
+ * with nothing saying so.
  */
 export async function releaseAirtableClaimsIn(dbOrTx: DbOrTx, eventIds: readonly EventId[]): Promise<void> {
   if (eventIds.length === 0) return;

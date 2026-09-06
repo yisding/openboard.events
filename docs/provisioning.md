@@ -372,7 +372,7 @@ after ten minutes). At most one active tutorial per organizer, once.
 - **Send mail.** Two independent barriers: every fabricated address is `@…demo.invalid`
   (RFC 2606, no DNS), and `buildContext` raises `SkipEmail("demo event — mail is never
   delivered")` on `events.is_demo` with no exceptions. Provisioning writes no `queued` outbox row,
-  so the per-minute `outbox` cron finds nothing from it. The `reminders` cron is deliberately
+  so the recovery `outbox` cron finds nothing from it. The `reminders` cron is deliberately
   **not** filtered — the ladder genuinely fires for the demo's overdue task and every row it
   produces drains to `skipped`, which is what the tutorial shows the organizer in Chapter 5.
 - **Consume a plan slot.** `countOrganizationEventsIn` filters `is_demo = false`, and neither the

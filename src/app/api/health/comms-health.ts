@@ -4,11 +4,11 @@ import { errorMessage, log } from "@/shared/lib/log";
 /**
  * M48 — deepens the health probe with outbox observability: how many
  * `communication_logs` rows are backed up (`queued`), how many gave up
- * (`failed`), and how stale the oldest queued row is. The jobs Worker's cron
- * ticks every minute and claims up to 50 rows per tick (`dispatchOutboxIn`'s
- * default budget), so under a healthy dispatcher `queuedCount` drains to
- * near-zero within a couple of ticks and `oldestQueuedAgeSeconds` stays in
- * the tens of seconds — a row legitimately mid-retry backoff can still be
+ * (`failed`), and how stale the oldest queued row is. Enqueue-path nudges
+ * deliver most mail within seconds, and the jobs Worker's fifteen-minute
+ * recovery sweep drains what they missed in batches of 50 until the queue is
+ * quiet, so under a healthy dispatcher `queuedCount` stays near zero and
+ * `oldestQueuedAgeSeconds` in the tens of seconds — a row legitimately mid-retry backoff can still be
  * `queued` up to 60 minutes after `created_at` (`markFailure`'s
  * `2 ** attempts` minutes, capped at 60), which is why the alerting
  * thresholds in `docs/runbooks/alerting.md` sit well above that cap rather

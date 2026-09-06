@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { adminAuth } from "@/features/auth";
+import { nudgeOutboxAfterCommit } from "@/features/comms";
 import { createSubmission, listSubmissions, submissionFiltersSchema } from "@/features/submissions";
 import { eventIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
@@ -28,7 +29,13 @@ const list = defineHandler({
 const create = defineHandler({
   auth: adminAuth({ role: "organizer" }),
   input: manualAbstractSchema,
-  handler: async ({ eventId, input }) => createSubmission(eventIdSchema.parse(eventId), toCreateSubmissionInput(input)),
+  handler: async ({ eventId, input }) => {
+    const submission = await createSubmission(eventIdSchema.parse(eventId), toCreateSubmissionInput(input));
+    // `createSubmissionIn` may queue the submitter's confirmation; send it now
+    // rather than on the fifteen-minute outbox sweep.
+    nudgeOutboxAfterCommit();
+    return submission;
+  },
 });
 
 export async function GET(request: NextRequest, route: { params: Promise<{ eventId: string }> }): Promise<Response> {

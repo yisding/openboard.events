@@ -5,7 +5,7 @@
 # never builds, migrates, or deploys anything, so it is safe to run far more
 # often than the Deploy workflow and safe to run by hand at any time:
 #
-#   bash scripts/uptime-check.sh https://sb-web-preview.yi-ding.workers.dev
+#   bash scripts/uptime-check.sh --skip-jobs-heartbeat https://sb-web-preview.yi-ding.workers.dev
 #   bash scripts/uptime-check.sh https://openboard.events
 #
 # Thresholds mirror docs/runbooks/alerting.md's `/api/health` table exactly —
@@ -21,7 +21,20 @@
 #     "don't page on the first sign of this" guidance for those fields.
 set -uo pipefail
 
-base_url="${1:?usage: uptime-check.sh URL}"
+usage="usage: uptime-check.sh [--skip-jobs-heartbeat] URL"
+check_jobs_heartbeat=1
+base_url=""
+for arg in "$@"; do
+  case "$arg" in
+    --skip-jobs-heartbeat) check_jobs_heartbeat=0 ;;
+    --*) echo "uptime-check: unknown option $arg" >&2; echo "$usage" >&2; exit 2 ;;
+    *)
+      if [[ -n "$base_url" ]]; then echo "uptime-check: unexpected argument $arg" >&2; echo "$usage" >&2; exit 2; fi
+      base_url="$arg"
+      ;;
+  esac
+done
+[[ -n "$base_url" ]] || { echo "$usage" >&2; exit 2; }
 base_url="${base_url%/}"
 
 command -v jq >/dev/null 2>&1 || { echo "uptime-check: jq is required" >&2; exit 2; }
@@ -35,8 +48,8 @@ WARN_FAILED=10
 PAGE_FAILED=50
 WARN_OLDEST_SECONDS=900
 PAGE_OLDEST_SECONDS=3600
-WARN_OUTBOX_HEARTBEAT_SECONDS=180
-PAGE_OUTBOX_HEARTBEAT_SECONDS=300
+WARN_OUTBOX_HEARTBEAT_SECONDS=900
+PAGE_OUTBOX_HEARTBEAT_SECONDS=1200
 # `admin_auth_email_outbox` — password resets, email verification, organization
 # invitations. An order of magnitude below the event-mail numbers above because
 # nobody sends this in bulk: twenty-five people waiting on a password reset is
@@ -115,30 +128,34 @@ else
   fi
 fi
 
-# The outbox completes every minute even when it finds zero rows, so this
-# heartbeat detects Cron, authentication, routing, and job-route failures that
-# queue-depth monitoring cannot see. Missing is a rollout warning only when the
-# entire additive `jobs` field is absent; once the field exists, null/stale is
-# a real incident.
-jobs_present="$(jq -r 'has("jobs")' <<<"$body")"
-if [[ "$jobs_present" != "true" ]]; then
-  echo "::warning::health has no scheduled-jobs heartbeat for $base_url — deploy the current health schema"
-  warn=1
+# Production's outbox recovery completes every 15 minutes even when it finds
+# zero rows, so this heartbeat detects Cron, authentication, routing, and
+# job-route failures that queue-depth monitoring cannot see. Preview has no
+# Cron Trigger by design and opts out explicitly; its database, errors, and
+# queue health remain monitored by the rest of this script.
+if [[ "$check_jobs_heartbeat" -eq 0 ]]; then
+  echo "scheduled-jobs heartbeat check disabled for $base_url"
 else
-  jobs_ok="$(jq -r '.jobs.ok // false' <<<"$body")"
-  outbox_heartbeat_age="$(jq -r '.jobs.outboxLastSuccessAgeSeconds // empty' <<<"$body")"
-  if [[ "$jobs_ok" != "true" ]]; then
-    echo "::error::health reports jobs.ok=false for $base_url — scheduled-job monitoring is unavailable"
-    fail=1
-  elif [[ ! "$outbox_heartbeat_age" =~ ^[0-9]+$ ]]; then
-    echo "::error::health has no successful outbox heartbeat for $base_url"
-    fail=1
-  elif (( outbox_heartbeat_age > PAGE_OUTBOX_HEARTBEAT_SECONDS )); then
-    echo "::error::jobs.outboxLastSuccessAgeSeconds=$outbox_heartbeat_age exceeds page threshold ($PAGE_OUTBOX_HEARTBEAT_SECONDS) for $base_url"
-    fail=1
-  elif (( outbox_heartbeat_age > WARN_OUTBOX_HEARTBEAT_SECONDS )); then
-    echo "::warning::jobs.outboxLastSuccessAgeSeconds=$outbox_heartbeat_age exceeds warn threshold ($WARN_OUTBOX_HEARTBEAT_SECONDS) for $base_url"
+  jobs_present="$(jq -r 'has("jobs")' <<<"$body")"
+  if [[ "$jobs_present" != "true" ]]; then
+    echo "::warning::health has no scheduled-jobs heartbeat for $base_url — deploy the current health schema"
     warn=1
+  else
+    jobs_ok="$(jq -r '.jobs.ok // false' <<<"$body")"
+    outbox_heartbeat_age="$(jq -r '.jobs.outboxLastSuccessAgeSeconds // empty' <<<"$body")"
+    if [[ "$jobs_ok" != "true" ]]; then
+      echo "::error::health reports jobs.ok=false for $base_url — scheduled-job monitoring is unavailable"
+      fail=1
+    elif [[ ! "$outbox_heartbeat_age" =~ ^[0-9]+$ ]]; then
+      echo "::error::health has no successful outbox heartbeat for $base_url"
+      fail=1
+    elif (( outbox_heartbeat_age > PAGE_OUTBOX_HEARTBEAT_SECONDS )); then
+      echo "::error::jobs.outboxLastSuccessAgeSeconds=$outbox_heartbeat_age exceeds page threshold ($PAGE_OUTBOX_HEARTBEAT_SECONDS) for $base_url"
+      fail=1
+    elif (( outbox_heartbeat_age > WARN_OUTBOX_HEARTBEAT_SECONDS )); then
+      echo "::warning::jobs.outboxLastSuccessAgeSeconds=$outbox_heartbeat_age exceeds warn threshold ($WARN_OUTBOX_HEARTBEAT_SECONDS) for $base_url"
+      warn=1
+    fi
   fi
 fi
 

@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { withTx } from "@/db/client";
 import { adminAuth } from "@/features/auth";
+import { nudgeOutboxAfterCommit } from "@/features/comms";
 import { contactIdSchema, eventIdSchema } from "@/shared/contracts";
 import { defineHandler } from "@/shared/server/handler";
 import { inviteSpeakerToPortalIn } from "./_lib";
@@ -30,6 +31,9 @@ const invite = defineHandler({
       eventId: scopedEventId,
       contactId,
     }));
+    // The invitation carries a fifteen-minute OTP; waiting for the
+    // fifteen-minute outbox sweep could deliver an already-expired code.
+    nudgeOutboxAfterCommit();
     return { message: result.message };
   },
 });

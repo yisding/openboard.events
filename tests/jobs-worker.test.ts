@@ -102,7 +102,7 @@ describe("scheduled jobs Worker", () => {
     expect(logged).not.toContain("password");
   });
 
-  it("runs every sibling and rejects the aggregate when any job fails", async () => {
+  it("finishes reminders before draining their mail, then runs every sibling even when one failed", async () => {
     vi.spyOn(console, "log").mockImplementation(() => undefined);
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const seen: string[] = [];
@@ -114,7 +114,30 @@ describe("scheduled jobs Worker", () => {
     await expect(runScheduledJobs(env, ["outbox", "reminders", "cleanup"], { rpc }))
       .rejects.toThrow("Scheduled jobs failed: reminders");
 
-    expect(seen).toEqual(["outbox", "reminders", "cleanup"]);
+    // Reminders goes first; its siblings run concurrently, in no promised order.
+    expect(seen[0]).toBe("reminders");
+    expect(seen.slice(1).sort()).toEqual(["cleanup", "outbox"]);
+  });
+
+  it("does not start the outbox drain while the reminder scan is still enqueueing mail", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const seen: string[] = [];
+    let finishReminders: (() => void) | undefined;
+    const remindersFinished = new Promise<void>((resolve) => {
+      finishReminders = resolve;
+    });
+    const rpc: JobRpc = async (job) => {
+      seen.push(job);
+      if (job === "reminders") await remindersFinished;
+      return new Response(null, { status: 200 });
+    };
+
+    const scheduled = runScheduledJobs(env, ["outbox", "reminders", "cleanup"], { rpc });
+    await vi.waitFor(() => expect(seen).toEqual(["reminders"]));
+    finishReminders?.();
+    await scheduled;
+
+    expect(seen.slice(1).sort()).toEqual(["cleanup", "outbox"]);
   });
 
   it("keeps the documented UTC cadence", () => {
@@ -123,31 +146,31 @@ describe("scheduled jobs Worker", () => {
       "reminders",
       "cleanup",
     ]);
-    expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 5))).toEqual(["outbox"]);
-    expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 1))).toEqual(["outbox"]);
+    expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 5))).toEqual([]);
+    expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 1))).toEqual([]);
   });
 
-  it("never dispatches airtable without an explicit cron flag, cadence stagger otherwise", () => {
+  it("never dispatches airtable without an explicit cron flag, hourly at :05 otherwise", () => {
     // No options at all — the shape every existing caller and test used before
     // this job existed — must keep behaving exactly as before: no airtable, ever.
-    expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 5))).toEqual(["outbox"]);
+    expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 5))).toEqual([]);
     // The flag off is explicitly the same as the flag absent.
-    expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 5), { airtableCron: "0" })).toEqual(["outbox"]);
+    expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 5), { airtableCron: "0" })).toEqual([]);
     expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 5), { airtableCron: "1" }))
-      .toEqual(["outbox", "airtable"]);
+      .toEqual(["airtable"]);
     expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 20), { airtableCron: "1" }))
-      .toEqual(["outbox", "airtable"]);
+      .toEqual([]);
     expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 35), { airtableCron: "1" }))
-      .toEqual(["outbox", "airtable"]);
+      .toEqual([]);
     expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 50), { airtableCron: "1" }))
-      .toEqual(["outbox", "airtable"]);
-    // Never on reminders' own tick, and never off the :05/:20/:35/:50 stagger.
+      .toEqual([]);
+    // Never on reminders' own tick, and never off the hourly :05 tick.
     expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 0), { airtableCron: "1" }))
       .toEqual(["outbox", "reminders", "cleanup"]);
     expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 15), { airtableCron: "1" }))
       .toEqual(["outbox", "reminders"]);
     expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 9), { airtableCron: "1" }))
-      .toEqual(["outbox"]);
+      .toEqual([]);
   });
 
   // Issue #630 — the incident remedy after a Neon PITR used to be a source
@@ -163,7 +186,7 @@ describe("scheduled jobs Worker", () => {
     expect(jobsForScheduledTime(nineAm, { cleanupCron: "false" })).toEqual(["outbox", "reminders", "cleanup"]);
     // Suspending cleanup leaves every other job's cadence untouched.
     expect(jobsForScheduledTime(Date.UTC(2026, 7, 11, 9, 5), { airtableCron: "1", cleanupCron: "0" }))
-      .toEqual(["outbox", "airtable"]);
+      .toEqual(["airtable"]);
   });
 
   it("exposes only the closed scheduled-job contract to the RPC entrypoint", () => {
@@ -222,7 +245,7 @@ describe("scheduled jobs Worker", () => {
     let waited: Promise<unknown> | undefined;
 
     worker.scheduled(
-      { scheduledTime: Date.UTC(2026, 7, 11, 9, 1) },
+      { scheduledTime: Date.UTC(2026, 7, 11, 10, 0) },
       failedEnv,
       { waitUntil(promise) { waited = promise; } },
     );

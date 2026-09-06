@@ -134,7 +134,7 @@ function classifyError(error: unknown): { status: "failed" | "blocked"; errorKey
         return { status: "blocked", errorKey: "schema_drifted", capture: false };
       // A duplicated merge key or a value the column won't take is the
       // organizer's row to fix, and no amount of retrying fixes it. Routed
-      // through `request`/`internal` it paged an operator every fifteen minutes
+      // through `request`/`internal` it paged an operator every hour
       // for a record someone duplicated in their own base with Cmd-D.
       case "data_rejected":
         return { status: "blocked", errorKey: "records_rejected", capture: false };
@@ -231,7 +231,7 @@ export async function runAirtableSyncForEventIn(
     }
     // Skipped when `ensureBaseSchema` answered from the snapshot it was handed:
     // the write would rewrite that row with itself and bump `updated_at`, on
-    // every connected event, every fifteen minutes, forever. Keyed on the
+    // every connected event, every hour, forever. Keyed on the
     // explicit `fromCache` rather than on comparing the snapshot back, because
     // the second one is a reference-identity check that silently stops working
     // the day something clones the object on the way through.
@@ -464,7 +464,7 @@ export type SweepOptions = {
  *
  * Sequential rather than concurrent on purpose. N events at once would multiply
  * outbound request rate against a shared Cloudflare egress and a shared CPU
- * budget, to buy latency that a fifteen-minute cadence cannot perceive.
+ * budget, to buy latency that an hourly cadence cannot perceive.
  */
 export async function runDueAirtableSyncsIn(dbOrTx: DbOrTx, options: SweepOptions = {}): Promise<JobStats> {
   // Built from the shared suffix rather than spelled out, so that the key this
@@ -502,7 +502,7 @@ export async function runDueAirtableSyncsIn(dbOrTx: DbOrTx, options: SweepOption
       stats.airtableDeferredEvents += unreached.length;
       // The claim pushed these out a full interval before any work started.
       // Nothing was attempted for them, so hand the claim back: "deferred" has
-      // to mean the next tick, not fifteen minutes from now on a sweep that had
+      // to mean the next tick, not a full interval from now on a sweep that had
       // capacity a minute later.
       await releaseAirtableClaimsIn(dbOrTx, unreached);
       break;

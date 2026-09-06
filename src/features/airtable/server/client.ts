@@ -30,7 +30,7 @@ import type { AirtableFieldSpec } from "../plan";
  *    problem; finding that at 3am is a bad evening. It is an assert, not a
  *    comment.
  * 3. **401 and 403 are never retried.** A revoked PAT must not get three
- *    attempts across seven tables every fifteen minutes.
+ *    attempts across seven tables every hour.
  *
  * The token is passed to the constructor and lives only in the `Authorization`
  * header. It never appears in an error, a log line, or anything this module
@@ -333,7 +333,7 @@ export function createAirtableClient(pat: string, options: AirtableClientOptions
         const delay = retryDelayMs(response);
         // One retry, and only if the wait fits what is left of the run. A
         // 30-second sleep would burn a whole cron tick; stopping clean with a
-        // deferred remainder costs one extra pass fifteen minutes later.
+        // deferred remainder costs one extra hourly pass.
         if (!retried && canAffordRetry(delay)) {
           retried = true;
           await sleep(delay);

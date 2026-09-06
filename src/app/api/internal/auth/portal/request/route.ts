@@ -52,13 +52,13 @@ export async function POST(request: NextRequest) {
     });
     const result = await requestPortalLogin(input.eventSlug, input.email, input.next, input.formId);
     // This request is waiting on a short-lived credential. Dispatch it now
-    // instead of making a first-time speaker wait for the next one-minute cron
-    // tick; the durable outbox and cron remain the failure/retry guarantee.
+    // instead of making a first-time speaker wait for the fifteen-minute
+    // recovery sweep; the durable outbox and sweep remain the retry guarantee.
     try {
       const ctx = getCloudflareContext().ctx;
       nudgeOutbox(ctx.waitUntil.bind(ctx));
     } catch {
-      // No Worker context (`next dev`, unit tests). The cron still drains it.
+      // No Worker context (`next dev`, unit tests). The sweep still drains it.
     }
     return NextResponse.json({ data: result });
   } catch (error) {

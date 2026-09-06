@@ -44,8 +44,8 @@ export type EnsureSchemaResult =
     /**
      * The caller handed us a snapshot we could trust, so no meta call was made
      * and the snapshot returned is byte-for-byte the one already stored. Lets a
-     * steady-state run skip re-writing a row it would not change — every fifteen
-     * minutes, per connected event.
+     * steady-state run skip re-writing a row it would not change — every hour,
+     * per connected event.
      */
     fromCache: boolean;
   }
